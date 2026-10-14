@@ -1,0 +1,384 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Surgical Bay</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* swapped text dips and comes back; colors change slowly; .boot (the start-up cascade) always wins */
+  .sw { transition: opacity .45s ease, background-color 1s ease, color 1s ease; }
+  .out:not(.boot) { opacity: .15; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: mirrored, sidebar on the right ----------------
+L.frame({ type: "B", title: "Surgical Bay  •  Operating Theater", c: "sky", c2: "ice", accent: "pink", foot: "Surgery",
+  side: [[140, "ice", "Med 03"], [70, "pink", "0847"], [420, "sky", "Arch"], [70, "ice", "B1"], [300, "sky", "Vitals"],
+         [70, "pink", "12"], [216, "ice", "Theater"]] });
+
+const TRACK = "#0e1a30", DIM = "#17284a", WIN = "#050b18", GRID = "#13264a", BAR = "#22396a";
+const cls = (e, ...c) => (e.classList.add(...c), e);
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const op = (e, v) => { v = v < 0.005 ? "0" : v > 0.995 ? "1" : v.toFixed(2); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const bg = (e, c) => { if (e._bg !== c) { e._bg = c; e.style.background = c.startsWith("#") ? c : `var(--${c})`; } };
+const fg = (e, c) => { if (e._fg !== c) { e._fg = c; e.style.color = c.startsWith("#") ? c : `var(--${c})`; } };
+const fill = (x, y, w, h, c, origin = "0 0", parent) => {
+  const f = L.layer({ x, y, w, h, cls: "boot" }, parent);
+  f.style.background = c.startsWith("#") ? c : `var(--${c})`; f.style.transformOrigin = origin;
+  return f;
+};
+const D2 = (n) => String(n).padStart(2, "0");
+const mmss = (s) => `${D2(Math.floor(s / 60))}:${D2(Math.floor(s % 60))}`;
+const swap = (els, f) => { els.forEach((e) => e.classList.add("out")); setTimeout(() => { f(); els.forEach((e) => e.classList.remove("out")); }, 460); };
+const smooth = (k) => k * k * k * (k * (k * 6 - 15) + 10);
+const sm = (a, b, u) => smooth(L.clamp((u - a) / (b - a)));
+
+// Two columns over a full-width timeline and a three-panel strip.
+const A = [40, 2200], B = [2260, 3520], FULL = [40, 3520];
+const ROW0 = 428, PITCH = 88, rowBase = (i) => ROW0 + i * PITCH + 52.5;
+const STRIP = (i) => 1734 + i * 54;
+
+// ---------------- the procedure: eight steps in eight minutes, then the bay is turned round ----------------
+const PROC = 480, CYCLE = 540;
+const STEPS = [["Sterile Field", 0, 40], ["Neural Block", 40, 75], ["Incision", 75, 115], ["main", 115, 235],
+               ["recon", 235, 330], ["Regeneration", 330, 410], ["Closure", 410, 455], ["Revival", 455, 480]];
+const PROCS = [
+  { name: "Thoracic Trauma Repair", main: "Arterial Repair", recon: "Rib Reconstruction", patient: "Lt. J. Vasquez", div: "Engineering",
+    site: "left thorax", hr: 74, doses: ["Inaprovaline, 2 cc", "Kelotane, 4 cc", "Tricordrazine, 5 cc"] },
+  { name: "Spinal Nerve Graft", main: "Nerve Graft", recon: "Vertebral Fusion", patient: "Ens. T. Ndoye", div: "Security",
+    site: "lumbar spine", hr: 66, doses: ["Inaprovaline, 2 cc", "Dexalin, 3 cc", "Tricordrazine, 5 cc"] },
+  { name: "Femoral Reconstruction", main: "Vascular Repair", recon: "Bone Reconstruction", patient: "Lt. Cmdr. A. Reyes", div: "Science",
+    site: "right thigh", hr: 71, doses: ["Inaprovaline, 2 cc", "Dexalin, 3 cc", "Kelotane, 2 cc"] },
+  { name: "Cranial Repair", main: "Subdural Repair", recon: "Skull Reconstruction", patient: "Crewman K. Brandt", div: "Operations",
+    site: "left temporal", hr: 77, doses: ["Inaprovaline, 1 cc", "Tricordrazine, 3 cc", "Dexalin, 2 cc"] },
+];
+const stepName = (p, i) => (STEPS[i][0] === "main" ? p.main : STEPS[i][0] === "recon" ? p.recon : STEPS[i][0]);
+const stepAt = (u) => STEPS.findIndex(([, a, b]) => u >= a && u < b);
+// the instruments, and when each is in the surgeon's hand (the same protocol every time)
+const DOSE_AT = [150, 290, 418];
+const LANES = [
+  ["Laser Scalpel", "ice", [[77, 110], [118, 126]]],
+  ["Protoplaser", "sky", [[128, 176], [184, 230], [338, 372]]],
+  ["Bone Regenerator", "ice", [[244, 326]]],
+  ["Dermal Regenerator", "sky", [[414, 452]]],
+  ["Cortical Stimulator", "ice", [[461, 476]]],
+  ["Hypospray", "pink", [[44, 49], ...DOSE_AT.map((t) => [t, t + 5])]],
+];
+const inUse = (lane, u) => LANES[lane][2].some(([a, b]) => u >= a && u < b);
+
+// the patient and the arch, as functions of the procedure clock (u, seconds)
+const present = (u) => sm(0, 5, u) * (1 - sm(500, 506, u));            // on the biobed
+const sterile = (u) => sm(2, 10, u) * (1 - sm(496, 504, u));
+const block = (u) => sm(42, 62, u) * (1 - sm(458, 474, u));            // neural block depth, 0–1
+const assist = (u) => present(u) * (0.06 + 0.28 * sm(118, 135, u) * (1 - sm(318, 334, u)));
+const regen = (u) => present(u) * (0.3 + 3.3 * sm(332, 345, u) * (1 - sm(400, 414, u)) + 1.1 * sm(412, 420, u) * (1 - sm(446, 455, u)));
+const plasma = (u) => present(u) * (3 + 14 * sm(80, 95, u) * (1 - sm(320, 340, u)));
+const coreT = (u) => 37.0 - 0.9 * sm(60, 140, u) * (1 - sm(380, 470, u));
+const lowered = (u) => u >= 6 && u < 492;
+
+// ---------------- the clock ----------------
+const N0 = 40 + L.irand(0, PROCS.length - 1), OFFSET = N0 * CYCLE + L.rand(90, 300);
+const now = (t) => { const k = t + OFFSET; return { n: Math.floor(k / CYCLE), u: k % CYCLE }; };
+const procOf = (n) => PROCS[n % PROCS.length];
+
+// ---------------- status line ----------------
+const state = cls(L.text({ x: A[0], cap: 150, s: 100, c: "ice", txt: "" }), "sw");
+const stateSub = cls(L.text({ x: 0, base: 222, s: 38, c: "sky", txt: "" }), "sw");
+const placeSub = () => { stateSub.style.left = A[0] + state.offsetWidth + 48 + "px"; };
+const pill = cls(L.box({ x: B[1] - 400, y: 150, w: 400, h: 72, c: "pink", label: "Sterile Field Active", r: "lr", fs: 36 }), "sw");
+
+// a section header with a status pill at its right end
+const pillHeader = (col, y, label, c1, c2, texts, pc, h = 56) => {
+  const fs = h >= 56 ? 32 : 28;
+  const pw = Math.ceil(Math.max(...texts.map((s) => L.textWidth(s, fs))) / 10) * 10 + 90;
+  L.header({ x: col[0], y, w: col[1] - col[0] - pw - L.GAP, label, c1, c2, h });
+  return cls(L.box({ x: col[1] - pw, y, w: pw, h, c: pc, label: "", fs, r: "r" }), "sw");
+};
+
+// ---------------- biofunction monitor: three scrolling traces, read out on tabs at their right ----------------
+const patPill = pillHeader(A, 280, "Biofunction Monitor", "sky", "ice", [...PROCS.map((p) => p.patient), "Biobed Vacant"], "pink");
+L.text({ x: A[0], base: 400, s: 36, c: "sky", txt: "Surgical Support Frame Sensors  ·  Lead II  ·  Arterial Line  ·  Respiratory Support" });
+const WX = A[0], TABW = 340, WW = A[1] - TABW - L.GAP - WX, CH = 152, CG = 24, WY = ROW0;
+const TABX = A[1] - TABW;
+const vit = { hr: 72, sys: 118, dia: 76, rr: 14, pres: 1, beat: 0, breath: 0 };
+const chans = [
+  { name: "Heart Rate", c: "pink", ink: "#f4b6e6", big: () => Math.round(vit.hr) },
+  { name: "Arterial", c: "ice", ink: "#8fd3ff", big: () => `${Math.round(vit.sys)}/${Math.round(vit.dia)}` },
+  { name: "Respiration", c: "sky", ink: "#5c9dff", big: () => Math.round(vit.rr) },
+];
+chans.forEach((ch, i) => {
+  const y = WY + i * (CH + CG);
+  L.rect({ x: WX, y, w: WW, h: CH, c: WIN });
+  for (let k = 1; k < 9; k++) L.rect({ x: WX + (WW / 9) * k - 1, y, w: 2, h: CH, c: GRID, free: true });
+  L.rect({ x: WX, y: y + CH / 2 - 1, w: WW, h: 2, c: GRID, free: true });
+  ch.tab = cls(L.box({ x: TABX, y, w: TABW, h: CH, c: ch.c, label: ch.name, fs: 32 }), "sw");
+  ch.num = L.text({ x: TABX + 24, cap: y + 22, s: 92, c: "#000", txt: "", on: true });
+});
+const g = (p, c, w) => Math.exp(-Math.pow((p - c) / w, 2));
+const ecg = (p) => 0.12 * g(p, 0.12, 0.03) - 0.12 * g(p, 0.21, 0.012) + g(p, 0.235, 0.01) - 0.28 * g(p, 0.26, 0.012) + 0.3 * g(p, 0.46, 0.05);
+const abp = (p) => -0.5 + 0.95 * g(p, 0.33, 0.075) + 0.36 * g(p, 0.52, 0.07) + 0.18 * g(p, 0.7, 0.2);
+const rsp = (b) => 0.62 * Math.sin(b * 2 * Math.PI) * (b < 0.5 ? 1 : 0.8);
+const wave = [() => ecg(vit.beat), () => abp(vit.beat), () => rsp(vit.breath)];
+// The traces scroll: two canvas tiles slid as layers in a clipped strip; each frame draws only the
+// newest sliver; a tile that leaves the view is recycled (before drawing) to the right-hand end.
+const TRACE_H = 3 * CH + 2 * CG, SPEED = 200;
+const strip = L.el("div", "boot", L.stage, { position: "absolute", left: WX + "px", top: WY + "px", width: WW + "px", height: TRACE_H + "px", overflow: "hidden" });
+const dimmer = L.el("div", "", strip, { position: "absolute", left: "0px", top: "0px", width: WW + "px", height: TRACE_H + "px", willChange: "opacity" });
+const tiles = [0, 1].map((k) => {
+  const c = L.canvas({ x: 0, y: 0, w: WW + 8, h: TRACE_H }, dimmer);   // 8px of overlap: no seam
+  c.cv.style.willChange = "transform"; c.idx = k;
+  return c;
+});
+let written = WW, prev = chans.map(() => null);
+const SUB = 8;
+const advance = (dt) => {                                  // the patient's own rhythm
+  vit.beat = (vit.beat + dt * vit.hr / 60) % 1;
+  vit.breath = (vit.breath + dt * vit.rr / 60) % 1;
+};
+const step = (dt) => {
+  const pts = chans.map(() => []);
+  for (let k = 1; k <= SUB; k++) {
+    advance(dt / SUB);
+    const x = written + (dt * SPEED * k) / SUB;
+    chans.forEach((ch, i) => pts[i].push([x, i * (CH + CG) + CH / 2 - vit.pres * wave[i]() * CH * 0.4]));
+  }
+  const end = written + dt * SPEED;
+  for (const tile of tiles) if (end >= (tile.idx + 2) * WW) { tile.idx += 2; tile.g.clearRect(0, 0, WW + 8, TRACE_H); }
+  chans.forEach((ch, i) => {
+    if (prev[i]) for (const tile of tiles) {
+      const gg = tile.g, o = tile.idx * WW;
+      gg.strokeStyle = ch.ink; gg.lineWidth = 3.2; gg.lineJoin = "round"; gg.lineCap = "round";
+      gg.beginPath(); gg.moveTo(prev[i][0] - o, prev[i][1]);
+      for (const [x, y] of pts[i]) gg.lineTo(x - o, y);
+      gg.stroke();
+    }
+    prev[i] = pts[i][SUB - 1];
+  });
+  written = end;
+};
+const placeTiles = () => tiles.forEach((tile) => tf(tile.cv, `translate3d(${(tile.idx * WW - (written - WW)).toFixed(2)}px,0,0)`));
+let filled = false;
+tiles.forEach((c) => (c.onResize = () => { filled = false; }));   // a resize wipes the canvases: refill them
+
+// ---------------- the surgical arch ----------------
+const archPill = pillHeader(B, 280, "Surgical Arch", "ice", "sky", ["Arch Lowered", "Arch Raised"], "pink");
+L.text({ x: B[0], base: 400, s: 36, c: "sky", txt: "Surgical Support Frame  ·  Biobed 1  ·  Field and Life Support" });
+const BOXW = 330;
+const VALW = Math.ceil(Math.max(...["100.0%", "4.0 kW", "17.0 cc/min", "37.0 °C"].map((s) => L.textWidth(s, 52))) / 10) * 10 + 40;
+const GX = B[0] + BOXW + L.GAP, GW = B[1] - VALW - GX;
+const gauge = (i, label, c) => {
+  const base = rowBase(i);
+  L.box({ x: B[0], y: ROW0 + i * PITCH, w: BOXW, h: 64, c, label, fs: 32, r: "l" });
+  L.rect({ x: GX, y: base - 26, w: GW, h: 26, c: TRACK });
+  return { bar: fill(GX, base - 26, GW, 26, c), v: L.text({ x: B[1], base, s: 52, c: "white", txt: "", align: "r" }), u: -1 };
+};
+const showBar = (gg, k) => { k = L.clamp(k); if (Math.abs(k - gg.u) > 0.0005) { gg.u = k; tf(gg.bar, `scaleX(${k.toFixed(4)})`); } };
+const gField = gauge(0, "Sterile Field", "sky"), gBlock = gauge(1, "Neural Block", "ice"), gAssist = gauge(2, "Circulatory Assist", "sky");
+const gRegen = gauge(3, "Regeneration Field", "ice"), gPlasma = gauge(4, "Plasma Infusion", "sky"), gCore = gauge(5, "Core Temperature", "ice");
+
+// ---------------- the procedure timeline: the steps, and each instrument as it is used ----------------
+const stepPill = pillHeader(FULL, 1000, "Procedure Timeline", "sky", "ice", ["Step 8 of 8", "Complete", "Preparing Bay"], "pink");
+const TX0 = 404, TX1 = FULL[1], BG = 6, PPS = (TX1 - TX0 - BG * (STEPS.length - 1)) / PROC;
+const BY = 1132, LY = (i) => 1220 + i * 54, LH = 42, LB = LY(LANES.length - 1) + LH;
+let bx = TX0;
+const bands = STEPS.map(([, a, b], i) => {
+  const w = i === STEPS.length - 1 ? TX1 - bx : Math.round((b - a) * PPS);
+  const e = cls(L.box({ x: bx, y: BY, w, h: 64, c: DIM, label: "", fs: 32, r: i === STEPS.length - 1 ? "r" : null }), "sw");
+  const band = { e, x0: bx, w, a, b };
+  bx += w + BG;
+  return band;
+});
+const X = (u) => { u = L.clamp(u, 0, PROC); const bd = bands[Math.max(0, stepAt(Math.min(u, PROC - 0.001)))]; return bd.x0 + bd.w * L.clamp((u - bd.a) / (bd.b - bd.a)); };
+// the minute scale, its ends flush with the band's
+for (let m = 0; m <= 8; m++) {
+  const x = X(m * 60), align = m === 0 ? "l" : m === 8 ? "r" : "c";
+  L.text({ x, base: 1104, s: 32, c: "sky", txt: `${D2(m)}:00`, align, w: 120, legend: true });
+  L.rect({ x: x - (m === 0 ? 0 : m === 8 ? 3 : 1.5), y: 1114, w: 3, h: 10, c: "sky", free: true });
+}
+L.text({ x: FULL[0], base: 1104, s: 36, c: "sky", txt: "Procedure Clock" });
+const clockBox = L.box({ x: FULL[0], y: BY, w: TX0 - L.GAP - FULL[0], h: 64, c: "pink", label: "T+ 00:00", fs: 40, r: "l" });
+// the lanes: a track, the planned use in dim blue, lit as it happens
+const lanes = LANES.map(([name, c, spans], i) => {
+  const y = LY(i);
+  const box = cls(L.box({ x: FULL[0], y, w: TX0 - L.GAP - FULL[0], h: LH, c: DIM, label: name, fs: 28, r: "l" }), "sw");
+  L.rect({ x: TX0, y, w: TX1 - TX0, h: LH, c: TRACK });
+  const segs = spans.map(([a, b]) => {
+    const x0 = X(a), x1 = X(b);
+    L.rect({ x: x0, y: y + 6, w: x1 - x0, h: LH - 12, c: BAR, free: true });
+    return { a, b, f: fill(x0, y + 6, x1 - x0, LH - 12, c), u: -1 };
+  });
+  return { name, c, box, segs, lit: null };
+});
+for (let m = 1; m < 8; m++) L.rect({ x: X(m * 60) - 1, y: LY(0) - 12, w: 2, h: LB - LY(0) + 24, c: GRID, free: true });
+const cursor = L.layer({ x: -2, y: BY - 8, w: 4, h: LB + 8 - (BY - 8), cls: "boot" });
+cursor.style.background = "var(--white)";
+
+// ---------------- surgical team ----------------
+L.header({ x: FULL[0], y: 1620, w: 1060, label: "Surgical Team", c1: "ice", c2: "sky", h: 48 });
+// role · who · what they are doing now · where they stand
+const TEAM = [["Surgeon", "Dr. B. Crusher", "Left of Table"], ["Assisting", "Dr. Selar", "Right of Table"],
+              ["Surgical Nurse", "Nurse A. Ogawa", "Instrument Tray"], ["Neural Block", "Dr. J. Okafor", "Head of Table"],
+              ["Arch Control", "Crewman S. Tarses", "Arch Console"], ["Biofunction", "Medical Computer", "Biobed 1"]];
+const team = TEAM.map(([role, name, where], i) => {
+  L.text({ x: FULL[0], base: STRIP(i), s: 36, c: "sky", txt: role });
+  L.text({ x: 264, base: STRIP(i), s: 36, c: "ice", txt: name });
+  L.text({ x: 1100, base: STRIP(i), s: 36, c: "sky", txt: where, align: "r" });
+  return L.text({ x: 564, base: STRIP(i), s: 36, c: "white", txt: "" });
+});
+
+// ---------------- procedure log ----------------
+const LX = 1160, LR = 2200;
+L.header({ x: LX, y: 1620, w: LR - LX, label: "Procedure Log", c1: "sky", c2: "ice", h: 48 });
+const logRows = Array.from({ length: 6 }, (_, i) => ({
+  tm: L.text({ x: LX, base: STRIP(i), s: 36, c: "sky", txt: "" }),
+  tx: L.text({ x: LX + 170, base: STRIP(i), s: 36, c: "ice", txt: "" }),
+  tp: L.text({ x: LR, base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }) }));
+const logged = [];
+const clockAt = (ago = 0) => { const d = new Date(Date.now() - ago * 1000); return `${D2(d.getHours())}:${D2(d.getMinutes())}:${D2(d.getSeconds())}`; };
+const logLine = (txt, at, ago = 0) => {
+  logged.push([clockAt(ago), txt, "T+ " + mmss(at)]); if (logged.length > logRows.length) logged.shift();
+  logRows.forEach((r, i) => { const e = logged[i] || ["", "", ""]; L.set(r.tm, e[0]); L.set(r.tx, e[1]); L.set(r.tp, e[2]); });
+};
+// what the log says at each step of a procedure, and when
+const events = (p, next) => [
+  [1, "Sterile field established, Biobed 1"], [6, "Surgical arch lowered"], [44, "Neural block induced"],
+  [77, `Incision, ${p.site}`], [116, `${p.main} begun`], [DOSE_AT[0], p.doses[0]], [235, `${p.main} complete`],
+  [DOSE_AT[1], p.doses[1]], [330, `${p.recon} complete`], [410, "Tissue regeneration complete"], [DOSE_AT[2], p.doses[2]],
+  [455, "Closure complete, dermal regenerator"], [474, "Neural block withdrawn"], [480, "Procedure complete"],
+  [492, "Surgical arch raised"], [502, `${p.patient} to recovery`], [528, "Biobed 1 sterilized"], [536, `Next, ${next.patient}`]];
+
+// ---------------- procedure records: the bay's database, two pages ----------------
+const recPill = pillHeader(B, 1620, "Procedure Records", "ice", "sky", ["Page 1 of 2", "Page 2 of 2"], "pink", 48);
+const RECS = [
+  ["47718.4", "Femoral Reconstruction", "Lt. R. Haskell", "Recovered"],
+  ["47652.9", "Thoracic Trauma Repair", "Ens. M. Okonkwo", "Recovered"],
+  ["47410.3", "Plasma Burn Grafting", "Lt. (j.g.) D. Imre", "Discharged"],
+  ["47137.6", "Spinal Nerve Graft", "Crewman L. Abara", "Recovered"],
+  ["46803.0", "Cranial Repair", "Ens. P. Halloran", "Recovered"],
+  ["46541.2", "Artificial Heart Replacement", "Capt. J.-L. Picard", "Recovered"],
+  ["46379.5", "Hepatic Repair", "Lt. S. Moriyama", "Discharged"],
+  ["46102.8", "Retinal Reconstruction", "Ens. G. Talbot", "Recovered"],
+  ["45877.1", "Thoracic Trauma Repair", "Lt. Cmdr. E. Novak", "Recovered"],
+  ["45603.4", "Vertebral Fusion", "Crewman R. Oduya", "Recovered"],
+  ["45318.9", "Vascular Repair", "Ens. C. Lindqvist", "Discharged"],
+  ["45049.2", "Femoral Reconstruction", "Lt. (j.g.) H. Baird", "Recovered"],
+];
+const recRows = Array.from({ length: 6 }, (_, i) => [
+  L.text({ x: B[0], base: STRIP(i), s: 36, c: "sky", txt: "" }), L.text({ x: B[0] + 170, base: STRIP(i), s: 36, c: "ice", txt: "" }),
+  L.text({ x: B[0] + 580, base: STRIP(i), s: 36, c: "white", txt: "" }), L.text({ x: B[1], base: STRIP(i), s: 36, c: "sky", txt: "", align: "r" }),
+].map((e) => cls(e, "sw")));
+let page = 0;
+const showPage = () => {
+  recRows.forEach((r, i) => RECS[page * 6 + i].forEach((v, k) => L.set(r[k], v)));
+  L.set(recPill, `Page ${page + 1} of 2`);
+};
+showPage();
+L.every(24000, (t) => { if (t > 1) swap([...recRows.flat(), recPill], () => { page = 1 - page; showPage(); }); }, 0);
+
+// ---------------- the log, as the watch found it: the last procedure, then this one so far ----------------
+{
+  const { n, u } = now(0), hist = [];
+  events(procOf(n - 1), procOf(n)).forEach(([at, txt]) => hist.push([at - CYCLE - u, txt, at]));
+  events(procOf(n), procOf(n + 1)).forEach(([at, txt]) => { if (at <= u) hist.push([at - u, txt, at]); });
+  hist.slice(-6).forEach(([dt, txt, at]) => logLine(txt, at, -dt));
+}
+
+// ---------------- running ----------------
+let cycleN = -1, lastU = -1, lastStep = -2, lastWord = null, tPrev = null;
+const model = { p: null, u: 0 };
+const vitalsAt = (p, u) => {                       // rates: steady, moving only as the procedure moves them
+  const b = block(u);
+  return { hr: p.hr - 7 * b + 2 * Math.sin(u * 0.011), sys: 121 - 11 * b, dia: 77 - 6 * b, rr: 15 - 3 * b };
+};
+L.tick((t) => {
+  const dt = tPrev === null ? 0 : Math.min(0.1, t - tPrev); tPrev = t;
+  const { n, u } = now(t);
+  if (n !== cycleN) {                               // a new patient
+    const first = cycleN < 0;
+    if (!first) for (const [at, txt] of events(model.p, procOf(n))) if (lastU < at) logLine(txt, at);   // the end of the last one
+    if (!first) lastU = 0;
+    cycleN = n; model.p = procOf(n);
+    const p = model.p;
+    const relabel = () => bands.forEach((bd, i) => L.set(bd.e, stepName(p, i)));
+    first ? relabel() : swap(bands.map((bd) => bd.e), relabel);
+  }
+  const p = model.p;
+  if (lastU >= 0) for (const [at, txt] of events(p, procOf(n + 1))) if (lastU < at && u >= at) logLine(txt, at);
+  lastU = u; model.u = u;
+  // the patient
+  const v = vitalsAt(p, u);
+  Object.assign(vit, v);
+  vit.pres = present(u);
+  if (!filled) {                                     // start with the monitor already full
+    filled = true; written = 0; tiles[0].idx = -1; tiles[1].idx = 0; prev = chans.map(() => null);
+    tiles.forEach((c) => c.g.clearRect(0, 0, WW + 8, TRACE_H));
+    for (let i = 0; i < Math.ceil((WW / SPEED) * 30) + 2; i++) step(1 / 30);
+  } else step(dt);
+  placeTiles();
+  op(dimmer, 0.3 + 0.7 * vit.pres);
+  // the timeline
+  tf(cursor, `translate3d(${X(u).toFixed(1)}px,0,0)`);
+  op(cursor, Math.min(sm(0, 1, u), 1 - sm(528, 538, u)));
+  const litOp = 1 - sm(514, 532, u);
+  lanes.forEach((ln) => ln.segs.forEach((s) => {
+    const k = L.clamp((u - s.a) / (s.b - s.a));
+    if (Math.abs(k - s.u) > 0.0005) { s.u = k; tf(s.f, `scaleX(${Math.max(k, 0.0001).toFixed(4)})`); }
+    op(s.f, litOp);
+  }));
+});
+
+// readings, a few times a second
+L.every(250, () => {
+  const p = model.p, u = model.u, si = stepAt(u), pr = present(u);
+  // the status line
+  const word = si >= 0 ? stepName(p, si) : u < 500 ? "Procedure Complete" : "Preparing Bay";
+  if (word !== lastWord) {
+    const first = lastWord === null;
+    lastWord = word;
+    const doIt = () => {
+      L.set(state, word);
+      L.set(stateSub, si >= 0 ? `${p.name}  ·  ${p.patient}, ${p.div}  ·  Biobed 1` : u < 500 ? `${p.name}  ·  ${p.patient} to Recovery` : `Biobed 1 Vacant  ·  Next  ·  ${procOf(cycleN + 1).name}`);
+      placeSub();
+    };
+    first ? doIt() : swap([state, stateSub], doIt);
+  }
+  const fieldUp = sterile(u) > 0.5;
+  L.set(pill, fieldUp ? "Sterile Field Active" : "Bay Standby"); bg(pill, fieldUp ? "pink" : "sky");
+  // the step band and its pill
+  if (si !== lastStep) {
+    lastStep = si;
+    bands.forEach((bd, i) => {
+      const done = si < 0 ? u >= PROC : i < si, cur = i === si;
+      bg(bd.e, cur ? "pink" : done ? "sky" : DIM); fg(bd.e, cur || done ? "#000" : "sky");
+    });
+  }
+  L.set(stepPill, si >= 0 ? `Step ${si + 1} of 8` : u < 500 ? "Complete" : "Preparing Bay");
+  L.set(clockBox, "T+ " + mmss(Math.min(u, PROC)));
+  // the instruments
+  lanes.forEach((ln, i) => {
+    const on = inUse(i, u);
+    if (on !== ln.lit) { ln.lit = on; bg(ln.box, on ? ln.c : DIM); fg(ln.box, on ? "#000" : "sky"); }
+  });
+  // the patient
+  L.set(patPill, pr > 0.5 ? p.patient : "Biobed Vacant");
+  chans.forEach((ch) => { L.set(ch.num, pr > 0.5 ? ch.big() : ""); bg(ch.tab, pr > 0.5 ? ch.c : DIM); fg(ch.tab, pr > 0.5 ? "#000" : ch.c); });
+  // the arch
+  L.set(archPill, lowered(u) ? "Arch Lowered" : "Arch Raised");
+  const sf = sterile(u), bl = block(u), as = assist(u), rg = regen(u), pl = plasma(u), ct = coreT(u);
+  showBar(gField, sf); L.set(gField.v, (99.9 * sf).toFixed(1) + "%");
+  showBar(gBlock, bl * 0.86); L.set(gBlock.v, Math.round(86 * bl) + "%");
+  showBar(gAssist, as); L.set(gAssist.v, Math.round(100 * as) + "%");
+  showBar(gRegen, rg / 4); L.set(gRegen.v, rg.toFixed(1) + " kW");
+  showBar(gPlasma, pl / 20); L.set(gPlasma.v, pl.toFixed(1) + " cc/min");
+  showBar(gCore, (ct - 35) / 3); L.set(gCore.v, ct.toFixed(1) + " °C");
+  // the team
+  const hand = [0, 1, 2, 3, 4].find((i) => inUse(i, u));
+  L.set(team[0], hand !== undefined ? LANES[hand][0] : si < 0 ? "Post-Op Notes" : u < 75 ? "Scrubbed" : "At Table");
+  L.set(team[1], inUse(5, u) ? "Hypospray" : si >= 5 && si <= 6 ? "Regeneration Field" : si >= 0 ? "At Table" : "Charting");
+  L.set(team[2], u >= 504 ? "Sterilizing" : si >= 2 ? "Passing Instruments" : "Setting Tray");
+  L.set(team[3], bl > 0.005 ? `Block ${Math.round(86 * bl)}%` : u > 300 ? "Block Clear" : "Standing By");
+  L.set(team[4], lowered(u) ? "Arch Lowered" : "Arch Raised");
+  L.set(team[5], pr > 0.5 ? "Monitoring" : "Standby");
+}, 0);
+});
+</script></body></html>

@@ -1,0 +1,434 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Medical Tricorder</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* readings that are swapped fade out and back; colors change slowly; .boot (the start-up cascade) always wins */
+  .sw { transition: opacity .5s ease, color .9s ease, background-color .9s ease; }
+  .out:not(.boot) { opacity: .2; }
+  .fade { transition: opacity .9s ease; }
+  .grow { transition: transform 1.4s cubic-bezier(.45, 0, .55, 1); }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: wide, no sidebars — the scan is the screen ----------------
+L.frame({ type: "D", title: "Medical Tricorder  •  Scan Readout", c: "ice", c2: "peach", accent: "sky" });
+
+const LX = 40, LR = 856, MX = 920, MR = 2936, RX = 3000, RR = 3816;     // three columns, 64 apart
+const ROW0 = 428, ROW1 = 1128, PITCH = 88;                               // rows of 64 on an 88 grid
+const rowBase = (y0, i) => y0 + i * PITCH + 52.5;
+const TRACK = "#0e1a2e", BLOCK = "#0a1424";
+const col = (c) => (c.startsWith("#") ? c : `var(--${c})`);
+const fill = (x, y, w, h, c, parent, origin = "0 0") => {
+  const f = L.layer({ x, y, w, h }, parent);
+  f.style.background = col(c); f.style.transformOrigin = origin;
+  return f;
+};
+const color = (e, c) => { const v = col(c); if (e._c !== v) { e._c = v; e.style.color = v; } };
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const op = (e, v) => { v = (+v).toFixed(3); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const sw = (e) => (e.classList.add("sw"), e);
+const pad = (n, k = 2) => String(n).padStart(k, "0");
+const clock = () => { const d = new Date(); return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
+
+// ---------------- the patients ----------------
+// Every species' own norms: the gauges read against them, not against a human's.
+const NORM = {
+  Human: { hr: 72, bp: [120, 80], rr: 16, temp: 37.0, o2: 98 },
+  Bajoran: { hr: 72, bp: [118, 78], rr: 16, temp: 37.0, o2: 98 },
+  Betazoid: { hr: 70, bp: [114, 74], rr: 15, temp: 37.0, o2: 98 },
+  Klingon: { hr: 66, bp: [132, 86], rr: 14, temp: 37.6, o2: 97 },
+  Vulcan: { hr: 236, bp: [88, 56], rr: 11, temp: 36.4, o2: 96 },
+};
+// The fifteen systems, in the order the sweep meets them: five regions, three systems each.
+// [system, measure, unit, base value, decimals, gauge low, gauge high]
+const SYS = [
+  ["Sensory", "Optic response", "%", 98, 0, 50, 110], ["Neural", "Synaptic activity", "%", 94, 0, 50, 115], ["Endocrine", "Cortisol", "nmol/L", 342, 0, 100, 800],
+  ["Respiratory", "Lung capacity", "L", 5.8, 1, 2, 9], ["Cardiac", "Cardiac output", "L/min", 5.2, 1, 2, 9], ["Circulatory", "Blood volume", "L", 5.1, 1, 3, 8],
+  ["Hepatic", "Liver enzymes", "U/L", 24, 0, 0, 60], ["Digestive", "Gastric acidity", "pH", 2.1, 1, 0, 5], ["Renal", "Filtration", "mL/min", 104, 0, 40, 170],
+  ["Immune", "Leukocytes", "per nL", 6.8, 1, 0, 15], ["Lymphatic", "Lymph flow", "L/day", 3.2, 1, 0, 6], ["Metabolic", "Glucose", "mg/dL", 92, 0, 40, 180],
+  ["Skeletal", "Mineral density", "g/cc", 1.18, 2, 0.6, 1.8], ["Muscular", "Muscle tone", "%", 88, 0, 40, 115], ["Dermal", "Tissue integrity", "%", 99, 0, 60, 105],
+];
+const REGIONS = ["Cranial", "Thoracic", "Abdominal", "Systemic", "Structural"];
+const SYSC = ["ice", "peach", "sky"];                       // by column: left, centre, right
+const PATIENTS = [
+  { name: "Worf", rank: "Lieutenant", title: "Lt. Worf", species: "Klingon", home: "Qo'noS", post: "Security", div: "Operations", age: 30,
+    blood: ["Iron-based", "Hemoglobin"], where: ["Sickbay", "Biobed 3"], physical: "47423.9",
+    vit: { hr: 66, bp: [134, 86], rr: 14, temp: 37.7, o2: 97 },
+    sys: { Cardiac: 6.1, Circulatory: 6.4, Skeletal: 1.46, Muscular: 104, Respiratory: 7.2 },
+    rec: { Skeletal: 1.44 },
+    find: { Thoracic: ["Brak'lul redundancy, nominal"], Structural: ["Replicated spinal column, stable"] } },
+  { name: "Reginald Barclay", rank: "Lieutenant", title: "Lt. Barclay", species: "Human", home: "Earth", post: "Engineering", div: "Operations", age: 33,
+    blood: ["Iron-based", "Hemoglobin"], where: ["Main Engineering", "Deck 36"], physical: "47512.6",
+    vit: { hr: 88, bp: [128, 84], rr: 18, temp: 37.1, o2: 98 },
+    sys: { Endocrine: 612, Metabolic: 104 }, warn: { Endocrine: 1 },
+    rec: { Endocrine: 356 },
+    find: { Cranial: ["Elevated cortisol, mild anxiety", 1], Thoracic: ["Sinus rhythm, rate high normal"] } },
+  { name: "Deanna Troi", rank: "Lt. Commander", title: "Counselor Troi", species: "Betazoid", home: "Betazed", post: "Counselor", div: "Sciences", age: 34,
+    blood: ["Iron-based", "Hemoglobin"], where: ["Counselor's Office", "Deck 8"], physical: "47390.2",
+    vit: { hr: 68, bp: [112, 72], rr: 15, temp: 37.0, o2: 99 },
+    sys: { Neural: 108, Sensory: 101 },
+    rec: { Neural: 106 },
+    find: { Cranial: ["Paracortex active, empathic range"] } },
+  { name: "Sito Jaxa", rank: "Ensign", title: "Ensign Sito", species: "Bajoran", home: "Bajor", post: "Security", div: "Operations", age: 23,
+    blood: ["Iron-based", "Hemoglobin"], where: ["Sickbay", "Biobed 4"], physical: "47488.1",
+    vit: { hr: 74, bp: [116, 74], rr: 16, temp: 36.9, o2: 99 },
+    sys: { Dermal: 91, Muscular: 94 }, warn: { Dermal: 1 },
+    find: { Structural: ["Contusion, left forearm, treated", 1] } },
+  { name: "Taurik", rank: "Ensign", title: "Ensign Taurik", species: "Vulcan", home: "Vulcan", post: "Engineering", div: "Operations", age: 31,
+    blood: ["Copper-based", "Hemocyanin"], where: ["Sickbay", "Biobed 2"], physical: "47455.4",
+    vit: { hr: 236, bp: [86, 54], rr: 11, temp: 36.4, o2: 96 },
+    sys: { Cardiac: 4.6, Circulatory: 4.8, Metabolic: 78, Muscular: 96 },
+    find: { Thoracic: ["Heart in hepatic position, nominal"], Systemic: ["Copper-based blood, nominal"] } },
+];
+let order = [], P = null;
+const nextPatient = () => {
+  if (!order.length) { order = PATIENTS.slice().sort(() => Math.random() - 0.5); if (order[order.length - 1] === P) order.reverse(); }
+  return order.pop();
+};
+// one scan's values: the patient's own, a hair different each time (never a moving rate)
+let scan = null;
+const takeScan = (p) => {
+  const vary = (v, k = 0.012) => v * (1 + L.rand(-k, k));
+  const s = { sys: SYS.map(([name, , , base, dp, lo, hi]) => {
+    const v = vary(p.sys[name] ?? base, 0.01);
+    return { v: v.toFixed(dp), level: L.clamp((v - lo) / (hi - lo)), warn: !!(p.warn && p.warn[name]) };
+  }) };
+  const n = NORM[p.species];
+  s.hr = Math.round(vary(p.vit.hr, 0.02)); s.bp = p.vit.bp.map((x) => Math.round(vary(x, 0.015)));
+  s.rr = Math.round(p.vit.rr); s.temp = vary(p.vit.temp, 0.002); s.o2 = Math.round(p.vit.o2); s.norm = n;
+  return s;
+};
+
+// ---------------- status line ----------------
+const stateTxt = L.text({ x: LX, cap: 150, s: 100, c: "ice", txt: "" });
+const stateSub = L.text({ x: MX, base: 222, s: 38, c: "peach", txt: "" });         // on the scan column's line
+L.box({ x: RR - 400, y: 150, w: 400, h: 72, c: "peach", label: "Condition Stable", r: "lr", fs: 36 });
+const stardate0 = 47634.8 + Math.random() * 0.05;
+L.text({ x: RX, base: 222, s: 40, c: "ice", txt: "Stardate" });
+const sdVal = L.text({ x: RX + L.textWidth("Stardate", 40) + 24, base: 222, s: 52, c: "white", txt: "" });
+const stardate = (t = L.t) => (stardate0 + t / 3600 / 8.766).toFixed(1);
+
+// ---------------- patient (top left) ----------------
+L.header({ x: LX, y: 280, w: LR - LX, label: "Patient", c1: "ice", c2: "sky" });
+L.text({ x: LX, base: 400, s: 36, c: "ice", txt: "Record" });
+const physNote = sw(L.text({ x: LR, base: 400, s: 36, c: "ice", txt: "", align: "r" }));
+const PT = ["Name", "Species", "Assignment", "Age", "Blood", "Location"].map((label, i) => {
+  const base = rowBase(ROW0, i);
+  L.box({ x: LX, y: ROW0 + i * PITCH, w: 220, h: 64, c: ["ice", "sky", "peach"][i % 3], label, fs: 32, r: "l" });
+  return { v: sw(L.text({ x: LX + 244, base, s: 52, c: "white", txt: "" })), c: sw(L.text({ x: LR, base, s: 36, c: "sky", txt: "", align: "r" })) };
+});
+const showPatient = (p) => {
+  [[p.name, p.rank], [p.species, p.home], [p.post, `${p.div} Division`], [p.age, "Standard years"], p.blood, p.where]
+    .forEach(([v, c], i) => { L.set(PT[i].v, v); L.set(PT[i].c, c); });
+  L.set(physNote, `Last physical  ${p.physical}`);
+};
+
+// ---------------- vital signs (lower left): read against the species' own norm ----------------
+L.header({ x: LX, y: 1000, w: LR - LX, label: "Vital Signs", c1: "peach", c2: "ice" });
+[["Sign", LX], ["Against Species Norm", LX + 244], ["Reading", LR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: 1100, s: 36, c: "ice", txt, align }));
+const GX = LX + 244, GW = 380, NORMAT = 0.6;               // the norm sits at 60% of every gauge
+const VIT = ["Heart Rate", "Blood Pressure", "Respiration", "Temperature", "Blood Oxygen"].map((label, i) => {
+  const y = ROW1 + i * PITCH, base = rowBase(ROW1, i), c = ["peach", "ice", "sky", "peach", "ice"][i];
+  L.box({ x: LX, y, w: 220, h: 64, c, label, fs: 32, r: "l" });
+  L.rect({ x: GX, y: base - 26, w: GW, h: 26, c: TRACK });
+  const f = fill(GX, base - 26, GW, 26, c); f.classList.add("grow"); f.style.transform = "scaleX(0)";
+  L.rect({ x: GX + GW * NORMAT - 2, y: base - 34, w: 4, h: 42, c: "white", free: true });   // the norm
+  return { f, v: sw(L.text({ x: LR, base, s: 52, c: "slate", txt: "" , align: "r" })), on: false };
+});
+const vitText = (i) => [`${scan.hr} BPM`, `${scan.bp[0]}/${scan.bp[1]}`, `${scan.rr} /min`, `${scan.temp.toFixed(1)} °C`, `${scan.o2}%`][i];
+const vitLevel = (i) => { const n = scan.norm; return NORMAT * [scan.hr / n.hr, scan.bp[0] / n.bp[0], scan.rr / n.rr, 1 + (scan.temp - n.temp) / 2, scan.o2 / n.o2][i]; };
+const showVital = (i) => {
+  const g = VIT[i]; g.on = true;
+  L.set(g.v, vitText(i)); color(g.v, "white");
+  g.f.style.transform = `scaleX(${L.clamp(vitLevel(i)).toFixed(4)})`;
+};
+const clearVitals = () => VIT.forEach((g) => { g.on = false; L.set(g.v, "Awaiting"); color(g.v, "slate"); g.f.style.transform = "scaleX(0)"; });
+
+// ---------------- the bioscan: fifteen system blocks, swept from crown to sole ----------------
+L.header({ x: MX, y: 280, w: MR - MX, label: "Bioscan  ·  Organ Systems", c1: "peach", c2: "ice" });
+L.text({ x: MX, base: 400, s: 36, c: "ice", txt: "Scan Plane  ·  cm" });
+L.text({ x: MR, base: 400, s: 36, c: "ice", txt: "Dr. Beverly Crusher  ·  Full Bioscan", align: "r" });
+const PY = 428, PH = 1116;
+L.rect({ x: MX, y: PY, w: MR - MX, h: PH, c: "#050c1a", panel: true });
+const Y0 = 466, SPAN = 1040, PXCM = SPAN / 200;           // the scale: 0–200 cm, centred in the panel
+const BW = 520, BH = 176, BG = 44, RP = 208;              // blocks: three columns, five rows of 208
+const BX = [1104, 1104 + BW + BG, 1104 + 2 * (BW + BG)];  // 1104 · 1668 · 2232, centred on 1928
+for (let cm = 0; cm <= 200; cm += 10) {
+  const y = Y0 + cm * PXCM, major = cm % 20 === 0, w = major ? 28 : 14;
+  L.rect({ x: 1076 - w, y: y - 2, w, h: 4, c: "sky", free: true });
+  L.rect({ x: 2780, y: y - 2, w, h: 4, c: "sky", free: true });
+  if (major) L.text({ x: 1036, base: y + 12, s: 34, c: "sky", txt: String(cm), align: "r", legend: true });
+}
+const blocks = SYS.map(([name, measure], i) => {
+  const r = Math.floor(i / 3), k = i % 3, x = BX[k], y = Y0 + 16 + r * RP, c = SYSC[k];
+  L.rect({ x, y, w: BW, h: BH, c: BLOCK, panel: true });
+  const tint = fill(x, y, BW, BH, c); tint.style.opacity = 0; tint.style.transformOrigin = "50% 0"; tint.classList.add("fade");
+  const edge = fill(x, y, 12, BH, c); edge.style.opacity = 0.25; edge.classList.add("fade");
+  L.rect({ x: x + 32, y: y + 136, w: BW - 64, h: 16, c: TRACK });
+  const lvl = fill(x + 32, y + 136, BW - 64, 16, c); lvl.classList.add("grow"); lvl.style.transform = "scaleX(0)";
+  return { i, r, x, y, c, tint, edge, lvl, state: -1,
+    name: sw(L.text({ x: x + 32, base: y + 60, s: 40, c: "slate", txt: name })),
+    val: sw(L.text({ x: x + BW - 32, base: y + 60, s: 52, c: "white", txt: "", align: "r" })),
+    meas: sw(L.text({ x: x + 32, base: y + 112, s: 36, c: "slate", txt: measure })),
+    stat: sw(L.text({ x: x + BW - 32, base: y + 112, s: 36, c: "slate", txt: "", align: "r" })) };
+});
+const setBlock = (b, state) => {
+  if (b.state === state) return; b.state = state;
+  const d = scan.sys[b.i], hot = d.warn ? "butter" : b.c;
+  if (state === 0) {                                      // awaiting
+    L.set(b.val, ""); L.set(b.stat, "Awaiting");
+    [b.name, b.meas, b.stat].forEach((e) => color(e, "slate"));
+    b.tint.style.opacity = 0; b.edge.style.opacity = 0.25; b.lvl.style.transform = "scaleX(0)";
+  } else if (state === 1) {                               // the sweep is passing through it
+    L.set(b.stat, "Scanning"); color(b.stat, "white"); color(b.name, b.c);
+    b.tint.style.opacity = 0.16;
+  } else {                                                // read
+    L.set(b.val, SYS[b.i][2] === "%" ? `${d.v}%` : `${d.v} ${SYS[b.i][2]}`);
+    L.set(b.stat, d.warn ? "Monitor" : "Nominal"); color(b.stat, hot); color(b.meas, b.c); color(b.name, b.c);
+    b.tint.style.opacity = 0.07; b.edge.style.opacity = 1;
+    b.lvl.style.background = col(hot); b.lvl.style.transform = `scaleX(${d.level.toFixed(4)})`;
+  }
+};
+
+// the sweep: a bright plane with a fading wake, and its depth on a tag at the right-hand scale
+const clip = L.layer({ x: MX, y: PY, w: MR - MX, h: PH }); clip.style.overflow = "hidden";
+const WAKE = 150, SWX = 1048 - MX;
+const sweep = L.layer({ x: 0, y: 0, w: 1876, h: WAKE + 30 }, clip);
+L.el("div", "", sweep, { position: "absolute", left: SWX + "px", top: "0px", width: 2808 - 1048 + "px", height: WAKE + "px",
+  background: "linear-gradient(to bottom, rgba(143,211,255,0), rgba(143,211,255,.07) 60%, rgba(143,211,255,.22) 97%, #d8efff 97.4%)" });
+const tag = L.box({ x: 2820 - MX, y: WAKE - 24, w: 96, h: 44, c: "ice", label: "", fs: 30, r: "lr", cls: "c" }, sweep);
+tag.style.paddingRight = "0";
+sweep.style.opacity = 0;
+
+// ---------------- waveforms (top right) ----------------
+L.header({ x: RX, y: 280, w: RR - RX, label: "Waveforms", c1: "sky", c2: "peach" });
+L.text({ x: RX, base: 400, s: 36, c: "ice", txt: "Channel" });
+L.text({ x: RR, base: 400, s: 36, c: "ice", txt: "Live  ·  25 mm/s", align: "r" });
+const WX = RX + 224, WW = RR - WX, CH = 136, CG = 48;
+let beatPhase = 0, breath = 0;
+const ecg = () => {                                         // P, QRS, T: one heartbeat per 60/HR seconds
+  const p = beatPhase, g = (c, w, a) => a * Math.exp(-Math.pow((p - c) / w, 2));
+  return g(0.12, 0.03, 0.12) + g(0.21, 0.012, -0.12) + g(0.235, 0.01, 1) + g(0.26, 0.012, -0.28) + g(0.46, 0.05, 0.3);
+};
+const CHANS = [
+  { name: "ECG", c: "peach", ink: "#ffb070", sys: 4, f: () => ecg() * 1.05 - 0.35 },
+  { name: "Resp", c: "ice", ink: "#8fd3ff", sys: 3, f: () => 0.62 * Math.sin(breath * 2 * Math.PI) },
+  { name: "EEG", c: "sky", ink: "#5c9dff", sys: 1, f: (t) => 0.3 * Math.sin(t * 41) + 0.24 * Math.sin(t * 23.7 + 1) + 0.16 * Math.sin(t * 67 + 2) + 0.1 * Math.sin(t * 97) },
+];
+CHANS.forEach((ch, i) => {
+  const y = ROW0 + i * (CH + CG);
+  L.box({ x: RX, y, w: 200, h: CH, c: ch.c, label: ch.name, fs: 32 });
+  ch.num = L.text({ x: RX + 22, cap: y + 18, s: 72, c: "#000", txt: "", on: true });
+  L.rect({ x: WX, y, w: WW, h: CH, c: "#081022" });
+  for (let k = 1; k < 4; k++) L.rect({ x: WX + (WW / 4) * k - 1, y, w: 2, h: CH, c: "#16264c", free: true });
+  L.rect({ x: WX, y: y + CH / 2 - 1, w: WW, h: 2, c: "#16264c", free: true });
+  ch.amp = 0; ch.on = false;
+});
+// the traces scroll (tng/sickbay.html): two canvas tiles slid as layers, only the newest sliver drawn
+const TRACE_H = 3 * CH + 2 * CG, SPEED = 140;
+const strip = L.el("div", "boot", L.stage, { position: "absolute", left: WX + "px", top: ROW0 + "px", width: WW + "px", height: TRACE_H + "px", overflow: "hidden" });
+const tiles = [0, 1].map((k) => {
+  const c = L.canvas({ x: 0, y: 0, w: WW + 8, h: TRACE_H }, strip);
+  c.cv.style.willChange = "transform"; c.idx = k;           // idx, not k: the kit keeps the pixel scale in c.k
+  return c;
+});
+let written = WW, prev = CHANS.map(() => null), simT = 0;
+const SUB = 8;
+const step = (dt) => {
+  const pts = CHANS.map(() => []);
+  for (let k = 1; k <= SUB; k++) {
+    const h = dt / SUB;
+    simT += h;
+    beatPhase = (beatPhase + h * (scan ? scan.hr : 72) / 60) % 1;
+    breath = (breath + h * (scan ? scan.rr : 16) / 60) % 1;
+    const x = written + (dt * SPEED * k) / SUB;
+    CHANS.forEach((ch, i) => {
+      ch.amp += ((ch.on ? 1 : 0) - ch.amp) * Math.min(1, h * 1.6);
+      pts[i].push([x, i * (CH + CG) + CH / 2 - ch.f(simT) * ch.amp * CH * 0.4]);
+    });
+  }
+  const end = written + dt * SPEED;
+  for (const tile of tiles) if (end >= (tile.idx + 2) * WW) { tile.idx += 2; tile.g.clearRect(0, 0, WW + 8, TRACE_H); }
+  CHANS.forEach((ch, i) => {
+    if (prev[i]) for (const tile of tiles) {
+      const g = tile.g, o = tile.idx * WW;
+      g.globalAlpha = 0.35 + 0.65 * ch.amp;
+      g.strokeStyle = ch.ink; g.lineWidth = 3.2; g.lineJoin = "round"; g.lineCap = "round";
+      g.beginPath(); g.moveTo(prev[i][0] - o, prev[i][1]);
+      for (const [x, y] of pts[i]) g.lineTo(x - o, y);
+      g.stroke();
+    }
+    prev[i] = pts[i][SUB - 1];
+  });
+  written = end;
+};
+const placeTiles = () => tiles.forEach((tile) => tf(tile.cv, `translate3d(${(tile.idx * WW - (written - WW)).toFixed(2)}px,0,0)`));
+let filled = false, lastW = null;
+tiles.forEach((c) => (c.onResize = () => { filled = false; }));   // a resize wipes the canvases: refill them
+L.tick((t) => {
+  if (!filled) {
+    filled = true; written = 0; tiles[0].idx = -1; tiles[1].idx = 0; prev = CHANS.map(() => null);
+    for (let i = 0; i < Math.ceil((WW / SPEED) * 30) + 2; i++) step(1 / 30);
+    lastW = t; placeTiles(); return;
+  }
+  step(Math.min(0.1, t - lastW)); lastW = t;
+  placeTiles();
+});
+
+// ---------------- medical record (lower right): this scan against the last physical ----------------
+L.header({ x: RX, y: 1000, w: RR - RX, label: "Medical Record", c1: "ice", c2: "peach" });
+const RC1 = RX + 440, RC2 = RX + 640;
+[["Reading", RX], ["Record", RC1, "r"], ["Scan", RC2, "r"], ["Change", RR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: 1100, s: 36, c: "ice", txt, align }));
+const RECS = [[1, "Synaptic"], [2, "Cortisol"], [4, "Cardiac Output"], [8, "Filtration"], [12, "Bone Density"]].map(([sys, label], i) => {
+  const base = rowBase(ROW1, i);
+  L.box({ x: RX, y: ROW1 + i * PITCH, w: 220, h: 64, c: ["sky", "ice", "peach"][i % 3], label, fs: 32, r: "l" });
+  return { sys, rec: sw(L.text({ x: RC1, base, s: 40, c: "sky", txt: "", align: "r" })),
+    v: sw(L.text({ x: RC2, base, s: 52, c: "white", txt: "", align: "r" })), d: sw(L.text({ x: RR, base, s: 40, c: "ice", txt: "", align: "r" })) };
+});
+const recValue = (r) => { const [name, , , base, dp] = SYS[r.sys]; return (P.rec && P.rec[name]) ?? (P.sys[name] ?? base) * (1 + ((r.sys * 7) % 5 - 2) * 0.004); };
+const recText = (r) => (+recValue(r)).toFixed(SYS[r.sys][4]) + (SYS[r.sys][2] === "%" ? "%" : "");
+const showRecords = () => RECS.forEach((r) => { L.set(r.rec, recText(r)); L.set(r.v, "Awaiting"); color(r.v, "slate"); L.set(r.d, ""); });
+const showRecord = (r) => {
+  const d = scan.sys[r.sys], unit = SYS[r.sys][2] === "%" ? "%" : "";
+  L.set(r.v, d.v + unit); color(r.v, "white");
+  const ch = (100 * (+d.v - recValue(r))) / recValue(r);
+  L.set(r.d, `${ch >= 0 ? "+" : "−"}${Math.abs(ch).toFixed(1)}%`); color(r.d, d.warn ? "butter" : "ice");
+};
+
+// ---------------- scan log (bottom left) ----------------
+L.header({ x: LX, y: 1620, w: LR - LX, label: "Scan Log", c1: "ice", c2: "sky", h: 48 });
+const logRows = Array.from({ length: 5 }, (_, i) => {
+  const base = 1734 + i * 54;
+  return { tm: L.text({ x: LX, base, s: 36, c: "sky", txt: "" }), tx: L.text({ x: LX + 180, base, s: 36, c: "ice", txt: "" }) };
+});
+const logged = [];
+const log = (txt, tm = clock()) => {
+  logged.push([tm, txt]); if (logged.length > 5) logged.shift();
+  logRows.forEach((r, i) => { const e = logged[i]; L.set(r.tm, e ? e[0] : ""); L.set(r.tx, e ? e[1] : ""); color(r.tx, i === logged.length - 1 ? "white" : "ice"); });
+};
+
+// ---------------- scan progress (bottom middle) ----------------
+L.header({ x: MX, y: 1620, w: MR - MX, label: "Scan Progress", c1: "peach", c2: "ice", h: 48 });
+const SEGW = 384, segX = (i) => MX + i * (SEGW + 24);
+const segs = REGIONS.map((label, i) => {
+  const b = L.box({ x: segX(i), y: 1772, w: SEGW, h: 80, c: TRACK, label: "", fs: 30, r: i === 0 ? "l" : i === 4 ? "r" : null });
+  b.style.overflow = "hidden";
+  const f = fill(0, 0, SEGW, 80, "peach", b); f.style.transform = "scaleX(0)";
+  const s = L.el("span", "sw", b, { position: "relative", color: "var(--ice)" }); s.textContent = label;
+  return { f, s, k: -1 };
+});
+const cell = (i, label, base, right) => {
+  L.text({ x: segX(i), base, s: 40, c: "ice", txt: label });
+  return right ? L.text({ x: MR, base, s: 52, c: "white", txt: "", align: "r" }) : L.text({ x: segX(i + 1), base, s: 52, c: "white", txt: "" });
+};
+const pRegion = cell(0, "Region", 1734), pSystems = cell(2, "Systems", 1734), pPlane = cell(4, "Scan Plane", 1734, true);
+L.rect({ x: MX, y: 1876, w: segX(2) - 24 - MX, h: 16, c: "sky" });
+L.rect({ x: segX(2), y: 1876, w: MR - segX(2), h: 16, c: "ice" });
+const pPower = cell(0, "Power Cell", 1950), pRes = cell(2, "Resolution", 1950), pLink = cell(4, "Uplink", 1950, true);
+L.set(pRes, "0.1 mm");
+
+// ---------------- findings (bottom right) ----------------
+L.header({ x: RX, y: 1620, w: RR - RX, label: "Findings", c1: "sky", c2: "peach", h: 48 });
+const FIND = REGIONS.map((region, i) => {
+  const base = 1734 + i * 54;
+  L.text({ x: RX, base, s: 36, c: ["ice", "peach", "sky", "ice", "peach"][i], txt: region });
+  return { tx: sw(L.text({ x: RX + 180, base, s: 36, c: "slate", txt: "" })), st: sw(L.text({ x: RR, base, s: 36, c: "slate", txt: "", align: "r" })) };
+});
+const regionFinding = (i) => { const f = P.find && P.find[REGIONS[i]]; return f ? [f[0], !!f[1]] : ["Within normal limits", false]; };
+const setFinding = (i, state) => {
+  const r = FIND[i];
+  if (state === 0) { L.set(r.tx, "Awaiting scan"); L.set(r.st, ""); color(r.tx, "slate"); }
+  else if (state === 1) { L.set(r.tx, "Scanning"); L.set(r.st, ""); color(r.tx, "white"); }
+  else { const [txt, warn] = regionFinding(i); L.set(r.tx, txt); color(r.tx, "ice"); L.set(r.st, warn ? "Monitor" : "Nominal"); color(r.st, warn ? "butter" : "sky"); }
+};
+
+// ---------------- the scan, in phases ----------------
+// calibrate 3 s → sweep 28 s → analyse 3 s → complete, held → clear 1.5 s → the next patient
+const CAL = 3, SWEEP = 28, ANA = 3, CLEAR = 48, CYCLE = 49.5;
+const SWEEP_END = CAL + SWEEP;
+let c0 = 0, done = 0, region = -1, logStep = 0;
+const swept = (u) => Y0 + SPAN * L.clamp((u - CAL) / SWEEP);
+const dyn = [physNote, ...PT.flatMap((r) => [r.v, r.c]), stateSub, ...VIT.map((g) => g.v), ...blocks.flatMap((b) => [b.val, b.stat]),
+  ...RECS.flatMap((r) => [r.rec, r.v, r.d]), ...FIND.flatMap((r) => [r.tx, r.st]), ...segs.map((s) => s.s)];
+const begin = (t) => {
+  P = nextPatient(); scan = takeScan(P); c0 = t; done = 0; region = -1; logStep = 0;
+  showPatient(P);
+  L.set(stateSub, `Bioscan  ·  ${P.title}  ·  ${P.where.join(", ")}`);
+  blocks.forEach((b) => { b.state = -1; setBlock(b, 0); });
+  clearVitals(); showRecords(); REGIONS.forEach((_, i) => setFinding(i, 0));
+  CHANS.forEach((ch) => (ch.on = false));
+  dyn.forEach((e) => e.classList.remove("out"));
+  log(`Bioscan begun, ${P.title}`);
+};
+const VITAL_FROM = [[4, [0, 1]], [3, [2, 4]], [11, [3]]];   // a system's read gives these vital signs
+L.tick((t) => {
+  if (!scan || t - c0 >= CYCLE) begin(t);
+  const u = t - c0, y = swept(u);
+  // the sweep plane: in at the crown, out at the sole
+  op(sweep, u < CAL ? L.clamp((u - 1) / 2) : u < SWEEP_END ? 1 : 1 - L.clamp((u - SWEEP_END) / 1));
+  tf(sweep, `translate3d(0,${(y - PY - WAKE).toFixed(1)}px,0)`);
+  if (u < CLEAR) {
+    for (const b of blocks) {
+      if (b.state === 2) continue;
+      if (y >= b.y + BH) {
+        setBlock(b, 2); done++;
+        if (b.i === 1 || b.i === 4 || b.i === 3) CHANS.forEach((ch) => { if (ch.sys === b.i) ch.on = true; });
+        for (const [s, vs] of VITAL_FROM) if (s === b.i) vs.forEach(showVital);
+        RECS.forEach((r) => { if (r.sys === b.i) showRecord(r); });
+      } else if (y > b.y) {
+        setBlock(b, 1);
+        tf(b.tint, `scaleY(${((y - b.y) / BH).toFixed(4)})`);
+      } else tf(b.tint, "scaleY(0)");
+      if (b.state === 2) tf(b.tint, "scaleY(1)");
+    }
+    const reg = u < CAL ? -1 : Math.min(5, Math.floor((y - Y0) / RP + (u >= SWEEP_END ? 1 : 0)));
+    if (reg !== region) {
+      if (region >= 0 && region < 5) { setFinding(region, 2); log(`${REGIONS[region]} scan complete`); }
+      region = reg; if (region >= 0 && region < 5) setFinding(region, 1);
+    }
+  }
+  // the progress band follows the plane through each region, and empties as the scan clears
+  segs.forEach((s, i) => {
+    let k = L.clamp((y - Y0 - i * RP) / RP);
+    if (u < CAL) k = 0;
+    if (u >= CLEAR) k *= 1 - L.ease(L.clamp((u - CLEAR) / (CYCLE - CLEAR)));
+    tf(s.f, `scaleX(${k.toFixed(4)})`);
+    const lit = k >= 1 && u < CLEAR;
+    if (s.k !== lit) { s.k = lit; s.s.style.color = lit ? "#000" : "var(--ice)"; }
+  });
+  if (u >= SWEEP_END + ANA + 2 && logStep === 0) { logStep = 1; log(`Analysis complete, ${done} systems`); }
+  if (u >= SWEEP_END + ANA + 7 && logStep === 1) { logStep = 2; log("Record uplinked to Sickbay"); }
+  if (u >= CLEAR && logStep === 2) {
+    logStep = 3;
+    dyn.forEach((e) => e.classList.add("out"));
+    blocks.forEach((b) => { b.tint.style.opacity = 0; b.edge.style.opacity = 0.25; b.lvl.style.transform = "scaleX(0)"; });
+    VIT.forEach((g) => (g.f.style.transform = "scaleX(0)"));
+    CHANS.forEach((ch) => (ch.on = false));
+  }
+});
+
+// ---------------- readings, a few times a second ----------------
+const POWER0 = L.rand(84, 92);
+L.every(250, (t) => {
+  const u = t - c0, y = swept(u);
+  L.set(sdVal, stardate(t));
+  const word = u < CAL ? "Calibrating" : u < SWEEP_END ? "Scanning" : u < SWEEP_END + ANA ? "Analyzing" : "Scan Complete";
+  L.set(stateTxt, word);
+  L.set(pRegion, u < CAL ? "Standby" : region >= 0 && region < 5 ? REGIONS[region] : "Complete");
+  L.set(pSystems, `${done} / ${SYS.length}`);
+  const cm = Math.round((y - Y0) / PXCM);
+  L.set(pPlane, u < CAL ? "—" : `${cm} cm`); L.set(tag, `${cm} cm`);
+  L.set(pLink, u < CAL ? "Standby" : u < SWEEP_END ? "Streaming" : logStep < 2 ? "Transferring" : "Complete");
+  L.set(pPower, `${Math.max(0, POWER0 - t / 600).toFixed(1)}%`);
+}, 0);
+// the rates on the tabs: the scan's own numbers, never a jitter
+L.every(1000, () => CHANS.forEach((ch, i) => L.set(ch.num, !ch.on || !scan ? "—" : [scan.hr, scan.rr, scan.sys[1].v][i])), 0);
+
+const t0 = Date.now();
+const ago = (s) => { const d = new Date(t0 - s * 1000); return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
+log("Medical peripheral attached", ago(96)); log("Tricorder calibrated", ago(71)); log("Uplink to Sickbay established", ago(40));
+});
+</script></body></html>

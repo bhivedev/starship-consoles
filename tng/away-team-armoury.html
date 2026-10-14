@@ -1,0 +1,428 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Away Team Armory</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .sw { transition: background-color .8s ease, color .8s ease; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame, mirrored: sidebar on the right, title at top left ----------------
+L.frame({ type: "B", title: "Away Team Armory  •  Equipment", c: "sand", c2: "olive", accent: "peach", foot: "Armory",
+  side: [[140, "olive", "Armory"], [70, "peach", "Deck 9"], [420, "sand", "Away Team"], [70, "butter", "Bench 2"],
+         [300, "olive", "Checkout"], [70, "peach", "Celtris III"], [216, "sand", "Security"]] });
+
+// columns: the checkout matrix 40–2240 (three kit columns at 1072, 1476, 1880), the bench 2300–3520;
+// the middle and bottom rows split 40–1012 | 1072–2240 | 2300–3520, so the kit columns run top to bottom
+const L0 = 40, L1 = 2240, R0 = 2300, R1 = 3520, M1 = 1012, MX = [1072, 1476, 1880], MW = 360;
+const DARK = "#2c2a1a", TRACK = "#24221a", NONE = "#191810", PITCH = 54;
+const rowY = (i) => 430 + i * PITCH, rowB = (i) => 466 + i * PITCH;      // the matrix grid, shared by the bench
+const pad = (n, k = 2) => String(n).padStart(k, "0");
+const op = (e, v) => { v = v < 0.005 ? "0" : v > 0.995 ? "1" : v.toFixed(3); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const fg = (e, c) => { if (e._fg !== c) { e._fg = c; e.style.color = c.startsWith("#") ? c : `var(--${c})`; } };
+const bg = (e, c) => { if (e._bg !== c) { e._bg = c; e.style.background = c.startsWith("#") ? c : `var(--${c})`; } };
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const fill = (x, y, w, h, c, origin = "0 0") => {
+  const f = L.layer({ x, y, w, h });
+  f.style.background = c.startsWith("#") ? c : `var(--${c})`; f.style.transformOrigin = origin;
+  return f;
+};
+const clockAt = (t) => { const d = new Date(Date.now() + (t - L.t) * 1000); return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
+const mmss = (s) => `${pad(Math.floor(s / 60))}:${pad(Math.floor(s % 60))}`;
+const later = (ms, f, jitter) => L.every(ms, (t) => { if (t > 1) f(t); }, jitter);
+
+// ---------------- the away team and the kit list (Chain of Command: Celtris III, stardate 46357) ----------------
+const TEAM = [{ full: "Capt. Picard", name: "Picard" }, { full: "Lt. Worf", name: "Worf" }, { full: "Dr. Crusher", name: "Crusher" }];
+const P100 = ["Power", "100%", "98 to 100%"];
+const ITEMS = [
+  { name: "Type II Phaser", cat: "Weapon", qty: 1, pre: "PH", kg: 0.5, who: [1, 1, 1],
+    steps: [["Power Cell", "100%", "98 to 100%"], ["Emitter Crystal", "Aligned", "Aligned"], ["Setting Range", "1 to 16", "1 to 16"], ["Safety Interlock", "Engaged", "Engaged"]] },
+  { name: "Phaser Power Cell", cat: "Power", qty: 1, pre: "PC", kg: 0.2, who: [1, 1, 1],
+    steps: [["Charge", "100%", "98 to 100%"], ["Containment", "Stable", "Stable"], ["Discharge Rate", "0.3% per Hour", "Max 0.5% per Hour"], ["Casing Seal", "Intact", "Intact"]] },
+  { name: "Tricorder", cat: "Sensor", qty: 1, pre: "TR", kg: 0.9, who: [1, 1, 0],
+    steps: [["Sensor Array", "Calibrated", "Calibrated"], ["Theta-Band Filter", "Tuned", "Tuned"], ["Isolinear Memory", "Cleared", "Cleared"], P100] },
+  { name: "Medical Tricorder", cat: "Medical", qty: 1, pre: "MT", kg: 1.0, who: [0, 0, 1],
+    steps: [["Sensor Wand", "Calibrated", "Calibrated"], ["Medical Database", "Current", "Current"], ["Isolinear Memory", "Cleared", "Cleared"], P100] },
+  { name: "Environmental Suit", cat: "Protective", qty: 1, pre: "EV", kg: 6.8, who: [1, 1, 1],
+    steps: [["Seal Integrity", "100%", "Min 99%"], ["O2 Reserve", "12 Hours", "Min 10 Hours"], ["Thermal Control", "Nominal", "Nominal"], ["Comm Link", "Clear", "Clear"]] },
+  { name: "Climbing Harness", cat: "Climbing", qty: 1, pre: "CH", kg: 1.6, who: [1, 1, 1],
+    steps: [["Load Test", "450 kg", "Min 400 kg"], ["Buckles", "Locked", "Locked"], ["Anchor Points", "4 of 4", "4 of 4"], ["Fit", "Adjusted", "Adjusted"]] },
+  { name: "Rappelling Line", cat: "Climbing", qty: 1, pre: "RL", kg: 3.2, who: [1, 1, 0],
+    steps: [["Tensile Test", "1,200 kg", "Min 1,000 kg"], ["Length", "60 m", "60 m"], ["Sheath", "Intact", "Intact"], ["Coil", "Stowed", "Stowed"]] },
+  { name: "Hand Lamp", cat: "Lighting", qty: 1, pre: "HL", kg: 0.4, who: [1, 1, 1],
+    steps: [["Power Cell", "100%", "98 to 100%"], ["Beam", "Focused", "Focused"], ["Low-Light Filter", "Fitted", "Fitted"], ["Wrist Mount", "Secured", "Secured"]] },
+  { name: "Emergency Transponder", cat: "Signal", qty: 1, pre: "ET", kg: 0.1, who: [1, 1, 1],
+    steps: [["Carrier Signal", "Clear", "Clear"], ["Frequency", "Assigned", "Assigned"], P100, ["Activation", "Tested", "Tested"]] },
+  { name: "Field Rations", cat: "Provisions", qty: 6, pre: "FR", kg: 1.8, who: [1, 1, 1],
+    steps: [["Count", "6 Packs", "6 Packs"], ["Seals", "Intact", "Intact"], ["Shelf Date", "Current", "Current"], ["Packing", "Stowed", "Stowed"]] },
+  { name: "Medkit", cat: "Medical", qty: 1, pre: "MK", kg: 2.1, who: [0, 0, 1],
+    steps: [["Hyposprays", "4 Loaded", "4 Loaded"], ["Dermal Regenerator", "Charged", "Charged"], ["Stock", "Complete", "Complete"], ["Seal", "Intact", "Intact"]] },
+];
+// the order of the checkout: one kit at a time, top to bottom
+const ORDER = [];
+TEAM.forEach((_, m) => ITEMS.forEach((it, i) => { if (it.who[m]) ORDER.push({ m, i }); }));
+const N = ORDER.length;
+const PER = TEAM.map((_, m) => ITEMS.filter((it) => it.who[m]).length);
+
+// ---------------- the log ----------------
+const log = [];
+let logReady = false;
+const note = (t, txt) => { log.push([clockAt(t), txt]); if (log.length > 40) log.shift(); if (logReady) showLog(); };
+
+// ---------------- status line ----------------
+const BIG = 100, stateTxt = L.text({ x: L0, cap: 150, s: BIG, c: "sand", txt: "" });
+const sub = L.text({ x: L0, base: 222, s: 38, c: "peach", txt: "" });
+const pill = L.box({ x: R1 - 480, y: 150, w: 480, h: 72, c: "olive", label: "", r: "lr", fs: 36, cls: "sw" });
+
+// ---------------- the checkout matrix ----------------
+L.header({ x: L0, y: 280, w: L1 - L0, label: "Kit Checkout  ·  Away Team Celtris III", c1: "sand", c2: "olive" });
+[["Item", L0, "l"], ["Category", 560, "l"], ["Qty", 980, "r"]].forEach(([txt, x, align]) => L.text({ x, base: 404, s: 36, c: "peach", txt, align }));
+const memberHd = TEAM.map((p, m) => L.text({ x: MX[m], base: 404, s: 36, c: "peach", txt: p.full }));
+const itemT = ITEMS.map((it, i) => {
+  L.text({ x: 560, base: rowB(i), s: 36, c: "olive", txt: it.cat });
+  L.text({ x: 980, base: rowB(i), s: 40, c: "white", txt: String(it.qty), align: "r" });
+  return L.text({ x: L0, base: rowB(i), s: 40, c: "sand", txt: it.name });
+});
+const cells = ITEMS.map((it, i) => TEAM.map((p, m) => {
+  const y = rowY(i);
+  if (!it.who[m]) { const b = L.box({ x: MX[m], y, w: MW, h: 44, c: NONE, label: "Not Required", fs: 28 }); b.style.color = "#6e6740"; return null; }
+  const e = L.layer({ x: MX[m], y, w: MW, h: 44 });
+  const b = L.box({ x: 0, y: 0, w: MW, h: 44, c: DARK, label: "Pending", fs: 28, cls: "sw" }, e);
+  return { e, b, s: -1, serial: `${it.pre}-${L.digits(4)}` };
+}));
+const setCell = (i, m, s) => {
+  const c = cells[i][m];
+  if (c.s === s) return;
+  c.s = s;
+  if (s === 0) { bg(c.b, DARK); fg(c.b, "sand"); L.set(c.b, "Pending"); op(c.e, 1); }
+  if (s === 1) { bg(c.b, "butter"); fg(c.b, "#000"); L.set(c.b, "On Bench"); }
+  if (s === 2) { bg(c.b, "olive"); fg(c.b, "#000"); L.set(c.b, c.serial); op(c.e, 1); }
+  recount();
+};
+
+// ---------------- the bench: the item under test ----------------
+L.header({ x: R0, y: 280, w: R1 - R0, label: "On the Bench  ·  Diagnostic", c1: "olive", c2: "sand" });
+L.text({ x: R0, base: 404, s: 36, c: "sand", txt: "Bench 2  ·  Main Armory" });
+const passedT = L.text({ x: R1, base: 404, s: 36, c: "white", txt: "", align: "r" });
+const BC = [R0, 2960, R1];
+const benchCols = (i, labels) => labels.map((txt, k) => {
+  L.text({ x: BC[k], base: rowB(i), s: 40, c: "sand", txt, align: k === 2 ? "r" : "l" });
+  return L.text({ x: BC[k], base: rowB(i + 1), s: 52, c: "white", txt: "", align: k === 2 ? "r" : "l" });
+});
+const [itemV, serialV, kitV] = benchCols(0, ["Item", "Serial", "Kit"]);
+const SGW = (R1 - R0 - 3 * 12) / 4;
+const seg = [0, 1, 2, 3].map((k) => {
+  const x = R0 + k * (SGW + 12);
+  const name = L.text({ x, base: rowB(2), s: 36, c: "peach", txt: "" });
+  L.rect({ x, y: rowY(3), w: SGW, h: 44, c: TRACK });
+  return { name, f: fill(x, rowY(3), SGW, 44, "olive") };
+});
+[["Test", R0, "l"], ["Reading", 2700, "l"], ["Spec", 2960, "l"], ["Result", R1 - 240, "l"]].forEach(([txt, x, align]) => L.text({ x, base: rowB(4), s: 36, c: "peach", txt, align }));
+const tests = [0, 1, 2, 3].map((k) => ({
+  name: L.text({ x: R0, base: rowB(5 + k), s: 40, c: "sand", txt: "" }),
+  val: L.text({ x: 2700, base: rowB(5 + k), s: 40, c: "white", txt: "" }),
+  spec: L.text({ x: 2960, base: rowB(5 + k), s: 40, c: "olive", txt: "" }),
+  res: L.box({ x: R1 - 240, y: rowY(5 + k), w: 240, h: 44, c: DARK, label: "", fs: 28, cls: "sw" }),
+}));
+const [resultV, stepV, elapsedV] = benchCols(9, ["Bench Result", "Step", "Elapsed"]);
+
+// ---------------- the power cell rack ----------------
+L.header({ x: L0, y: 1080, w: M1 - L0, label: "Power Cell Rack  ·  Charging", c1: "olive", c2: "sand" });
+L.text({ x: L0, base: 1204, s: 36, c: "sand", txt: "Type II Phaser Cells" });
+const chargedT = L.text({ x: M1, base: 1204, s: 36, c: "white", txt: "", align: "r" });
+const RCW = (M1 - L0 - 7 * 24) / 8, RY = 1232, RH = 228, RATE = 0.45;   // percent a second, steady
+const START = [100, 100, 100, 88, 100, 64, 100, 37].sort(() => Math.random() - 0.5);
+const rack = START.map((c, k) => {
+  const x = L0 + k * (RCW + 24);
+  L.rect({ x, y: RY, w: RCW, h: RH, c: TRACK, noalign: true });
+  const f = fill(x, RY, RCW, RH, "sand", "50% 100%");
+  return { f, c, st: "rack", since: 0, pct: L.text({ x: x + RCW / 2, base: 1528, s: 40, c: "white", txt: "", align: "c", w: RCW + 24 }) };
+});
+const takeCell = () => rack.filter((r) => r.st === "rack").reduce((a, b) => (!a || b.c > a.c ? b : a), null);
+
+// ---------------- environmental suits ----------------
+L.header({ x: MX[0], y: 1080, w: L1 - MX[0], label: "Environmental Suits  ·  Pressure Test", c1: "sand", c2: "olive" });
+const SUIT = 4, SROWS = ITEMS[SUIT].steps;
+const suits = TEAM.map((p, m) => {
+  const x = MX[m], r = x + MW;
+  L.text({ x, base: 1204, s: 36, c: "sand", txt: p.name });
+  const st = L.text({ x: r, base: 1204, s: 36, c: "white", txt: "", align: "r" });
+  L.rect({ x, y: 1232, w: MW, h: 26, c: TRACK });
+  const f = fill(x, 1232, MW, 26, "sand");
+  const vals = SROWS.map(([name], k) => {
+    L.text({ x, base: 1312 + k * PITCH, s: 36, c: "olive", txt: name });
+    return L.text({ x: r, base: 1312 + k * PITCH, s: 36, c: "white", txt: "", align: "r" });
+  });
+  L.text({ x, base: 1528, s: 36, c: "olive", txt: "Serial" });
+  L.text({ x: r, base: 1528, s: 36, c: "white", txt: cells[SUIT][m].serial, align: "r" });
+  return { st, f, vals };
+});
+
+// ---------------- the mission ----------------
+L.header({ x: R0, y: 1080, w: R1 - R0, label: "Mission Profile  ·  Celtris III", c1: "peach", c2: "sand" });
+[["Mission", "Reconnaissance"], ["Target", "Weapons Facility"], ["Location", "Celtris III"], ["Territory", "Cardassian Union"],
+ ["Transport", "Ferengi Vessel"], ["Entry", "Cave System"], ["Orders", "Vice Adm. Nechayev"]].forEach(([k, v], i) => {
+  L.text({ x: R0, base: 1204 + i * PITCH, s: 36, c: "sand", txt: k });
+  L.text({ x: 2560, base: 1204 + i * PITCH, s: 36, c: "white", txt: v });
+});
+const CHECK = ["Orders Received", "Cave Descent Drill", "Phasers Issued", "Tricorders Issued", "Suits Sealed", "Transponders Keyed", "Kits Complete"];
+const checks = CHECK.map((label, i) => L.box({ x: 2940, y: 1168 + i * PITCH, w: R1 - 2940, h: 44, c: DARK, label, fs: 28, cls: "sw lt" }));
+
+// ---------------- bottom strip: log, kit progress, stock ----------------
+L.header({ x: L0, y: 1620, w: M1 - L0, label: "Armory Log", c1: "sand", c2: "peach", h: 48 });
+const logRows = Array.from({ length: 6 }, (_, i) => ({
+  tm: L.text({ x: L0, base: 1734 + i * PITCH, s: 36, c: "olive", txt: "" }),
+  tx: L.text({ x: 200, base: 1734 + i * PITCH, s: 36, c: "sand", txt: "" }),
+}));
+function showLog() {
+  const last = log.slice(-6);
+  logRows.forEach((r, i) => { const e = last[i]; L.set(r.tm, e ? e[0] : ""); L.set(r.tx, e ? e[1] : ""); fg(r.tx, i === last.length - 1 ? "white" : "sand"); });
+}
+
+L.header({ x: MX[0], y: 1620, w: L1 - MX[0], label: "Away Team  ·  Kit Progress", c1: "olive", c2: "sand", h: 48 });
+const kits = TEAM.map((p, m) => {
+  const x = MX[m], r = x + MW;
+  L.text({ x, base: 1734, s: 36, c: "sand", txt: p.full });
+  const st = L.text({ x: r, base: 1734, s: 36, c: "white", txt: "", align: "r" });
+  L.rect({ x, y: 1762, w: MW, h: 26, c: TRACK });
+  const f = fill(x, 1762, MW, 26, "olive");
+  const row = (k, label, txt = "") => {
+    L.text({ x, base: 1842 + k * PITCH, s: 36, c: "olive", txt: label });
+    return L.text({ x: r, base: 1842 + k * PITCH, s: 36, c: "white", txt, align: "r" });
+  };
+  const items = row(0, "Items"), mass = row(1, "Kit Mass");
+  row(2, "Descent Drill", "Passed"); row(3, "Inoculations", "Current");
+  return { st, f, items, mass, n: 0, shown: 0, kg: 0 };
+});
+
+L.header({ x: R0, y: 1620, w: R1 - R0, label: "Armory Stock  ·  Deck 9", c1: "sand", c2: "olive", h: 48 });
+const SC = [[R0, "Item", "l"], [2860, "Total", "r"], [3080, "Issued", "r"], [3300, "Repair", "r"], [R1, "On Hand", "r"]];
+SC.forEach(([x, txt, align]) => L.text({ x, base: 1734, s: 36, c: "peach", txt, align }));
+const STOCK = [["Type II Phasers", [0], 48, 2], ["Phaser Power Cells", [1], 96, 4], ["Tricorders", [2], 24, 1],
+               ["Medical Tricorders", [3], 8, 0], ["Environmental Suits", [4], 30, 2]];
+const stock = STOCK.map(([name, rows, total, rep], k) => {
+  const base = 1788 + k * PITCH;
+  const t = SC.map(([x, , align], j) => L.text({ x, base, s: 36, c: j === 0 ? "sand" : "white", txt: "", align }));
+  L.set(t[0], name); L.set(t[1], total); L.set(t[3], rep);
+  return { rows, total, rep, t };
+});
+
+// ---------------- counting: everything below reads the matrix ----------------
+let issued = 0, kitsDone = 0;
+const rowIssued = ITEMS.map(() => 0);
+function recount() {
+  issued = 0; rowIssued.fill(0);
+  kits.forEach((k) => { k.n = 0; k.kg = 0; });
+  ITEMS.forEach((it, i) => TEAM.forEach((_, m) => {
+    const c = cells[i][m];
+    if (c && c.s === 2) { issued++; rowIssued[i]++; kits[m].n++; kits[m].kg += it.kg; }
+  }));
+  kitsDone = kits.filter((k, m) => k.n === PER[m]).length;
+  L.set(passedT, `Passed ${issued} of ${N}`);
+  L.set(pill, `Kits Complete  ${kitsDone} / 3`);
+  kits.forEach((k) => L.set(k.mass, k.kg.toFixed(1) + " kg"));
+  stock.forEach((s) => {
+    const n = s.rows.reduce((a, i) => a + rowIssued[i], 0);
+    L.set(s.t[2], n); L.set(s.t[4], s.total - s.rep - n);
+  });
+  const lit = [true, true, rowIssued[0] === 3, rowIssued[2] + rowIssued[3] === 3, rowIssued[SUIT] === 3, rowIssued[8] === 3, issued === N];
+  checks.forEach((b, i) => { bg(b, lit[i] ? "olive" : DARK); fg(b, lit[i] ? "#000" : "olive"); });
+}
+
+// ---------------- the checkout cycle ----------------
+const LOAD = 1.0, ISSUE = 0.9, HOLD = 40, SWEEP = 0.2;
+const cy = { phase: "check", k: 0, t0: 0, plan: null, start: 0, rechecks: 0 };
+const firstOf = (k) => k === 0 || ORDER[k - 1].m !== ORDER[k].m;
+const planFor = (k) => {
+  const d = [0, 1, 2, 3].map(() => L.rand(1.2, 1.7));
+  const load = firstOf(k) ? 2.6 : LOAD;                 // the next team member steps up to the bench
+  return { load, d, end: load + d.reduce((a, b) => a + b, 0), issued: false, cell: null };
+};
+// what the log records about a check, live or as found
+const onStart = (t, k) => { if (firstOf(k)) note(t, `${TEAM[ORDER[k].m].full} at Bench 2 for kit issue`); };
+const onIssue = (t, k, n) => {
+  const { m, i } = ORDER[k], c = cells[i][m], who = TEAM[m].full;
+  if (i === 0) note(t, `Type II phaser ${c.serial} issued, ${who}`);
+  if (i === SUIT) note(t, `Environmental suit ${c.serial} sealed, ${who}`);
+  if (n === PER[m]) note(t, `Kit complete, ${who}, ${PER[m]} items`);
+};
+let shownItem = -1;
+const loadBench = (k) => {
+  const { m, i } = ORDER[k], it = ITEMS[i];
+  shownItem = k;
+  L.set(itemV, it.name); L.set(serialV, cells[i][m].serial); L.set(kitV, TEAM[m].full);
+  it.steps.forEach(([name, , spec], j) => { L.set(seg[j].name, name); L.set(tests[j].name, name); L.set(tests[j].spec, spec); });
+};
+const startCheck = (t) => {
+  const k = cy.k, { m, i } = ORDER[k];
+  cy.t0 = t; cy.plan = planFor(k);
+  if (k === 0) cy.start = t;
+  if (i === 1) { cy.plan.cell = takeCell(); if (cy.plan.cell) cy.plan.cell.st = "bench"; }
+  setCell(i, m, 1);
+  loadBench(k);
+  onStart(t, k);
+};
+const readingOf = (k, j) => {
+  const { i } = ORDER[k];
+  if (i === 1 && j === 0 && cy.plan && cy.plan.cell) return Math.round(cy.plan.cell.c) + "%";
+  return ITEMS[i].steps[j][1];
+};
+// where the current check stands: step j (0–3, 4 = passed) and progress p through it
+const where = (t) => {
+  const pl = cy.plan, u = t - cy.t0;
+  if (cy.phase !== "check" || !pl) return { j: 4, p: 1, u };
+  if (u < pl.load) return { j: -1, p: 0, u };
+  let a = pl.load;
+  for (let j = 0; j < 4; j++) { if (u < a + pl.d[j]) return { j, p: (u - a) / pl.d[j], u }; a += pl.d[j]; }
+  return { j: 4, p: 1, u };
+};
+
+L.tick((t) => {
+  if (cy.phase === "check") {
+    if (!cy.plan) startCheck(t);
+    const pl = cy.plan, u = t - cy.t0, { m, i } = ORDER[cy.k];
+    if (u >= pl.end && !pl.issued) {
+      pl.issued = true;
+      if (pl.cell) { pl.cell.st = "out"; pl.cell.since = t; }
+      setCell(i, m, 2);
+      onIssue(t, cy.k, kits[m].n);
+    }
+    if (u >= pl.end + ISSUE) {
+      if (cy.k === N - 1) {
+        cy.phase = "ready"; cy.t0 = t; cy.total = t - cy.start;
+        note(t, "All three kits issued, away team ready to depart");
+      } else { cy.k++; startCheck(t); }
+    }
+  } else if (cy.phase === "ready") {
+    if (t - cy.t0 >= HOLD) {
+      cy.phase = "recheck"; cy.t0 = t; cy.rechecks++;
+      note(t, cy.rechecks % 2 ? "Full recheck ordered before departure, Lt. Worf" : "Kits returned to Bench 2 for recheck, Lt. Worf");
+    }
+  } else {
+    const u = t - cy.t0;
+    ORDER.forEach(({ m, i }, k) => { if (u >= k * SWEEP) setCell(i, m, 0); });
+    if (u >= N * SWEEP + 2.5) { cy.phase = "check"; cy.k = 0; startCheck(t); }
+  }
+
+  // ---- the bench ----
+  const w = where(t);
+  const k = cy.k;
+  for (let s = 0; s < 4; s++) {
+    const v = s < w.j ? 1 : s === w.j ? L.clamp(w.p) : 0;
+    tf(seg[s].f, `scaleX(${v.toFixed(4)})`);
+    bg(seg[s].f, s < w.j ? "olive" : "butter");
+    const tt = tests[s];
+    L.set(tt.val, s < w.j ? readingOf(k, s) : "—");
+    const r = s < w.j ? ["olive", "#000", "Pass"] : s === w.j ? ["butter", "#000", "Testing"] : [DARK, "sand", "Pending"];
+    bg(tt.res, r[0]); fg(tt.res, r[1]); L.set(tt.res, r[2]);
+  }
+  if (cy.phase === "check" && cy.plan) {
+    const pl = cy.plan, done = w.u >= pl.end;
+    L.set(resultV, w.j < 0 ? "Loading" : !done ? "Testing" : w.u >= pl.end + 0.3 ? "Issued" : "Passed");
+    fg(resultV, done ? "olive" : w.j < 0 ? "white" : "butter");
+    L.set(stepV, `${Math.max(1, Math.min(4, w.j + 1))} of 4`);
+    L.set(elapsedV, mmss(w.u));
+  } else {
+    L.set(resultV, cy.phase === "ready" ? "All Kits Issued" : "Recheck"); fg(resultV, cy.phase === "ready" ? "olive" : "butter");
+    L.set(stepV, "4 of 4");
+    L.set(elapsedV, mmss(cy.total || 0));
+  }
+
+  // ---- the current cell breathes; its row and kit are picked out ----
+  const cur = cy.phase === "check" ? ORDER[cy.k] : null;
+  ITEMS.forEach((_, i) => fg(itemT[i], cur && cur.i === i ? "white" : "sand"));
+  TEAM.forEach((_, m) => fg(memberHd[m], cur && cur.m === m ? "butter" : "peach"));
+  if (cur) { const c = cells[cur.i][cur.m]; if (c.s === 1) op(c.e, 0.74 + 0.26 * (0.5 + 0.5 * Math.cos(t * 2.4))); }
+
+  // ---- the rack: cells charge at a steady rate; one goes to the bench, is issued, a spent one comes back ----
+  let charged = 0;
+  rack.forEach((r) => {
+    if (r.st === "rack") r.c = Math.min(100, r.c + RATE / 30);
+    if (r.st === "out" && t - r.since > 12) { r.st = "back"; r.since = t; r.c = L.rand(14, 28); }
+    if (r.st === "back") { r.st = t - r.since > 1.6 ? "rack" : "back"; }
+    const show = r.st !== "out";
+    tf(r.f, `scaleY(${(show ? r.c / 100 : 0).toFixed(4)})`);
+    op(r.f, r.st === "back" ? L.ease(L.clamp((t - r.since) / 1.6)) : 1);
+    const full = r.st === "rack" && r.c >= 100;
+    if (full) charged++;
+    bg(r.f, r.st === "bench" ? "butter" : full ? "olive" : "sand");
+    L.set(r.pct, r.st === "out" ? "Issued" : Math.floor(r.c) + "%");
+    fg(r.pct, r.st === "out" ? "olive" : r.st === "bench" ? "butter" : "white");
+  });
+  L.set(chargedT, `Charged  ${charged} / ${rack.length}`);
+
+  // ---- the suits follow their matrix cells ----
+  suits.forEach((s, m) => {
+    const c = cells[SUIT][m];
+    const testing = c.s === 1 && cur && cur.i === SUIT && cur.m === m;
+    const v = c.s === 2 ? 1 : testing ? (w.j < 0 ? 0 : (Math.min(4, w.j) + (w.j < 4 ? w.p : 0)) / 4) : 0;
+    tf(s.f, `scaleX(${v.toFixed(4)})`);
+    bg(s.f, c.s === 2 ? "olive" : "butter");
+    L.set(s.st, c.s === 2 ? "Sealed" : testing ? "Testing" : "In Locker");
+    fg(s.st, c.s === 2 ? "olive" : testing ? "butter" : "sand");
+    s.vals.forEach((e, j) => L.set(e, c.s === 2 || (testing && j < w.j) ? SROWS[j][1] : "—"));
+  });
+
+  // ---- kit progress: the count is read from the bar, so they agree ----
+  kits.forEach((kt, m) => {
+    const d = kt.n - kt.shown;
+    kt.shown = Math.abs(d) < 0.01 ? kt.n : kt.shown + d * 0.08;
+    tf(kt.f, `scaleX(${(kt.shown / PER[m]).toFixed(4)})`);
+    const n = Math.round(kt.shown);
+    L.set(kt.items, `${n} / ${PER[m]}`);
+    const word = n === PER[m] ? "Ready" : cur && cur.m === m ? "At Bench" : cy.phase === "recheck" && n > 0 ? "Returning" : "Waiting";
+    L.set(kt.st, word);
+    fg(kt.st, word === "Ready" ? "olive" : word === "At Bench" ? "butter" : "sand");
+  });
+});
+
+// ---------------- routine entries in the log ----------------
+const ROUTINE = ["Phaser range qualification logged, Deck 9", "Armory forcefield cycled and verified",
+  "Type III phaser rifles inventoried, no discrepancies", "Holodeck 3 cave descent program saved",
+  "Weapons locker 4 sealed, Security", "Tricorder theta-band filters updated, Science",
+  "Power cell rack 2 recharge cycle nominal", "Armory access log reviewed, Security",
+  "Rendezvous coordinates received, Operations", "Phaser emitter crystals restocked, Bench 1"];
+let routineDeck = [];
+const routine = (t) => { if (!routineDeck.length) routineDeck = ROUTINE.slice().sort(() => Math.random() - 0.5); note(t, routineDeck.pop()); };
+
+// ---------------- the checkout as found: part way through ----------------
+const k0 = L.irand(5, 21), STEP = 7.4;
+const tStart = -k0 * STEP - 8;
+note(tStart - 150, "Kit list for Celtris III approved, Capt. Picard");
+routine(tStart - 95);
+note(tStart - 40, "Bench 2 opened for away team checkout");
+const n0 = [0, 0, 0];
+ORDER.forEach(({ m, i }, k) => { cells[i][m].s = -1; });
+for (let k = 0; k < k0; k++) {
+  const tk = tStart + k * STEP, { m, i } = ORDER[k];
+  onStart(tk, k);
+  cells[i][m].s = 2; n0[m]++;
+  bg(cells[i][m].b, "olive"); fg(cells[i][m].b, "#000"); L.set(cells[i][m].b, cells[i][m].serial);
+  if (k === Math.floor(k0 / 2)) routine(tk + 3);
+  onIssue(tk + STEP - 1, k, n0[m]);
+}
+ORDER.forEach(({ m, i }, k) => { if (k >= k0) setCell(i, m, 0); });
+recount();
+kits.forEach((kt) => (kt.shown = kt.n));
+cy.k = k0; cy.start = tStart;
+logReady = true; showLog();
+later(34000, routine, 0.3);
+
+// ---------------- status ----------------
+let shownWord = "";
+L.every(250, () => {
+  const word = cy.phase === "ready" ? "Ready" : cy.phase === "recheck" ? "Recheck" : "Checkout";
+  if (word !== shownWord) {
+    shownWord = word; L.set(stateTxt, word);
+    fg(stateTxt, word === "Ready" ? "olive" : word === "Recheck" ? "butter" : "sand");
+    sub.style.left = L0 + L.textWidth(word, BIG) + 56 + "px";
+  }
+  L.set(sub, cy.phase === "ready" ? "Three kits issued and sealed  ·  Main Armory, Deck 9  ·  Stardate 46357.4"
+    : cy.phase === "recheck" ? "Kits returned to Bench 2 for a full recheck  ·  Main Armory, Deck 9  ·  Stardate 46357.4"
+    : "Away Team Celtris III  ·  Bench 2, Main Armory, Deck 9  ·  Stardate 46357.4");
+  bg(pill, kitsDone === 3 ? "olive" : "sand");
+}, 0);
+});
+</script></body></html>

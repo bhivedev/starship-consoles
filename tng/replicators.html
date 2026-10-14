@@ -1,0 +1,687 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Replicator Systems</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* text that is swapped fades out and back in; colors change slowly; .boot (the start-up cascade) always wins */
+  .sw { transition: opacity .45s ease, background-color 1.2s ease, color 1.2s ease; }
+  .out:not(.boot) { opacity: .25; }   /* a row dips while its order changes, never goes empty */
+  .cell { transition: opacity .8s ease; }
+  .seg { transition: transform 1.4s cubic-bezier(.45, 0, .55, 1); }
+  .clip { overflow: hidden; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: sidebar left, title top right ----------------
+const BAR = 64;
+L.title({ x: 3700, y: 40, h: BAR, c: "peach", txt: "Replicator Systems  •  Food and Matter Synthesis" });
+// (L.title measures with a canvas, which sets this line ~11px wider than the page draws it; use the page's own width)
+const titleLeft = 3700 - document.querySelector("[data-title]").offsetWidth;
+L.box({ x: 3724, y: 40, w: 92, h: BAR, c: "pink", r: "r" });
+L.elbow({ corner: "tl", x: 40, y: 40, w: 1360, h: 250, bw: 240, bh: BAR, R: 150, r: 60, c: "pink" });
+L.rect({ x: 1400 + L.GAP, y: 40, w: 300, h: BAR, c: "butter" });
+L.rect({ x: 1724 + L.GAP, y: 40, w: titleLeft - L.GAP - (1724 + L.GAP), h: BAR, c: "pink" });
+[[298, 140, "lilac", "Rep 10"], [446, 70, "butter", "Food"], [524, 420, "pink", "Network"], [952, 70, "peach", "Matter"],
+ [1030, 300, "lilac", "Patterns"], [1338, 70, "butter", "Energy"], [1416, 216, "pink", "Reclaim"]]
+  .forEach(([y, h, c, label]) => L.box({ x: 40, y, w: 240, h, c, label }));
+L.elbow({ corner: "bl", x: 40, y: 1640, w: 1500, h: 480, bw: 240, bh: BAR, R: 150, r: 60, c: "lilac" });
+L.text({ x: 258, base: 1712, s: 40, c: "#000", txt: "Synthesis", align: "r", on: true });
+[[1540 + L.GAP, 600, "pink"], [2164 + L.GAP, 900, "butter"], [3088 + L.GAP, 3700 - (3088 + L.GAP), "lilac"]]
+  .forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
+L.box({ x: 3724, y: 2056, w: 92, h: BAR, c: "pink", r: "r" });
+
+// a section header: a rounded box and a bar to the column's edge; returns where the bar starts
+const header = (x, y, w, label, c1, c2, h = 56, fs = 32, lw) => {
+  lw = lw || Math.round((L.textWidth(label, fs) + 64) / 10) * 10;
+  L.box({ x, y, w: lw, h, c: c1, label, fs, r: "l" });
+  L.rect({ x: x + lw + L.GAP, y, w: w - lw - L.GAP, h, c: c2 });
+  return x + lw + L.GAP;
+};
+const small = (x, y, w, label, c1, c2, lw) => header(x, y, w, label, c1, c2, 48, 28, lw);
+const fill = (x, y, w, h, c, origin = "0 0", parent) => {
+  const f = L.layer({ x, y, w, h }, parent);
+  f.style.background = c.startsWith("#") ? c : `var(--${c})`; f.style.transformOrigin = origin;
+  return f;
+};
+const cls = (e, ...c) => (e.classList.add(...c), e);
+// write only what changed: an unchanged reading costs nothing
+const put = (e, txt) => { if (e.textContent !== txt) e.textContent = txt; };
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const op = (e, v) => { v = v.toFixed(2); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const bg = (e, c) => { if (e._bg !== c) { e._bg = c; e.style.background = c.startsWith("#") ? c : `var(--${c})`; } };
+const fg = (e, c) => { if (e._fg !== c) { e._fg = c; e.style.color = c.startsWith("#") ? c : `var(--${c})`; } };
+const fmt = (n) => Math.round(n).toLocaleString("en");
+const D2 = (d) => String(d).padStart(2, "0");
+const later = (ms, f, jitter) => L.every(ms, (t) => { if (t > 1) f(t); }, jitter);   // not at once: first after a while
+
+// Columns: left 330–1530, middle 1590–2730 (the synthesis chamber), right 2790–3816.
+const LX = 330, LR = 1530, MX = 1590, MR = 2730, RX = 2790, RR = 3816;
+const ROW0 = 428, PITCH = 88, rowBase = (i) => ROW0 + i * PITCH + 52.5;   // rows of 64 on an 88 grid, left and right
+const TRACK = "#2a1a30";                                                   // the dark of an empty gauge
+
+// ---------------- what the ship asks for ----------------
+// The six stocks a replicator draws on, in the order of the reserves table and every composition.
+const MATTER = [["Water", "lilac", "Water"], ["Organic Suspension", "peach", "Organic"], ["Carbon Polymer", "plum", "Carbon"],
+                ["Silicates", "pink", "Silicate"], ["Metallic Stock", "butter", "Metal"], ["Trace Elements", "tan", "Trace"]];
+const FOOD = ["Ten Forward 1", "Ten Forward 3", "Quarters 0812", "Quarters 0901", "Quarters 1704", "Quarters 2511",
+              "Quarters 0603", "Crew Lounge", "Observation Lounge"];
+const DECK = { "Ready Room": 1, "Observation Lounge": 1, "Ten Forward 1": 10, "Ten Forward 3": 10, "Crew Lounge": 15,
+  "Sickbay": 12, "Main Engineering": 36, "Replicator Shop": 27, "Security Office": 8, "Battle Bridge": 8,
+  "Schoolroom 4": 18, "Stellar Cartography": 4 };
+const deckOf = (loc) => DECK[loc] || +loc.slice(-4, -2);
+// [order, shape, composition by mass %, kg, served at, how often, pattern, gradient top/bottom, liquid, returned as, where]
+const ITEMS = [
+  ["Tea, Earl Grey, hot", "cup", [60, 4, 0, 34, 0, 2], 0.46, "68 °C", 14, "31-0417", ["white", "lilac"], "#7a3f16", "Teacup and saucer", ["Ready Room", "Ready Room", ...FOOD]],
+  ["Raktajino", "mug", [56, 8, 0, 34, 0, 2], 0.52, "74 °C", 12, "31-2209", ["peach", "plum"], "#3a2012", "Mug", ["Security Office", "Battle Bridge", ...FOOD]],
+  ["Coffee, black", "mug", [58, 6, 0, 34, 0, 2], 0.50, "71 °C", 10, "31-0388", ["butter", "peach"], "#2a170c", "Mug", FOOD],
+  ["Plomeek soup", "bowl", [54, 16, 0, 28, 0, 2], 0.74, "71 °C", 8, "22-1146", ["pink", "plum"], "#c9692a", "Soup bowl", FOOD],
+  ["Chocolate sundae", "sundae", [22, 46, 0, 30, 0, 2], 0.58, "-11 °C", 6.5, "48-0912", ["pink", "lilac"], "", "Sundae glass", ["Schoolroom 4", ...FOOD]],
+  ["Synthehol, Saurian brandy", "bottle", [46, 6, 0, 46, 0, 2], 0.98, "14 °C", 5, "39-5521", ["lilac", "plum"], "", "Bottle, empty", ["Ten Forward 1", "Ten Forward 3", "Crew Lounge"]],
+  ["Prune juice", "glass", [66, 10, 0, 22, 0, 2], 0.38, "6 °C", 3.2, "31-7740", ["peach", "pink"], "#3b1228", "Glass", ["Security Office", "Ten Forward 1", "Quarters 0712"]],
+  ["Hot chocolate", "mug", [60, 8, 0, 30, 0, 2], 0.54, "66 °C", 3, "31-1023", ["pink", "peach"], "#4a2616", "Mug", ["Schoolroom 4", ...FOOD]],
+  ["Gagh", "bowl", [14, 58, 0, 0, 26, 2], 0.86, "9 °C", 1.6, "56-0081", ["butter", "tan"], "#5a3a2a", "Serving bowl", ["Quarters 0712", "Security Office", "Ten Forward 3"]],
+  ["Rokeg blood pie", "pie", [12, 60, 0, 26, 0, 2], 0.92, "62 °C", 1.4, "56-0213", ["peach", "tan"], "", "Pie dish", ["Quarters 0712", "Ten Forward 3"]],
+  ["Spare isolinear chip", "chip", [0, 0, 4, 66, 26, 4], 0.03, "21 °C", 1.8, "07-4410", ["lilac", "pink"], "", "Isolinear chip, fused", ["Main Engineering", "Replicator Shop", "Stellar Cartography"]],
+  ["Uniform, size 4", "uniform", [0, 14, 78, 0, 4, 4], 1.12, "21 °C", 1.5, "12-0604", ["butter", "peach"], "", "Uniform, worn", ["Quarters 0812", "Quarters 1704", "Quarters 2511", "Quarters 0603"]],
+  ["Hypospray cartridge", "cartridge", [40, 10, 0, 22, 26, 2], 0.06, "4 °C", 1.2, "18-3307", ["lilac", "butter"], "", "Cartridge, spent", ["Sickbay"]],
+].map(([name, shape, comp, kg, temp, w, pat, grad, liquid, ret, where]) => ({ name, shape, comp, kg, temp, w, pat, grad, liquid, ret, where }));
+const pickItem = () => {
+  let r = Math.random() * ITEMS.reduce((a, it) => a + it.w, 0), i = 0;
+  while ((r -= ITEMS[i].w) > 0) i++;
+  return ITEMS[i];
+};
+
+// ---------------- status line ----------------
+const STATE = "Replicators Online";
+L.text({ x: LX, cap: 150, s: 100, c: "pink", txt: STATE });
+const stateSub = L.text({ x: MX, base: 222, s: 38, c: "peach", txt: "" });          // on the chamber column's line
+L.box({ x: RR - 400, y: 150, w: 400, h: 72, c: "lilac", label: "Network Nominal", r: "lr", fs: 36 });
+
+// ---------------- the cycle of one order ----------------
+// Pattern retrieval 0–3 s, matter conversion 3–6.5 s, materialization 6.5–10 s, then complete.
+const STAGES = [[0, 3, "Pattern", "lilac"], [3, 6.5, "Converting", "pink"], [6.5, 10, "Materializing", "butter"]];
+const DONE = 10, HOLD = 11.6, GONE = 12.2;                 // the chamber holds the finished object, then clears
+const stageAt = (u) => (u < 3 ? 0 : u < 6.5 ? 1 : u < DONE ? 2 : 3);
+
+// ---------------- active replicators ----------------
+const ORDX = header(LX, 280, LR - LX, "Active Replicators", "pink", "lilac", 56, 32, 300);   // 654: the order column
+const SEGX = 1040, SEGW = 60, SEGG = 8, PILLX = 1280;
+[["Replicator", LX], ["Order", ORDX], ["Stage", PILLX]].forEach(([txt, x]) => L.text({ x, base: 400, s: 36, c: "lilac", txt }));
+L.text({ x: SEGX + (3 * SEGW + 2 * SEGG) / 2, base: 400, s: 36, c: "lilac", txt: "Progress", align: "c", w: 3 * SEGW + 2 * SEGG });   // centred on its gauges
+const slots = Array.from({ length: 6 }, (_, i) => {
+  const y = ROW0 + i * PITCH, base = rowBase(i);
+  const loc = L.box({ x: LX, y, w: 300, h: 64, c: "lilac", label: "", fs: 32, r: "l", cls: "sw" });
+  const item = L.text({ x: ORDX, base, s: 40, c: "white", txt: "", cls: "sw" });
+  const segs = STAGES.map(([, , , c], k) => {
+    const x = SEGX + k * (SEGW + SEGG);
+    L.rect({ x, y: base - 26, w: SEGW, h: 26, c: TRACK });
+    return cls(fill(x, base - 26, SEGW, 26, c), "sw");
+  });
+  const pill = L.box({ x: PILLX, y, w: LR - PILLX, h: 64, c: "lilac", label: "", fs: 32, r: "lr", cls: "sw" });
+  return { i, loc, item, segs, pill, order: null, t0: 0, linger: 0, phase: "run", fadeT: 0, stage: -2, done: false, mon: false };
+});
+const rowEls = (s) => [s.loc, s.item, s.pill, ...s.segs];
+
+// ---------------- the synthesis chamber ----------------
+header(MX, 280, MR - MX, "Matter Synthesis", "butter", "pink");
+const monLoc = cls(L.text({ x: MX, base: 400, s: 40, c: "butter", txt: "" }), "sw");
+const monNum = cls(L.text({ x: MR, base: 400, s: 40, c: "peach", txt: "", align: "r" }), "sw");
+const CHAMBER = "#170e1d", ALCOVE = "#22152b";
+L.rect({ x: MX, y: 428, w: MR - MX, h: 732, c: CHAMBER, panel: true });
+const OBJ = { x: 1900, y: 532, w: 520, h: 566 };          // the alcove; the object stands on its floor
+const OW = OBJ.w, OH = OBJ.h, MAXW = 450, MAXH = 500, K = 0.24;   // K: how far down we look at it
+L.svg("rect", { x: OBJ.x, y: OBJ.y, width: OBJ.w, height: OBJ.h, fill: ALCOVE, class: "boot" });
+L.svg("rect", { x: OBJ.x - 20, y: OBJ.y - 22, width: OBJ.w + 40, height: 10, rx: 5, fill: "#4a3058", class: "boot" });   // emitter
+L.svg("rect", { x: OBJ.x - 20, y: OBJ.y + OBJ.h + 8, width: OBJ.w + 40, height: 16, rx: 8, fill: "#4a3058", class: "boot" });  // pad
+const padGlow = fill(OBJ.x - 20, OBJ.y + OBJ.h + 8, OBJ.w + 40, 16, "butter");
+padGlow.style.borderRadius = "8px"; padGlow.style.opacity = 0;
+const emitGlow = fill(OBJ.x - 20, OBJ.y - 22, OBJ.w + 40, 10, "lilac");
+emitGlow.style.borderRadius = "5px"; emitGlow.style.opacity = 0;
+const monName = cls(L.text({ x: 2160, base: 492, s: 52, c: "white", txt: "", align: "c", w: 1000 }), "sw");
+// four readings either side of the alcove
+const SIDE = [["Layer", 1630, ""], ["Mass", 1630, ""], ["Serve At", 1630, ""], ["Resolution", 1630, ""],
+              ["Pattern", 2690, "r"], ["Energy", 2690, "r"], ["Matter Stream", 2690, "r"], ["Phase Variance", 2690, "r"]];
+const side = SIDE.map(([name, x, align], i) => {
+  const k = i % 4;
+  L.text({ x, base: 492 + k * 150, s: 40, c: "lilac", txt: name, align });
+  return L.text({ x, base: 554 + k * 150, s: 52, c: "white", txt: "", align });
+});
+put(side[3], "Molecular");
+
+// The object: a solid (revealed from the floor up by lifting a cover the alcove's colour), the bright
+// pattern wireframe over it, and a canvas of glints for the matter stream.
+const NS = "http://www.w3.org/2000/svg";
+const svgIn = (parent) => {
+  const s = document.createElementNS(NS, "svg");
+  s.setAttribute("viewBox", `0 0 ${OW} ${OH}`); s.setAttribute("width", OW); s.setAttribute("height", OH);
+  Object.assign(s.style, { position: "absolute", left: "0", top: "0", overflow: "visible" });
+  parent.appendChild(s); return s;
+};
+const clip = L.layer({ x: OBJ.x, y: OBJ.y, w: OW, h: OH, cls: "clip" });
+const solidSvg = svgIn(clip);
+const cover = L.el("div", "layer", clip, { left: 0, top: 0, width: OW + "px", height: OH + 40 + "px", background: ALCOVE });
+const front = L.el("div", "layer", clip, { left: 0, top: 0, width: OW + "px", height: "6px",
+  background: "linear-gradient(to right, rgba(255,204,102,0), rgba(255,204,102,.95) 18%, rgba(255,240,210,1) 50%, rgba(255,204,102,.95) 82%, rgba(255,204,102,0))" });
+front.style.transformOrigin = "50% 50%"; front.style.opacity = 0;
+const wire = L.layer({ x: OBJ.x, y: OBJ.y, w: OW, h: OH });
+const wireSvg = svgIn(wire);
+wireSvg.style.color = "var(--lilac)"; wire.style.opacity = 0;
+const sparkL = L.layer({ x: OBJ.x, y: OBJ.y, w: OW, h: OH });
+const spark = L.canvas({ x: 0, y: 0, w: OW, h: OH }, sparkL);
+const scan = L.layer({ x: OBJ.x, y: OBJ.y, w: OW, h: 4 });
+scan.style.background = "linear-gradient(to right, rgba(199,160,216,0), rgba(199,160,216,.9) 15%, rgba(199,160,216,.9) 85%, rgba(199,160,216,0))";
+scan.style.opacity = 0;
+
+solidSvg.innerHTML = `<defs>
+  <linearGradient id="rg" gradientUnits="userSpaceOnUse" x1="0" y1="40" x2="0" y2="${OH}">
+    <stop id="rg0" offset="0"/><stop id="rg1" offset="1"/></linearGradient>
+  <linearGradient id="rs" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0" stop-color="#000" stop-opacity=".42"/><stop offset=".3" stop-color="#fff" stop-opacity=".14"/>
+    <stop offset=".55" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".5"/></linearGradient>
+</defs>`;
+const f1 = (v) => v.toFixed(1);
+const ARC = (cx, y, r, front) => `M${f1(cx - r)},${f1(y)} A${f1(r)},${f1(r * K)} 0 0 ${front ? 0 : 1} ${f1(cx + r)},${f1(y)}`;
+// a turned object, from its profile: [height, radius] from the foot up
+function lathe(P, o = {}) {
+  const H = P[P.length - 1][0], R = Math.max(...P.map((p) => p[1])), hx = o.handle ? o.handle[2] : 0;
+  const s = Math.min(MAXW / (2 * R + hx), MAXH / (H + 2 * R * K));
+  const cx = OW / 2 - (hx * s) / 2, Y0 = OH - 8 - P[0][1] * s * K, y = (h) => Y0 - h * s;
+  const r = (h) => {
+    for (let i = 1; i < P.length; i++) if (h <= P[i][0]) {
+      const [h0, r0] = P[i - 1], [h1, r1] = P[i];
+      return (r0 + ((r1 - r0) * (h - h0)) / Math.max(1e-6, h1 - h0)) * s;
+    }
+    return P[P.length - 1][1] * s;
+  };
+  // the solid: the cross-sections at every turn of the profile, and the outline between them
+  let body = `M${f1(cx - P[0][1] * s)},${f1(y(0))}`;
+  for (const [h, rr] of P) body += ` L${f1(cx - rr * s)},${f1(y(h))}`;
+  const rT = P[P.length - 1][1] * s;
+  if (rT > 0.5) body += ` A${f1(rT)},${f1(rT * K)} 0 0 1 ${f1(cx + rT)},${f1(y(H))}`;
+  for (let i = P.length - 1; i >= 0; i--) body += ` L${f1(cx + P[i][1] * s)},${f1(y(P[i][0]))}`;
+  const r0 = P[0][1] * s;
+  body += ` A${f1(r0)},${f1(r0 * K)} 0 0 1 ${f1(cx - r0)},${f1(y(0))} Z`;
+  const discs = P.filter((p) => p[1] > 0).map(([h, rr]) =>
+    `<ellipse cx="${f1(cx)}" cy="${f1(y(h))}" rx="${f1(rr * s)}" ry="${f1(rr * s * K)}"/>`).join("");
+  let handle = "";
+  if (o.handle) {
+    const [ha, hb] = o.handle, xr = cx + R * s + hx * s * 0.8;
+    handle = `M${f1(cx + r(ha) - 4)},${f1(y(ha))} C${f1(xr)},${f1(y(ha))} ${f1(xr)},${f1(y(hb))} ${f1(cx + r(hb) - 4)},${f1(y(hb))}`;
+  }
+  // the pattern: layers (cross-sections) and meridians
+  const hs = [...new Set([...P.map((p) => p[0]), ...Array.from({ length: 15 }, (_, i) => (H * i) / 14)])].sort((a, b) => a - b);
+  let backs = "", fronts = "", mer = "";
+  for (const h of hs) { const rr = r(h); if (rr < 1) continue; backs += ARC(cx, y(h), rr, false); fronts += ARC(cx, y(h), rr, true); }
+  for (const th of [-90, -60, -30, 0, 30, 60, 90]) {
+    const sn = Math.sin((th * Math.PI) / 180), cs = Math.cos((th * Math.PI) / 180);
+    mer += hs.map((h, i) => `${i ? "L" : "M"}${f1(cx + r(h) * sn)},${f1(y(h) + r(h) * K * cs)}`).join("");
+  }
+  const top = o.open ? `<ellipse cx="${f1(cx)}" cy="${f1(y(H))}" rx="${f1(rT)}" ry="${f1(rT * K)}" fill="url(#rg)"/>
+    <ellipse class="liq" cx="${f1(cx)}" cy="${f1(y(H) + rT * K * 0.18)}" rx="${f1(rT * 0.86)}" ry="${f1(rT * K * 0.8)}"/>` : "";
+  return {
+    solid: (handle ? `<path d="${handle}" fill="none" stroke="url(#rg)" stroke-width="${f1(20 * s)}" stroke-linecap="round"/>` : "") +
+      `<g fill="url(#rg)">${discs}<path d="${body}"/></g><path d="${body}" fill="url(#rs)"/>${top}
+      <path d="${fronts}${mer}" fill="none" stroke="#000" stroke-opacity=".2" stroke-width="2"/>`,
+    wire: `<path d="${backs}" opacity=".32"/><path d="${fronts}${mer}${handle}"/>`,
+    top: y(H) - rT * K - 2, y0: OH - 8, hpx: OH - 8 - (y(H) - rT * K),
+    yAt: (hf) => y(hf * H), span: (hf) => [cx - r(hf * H), cx + r(hf * H)], ry: (hf) => r(hf * H) * K,
+  };
+}
+// a block (a chip standing on edge, a folded uniform), seen from a little above and to the left
+function block(w, d, h, o = {}) {
+  const dx = d * 0.55, dy = d * 0.32, s = Math.min(MAXW / (w + dx), MAXH / (h + dy));
+  const W = w * s, D = dx * s, E = dy * s, HH = h * s, x0 = OW / 2 - (W + D) / 2, Y0 = OH - 8;
+  const P = (pts) => "M" + pts.map(([a, b]) => `${f1(a)},${f1(b)}`).join(" L") + " Z";
+  const frontF = P([[x0, Y0], [x0 + W, Y0], [x0 + W, Y0 - HH], [x0, Y0 - HH]]);
+  const sideF = P([[x0 + W, Y0], [x0 + W + D, Y0 - E], [x0 + W + D, Y0 - E - HH], [x0 + W, Y0 - HH]]);
+  const topF = P([[x0, Y0 - HH], [x0 + W, Y0 - HH], [x0 + W + D, Y0 - HH - E], [x0 + D, Y0 - HH - E]]);
+  let lines = "";
+  for (let i = 1; i < 14; i++) { const yy = Y0 - (HH * i) / 14; lines += `M${f1(x0)},${f1(yy)} H${f1(x0 + W)} L${f1(x0 + W + D)},${f1(yy - E)}`; }
+  for (let i = 1; i < 4; i++) { const xx = x0 + (W * i) / 4; lines += `M${f1(xx)},${f1(Y0)} V${f1(Y0 - HH)} L${f1(xx + D)},${f1(Y0 - HH - E)}`; }
+  for (let i = 1; i < 3; i++) { const k = i / 3; lines += `M${f1(x0 + D * k)},${f1(Y0 - HH - E * k)} H${f1(x0 + W + D * k)}`; }
+  const edges = frontF + sideF + topF;
+  const back = `M${f1(x0)},${f1(Y0)} L${f1(x0 + D)},${f1(Y0 - E)} H${f1(x0 + W + D)} M${f1(x0 + D)},${f1(Y0 - E)} V${f1(Y0 - E - HH)}`;
+  let extra = "";
+  if (o.chip) extra = `<rect x="${f1(x0 + W * 0.1)}" y="${f1(Y0 - HH * 0.13)}" width="${f1(W * 0.8)}" height="${f1(HH * 0.07)}" fill="var(--butter)"/>
+    <path d="M${f1(x0 + W * 0.3)},${f1(Y0 - HH * 0.2)} V${f1(Y0 - HH * 0.75)} M${f1(x0 + W * 0.5)},${f1(Y0 - HH * 0.2)} V${f1(Y0 - HH * 0.85)} M${f1(x0 + W * 0.7)},${f1(Y0 - HH * 0.2)} V${f1(Y0 - HH * 0.65)}" stroke="#000" stroke-opacity=".3" stroke-width="5"/>`;
+  if (o.uniform) {                                          // the black shoulders of a TNG uniform, and the collar
+    const yT = Y0 - HH;
+    extra = `<path d="${P([[x0 + D * 0.45, yT - E * 0.45], [x0 + W + D * 0.45, yT - E * 0.45], [x0 + W + D, yT - E], [x0 + D, yT - E]])}" fill="#1a1416"/>
+      <path d="${P([[x0 + W, yT], [x0 + W + D * 0.45, yT - E * 0.45], [x0 + W + D * 0.45, yT - E * 0.45 + HH * 0.3], [x0 + W, yT + HH * 0.3]])}" fill="#1a1416"/>
+      <path d="M${f1(x0 + W * 0.36 + D * 0.7)},${f1(yT - E * 0.7)} L${f1(x0 + W * 0.5 + D * 0.42)},${f1(yT - E * 0.42)} L${f1(x0 + W * 0.64 + D * 0.7)},${f1(yT - E * 0.7)}" fill="none" stroke="var(--butter)" stroke-width="5"/>`;
+  }
+  return {
+    solid: `<path d="${frontF}" fill="url(#rg)"/><path d="${sideF}" fill="url(#rg)"/><path d="${sideF}" fill="#000" fill-opacity=".3"/>
+      <path d="${topF}" fill="url(#rg)"/><path d="${topF}" fill="#fff" fill-opacity=".16"/>${extra}
+      <path d="${lines}" fill="none" stroke="#000" stroke-opacity=".2" stroke-width="2"/>`,
+    wire: `<path d="${back}" opacity=".32"/><path d="${edges}${lines}"/>`,
+    top: Y0 - HH - E - 2, y0: Y0, hpx: HH + E,
+    yAt: (hf) => Y0 - hf * (HH + E), span: () => [x0 + D * 0.3, x0 + W + D * 0.7], ry: () => E / 2,
+  };
+}
+const SHAPES = {
+  cup: lathe([[0, 118], [6, 190], [14, 200], [18, 200], [22, 90], [30, 86], [60, 116], [120, 148], [170, 158], [176, 158]], { open: true, handle: [148, 66, 74] }),
+  mug: lathe([[0, 104], [6, 112], [220, 112], [226, 108]], { open: true, handle: [190, 52, 70] }),
+  bowl: lathe([[0, 64], [12, 72], [16, 90], [60, 170], [100, 205], [118, 214], [122, 214]], { open: true }),
+  sundae: lathe([[0, 96], [8, 96], [14, 26], [90, 18], [104, 40], [150, 110], [200, 140], [206, 140], [214, 146], [250, 130], [280, 96], [300, 50], [310, 0]]),
+  bottle: lathe([[0, 92], [6, 104], [50, 140], [110, 150], [160, 120], [200, 64], [240, 38], [340, 34], [350, 44], [372, 44], [376, 0]]),
+  glass: lathe([[0, 66], [8, 70], [300, 92], [304, 92]], { open: true }),
+  pie: lathe([[0, 190], [8, 200], [44, 232], [54, 236], [60, 226], [80, 180], [96, 100], [102, 0]]),
+  cartridge: lathe([[0, 40], [8, 44], [180, 44], [186, 52], [250, 52], [256, 30], [300, 30], [304, 0]]),
+  chip: block(200, 26, 440, { chip: true }),
+  uniform: block(400, 260, 120, { uniform: true }),
+};
+for (const k in SHAPES) {                                  // drawn once each; only the one in the chamber is shown
+  const sh = SHAPES[k];
+  sh.gs = L.svg("g", { display: "none" }, solidSvg); sh.gs.innerHTML = sh.solid;
+  sh.gw = L.svg("g", { display: "none", fill: "none", stroke: "currentColor", "stroke-width": 2 }, wireSvg); sh.gw.innerHTML = sh.wire;
+}
+const rg0 = solidSvg.querySelector("#rg0"), rg1 = solidSvg.querySelector("#rg1");
+
+// the stages, under the chamber
+const SBW = (MR - MX - 2 * L.GAP) / 3;
+const stageBox = ["Pattern Retrieval", "Matter Conversion", "Materialization"].map((label, k) => {
+  const x = MX + k * (SBW + L.GAP);
+  const b = L.box({ x, y: 1204, w: SBW, h: 64, c: "#3a2646", label, fs: 32, r: k === 0 ? "l" : k === 2 ? "r" : null, cls: "sw" });
+  fg(b, "lilac");
+  L.rect({ x, y: 1286, w: SBW, h: 14, c: TRACK });
+  return { b, bar: fill(x, 1286, SBW, 14, STAGES[k][3]), state: "" };
+});
+// what the order is made of
+L.text({ x: MX, base: 1400, s: 40, c: "lilac", txt: "Composition by Mass" });
+const monKg = L.text({ x: MR, base: 1400, s: 52, c: "white", txt: "", align: "r" });
+L.rect({ x: MX, y: 1420, w: MR - MX, h: 32, c: TRACK });
+const CW = MR - MX;
+const compSegs = MATTER.map(([, c]) => cls(fill(MX, 1420, CW, 32, c), "seg"));
+const compLegend = MATTER.map(([, c, short], i) => L.text({ x: MX + i * 190, base: 1544, s: 36, c, txt: short }));
+const showComp = (comp) => {
+  let x = 0;
+  comp.forEach((p, i) => {
+    const w = (p / 100) * CW;
+    tf(compSegs[i], `translate3d(${f1(x)}px,0,0) scaleX(${(Math.max(0, w - (p > 0 ? 6 : 0)) / CW).toFixed(4)})`);
+    x += w;
+    put(compLegend[i], `${MATTER[i][2]}  ${p}%`);
+  });
+};
+
+// ---------------- most requested ----------------
+const MRX = header(LX, 1000, LR - LX, "Most Requested  ·  This Shift", "peach", "pink");
+const TOP = [["Tea, Earl Grey, hot", 412], ["Raktajino", 356], ["Coffee, black", 301], ["Plomeek soup", 244],
+             ["Chocolate sundae", 198], ["Synthehol, Saurian brandy", 151], ["Prune juice", 97]].map(([name, n]) => ({ name, n }));
+const BARR = 1380;
+const topRows = TOP.map((_, i) => {
+  const base = 1112 + i * 72;
+  const name = cls(L.text({ x: LX, base, s: 40, c: "peach", txt: "" }), "sw");
+  L.rect({ x: MRX, y: base - 26, w: BARR - MRX, h: 26, c: TRACK });
+  return { name, bar: fill(MRX, base - 26, BARR - MRX, 26, i % 2 ? "pink" : "peach"), v: L.text({ x: LR, base, s: 52, c: "white", txt: "", align: "r" }), u: 0 };
+});
+const showTop = () => TOP.forEach((e, i) => { put(topRows[i].name, e.name); put(topRows[i].v, fmt(e.n)); });
+const countItem = (name) => { const e = TOP.find((e) => e.name === name); if (e) e.n++; };
+let swapping = false;
+later(5000, () => {                                       // a new favourite: the two rows trade places, faded
+  if (swapping) return;
+  const i = TOP.findIndex((e, k) => k < TOP.length - 1 && TOP[k + 1].n > e.n);
+  if (i < 0) return;
+  swapping = true;
+  [topRows[i].name, topRows[i + 1].name].forEach((e) => e.classList.add("out"));
+  setTimeout(() => {
+    [TOP[i], TOP[i + 1]] = [TOP[i + 1], TOP[i]]; showTop();
+    [topRows[i].name, topRows[i + 1].name].forEach((e) => e.classList.remove("out")); swapping = false;
+  }, 480);
+}, 0.2);
+
+// ---------------- raw matter reserves ----------------
+const RVX = header(RX, 280, RR - RX, "Raw Matter Reserves", "lilac", "peach", 56, 32, 340);   // 3154
+const RVR = 3640;
+[["Stock", RX, ""], ["Reserve", RVX, ""], ["Level", RR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: 400, s: 36, c: "lilac", txt, align }));
+const MEAN = [0.84, 0.71, 0.63, 0.57, 0.76, 0.9];
+const reserves = MATTER.map(([name, c], i) => {
+  const base = rowBase(i);
+  const n = L.text({ x: RX, base, s: 40, c: "peach", txt: name });
+  L.rect({ x: RVX, y: base - 26, w: RVR - RVX, h: 26, c: TRACK });
+  return { n, bar: fill(RVX, base - 26, RVR - RVX, 26, c), v: L.text({ x: RR, base, s: 52, c: "white", txt: "", align: "r" }),
+           lvl: MEAN[i] + L.rand(-0.02, 0.02), u: MEAN[i], drawing: false };
+});
+const draw = (comp, kg, sign = -1) => comp.forEach((p, i) => (reserves[i].lvl += sign * (p / 100) * kg * 0.004));
+
+// ---------------- energy and pattern memory ----------------
+header(RX, 1000, RR - RX, "Energy  ·  Pattern Memory", "pink", "butter");
+L.text({ x: RX, base: 1112, s: 40, c: "lilac", txt: "Energy Use  ·  Last Hour" });
+const energyV = L.text({ x: RR, base: 1112, s: 52, c: "white", txt: "", align: "r" });
+const EG = L.canvas({ x: RX, y: 1136, w: RR - RX, h: 180 });
+const NE = 61, ELO = 3700, EHI = 4900;
+const energyAt = (t, busy) => 4180 + 260 * Math.sin(t * 0.021 + 1) + 110 * Math.sin(t * 0.077) + 22 * busy + L.rand(-24, 24);
+const energy = Array.from({ length: NE }, (_, k) => energyAt((k - NE) * 3, 3));
+const drawEnergy = () => {
+  const g = EG.g, w = EG.w, h = EG.h, dx = w / (NE - 1), Y = (v) => h - 6 - ((v - ELO) / (EHI - ELO)) * (h - 12);
+  g.clearRect(0, 0, w, h);
+  g.fillStyle = TRACK;
+  for (const f of [0.25, 0.5, 0.75]) g.fillRect(0, Math.round(h * f) - 1, w, 2);
+  g.beginPath(); g.moveTo(0, h);
+  energy.forEach((v, k) => g.lineTo(k * dx, Y(v)));
+  g.lineTo(w, h); g.closePath(); g.fillStyle = "rgba(244,182,230,0.16)"; g.fill();
+  g.beginPath(); energy.forEach((v, k) => (k ? g.lineTo(k * dx, Y(v)) : g.moveTo(0, Y(v))));
+  g.lineWidth = 3; g.lineJoin = "round"; g.strokeStyle = "#f4b6e6"; g.stroke();
+  g.fillStyle = "#f2f2ff"; g.beginPath(); g.arc(w - 6, Y(energy[NE - 1]), 6, 0, 7); g.fill();
+  put(energyV, fmt(energy[NE - 1]) + " MJ/h");
+};
+EG.onResize = drawEnergy;
+L.text({ x: RX, base: 1400, s: 40, c: "lilac", txt: "Pattern Buffer" });
+const bufV = L.text({ x: RR, base: 1400, s: 52, c: "white", txt: "", align: "r" });
+const NCOL = 24, CG = 8, CELLW = (RR - RX - (NCOL - 1) * CG) / NCOL;
+const cells = [];
+for (let r = 0; r < 3; r++) for (let k = 0; k < NCOL; k++) {
+  const x = RX + k * (CELLW + CG), y = 1424 + r * 42;
+  L.rect({ x, y, w: CELLW, h: 36, c: TRACK, noalign: true });
+  const e = cls(fill(x, y, CELLW, 36, r === 1 ? "pink" : "lilac"), "cell");
+  const stored = Math.random() < 0.68;
+  e.style.opacity = stored ? 0.3 : 0;
+  cells.push({ e, stored, reading: 0 });
+}
+const patCells = (it) => { const h = [...it.pat].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 9973, 7); return [0, 1, 2, 3, 4].map((k) => (h + k) % cells.length); };
+const showCell = (c) => op(c.e, c.reading > 0 ? 1 : c.stored ? 0.3 : 0);
+const readPattern = (it, on) => patCells(it).forEach((i) => { const c = cells[i]; c.reading += on ? 1 : -1; c.stored = true; showCell(c); });
+let bufPct = 62.4;
+
+// ---------------- network load by deck ----------------
+small(LX, 1620, LR - LX, "Network Load by Deck", "lilac", "pink");
+L.text({ x: LX, base: 1734, s: 36, c: "lilac", txt: "Requests per Minute" });
+const loadV = L.text({ x: LR, base: 1734, s: 36, c: "white", txt: "", align: "r" });
+const DBW = 23, DBG = 4, DGG = 18, DT = 1764, DB = 1950, DGW = 7 * DBW + 6 * DBG;
+const deckX = (d) => LX + d * (DBW + DBG) + Math.floor(d / 7) * (DGG - DBG);     // d from 0
+for (let g = 0; g < 6; g++) L.text({ x: deckX(g * 7) + DGW / 2, base: 2004, s: 32, c: "lilac", txt: `${D2(g * 7 + 1)} – ${D2(g * 7 + 7)}`, align: "c", w: DGW, legend: true });
+// what each deck asks for, per minute: Ten Forward most, then the quarters; the antimatter decks hardly at all
+const DW = [5, 4, 4, 5, 7, 9, 10, 12, 11, 27, 8, 9, 6, 7, 10, 4, 9, 8, 5, 7, 4, 6, 3, 5, 5, 8, 6, 7, 4, 3, 2, 3, 6, 4, 7, 12, 6, 4, 3, 2, 2, 2];
+const DMAX = 34;
+const decks = DW.map((w, d) => {
+  L.rect({ x: deckX(d), y: DT, w: DBW, h: DB - DT, c: TRACK, noalign: true });
+  return { f: fill(deckX(d), DT, DBW, DB - DT, d === 9 ? "butter" : d % 7 === 6 ? "pink" : "lilac", "50% 100%"), w: w * 1.5 + 4, bump: 0, goal: w, u: w, seed: L.rand(0, 6) };
+});
+
+// ---------------- replication log ----------------
+small(MX, 1620, MR - MX, "Replication Log", "peach", "butter");
+const logRows = Array.from({ length: 6 }, (_, i) => {
+  const base = 1734 + i * 54;
+  return { sd: L.text({ x: MX, base, s: 36, c: "pink", txt: "" }), tx: L.text({ x: MX + 190, base, s: 36, c: "peach", txt: "" }),
+           kg: L.text({ x: MR, base, s: 36, c: "lilac", txt: "", align: "r" }) };
+});
+let stardate = 47783.2;
+const logged = [];
+const logLine = (txt, kg) => {
+  stardate += 0.1; logged.push([stardate.toFixed(1), txt, kg]); if (logged.length > 6) logged.shift();
+  logRows.forEach((r, i) => { const e = logged[i] || ["", "", ""]; put(r.sd, e[0]); put(r.tx, e[1]); put(r.kg, e[2]); });
+};
+
+// ---------------- matter reclamation ----------------
+small(RX, 1620, RR - RX, "Matter Reclamation", "pink", "lilac");
+const RCB = 3360, RCR = 3640;
+const reclaim = Array.from({ length: 4 }, (_, i) => {
+  const base = 1734 + i * 54;
+  const n = cls(L.text({ x: RX, base, s: 36, c: "peach", txt: "" }), "sw");
+  L.rect({ x: RCB, y: base - 22, w: RCR - RCB, h: 22, c: TRACK });
+  return { n, bar: cls(fill(RCB, base - 22, RCR - RCB, 22, i % 2 ? "pink" : "lilac"), "sw"),
+           v: cls(L.text({ x: RR, base, s: 36, c: "white", txt: "", align: "r" }), "sw"), job: null, p: 0, shown: -1, busy: false };
+});
+L.text({ x: RX, base: 1950, s: 36, c: "lilac", txt: "Reclaimed This Shift" });
+const recTotV = L.text({ x: RR, base: 1950, s: 36, c: "white", txt: "", align: "r" });
+L.text({ x: RX, base: 2004, s: 36, c: "lilac", txt: "Recovery Efficiency" });
+const recEffV = L.text({ x: RR, base: 2004, s: 36, c: "white", txt: "", align: "r" });
+let recTotal = 186.4, recEff = 99.6;
+const returns = [];                                        // returned dishes and parts, waiting for a reclaimer
+const retOf = (it, loc) => ({ txt: `${it.ret}  ·  Deck ${D2(deckOf(loc))}`, kg: it.kg * 0.78, comp: it.comp, dur: L.rand(14, 22) });
+const startJob = (r, job, p = 0) => { r.job = job; r.p = p; r.shown = -1; put(r.n, job.txt); };
+
+// ---------------- a guard: every name fits its place ----------------
+{
+  const bad = [];
+  const fits = (txt, s, w, where) => { if (L.textWidth(txt, s) > w) bad.push(`${where}: "${txt}" ${Math.round(L.textWidth(txt, s))}>${Math.round(w)}`); };
+  for (const it of ITEMS) {
+    fits(it.name, 40, SEGX - ORDX - 30, "order");
+    fits(it.name, 52, 2 * (2160 - 1880), "chamber");
+    fits(it.name + "  ·  Ready Room", 36, MR - MX - 190 - 130, "log");
+    for (const loc of it.where) {
+      fits(loc, 32, 300 - 22 - 14, "replicator");
+      fits(retOf(it, loc).txt, 36, RCB - RX - 30, "reclamation");
+      fits(`${loc}  ·  Deck ${D2(deckOf(loc))}`, 40, MR - MX - 300, "chamber location");
+    }
+  }
+  for (const e of TOP) fits(e.name, 40, MRX - LX - 30, "most requested");
+  if (bad.length) setTimeout(() => { throw new Error("replicators: " + bad.join(" | ")); });
+}
+
+// ---------------- the orders ----------------
+let orderNum = 2186, served = 8412;
+const inUse = () => new Set(slots.filter((s) => s.order).map((s) => s.order.loc));
+const newOrder = () => {
+  const it = pickItem(), used = inUse();
+  const free = it.where.filter((l) => !used.has(l));
+  const loc = L.pick(free.length ? free : FOOD.filter((l) => !used.has(l)));
+  return { it, loc, num: orderNum++, energy: it.kg * L.rand(5.6, 6.8) + 0.4 };
+};
+const fillSlot = (s, o, t0) => {
+  s.order = o; s.t0 = t0; s.linger = L.rand(4, 10); s.phase = "run"; s.stage = -2; s.done = false;
+  s.loc.textContent = o.loc; s.item.textContent = o.it.name;
+  s.segs.forEach((e) => tf(e, "scaleX(0)"));
+  decks[deckOf(o.loc) - 1].bump += 5;
+};
+const showStage = (s, k) => {
+  s.stage = k;
+  s.pill.textContent = k > 2 ? "Complete" : STAGES[k][2];
+  bg(s.pill, k > 2 ? "peach" : STAGES[k][3]);
+  if (k === 0 && !s.reading) { s.reading = true; readPattern(s.order.it, true); }
+  if (k > 0 && s.reading) { s.reading = false; readPattern(s.order.it, false); }
+  if (k === 2) draw(s.order.it.comp, s.order.it.kg);
+};
+const complete = (s, t, quiet) => {
+  s.done = true;
+  if (quiet) return;
+  countItem(s.order.it.name); served++;
+  if (s.mon) logLine(`${s.order.it.name}  ·  ${s.order.loc}`, s.order.it.kg.toFixed(2) + " kg");
+  if (Math.random() < 0.6) { const r = retOf(s.order.it, s.order.loc); setTimeout(() => { if (returns.length < 8) returns.push(r); }, L.rand(8000, 20000)); }
+};
+
+// ---------------- the chamber follows one order at a time ----------------
+let mon = null, shown = null, sparkOn = false;
+const parts = Array.from({ length: 150 }, () => {
+  let u, v; do { u = L.rand(-1, 1); v = L.rand(-1, 1); } while (u * u + v * v > 1);
+  return { u, v, hf: Math.random(), sp: L.rand(0.03, 0.09), ph: L.rand(0, 7), sz: L.rand(1.6, 4.2), c: L.pick([0, 0, 1, 2]) };
+});
+const SPC = ["255,236,190", "244,182,230", "199,160,216"];
+const drawSparks = (t, dt, amount, frontHf) => {
+  const g = spark.g;
+  if (amount <= 0.004) { if (sparkOn) { g.clearRect(0, 0, OW, OH); sparkOn = false; } return; }
+  sparkOn = true; g.clearRect(0, 0, OW, OH);
+  const G = mon.sh;
+  for (const p of parts) {
+    let hf, a = amount;
+    if (frontHf !== null) { hf = frontHf + (p.hf - 0.5) * 0.1; a *= 1 - Math.abs(p.hf - 0.5) * 1.6; if (hf < 0 || hf > 1) continue; }
+    else { p.hf = (p.hf + dt * p.sp) % 1; hf = p.hf; }
+    const [x0, x1] = G.span(hf), hw = (x1 - x0) / 2;
+    if (hw < 2) continue;
+    const tw = 0.5 + 0.5 * Math.sin(t * 8 + p.ph);
+    a *= 0.2 + 0.8 * tw;
+    if (a < 0.04) continue;
+    const x = x0 + hw + p.u * hw, y = G.yAt(hf) + p.v * G.ry(hf), sz = p.sz * (0.6 + 0.6 * tw);
+    g.fillStyle = `rgba(${SPC[p.c]},${a.toFixed(2)})`;
+    g.fillRect(x - sz / 2, y - sz * 1.6, sz, sz * 3.2);      // a vertical glint
+    g.fillRect(x - sz * 1.4, y - sz / 2, sz * 2.8, sz);      // and its cross
+  }
+};
+const monitor = (s) => {
+  const o = s.order, it = o.it, sh = SHAPES[it.shape];
+  if (shown !== sh) {
+    if (shown) { shown.gs.setAttribute("display", "none"); shown.gw.setAttribute("display", "none"); }
+    sh.gs.removeAttribute("display"); sh.gw.removeAttribute("display"); shown = sh;
+  }
+  mon = { s, o, it, sh, t0: s.t0 }; s.mon = true; bg(s.loc, "butter");
+  rg0.style.stopColor = `var(--${it.grad[0]})`; rg1.style.stopColor = `var(--${it.grad[1]})`;
+  sh.gs.querySelectorAll(".liq").forEach((e) => e.setAttribute("fill", it.liquid || "#000"));
+  tf(cover, "translate3d(0,0,0)"); op(clip, 1); op(wire, 0); op(front, 0);
+  put(monName, it.name); put(monLoc, `${o.loc}  ·  Deck ${D2(deckOf(o.loc))}`); put(monNum, `Order ${o.num}`);
+  [monName, monLoc, monNum].forEach((e) => e.classList.remove("out"));
+  put(side[2], it.temp); put(side[4], it.pat); put(monKg, it.kg.toFixed(2) + " kg");
+  showComp(it.comp);
+  stageBox.forEach((b) => (b.state = ""));
+};
+const ease = (x) => L.ease(L.clamp(x));
+const chamber = (t, dt) => {
+  if (!mon) { drawSparks(t, dt, 0, null); return; }
+  const u = t - mon.t0, G = mon.sh;
+  // the pattern: the wireframe comes up while a scan passes over it twice
+  const w = u < 0 ? 0 : u < 3 ? 0.9 * ease(u / 1.2) : u < 6.5 ? 0.82 + 0.08 * Math.cos((u - 3) * 2.4) :
+            u < DONE ? L.mix(0.9, 0.16, ease((u - 6.5) / 3.5)) : 0.16 * (1 - ease((u - DONE) / 1.2));
+  op(wire, w);
+  const sc = (u - 0.3) / 1.3;
+  if (u > 0.3 && u < 2.9) { const k = sc % 1; tf(scan, `translate3d(0,${f1(L.mix(G.top - 10, OH, k))}px,0)`); op(scan, 0.85 * Math.sin(Math.PI * k)); }
+  else op(scan, 0);
+  op(emitGlow, u > 0 && u < 3.2 ? 0.8 * Math.sin((Math.PI * u) / 3.2) : 0);
+  // conversion, then the object is laid down a layer at a time, from the floor up
+  const k = L.clamp((u - 6.5) / 3.5), kf = k * k * (3 - 2 * k);
+  const yF = L.mix(OH + 4, G.top - 4, kf);
+  tf(cover, `translate3d(0,${f1(yF - OH - 40)}px,0)`);
+  const [sx0, sx1] = G.span(L.clamp((G.y0 - yF) / G.hpx));
+  if (u > 6.5 && u < DONE) {
+    tf(front, `translate3d(${f1((sx0 + sx1) / 2 - OW / 2)}px,${f1(yF - 3)}px,0) scaleX(${(Math.min(OW, sx1 - sx0 + 60) / OW).toFixed(3)})`);
+    op(front, Math.min(1, Math.sin(Math.PI * k) * 3));
+  } else op(front, 0);
+  op(padGlow, u > 3 && u < DONE ? (u < 6.5 ? 0.3 * ease((u - 3) / 1) : 0.3 + 0.4 * Math.sin(Math.PI * k)) : 0);
+  const amt = u < 3 ? 0 : u < 6.5 ? ease((u - 3) / 0.9) : u < DONE ? 1 - ease((u - 9.4) / 0.6) : 0;
+  drawSparks(t, dt, amt, u >= 6.5 ? L.clamp((G.y0 - yF) / G.hpx) : null);
+  // the stages
+  const st = stageAt(u);
+  stageBox.forEach((b, i) => {
+    const s = i < st ? "done" : i === st ? "on" : "";
+    if (s !== b.state) { b.state = s; bg(b.b, s === "done" ? "pink" : s === "on" ? "butter" : "#3a2646"); fg(b.b, s ? "#000" : "lilac"); }
+    tf(b.bar, `scaleX(${L.clamp((u - STAGES[i][0]) / (STAGES[i][1] - STAGES[i][0])).toFixed(3)})`);
+  });
+  // then it is held, faded, and the chamber waits for the next order
+  if (u >= HOLD) {
+    op(clip, 1 - L.clamp((u - HOLD) / (GONE - HOLD)));
+    if (!monName.classList.contains("out")) [monName, monLoc, monNum].forEach((e) => e.classList.add("out"));
+  }
+  if (u >= GONE) { mon.s.mon = false; if (mon.s.order === mon.o) bg(mon.s.loc, "lilac"); op(clip, 0); drawSparks(t, dt, 0, null); mon.done = true; }
+};
+const chamberText = (t) => {
+  if (!mon) return;
+  const u = t - mon.t0, it = mon.it, k = L.clamp((u - 6.5) / 3.5), kf = k * k * (3 - 2 * k);
+  const active = u > 0 && u < DONE;
+  put(side[0], `${Math.round(kf * 240)} of 240`);
+  put(side[1], (kf * it.kg).toFixed(2) + " kg");
+  put(side[5], (mon.o.energy * L.clamp((u - 3) / 3.5) + (u > 0 ? 0.04 * Math.min(u, 3) : 0)).toFixed(2) + " MJ");
+  put(side[6], active ? Math.round(u < 3 ? 8 : u < 6.5 ? 64 + 4 * Math.sin(t) : 38 + 4 * Math.sin(t)) + "%" : "0%");
+  put(side[7], active ? (0.0028 + 0.0006 * Math.sin(t * 0.9) + 0.0002 * Math.sin(t * 2.3)).toFixed(4) : "0.0000");
+};
+
+// ---------------- the starting state ----------------
+showTop();
+[[-1.5, "run"], [-4.4, "run"], [-7.6, "run"], [-12.5, "run"], [-15.2, "run"], [-18.4, "run"]].forEach(([t0], i) => {
+  const s = slots[i]; fillSlot(s, newOrder(), t0); decks[deckOf(s.order.loc) - 1].bump = 0;
+  s.linger = L.rand(5, 10);
+});
+monitor(slots[0]);
+[["Tea, Earl Grey, hot  ·  Ready Room", 0.46], ["Plomeek soup  ·  Quarters 0901", 0.74], ["Raktajino  ·  Security Office", 0.52],
+ ["Spare isolinear chip  ·  Main Engineering", 0.03], ["Chocolate sundae  ·  Schoolroom 4", 0.58], ["Synthehol, Saurian brandy  ·  Ten Forward 3", 0.98]]
+  .forEach(([txt, kg]) => logLine(txt, kg.toFixed(2) + " kg"));
+[ITEMS[0], ITEMS[3], ITEMS[11], ITEMS[5]].forEach((it, i) => startJob(reclaim[i], retOf(it, L.pick(it.where)), L.rand(0.1, 0.8)));
+
+// ---------------- the clock ----------------
+let tPrev = null;
+L.tick((t) => {
+  const dt = tPrev === null ? 0 : Math.min(0.1, t - tPrev); tPrev = t;
+  for (const s of slots) {                                  // each replicator through its order
+    const u = t - s.t0;
+    if (s.phase === "run") {
+      const k = stageAt(u);
+      if (k !== s.stage && u >= 0) showStage(s, k);
+      s.segs.forEach((e, i) => tf(e, `scaleX(${L.clamp((u - STAGES[i][0]) / (STAGES[i][1] - STAGES[i][0])).toFixed(3)})`));
+      if (u >= DONE && !s.done) complete(s, t, u > DONE + 1);
+      if (u >= DONE + s.linger && !s.mon) { s.phase = "fade"; s.fadeT = t; rowEls(s).forEach((e) => e.classList.add("out")); }
+    } else if (s.phase === "fade" && t - s.fadeT >= 0.45) { // swapped at the bottom of the dip, then back up
+      fillSlot(s, newOrder(), t + 0.6);
+      rowEls(s).forEach((e) => e.classList.remove("out"));
+    }
+  }
+  if (mon && mon.done) mon = null;
+  if (!mon) {                                               // watch the next order to begin
+    const s = slots.find((s) => s.phase === "run" && t - s.t0 > -0.6 && t - s.t0 < 0.3);
+    if (s) monitor(s);
+  }
+  chamber(t, dt);
+  for (const r of reserves) {                               // the gauges follow their stocks
+    if (Math.abs(r.lvl - r.u) < 0.0004 && r.drawn) continue;
+    r.u += (r.lvl - r.u) * Math.min(1, dt * 1.2); r.drawn = true;
+    tf(r.bar, `scaleX(${r.u.toFixed(4)})`);
+  }
+  const top = TOP[0].n * 1.06;
+  topRows.forEach((r, i) => {
+    const g = TOP[i].n / top;
+    if (Math.abs(g - r.u) < 0.0004 && r.drawn) return;
+    r.u += (g - r.u) * Math.min(1, dt * 2); r.drawn = true;
+    tf(r.bar, `scaleX(${r.u.toFixed(4)})`);
+  });
+  for (const d of decks) {
+    if (Math.abs(d.goal - d.u) < 0.02 && d.drawn) continue;
+    d.u += (d.goal - d.u) * Math.min(1, dt * 0.9); d.drawn = true;
+    tf(d.f, `scaleY(${(L.clamp(d.u / DMAX)).toFixed(4)})`);
+  }
+  for (const r of reclaim) {                                // returned things go back into stock
+    if (!r.job || r.busy) continue;
+    r.p = Math.min(1, r.p + dt / r.job.dur);
+    if (Math.abs(r.p - r.shown) > 0.001) { r.shown = r.p; tf(r.bar, `scaleX(${r.p.toFixed(4)})`); }
+    if (r.p >= 1) {
+      r.busy = true; recTotal += r.job.kg; draw(r.job.comp, r.job.kg * 0.6, 1);
+      const els = [r.n, r.bar, r.v];
+      setTimeout(() => {
+        els.forEach((e) => e.classList.add("out"));
+        setTimeout(() => {
+          const it = pickItem();
+          startJob(r, returns.shift() || retOf(it, L.pick(it.where))); tf(r.bar, "scaleX(0)"); put(r.v, "0.00 kg");
+          els.forEach((e) => e.classList.remove("out")); r.busy = false;
+        }, 480);
+      }, 1500);
+    }
+  }
+});
+L.every(250, (t) => {
+  chamberText(t);
+  reclaim.forEach((r) => { if (r.job && !r.busy) put(r.v, (r.job.kg * r.p).toFixed(2) + " kg"); });
+}, 0);
+L.every(1000, (t) => {
+  // the stocks: drawn down by orders, refilled by reclamation and the recyclers, never far from their usual level
+  const drawingNow = new Set();
+  slots.forEach((s) => { if (s.phase === "run" && s.stage === 1) s.order.it.comp.forEach((p, i) => p >= 10 && drawingNow.add(i)); });
+  reserves.forEach((r, i) => {
+    r.lvl = L.clamp(r.lvl + (MEAN[i] - r.lvl) * 0.01, 0.3, 0.97);
+    put(r.v, (r.lvl * 100).toFixed(1) + "%");
+    fg(r.n, drawingNow.has(i) ? "butter" : "peach");
+  });
+  const busy = slots.filter((s) => s.phase === "run" && t - s.t0 >= 0 && t - s.t0 < DONE).length;
+  put(stateSub, `1,246 units online  ·  ${26 + busy} orders in synthesis  ·  ${fmt(served)} served this shift`);
+  let sum = 0, pk = 0;
+  decks.forEach((d, i) => {
+    d.bump *= Math.exp(-1 / 14);
+    d.goal = d.w * (1 + 0.14 * Math.sin(t * 0.05 + d.seed) + 0.06 * Math.sin(t * 0.17 + d.seed * 2)) + d.bump;
+    sum += d.goal; if (d.goal > decks[pk].goal) pk = i;
+  });
+  put(loadV, `Shipwide  ${fmt(sum)}  ·  Peak  Deck ${D2(pk + 1)}`);
+  bufPct = L.clamp(bufPct + L.rand(-0.06, 0.06), 61.5, 63.5);
+  put(bufV, `${fmt(4812 + Math.round((bufPct - 62) * 40))} patterns  ·  ${bufPct.toFixed(1)}%`);
+  put(recTotV, recTotal.toFixed(1) + " kg");
+  recEff = L.clamp(recEff + L.rand(-0.02, 0.02), 99.4, 99.8);
+  put(recEffV, recEff.toFixed(1) + "%");
+  showTop();
+}, 0);
+later(2600, () => { const it = pickItem(); countItem(it.name); served++; }, 0.3);     // the rest of the ship, unseen
+L.every(3000, (t) => {
+  const busy = slots.filter((s) => s.phase === "run" && t - s.t0 >= 0 && t - s.t0 < DONE).length;
+  energy.shift(); energy.push(energy[NE - 2] * 0.5 + energyAt(t, busy) * 0.5); drawEnergy();
+}, 0);
+later(1700, () => {                                        // now and then a stored pattern is written or retired
+  const c = L.pick(cells);
+  if (c.reading) return;
+  c.stored = !c.stored; showCell(c);
+}, 0.4);
+});
+</script></body></html>

@@ -1,0 +1,502 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Computer Core</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* text that is swapped fades out and back in; .boot (the start-up cascade) always wins */
+  .fade { transition: opacity .45s ease; }
+  .out:not(.boot) { opacity: 0; }
+  .pkt { border-radius: 9px; }
+  .glow { border-radius: 32px; transition: opacity 2.4s ease-in-out; }
+  .cell { border-radius: 4px; transition: opacity 1.4s ease-in-out; }
+  .seg { border-radius: 3px; transition: background-color 1.6s ease; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame, mirrored: sidebar on the right, title at top left ----------------
+const BAR = 64, TS = BAR / (L.BASELINE - L.CAP_TOP);
+L.box({ x: 40, y: 40, w: 92, h: BAR, c: "sky", r: "l" });
+const TITLE = "Main Computer Core  •  Optical Data Network";
+const titleEl = L.text({ x: 132 + L.GAP, cap: 40, s: TS, c: "sky", txt: TITLE });
+// (the canvas measures this line wider than the page draws it; use the page's own width)
+const afterTitle = 132 + L.GAP + titleEl.offsetWidth + L.GAP;
+L.rect({ x: afterTitle, y: 40, w: 320, h: BAR, c: "butter" });
+L.rect({ x: afterTitle + 320 + L.GAP, y: 40, w: 2600 - L.GAP - (afterTitle + 320 + L.GAP), h: BAR, c: "sky" });
+L.elbow({ corner: "tr", x: 2600, y: 40, w: 1216, h: 250, bw: 240, bh: BAR, R: 150, r: 60, c: "sky" });
+[[298, 140, "ice", "Core 01"], [446, 70, "butter", "ODN"], [524, 420, "sky", "Subprocessors"], [952, 70, "lilac", "FTL"],
+ [1030, 300, "ice", "Memory"], [1338, 70, "butter", "Trunks"], [1416, 216, "sky", "Cores"]]
+  .forEach(([y, h, c, label]) => L.box({ x: 3576, y, w: 240, h, c, label }));
+L.elbow({ corner: "br", x: 2600, y: 1640, w: 1216, h: 480, bw: 240, bh: BAR, R: 150, r: 60, c: "blue" });
+L.text({ x: 3794, base: 1712, s: 40, c: "#000", txt: "Computer", align: "r", on: true });
+L.box({ x: 40, y: 2056, w: 92, h: BAR, c: "blue", r: "l" });
+[[132 + L.GAP, 700, "lilac"], [132 + L.GAP + 700 + L.GAP, 900, "sky"]].forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
+L.rect({ x: 132 + 3 * L.GAP + 1600, y: 2056, w: 2600 - L.GAP - (132 + 3 * L.GAP + 1600), h: BAR, c: "blue" });
+
+const header = (x, y, w, label, c1, c2, h = 56, fs = 32) => {
+  const lw = Math.round((L.textWidth(label, fs) + 64) / 10) * 10;
+  L.box({ x, y, w: lw, h, c: c1, label, fs, r: "l" });
+  if (w - lw - L.GAP > 0) L.rect({ x: x + lw + L.GAP, y, w: w - lw - L.GAP, h, c: c2 });
+  return lw;
+};
+const small = (x, y, w, label, c1, c2) => header(x, y, w, label, c1, c2, 48, 28);
+const fill = (x, y, w, h, c, origin = "0 0", cls = "") => {
+  const f = L.layer({ x, y, w, h, cls });
+  f.style.background = c.startsWith("#") ? c : `var(--${c})`; f.style.transformOrigin = origin;
+  return f;
+};
+const cls = (e, ...c) => (e.classList.add(...c), e);
+// write only what changed: an unchanged reading costs nothing
+const put = (e, txt) => { if (e.textContent !== txt) e.textContent = txt; };
+const css = (e, k, v) => { if (e.style[k] !== v) e.style[k] = v; };
+const fmt = (n) => Math.round(n).toLocaleString("en");
+const later = (ms, f, jitter) => L.every(ms, (t) => { if (t > 1) f(t); }, jitter);   // not at once: first after a while
+
+// Columns: the network spans 40–2340; the right column 2400–3520. The bottom strip: 40–1160, 1220–2340,
+// and 2400–2930 | 2990–3520.
+const AX = 40, AR = 1160, BX = 1220, BR = 2340, CX = 2400, CR = 3520, DX = 2990;
+const TRACK = "#14223a", LINE = "#1d3461", PANEL = "#0b1630";
+const HEX = { sky: "#5c9dff", ice: "#8fd3ff", lilac: "#c7a0d8", butter: "#ffcc66" };
+const dim = (c, k = 0.32) => "#" + [1, 3, 5].map((i) => Math.round(parseInt(HEX[c].slice(i, i + 2), 16) * k).toString(16).padStart(2, "0")).join("");
+
+// ---------------- traffic: four kinds, the same colours everywhere ----------------
+const TYPES = [
+  { key: "cmd", name: "Command", c: "butter" },
+  { key: "sen", name: "Sensor", c: "ice" },
+  { key: "lib", name: "Library", c: "sky" },
+  { key: "pat", name: "Pattern", c: "lilac" },
+];
+const TYPE = Object.fromEntries(TYPES.map((t) => [t.key, t]));
+const CORES = [
+  { n: 1, c: "sky", role: "Primary  ·  Saucer", base: 0.62, w: 0.4 },
+  { n: 2, c: "ice", role: "Primary  ·  Saucer", base: 0.56, w: 0.4 },
+  { n: 3, c: "lilac", role: "Backup  ·  Stardrive", base: 0.34, w: 0.2 },
+];
+
+// a core's load: its own level, a slow swing, and how busy the subprocessors are
+CORES.forEach((k, i) => { k.ph1 = L.rand(0, 6); k.ph2 = L.rand(0, 6); });
+const coreLoad = (k, t, busy) => L.clamp(k.base + 0.3 * (busy - 0.5) + 0.09 * Math.sin(t * 0.07 + k.ph1) + 0.05 * Math.sin(t * 0.19 + k.ph2), 0.08, 0.95);
+
+// ---------------- the network's geometry ----------------
+const NW = 300, NH = 64;                                        // a subprocessor's pill
+const TOPY = 428, BOTY = 1480, TA = 610, TB = 1362;            // node rows and the two trunks
+const RL = 190, RRX = 2190;                                     // the ring's sides
+const COREW = 440, CT = 730, CB = 1242, CORE_X = [690, 1190, 1690];
+const LW = 16;                                                  // a trunk's width
+// [name, x centre, y centre, kind(s) of traffic]
+const NODES = [
+  ["Main Bridge", 190, TOPY + 32, ["cmd", "cmd", "lib"]], ["Navigation", 590, TOPY + 32, ["cmd", "sen"]],
+  ["Tactical", 990, TOPY + 32, ["cmd", "sen"]], ["Communications", 1390, TOPY + 32, ["lib", "cmd"]],
+  ["Long Range Sensors", 1790, TOPY + 32, ["sen", "sen", "lib"]], ["Science Labs", 2190, TOPY + 32, ["lib", "sen"]],
+  ["Deflector Control", RL, 842, ["sen", "cmd"]], ["Life Support", RL, 1130, ["cmd"]],
+  ["Stellar Cartography", RRX, 842, ["sen", "lib"]], ["Security", RRX, 1130, ["cmd", "lib"]],
+  ["Main Engineering", 190, BOTY + 32, ["cmd", "sen", "cmd"]], ["Sickbay", 590, BOTY + 32, ["lib", "lib", "sen"]],
+  ["Holodecks", 990, BOTY + 32, ["pat", "pat", "pat", "lib"]], ["Replicators", 1390, BOTY + 32, ["pat", "pat", "cmd"]],
+  ["Transporters", 1790, BOTY + 32, ["pat", "pat", "sen"]], ["Shuttlebays", 2190, BOTY + 32, ["cmd", "sen"]],
+].map(([name, x, y, kinds]) => ({ name, x, y, kinds, c: TYPE[kinds[0]].c, load: L.rand(0.3, 0.7) }));
+// which trunk a node joins: the upper row and upper side nodes Trunk A, the rest Trunk B
+NODES.forEach((n) => (n.trunk = n.y < (TA + TB) / 2 ? TA : TB));
+
+// ---------------- status line ----------------
+const STATE = "All Cores Online";
+L.text({ x: 40, cap: 150, s: 100, c: "ice", txt: STATE });
+const stateSub = L.text({ x: 40 + L.textWidth(STATE, 100) + 40, base: 222, s: 38, c: "butter", txt: "" });
+// the traffic key, ending where the network ends
+{
+  const KW = 180;
+  let kx = BR - TYPES.length * KW - (TYPES.length - 1) * 16;
+  TYPES.forEach((ty, i) => { L.box({ x: kx, y: 166, w: KW, h: 56, c: ty.c, label: ty.name, fs: 28, r: i === 0 ? "l" : null }); kx += KW + 16; });
+}
+L.box({ x: CR - 400, y: 150, w: 400, h: 72, c: "lilac", label: "Subspace Field Stable", r: "lr", fs: 36 });
+
+// ---------------- optical data network: the diagram ----------------
+header(AX, 280, BR - AX, "Optical Data Network", "sky", "ice");
+L.text({ x: AX, base: 400, s: 36, c: "ice", txt: "Bimodal ODN  ·  3 cores  ·  16 subprocessors  ·  2 trunks" });
+const netInfo = L.text({ x: BR, base: 400, s: 36, c: "sky", txt: "", align: "r" });
+// the trunks, drawn once: a ring through the two trunks, drops to every node, links to every core
+const net = L.svg("g", { class: "boot" });
+const hline = (x0, x1, y) => L.svg("rect", { x: Math.min(x0, x1) - LW / 2, y: y - LW / 2, width: Math.abs(x1 - x0) + LW, height: LW, fill: LINE }, net);
+const vline = (x, y0, y1) => L.svg("rect", { x: x - LW / 2, y: Math.min(y0, y1) - LW / 2, width: LW, height: Math.abs(y1 - y0) + LW, fill: LINE }, net);
+hline(RL, RRX, TA); hline(RL, RRX, TB); vline(RL, TA, TB); vline(RRX, TA, TB);
+for (const n of NODES) if (n.x !== RL && n.x !== RRX || n.y < TA || n.y > TB) vline(n.x, n.y, n.trunk);
+for (const x of CORE_X) { vline(x, TA, CT); vline(x, CB, TB); }
+const junction = (x, y) => L.svg("rect", { x: x - 14, y: y - 14, width: 28, height: 28, rx: 6, fill: "var(--sky)" }, net);
+for (const n of NODES) junction(n.x, n.trunk);
+for (const x of CORE_X) { junction(x, TA); junction(x, TB); }
+L.text({ x: (RL + 590) / 2, base: TA - 30, s: 36, c: "sky", txt: "Trunk A", align: "c", w: 300 });
+L.text({ x: (RL + 590) / 2, cap: TB + 38, s: 36, c: "sky", txt: "Trunk B", align: "c", w: 300 });
+
+// the packets: made before the nodes and cores, so they pass beneath them
+const NP = 32, PS = 18, SPEED = 230;
+const packets = Array.from({ length: NP }, () => {
+  const e = L.layer({ x: 0, y: 0, w: PS, h: PS, cls: "pkt" });
+  e.style.opacity = 0;
+  return { e, path: null, segs: null, len: 0, t0: 0, next: 0, c: "" };
+});
+
+// the subprocessors: a dim pill, a glow over it whose strength is the node's load, and its name
+for (const n of NODES) {
+  const x = n.x - NW / 2, y = n.y - NH / 2;
+  const back = L.layer({ x, y, w: NW, h: NH });
+  back.style.background = dim(n.c); back.style.borderRadius = NH / 2 + "px";
+  n.glow = fill(x, y, NW, NH, n.c, "50% 50%", "glow");
+  n.glow.style.boxShadow = `0 0 28px 2px var(--${n.c})`;
+  L.box({ x, y, w: NW, h: NH, c: "#0000", label: n.name, fs: 28, r: "lr" });
+}
+const glowNodes = () => NODES.forEach((n) => css(n.glow, "opacity", (0.38 + 0.62 * n.load).toFixed(2)));
+glowNodes();
+
+// the three cores: a named bar, a body with its readings and its processing cells, a bar for its role
+const CELLR = 6, CELLC = 4;
+CORES.forEach((k, i) => {
+  const cx = CORE_X[i], x = cx - COREW / 2;
+  k.cx = cx; k.top = CT + NH / 2; k.bot = CB - NH / 2;
+  L.box({ x, y: CT, w: COREW, h: NH, c: k.c, label: `Computer Core ${k.n}`, fs: 32, r: "lr" });
+  L.rect({ x, y: CT + NH + 16, w: COREW, h: CB - CT - 2 * NH - 32, c: PANEL, panel: true });
+  const ix = x + 24, ir = x + COREW - 24;
+  L.text({ x: ix, base: 878, s: 40, c: k.c, txt: "Load" });
+  k.loadTxt = L.text({ x: ir, base: 878, s: 52, c: "white", txt: "", align: "r" });
+  L.text({ x: ix, base: 942, s: 40, c: k.c, txt: "Rate" });
+  k.rateTxt = L.text({ x: ir, base: 942, s: 52, c: "white", txt: "", align: "r" });
+  const cw = (ir - ix - (CELLC - 1) * 10) / CELLC, ch = 18;
+  k.cells = [];
+  for (let r = 0; r < CELLR; r++) for (let c = 0; c < CELLC; c++) {
+    const cx0 = ix + c * (cw + 10), cy0 = 974 + r * (ch + 10);
+    L.rect({ x: cx0, y: cy0, w: cw, h: ch, rx: 4, c: "#17284a", free: true });
+    const e = fill(cx0, cy0, cw, ch, k.c, "0 0", "cell");
+    e.style.opacity = 0;
+    k.cells.push(e);
+  }
+  L.box({ x, y: CB - NH, w: COREW, h: NH, c: "blue", label: k.role, fs: 28, r: "lr" });
+  k.u = k.base; k.goal = k.base; k.hist = [];
+});
+
+// ---------------- routes ----------------
+// node to core along its trunk; core to core along either trunk
+const toCore = (n, k) => {
+  const port = n.trunk === TA ? k.top : k.bot;
+  return [[n.x, n.y], [n.x, n.trunk], [k.cx, n.trunk], [k.cx, port]];
+};
+const coreToCore = (a, b) => {
+  const viaA = Math.random() < 0.5, y = viaA ? TA : TB, pa = viaA ? a.top : a.bot, pb = viaA ? b.top : b.bot;
+  return [[a.cx, pa], [a.cx, y], [b.cx, y], [b.cx, pb]];
+};
+const pickW = (items, w) => {
+  let r = Math.random() * items.reduce((s, it) => s + w(it), 0);
+  for (const it of items) if ((r -= w(it)) <= 0) return it;
+  return items[items.length - 1];
+};
+const launch = (p, t, t0 = t) => {
+  let path, type;
+  if (Math.random() < 0.08) {                                   // the cores keep each other in step
+    const a = L.pick(CORES), b = L.pick(CORES.filter((k) => k !== a));
+    path = coreToCore(a, b); type = "lib";
+  } else {
+    const n = pickW(NODES, (n) => n.load * n.load), k = pickW(CORES, (k) => k.w);
+    path = toCore(n, k); type = L.pick(n.kinds);
+    if (Math.random() < 0.42) path = path.reverse();            // answers going back out
+  }
+  const segs = [];
+  let len = 0;
+  for (let i = 1; i < path.length; i++) {
+    const [x0, y0] = path[i - 1], [x1, y1] = path[i], l = Math.abs(x1 - x0) + Math.abs(y1 - y0);
+    segs.push({ x0, y0, x1, y1, l, s0: len }); len += l;
+  }
+  Object.assign(p, { segs, len, t0, type });
+  const c = TYPE[type].c;
+  if (c !== p.c) { p.c = c; p.e.style.background = `var(--${c})`; }
+  p.e.style.opacity = 1;
+};
+const place = (p, s) => {
+  let g = p.segs[0];
+  for (const sg of p.segs) if (s >= sg.s0) g = sg;
+  const k = g.l ? L.clamp((s - g.s0) / g.l) : 0;
+  L.move(p.e, L.mix(g.x0, g.x1, k) - PS / 2, L.mix(g.y0, g.y1, k) - PS / 2);
+};
+
+// ---------------- processing load ----------------
+header(CX, 280, CR - CX, "Processing Load", "ice", "sky");
+const PBX = CX + 200 + L.GAP, PBR = 3300;
+[["Core", CX, "l"], ["Load", PBX, "l"], ["Of Capacity", CR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: 400, s: 36, c: "ice", txt, align }));
+CORES.forEach((k, i) => {
+  const y = TOPY + i * 88, base = y + 52.5;
+  L.box({ x: CX, y, w: 200, h: 64, c: k.c, label: `Core ${k.n}`, fs: 32, r: "l" });
+  L.rect({ x: PBX, y: base - 26, w: PBR - PBX, h: 26, c: TRACK });
+  k.bar = fill(PBX, base - 26, PBR - PBX, 26, k.c);
+  k.pct = L.text({ x: CR, base, s: 52, c: "white", txt: "", align: "r" });
+});
+// the last five minutes, a sample every five seconds
+const HN = 60, HY = 764, HH = 176;
+L.text({ x: CX, base: 740, s: 36, c: "ice", txt: "Load History  ·  Last 5 Minutes" });
+const peakTxt = L.text({ x: CR, base: 740, s: 36, c: "white", txt: "", align: "r" });
+const hist = L.canvas({ x: CX, y: HY, w: CR - CX, h: HH });
+// one strip per core, 0–100%, its area filled
+const SH = 52, SG = 10;
+const drawHist = () => {
+  const g = hist.g, w = hist.w, dx = w / (HN - 1);
+  g.clearRect(0, 0, w, hist.h);
+  CORES.forEach((k, i) => {
+    const y0 = i * (SH + SG), Y = (v) => y0 + SH - v * (SH - 4);
+    g.fillStyle = TRACK; g.fillRect(0, y0, w, SH);
+    g.fillStyle = "#1d3461"; g.fillRect(0, Math.round(Y(0.5)) - 1, w, 2);
+    g.beginPath(); g.moveTo(0, y0 + SH);
+    k.hist.forEach((v, j) => g.lineTo(j * dx, Y(v)));
+    g.lineTo(w, y0 + SH); g.closePath();
+    g.globalAlpha = 0.35; g.fillStyle = HEX[k.c]; g.fill(); g.globalAlpha = 1;
+    g.beginPath(); k.hist.forEach((v, j) => (j ? g.lineTo(j * dx, Y(v)) : g.moveTo(0, Y(v))));
+    g.lineWidth = 3; g.lineJoin = "round"; g.strokeStyle = HEX[k.c]; g.stroke();
+  });
+};
+hist.onResize = drawHist;
+
+// ---------------- memory allocation ----------------
+header(CX, 1000, CR - CX, "Memory Allocation", "lilac", "sky");
+const NSEG = 32, SEGQ = 65536, CAPQ = NSEG * SEGQ, SEGG = 6, SEGW = (CR - CX - (NSEG - 1) * SEGG) / NSEG;
+CORES.forEach((k, i) => {
+  const base = 1112 + i * 176;
+  L.text({ x: CX, base, s: 40, c: k.c, txt: `Core ${k.n}  ·  ${k.role.split("  ·  ")[0]}` });
+  k.memTxt = L.text({ x: CR, base, s: 40, c: "white", txt: "", align: "r" });
+  k.segs = Array.from({ length: NSEG }, (_, j) => {
+    const e = L.layer({ x: CX + j * (SEGW + SEGG), y: base + 24, w: SEGW, h: 56, cls: "seg" });
+    e.style.background = TRACK;
+    return { e, c: "" };
+  });
+  // kiloquads given to each kind of traffic
+  const used = CAPQ * (k.n === 3 ? 0.46 : L.rand(0.62, 0.74));
+  const share = { cmd: 0.22, sen: 0.3, lib: 0.31, pat: 0.17 };
+  k.mem = Object.fromEntries(TYPES.map((ty) => [ty.key, used * share[ty.key] * L.rand(0.85, 1.15)]));
+});
+const showMem = (k) => {
+  let acc = 0, j = 0;
+  for (const ty of TYPES) {                                     // segments by cumulative rounding: they always add up
+    acc += k.mem[ty.key];
+    const upto = Math.min(NSEG, Math.round(acc / SEGQ));
+    for (; j < upto; j++) if (k.segs[j].c !== ty.c) { k.segs[j].c = ty.c; k.segs[j].e.style.background = `var(--${ty.c})`; }
+  }
+  for (; j < NSEG; j++) if (k.segs[j].c !== "free") { k.segs[j].c = "free"; k.segs[j].e.style.background = TRACK; }
+  const used = TYPES.reduce((s, ty) => s + k.mem[ty.key], 0);
+  put(k.memTxt, `${fmt(used)} of ${fmt(CAPQ)} kiloquads`);
+};
+CORES.forEach(showMem);
+
+// ---------------- network event log ----------------
+small(BX, 1620, BR - BX, "Network Event Log", "sky", "ice");
+const logRows = Array.from({ length: 6 }, (_, i) => {
+  const base = 1734 + i * 54;
+  return { sd: L.text({ x: BX, base, s: 36, c: "sky", txt: "" }), tx: L.text({ x: BX + 190, base, s: 36, c: "ice", txt: "" }),
+           at: L.text({ x: BR, base, s: 36, c: "butter", txt: "", align: "r" }) };
+});
+let stardate = 47791.4;
+const logged = [];
+const logEvent = (txt, where) => {
+  stardate += 0.1; logged.push([stardate.toFixed(1), txt, where]); if (logged.length > 6) logged.shift();
+  logRows.forEach((r, i) => { const e = logged[i] || ["", "", ""]; put(r.sd, e[0]); put(r.tx, e[1]); put(r.at, e[2]); });
+};
+
+// ---------------- active processes ----------------
+small(AX, 1620, AR - AX, "Active Processes", "butter", "sky");
+const PC = { origin: 470, core: 750, pri: 880 };
+[["Process", AX, "l"], ["Origin", PC.origin, "l"], ["Core", PC.core, "l"], ["Priority", PC.pri, "l"], ["CPU Share", AR, "r"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: 1734, s: 36, c: "butter", txt, align }));
+const PROCS = [
+  ["Warp field modeling", "Main Engineering", 1, 9.6], ["Long range sensor processing", "Long Range Sensors", 2, 11.8],
+  ["Holodeck 3 simulation", "Holodecks", 3, 14.2], ["Universal translator matrices", "Communications", 2, 6.4],
+  ["Navigational deflector control", "Deflector Control", 1, 5.1], ["Stellar cartography update", "Stellar Cartography", 3, 7.9],
+  ["Replicator pattern compression", "Replicators", 4, 4.6], ["Transporter pattern verification", "Transporters", 1, 8.3],
+  ["Medical database query", "Sickbay", 3, 3.2], ["Tactical threat assessment", "Tactical", 2, 4.4],
+  ["Atmospheric regulation", "Life Support", 1, 2.7], ["Course plotting", "Navigation", 2, 3.9],
+  ["Subspace message encoding", "Communications", 3, 2.9], ["Structural integrity modeling", "Main Engineering", 1, 6.8],
+  ["Crew locator service", "Security", 4, 1.9], ["Shuttle flight telemetry", "Shuttlebays", 3, 3.4],
+  ["Exobiology sample analysis", "Science Labs", 4, 5.3], ["Holodeck 2 simulation", "Holodecks", 3, 12.6],
+  ["Bridge operations display", "Main Bridge", 2, 2.4], ["Library index maintenance", "Computer Core", 4, 3.7],
+];
+const procRows = Array.from({ length: 5 }, (_, i) => {
+  const base = 1788 + i * 54;
+  return {
+    name: cls(L.text({ x: AX, base, s: 36, c: "white", txt: "" }), "fade"),
+    origin: cls(L.text({ x: PC.origin, base, s: 36, c: "sky", txt: "" }), "fade"),
+    core: cls(L.text({ x: PC.core, base, s: 36, c: "ice", txt: "" }), "fade"),
+    pri: cls(L.text({ x: PC.pri, base, s: 36, c: "butter", txt: "" }), "fade"),
+    cpu: cls(L.text({ x: AR, base, s: 36, c: "white", txt: "", align: "r" }), "fade"),
+    p: null,
+  };
+});
+let procDeck = [];
+const nextProc = () => {
+  const showing = procRows.map((r) => r.p && r.p.name);
+  if (!procDeck.length) procDeck = PROCS.slice().sort(() => Math.random() - 0.5);
+  let i = procDeck.findIndex((p) => !showing.includes(p[0]));
+  if (i < 0) i = 0;
+  const [name, origin, pri, cpu] = procDeck.splice(i, 1)[0];
+  return { name, origin, pri, base: cpu, cpu, core: pickW(CORES, (k) => k.w).n };
+};
+const showProc = (r) => {
+  put(r.name, r.p.name); put(r.origin, r.p.origin); put(r.core, `Core ${r.p.core}`); put(r.pri, String(r.p.pri));
+  put(r.cpu, r.p.cpu.toFixed(1) + "%");
+};
+procRows.forEach((r) => { r.p = nextProc(); showProc(r); });
+
+// ---------------- data throughput ----------------
+small(CX, 1620, DX - 60 - CX, "Data Throughput", "ice", "sky");
+const TPR = DX - 60, TBX = CX + 200, TBR = TPR - 110;
+L.text({ x: CX, base: 1734, s: 36, c: "ice", txt: "Gigaquads per second" });
+const totalTxt = L.text({ x: TPR, base: 1734, s: 36, c: "white", txt: "", align: "r" });
+TYPES.forEach((ty, i) => {
+  const base = 1788 + i * 54;
+  L.rect({ x: CX, y: base - 26, w: 26, h: 26, rx: 4, c: ty.c });
+  L.text({ x: CX + 50, base, s: 36, c: ty.c, txt: ty.name });
+  L.rect({ x: TBX, y: base - 18, w: TBR - TBX, h: 18, c: TRACK });
+  ty.bar = fill(TBX, base - 18, TBR - TBX, 18, ty.c);
+  ty.val = L.text({ x: TPR, base, s: 36, c: "white", txt: "", align: "r" });
+  ty.u = 0.5; ty.rate = 0;
+});
+L.text({ x: CX, base: 2004, s: 36, c: "ice", txt: "Peak  ·  This Watch" });
+const peakRate = L.text({ x: TPR, base: 2004, s: 36, c: "white", txt: "", align: "r" });
+
+// ---------------- subspace field: the cores' FTL processing ----------------
+small(DX, 1620, CR - DX, "Subspace Field", "lilac", "sky");
+const SBX = DX + 130, SBR = CR - 120;
+L.text({ x: DX, base: 1734, s: 36, c: "lilac", txt: "Field Status" });
+const fieldTxt = L.text({ x: CR, base: 1734, s: 36, c: "white", txt: "", align: "r" });
+CORES.forEach((k, i) => {
+  const base = 1788 + i * 54;
+  L.text({ x: DX, base, s: 36, c: k.c, txt: `Core ${k.n}` });
+  L.rect({ x: SBX, y: base - 18, w: SBR - SBX, h: 18, c: TRACK });
+  k.fbar = fill(SBX, base - 18, SBR - SBX, 18, "lilac");
+  k.fval = L.text({ x: CR, base, s: 36, c: "white", txt: "", align: "r" });
+  k.field = L.rand(98.4, 99.6); k.fshown = k.field; k.fseed = L.rand(0, 6);
+});
+L.text({ x: DX, base: 1950, s: 36, c: "lilac", txt: "Signal Velocity" });
+const velTxt = L.text({ x: CR, base: 1950, s: 36, c: "white", txt: "", align: "r" });
+L.text({ x: DX, base: 2004, s: 36, c: "lilac", txt: "Phase Variance" });
+const phaseTxt = L.text({ x: CR, base: 2004, s: 36, c: "white", txt: "", align: "r" });
+
+// ---------------- a guard: every name fits its place ----------------
+{
+  const bad = [];
+  const fits = (txt, s, w, where) => { if (L.textWidth(txt, s) > w) bad.push(`${where}: "${txt}" ${Math.round(L.textWidth(txt, s))}>${Math.round(w)}`); };
+  for (const [name, origin] of PROCS) { fits(name, 36, PC.origin - AX - 40, "process"); fits(origin, 36, PC.core - PC.origin - 40, "origin"); }
+  for (const n of NODES) fits(n.name, 28, NW - 27 - 30, "node");
+  if (bad.length) setTimeout(() => { throw new Error("computer-core: " + bad.join(" | ")); });
+}
+
+// ---------------- the starting state ----------------
+CORES.forEach((k) => { for (let j = 0; j < HN; j++) k.hist.push(coreLoad(k, (j - HN + 1) * 5, 0.5) + L.rand(-0.015, 0.015)); });
+CORES.forEach((k) => { k.u = k.goal = k.hist[HN - 1]; });
+[["Subprocessor resynchronized", "Tactical"], ["Isolinear cache rotated", "Core 2"], ["Trunk B junction 4 rerouted", "Trunk B"],
+ ["Library index committed", "Core 1"], ["Pattern buffer released", "Transporters"], ["Field generators in phase", "Cores 1 – 3"]]
+  .forEach(([a, b]) => logEvent(a, b));
+// the network already busy: packets part-way along their routes
+packets.forEach((p) => { launch(p, 0, -L.rand(0, 6)); });
+let peak = 0;
+
+// ---------------- the clock ----------------
+let tPrev = null;
+L.tick((t) => {
+  const dt = tPrev === null ? 0 : Math.min(0.1, t - tPrev); tPrev = t;
+  for (const p of packets) {                                    // data on the move
+    if (p.segs) {
+      const s = (t - p.t0) * SPEED;
+      if (s >= p.len) { p.segs = null; p.next = t + L.rand(0.15, 1.4); continue; }   // it ends beneath a node or a core
+      place(p, Math.max(0, s));
+    } else if (t >= p.next) { launch(p, t); place(p, 0); }
+  }
+  for (const k of CORES) {
+    const d = k.goal - k.u;
+    if (Math.abs(d) > 0.0003 || !k.drawn) { k.u += d * Math.min(1, dt * 0.9); k.drawn = true; css(k.bar, "transform", `scaleX(${k.u.toFixed(4)})`); }
+    const f = k.field + 0.25 * Math.sin(t * 0.21 + k.fseed);
+    if (Math.abs(f - k.fshown) > 0.01 || !k.fdrawn) { k.fshown = f; k.fdrawn = true; css(k.fbar, "transform", `scaleX(${(f / 100).toFixed(4)})`); }
+  }
+  for (const ty of TYPES) {
+    const goal = L.clamp(ty.rate / 10), d = goal - ty.u;
+    if (Math.abs(d) > 0.0005 || !ty.drawn) { ty.u += d * Math.min(1, dt * 0.8); ty.drawn = true; css(ty.bar, "transform", `scaleX(${ty.u.toFixed(4)})`); }
+  }
+});
+
+// the cores work: each lights a few of its cells now and then, more of them the busier it is
+L.every(320, () => CORES.forEach((k) => {
+  for (let i = 0; i < 3; i++) {
+    const e = L.pick(k.cells);
+    e.style.opacity = Math.random() < k.u ? L.rand(0.65, 1).toFixed(2) : L.rand(0.06, 0.22).toFixed(2);
+  }
+}), 0.2);
+// the subprocessors' loads wander; traffic follows them
+const rates = () => {
+  TYPES.forEach((ty) => (ty.rate = 0));
+  for (const n of NODES) for (const kd of n.kinds) TYPE[kd].rate += (n.load * 2.6) / n.kinds.length;
+};
+L.every(3600, (t) => {
+  NODES.forEach((n) => (n.load = L.clamp(n.load + (0.5 - n.load) * 0.12 + L.rand(-0.12, 0.12), 0.18, 1)));   // wandering, drawn back to the middle
+  glowNodes(); rates();
+  const busy = NODES.reduce((s, n) => s + n.load, 0) / NODES.length;
+  CORES.forEach((k) => (k.goal = coreLoad(k, t, busy) + L.rand(-0.015, 0.015)));
+}, 0.15);
+later(5000, () => {                                             // a new history sample
+  CORES.forEach((k) => { k.hist.shift(); k.hist.push(k.u); });
+  drawHist();
+}, 0);
+later(2000, () => procRows.forEach((r) => {                     // CPU shares drift
+  if (r.name.classList.contains("out")) return;
+  r.p.cpu = L.clamp(r.p.cpu + L.rand(-0.3, 0.3), r.p.base * 0.8, r.p.base * 1.2);
+  put(r.cpu, r.p.cpu.toFixed(1) + "%");
+}), 0.3);
+later(19000, () => {                                            // a process completes; another takes its place
+  const r = L.pick(procRows), done = r.p;
+  [r.name, r.origin, r.core, r.pri, r.cpu].forEach((e) => e.classList.add("out"));
+  setTimeout(() => {
+    r.p = nextProc(); showProc(r);
+    [r.name, r.origin, r.core, r.pri, r.cpu].forEach((e) => e.classList.remove("out"));
+    logEvent(`Process started  ·  ${r.p.name}`, `Core ${r.p.core}`);
+  }, 520);
+  logEvent(`Process complete  ·  ${done.name}`, `Core ${done.core}`);
+}, 0.3);
+later(13000, () => {                                            // memory changes hands
+  const k = L.pick(CORES), a = L.pick(TYPES), b = L.pick(TYPES.filter((ty) => ty !== a));
+  const q = SEGQ * L.pick([1, 1, 2]);
+  if (k.mem[a.key] - q < SEGQ * 2) return;
+  const total = TYPES.reduce((s, ty) => s + k.mem[ty.key], 0);
+  if (Math.random() < 0.3 && total > CAPQ * 0.5) { k.mem[a.key] -= q; logEvent(`Memory released  ·  ${fmt(q)} kiloquads, ${a.name.toLowerCase()}`, `Core ${k.n}`); }
+  else if (total + q < CAPQ * 0.86 && Math.random() < 0.4) { k.mem[b.key] += q; logEvent(`Memory allocated  ·  ${fmt(q)} kiloquads, ${b.name.toLowerCase()}`, `Core ${k.n}`); }
+  else { k.mem[a.key] -= q; k.mem[b.key] += q; logEvent(`Memory reallocated  ·  ${a.name.toLowerCase()} to ${b.name.toLowerCase()}`, `Core ${k.n}`); }
+  showMem(k);
+}, 0.3);
+const ROUTINE = [["Subprocessor resynchronized", () => L.pick(NODES).name], ["Isolinear cache rotated", () => `Core ${L.pick(CORES).n}`],
+  ["Junction rerouted around load", () => L.pick(["Trunk A", "Trunk B"])], ["Library index committed", () => `Core ${L.pick(CORES).n}`],
+  ["Sensor buffer flushed", () => L.pick(["Long Range Sensors", "Navigation", "Deflector Control"])],
+  ["Pattern buffer released", () => L.pick(["Transporters", "Replicators", "Holodecks"])],
+  ["Field generators in phase", () => "Cores 1 – 3"], ["ODN integrity check passed", () => L.pick(["Trunk A", "Trunk B"])],
+  ["Backup core synchronized", () => "Core 3"], ["Translator matrix updated", () => "Communications"]];
+let routineDeck = [];
+later(9000, () => {
+  if (!routineDeck.length) routineDeck = ROUTINE.slice().sort(() => Math.random() - 0.5);
+  let [txt, where] = routineDeck.pop();
+  if (logged.some((e) => e[1] === txt)) [txt, where] = routineDeck.length ? routineDeck.pop() : [txt, where];   // not twice in view
+  logEvent(txt, where());
+}, 0.3);
+
+// ---------------- readings: a few times a second at most ----------------
+rates();
+L.every(500, (t) => {
+  const total = TYPES.reduce((s, ty) => s + ty.rate, 0);
+  peak = Math.max(peak, total * 1.18);
+  const share = CORES.reduce((s, k) => s + k.w * k.u, 0);
+  CORES.forEach((k) => {
+    put(k.pct, (k.u * 100).toFixed(1) + "%");
+    put(k.loadTxt, (k.u * 100).toFixed(1) + "%");
+    put(k.rateTxt, ((total * k.w * k.u) / share).toFixed(2) + " gq/s");
+    put(k.fval, k.fshown.toFixed(1) + "%");
+  });
+  TYPES.forEach((ty) => put(ty.val, ty.rate.toFixed(2)));
+  put(totalTxt, total.toFixed(2));
+  put(peakRate, peak.toFixed(2));
+  put(peakTxt, `Peak ${(Math.max(...CORES.flatMap((k) => k.hist)) * 100).toFixed(1)}%`);
+  const procs = 212 + Math.round(6 * Math.sin(t * 0.05));
+  put(stateSub, `${total.toFixed(1)} gigaquads/s  ·  ${procs} active processes  ·  bimodal operation`);
+  put(netInfo, `Trunk utilization ${Math.round(100 * total / 34)}%  ·  Latency 0.${38 + Math.round(3 * Math.sin(t * 0.07))} ns`);
+  put(fieldTxt, "Stable  ·  3 of 3");
+  put(velTxt, `${fmt(3890 + 40 * Math.sin(t * 0.03))} c`);
+  put(phaseTxt, (0.004 + 0.001 * Math.sin(t * 0.11)).toFixed(4) + "%");
+}, 0);
+});
+</script></body></html>

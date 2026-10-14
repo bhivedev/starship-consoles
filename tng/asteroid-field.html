@@ -1,0 +1,635 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Asteroid Field</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .ring { border: 4px solid var(--orange); border-radius: 50%; }
+  .frag { background: var(--white); border-radius: 40%; }
+  .fade { pointer-events: none; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: wide, no sidebars ----------------
+L.frame({ type: "D", title: "Asteroid Field  •  Transit", c: "tan", c2: "orange", accent: "peach" });
+
+const DARK = "#2a1a0a", MAPBG = "#0b0603", GRID = "#24180c", GRID2 = "#3c2814";
+const BELOW = "#8a6a44";                                   // the three layers: below, in, above the ship's plane
+const LAYC = [BELOW, "tan", "peach"], LAYN = ["Below", "In Plane", "Above"];
+const col = (c) => (c.startsWith("#") ? c : `var(--${c})`);
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const op = (e, v) => { v = (+v).toFixed(2); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const fg = (e, c) => { if (e._fg !== c) { e._fg = c; e.style.color = col(c); } };
+const bg = (e, c) => { if (e._bg !== c) { e._bg = c; e.style.background = col(c); } };
+const pad2 = (n) => String(n).padStart(2, "0");
+const fmt = (n) => Math.round(n).toLocaleString("en");
+const tw = (t, s) => Math.ceil(L.textWidth(t, s));
+const hdg = (h) => (((h % 360) + 360) % 360).toFixed(1).padStart(5, "0");
+const tplus = (s) => { s = Math.max(0, Math.floor(s)); return `T+${pad2(Math.floor(s / 60))}:${pad2(s % 60)}`; };
+
+// a seeded generator, so the field is the same wherever it is drawn from
+const mulberry = (a) => () => { a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+const SEED = 47463;
+const rngFor = (...k) => mulberry(k.reduce((h, v) => (Math.imul(h ^ (v | 0), 2654435761) + 0x9e3779b9) | 0, SEED));
+
+// ---------------- the grid ----------------
+// Map 164–2540 (a scale gutter at its left), readings 2620–3816; the bottom strip splits in three.
+const X0 = 40, MX = 164, MY = 428, MW = 2376, MH = 1120, MR = MX + MW;
+const RX0 = 2620, RX1 = 3816;
+const ROW0 = 428, PITCH = 88, rowY = (i) => ROW0 + i * PITCH, rowBase = (i) => rowY(i) + 52.5;
+const BH = 1620, BROW = (i) => 1716 + 54 * i;
+
+// ---------------- the field ----------------
+// 0.5 km to the pixel; the ship makes 18 km/s, 36 px a second. One crossing is 21,600 km (20 min).
+const KM = 0.5, V = 36, VKM = V * KM, SXm = 480, HW = 80, LEN = 43200, TW = MW / 2;
+const SPEED = [1.15, 1, 0.85];                             // how fast each layer passes: below drifts aft, above forward
+const AXIS = 47;                                            // the transit axis, degrees
+
+// the planned corridor: straight legs between course changes, corners rounded over 300 px
+const turns = [{ x: -8000, y: MH / 2, s: 0 }];
+const cr = rngFor(1);
+const extendTurns = (X) => {
+  while (turns[turns.length - 1].x < X) {
+    const p = turns[turns.length - 1], dx = 1500 + cr() * 900;
+    let s;
+    do s = (cr() * 2 - 1) * 0.17; while (Math.abs(s - p.s) < 0.05);
+    if (p.y + s * dx < MH / 2 - 320 || p.y + s * dx > MH / 2 + 320) s = -s;
+    p.s = s;                                                // the slope of the leg that starts here
+    turns.push({ x: p.x + dx, y: p.y + s * dx, s });
+  }
+};
+const G = 4, XG0 = -8000, H = 150;
+const pre = [0];
+let seg = 0;
+const extendGrid = (X) => {
+  extendTurns(X + 4000);
+  while (XG0 + (pre.length - 1) * G < X) {
+    const k = pre.length - 1, x = XG0 + k * G;
+    while (turns[seg + 1].x <= x) seg++;
+    const a = turns[seg], b = turns[seg + 1], y = a.y + ((x - a.x) / (b.x - a.x)) * (b.y - a.y);
+    pre.push(pre[k] + y * G);
+  }
+};
+const integ = (X) => { const u = (X - XG0) / G, k = Math.floor(u); return pre[k] + (u - k) * (pre[k + 1] - pre[k]); };
+const cy = (X) => { extendGrid(X + H + 2 * G); return (integ(X + H) - integ(X - H)) / (2 * H); };
+const slopeAt = (X) => (cy(X + 3) - cy(X - 3)) / 6;
+const turnNear = (X) => { extendTurns(X + 4000); return turns.find((tn) => Math.abs(X - tn.x) < H); };
+
+// how thick the field is: thinnest at the margins of a crossing, thickest mid-belt
+const vn = (x) => { const i = Math.floor(x), f = x - i, a = rngFor(5, i)(), b = rngFor(5, i + 1)(); return L.mix(a, b, f * f * (3 - 2 * f)); };
+const frac = (x) => x - Math.floor(x);
+const dens = (X) => (0.5 + 0.5 * Math.sin(Math.PI * frac(X / LEN))) * (0.82 + 0.36 * vn(X / 2600));
+
+// ---------------- rocks ----------------
+const rockPoly = (r, rad) => {
+  const n = 8 + Math.floor(r() * 5), a0 = r() * 6.283, el = 0.7 + 0.3 * r();      // a little elongated, lumpy
+  let rs = Array.from({ length: n }, () => 0.62 + 0.5 * r());
+  rs = rs.map((v, i) => (3 * v + rs[(i + 1) % n] + rs[(i + n - 1) % n]) / 5);
+  return rs.map((k, i) => { const a = a0 + (i / n) * 6.283 + (r() - 0.5) * 0.35; return [Math.cos(a) * rad * k, Math.sin(a) * rad * k * el]; });
+};
+const craters = (r, rad) => rad < 15 ? [] : Array.from({ length: 1 + Math.floor(r() * 3) }, () => {
+  const a = r() * 6.283, d = r() * 0.45 * rad;
+  return [Math.cos(a) * d, Math.sin(a) * d, (0.12 + 0.13 * r()) * rad];
+});
+const desig = (r) => "DV-" + String(1000 + Math.floor(r() * 8999));
+const NAMES0 = ["DV-0417", "DV-1182", "Gamma 601", "DV-2650", "DV-3309"];
+const crossName = (n) => (n === 0 ? "Inner Belt" : n === 1 ? "Outer Belt" : `Belt Crossing ${n + 1}`);
+
+// five catalogued bodies a crossing: the waypoints, each passed a safe distance off the corridor
+const bodyMemo = new Map();
+const bodiesOf = (n) => {
+  if (bodyMemo.has(n)) return bodyMemo.get(n);
+  const list = [1, 2, 3, 4, 5].map((k) => {
+    const r = rngFor(7, n, k), x = n * LEN + (k / 6) * LEN + (r() * 2 - 1) * 500, R = 74 + r() * 26, c = cy(x);
+    const side = c < 400 ? 1 : c > 720 ? -1 : r() < 0.5 ? -1 : 1, y = c + side * (R + HW + 54);
+    const id = n === 0 ? NAMES0[k - 1] : desig(r);
+    return { n, k, w: "W" + k, id, x, y, R, side, poly: rockPoly(r, R), cr: craters(r, R).concat(craters(r, R)), spin: (r() < 0.5 ? -1 : 1) * (0.5 + r()), rot: r() * 360,
+             clear: Math.round((Math.abs(y - c) - R) * KM) };
+  });
+  bodyMemo.set(n, list);
+  return list;
+};
+
+// rocks in one chunk of one layer (a chunk is a tile's width), made the same every time they are asked for
+const chunkMemo = new Map();
+const chunk = (li, j) => {
+  const key = li + ":" + j;
+  if (chunkMemo.has(key)) return chunkMemo.get(key);
+  const r = rngFor(11 + li, j), x0 = j * TW, rocks = [], dust = [];
+  const d = dens(x0 + TW / 2);
+  if (li === 1) {
+    const near = [-1, 0, 1].flatMap((k) => bodiesOf(Math.floor(x0 / LEN) + k));
+    const n = Math.round(44 * d);
+    for (let a = 0; a < n * 8 && rocks.length < n; a++) {
+      const x = x0 + r() * TW, y = 24 + r() * (MH - 48), rad = 5 + 44 * r() ** 2.1;
+      if ([-rad, 0, rad].some((dx) => Math.abs(y - cy(x + dx)) < rad + HW + 26)) continue;
+      if (near.some((b) => Math.hypot(b.x - x, b.y - y) < b.R + rad + 30)) continue;
+      if (rocks.some((o) => Math.hypot(o.x - x, o.y - y) < (o.r + rad) * 0.95)) continue;
+      rocks.push({ li, x, y, r: rad, poly: rockPoly(r, rad), cr: craters(r, rad), id: desig(r), elev: r() * 4 - 2 });
+    }
+    for (let a = 0; a < Math.round(150 * d); a++) dust.push([x0 + r() * TW, r() * MH, 1.2 + 1.8 * r() ** 2]);
+  } else {
+    const n = Math.round((li === 2 ? 13 : 18) * d), sign = li === 2 ? 1 : -1;
+    for (let a = 0; a < n * 6 && rocks.length < n; a++) {
+      const x = x0 + r() * TW, y = 24 + r() * (MH - 48), rad = 5 + 24 * r() ** 2;
+      if (rocks.some((o) => Math.hypot(o.x - x, o.y - y) < (o.r + rad) * 1.1)) continue;
+      const lo = Math.max(8, rad * KM + 6);
+      rocks.push({ li, x, y, r: rad, poly: rockPoly(r, rad), cr: craters(r, rad), id: desig(r), elev: sign * (lo + r() * (36 - lo)) });
+    }
+    if (li === 0) for (let a = 0; a < Math.round(70 * d); a++) dust.push([x0 + r() * TW, r() * MH, 1.2 + 1.6 * r() ** 2]);
+  }
+  const c = { rocks, dust };
+  chunkMemo.set(key, c);
+  return c;
+};
+
+// ---------------- status line ----------------
+const WORDS = ["Field Transit", "Course Change"];
+const SUBX = X0 + Math.max(...WORDS.map((w) => tw(w, 100))) + 56;
+const stateTxt = L.text({ x: X0, cap: 150, s: 100, c: "tan", txt: WORDS[0] });
+const stateSub = L.text({ x: SUBX, base: 222, s: 38, c: "peach", txt: "" });
+{                                                            // the key: what a colour on the map means
+  const keys = [["Above Plane", "peach"], ["In Plane", "tan"], ["Below Plane", BELOW], ["Corridor", "butter"]];
+  const KG = 16, KW = (RX1 - RX0 - KG * (keys.length - 1)) / keys.length;
+  keys.forEach(([name, c], i) => L.box({ x: Math.round(RX0 + i * (KW + KG)), y: 166, w: Math.round(KW), h: 56, c, label: name, fs: 28, r: i === 0 ? "l" : null }));
+}
+
+// ---------------- the sensor map ----------------
+L.header({ x: X0, y: 280, w: MR - X0, label: "Sensor Map  ·  Devolin System  ·  Ship-Centered", c1: "tan", c2: "orange" });
+L.rect({ x: MX, y: MY, w: MW, h: MH, c: MAPBG });
+const SX = MX + SXm, CYm = MY + MH / 2;
+for (let k = -2; k <= 9; k++) {                              // range ahead of the ship, every 100 km
+  const x = SX + k * 200;
+  L.rect({ x: x - 1, y: MY, w: 2, h: MH, c: k === 0 ? GRID2 : GRID, free: true });
+  L.text({ x, base: 400, s: 34, c: k === 0 ? "butter" : "peach", txt: k === 9 ? "900 km" : String(k * 100), align: "c", w: 160, legend: true });
+}
+for (let m = -2; m <= 2; m++) {                              // across the transit axis, every 100 km
+  const y = CYm + m * 200;
+  L.rect({ x: MX, y: y - 1, w: MW, h: 2, c: m === 0 ? GRID2 : GRID, free: true });
+  L.text({ x: MX - 28, base: y + 12, s: 34, c: "peach", txt: String(Math.abs(m) * 100), align: "r", legend: true });
+}
+L.text({ x: MX - 28, base: MY + 34, s: 30, c: "tan", txt: "Port", align: "r", legend: true });
+L.text({ x: MX - 28, base: MY + MH - 6, s: 30, c: "tan", txt: "Stbd", align: "r", legend: true });
+
+const clip = L.layer({ x: MX, y: MY, w: MW, h: MH });
+clip.style.overflow = "hidden";
+const z = (e, n) => ((e.style.zIndex = n), e);
+// stacking inside the map: below-plane tiles, in-plane tiles, bodies, above-plane tiles, then the markers
+const ZL = [10, 20, 40];
+const conts = ZL.map((n) => z(L.layer({ x: 0, y: 0, w: MW, h: MH }, clip), n));
+
+// three layers of tiles, each sliding at its own pace; a tile is recycled to the right before it is drawn
+const rockPath = (g, x, y, pts) => {
+  const n = pts.length, mid = (i) => [x + (pts[i][0] + pts[(i + 1) % n][0]) / 2, y + (pts[i][1] + pts[(i + 1) % n][1]) / 2];
+  g.beginPath();
+  const m0 = mid(n - 1); g.moveTo(m0[0], m0[1]);
+  for (let i = 0; i < n; i++) { const m = mid(i); g.quadraticCurveTo(x + pts[i][0], y + pts[i][1], m[0], m[1]); }
+  g.closePath();
+};
+const ROCK = [{ fill: BELOW, crater: "rgba(40,24,8,.32)", dust: "#5e4a30" },
+              { fill: "#c9a77c", crater: "rgba(80,50,20,.36)", dust: "#8a7254" },
+              { fill: "#ffb070", crater: "rgba(150,80,24,.32)" }];
+const drawTile = (tile) => {
+  const g = tile.c.g, li = tile.li, j = tile.j, x0 = j * TW, st = ROCK[li];
+  g.clearRect(0, 0, TW + 8, MH);
+  g.save(); g.translate(-x0, 0);
+  if (li === 1) {
+    // the corridor: a faint band (translucent, so drawn only over this tile's own width), its edges and centre line
+    g.save(); g.beginPath(); g.rect(x0, 0, TW, MH); g.clip();
+    g.beginPath();
+    for (let x = x0 - 8; x <= x0 + TW + 8; x += 4) g.lineTo(x, cy(x) - HW);
+    for (let x = x0 + TW + 8; x >= x0 - 8; x -= 4) g.lineTo(x, cy(x) + HW);
+    g.closePath(); g.fillStyle = "rgba(255,204,102,0.07)"; g.fill();
+    g.restore();
+    g.strokeStyle = "#6e5626"; g.lineWidth = 2.5;
+    for (const side of [-1, 1]) { g.beginPath(); for (let x = x0 - 10; x <= x0 + TW + 18; x += 4) g.lineTo(x, cy(x) + side * HW); g.stroke(); }
+    g.strokeStyle = "#a88a40"; g.lineWidth = 3;               // dashes at fixed places along the field, so tiles agree
+    g.beginPath();
+    for (let x = Math.floor((x0 - 20) / 30) * 30; x <= x0 + TW + 18; x += 30) { g.moveTo(x, cy(x)); g.lineTo(x + 6, cy(x + 6)); g.lineTo(x + 14, cy(x + 14)); }
+    g.stroke();
+    extendTurns(x0 + TW + 40);
+    g.fillStyle = "#ffcc66";                                  // the course changes: a diamond on the centre line
+    for (const tn of turns) if (tn.x > x0 - 20 && tn.x < x0 + TW + 28) {
+      const y = cy(tn.x); g.beginPath(); g.moveTo(tn.x, y - 11); g.lineTo(tn.x + 11, y); g.lineTo(tn.x, y + 11); g.lineTo(tn.x - 11, y); g.closePath(); g.fill();
+    }
+  }
+  for (let k = j - 1; k <= j + 1; k++) {
+    const ch = chunk(li, k);
+    if (st.dust) { g.fillStyle = st.dust; for (const [x, y, r] of ch.dust) if (x > x0 - 6 && x < x0 + TW + 14) { g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); } }
+    for (const rk of ch.rocks) {
+      if (rk.x + rk.r < x0 - 4 || rk.x - rk.r > x0 + TW + 12) continue;
+      rockPath(g, rk.x, rk.y, rk.poly); g.fillStyle = st.fill; g.fill();
+      if (li === 2) { g.strokeStyle = "#ffd2a8"; g.lineWidth = 2.5; g.stroke(); }
+      g.fillStyle = st.crater;
+      for (const [cx, cyy, cr2] of rk.cr) { g.beginPath(); g.arc(rk.x + cx, rk.y + cyy, cr2, 0, 7); g.fill(); }
+    }
+  }
+  g.restore();
+};
+const tiles = [0, 1, 2].map((li) => [0, 1, 2].map(() => {
+  const el = L.layer({ x: 0, y: 0, w: TW + 8, h: MH }, conts[li]);
+  const c = L.canvas({ x: 0, y: 0, w: TW + 8, h: MH }, el);
+  const tile = { el, c, li, j: null };
+  c.onResize = () => { if (tile.j !== null) drawTile(tile); };
+  return tile;
+}));
+
+// the catalogued bodies: they tumble, slowly, as they pass
+const bodyEls = [0, 1].map(() => {
+  const e = z(L.layer({ x: 0, y: 0, w: 240, h: 240 }, clip), 30);
+  const svg = L.svg("svg", { width: 240, height: 240, viewBox: "-120 -120 240 240" }, e);
+  const p = L.svg("path", { fill: "#c9a77c" }, svg);
+  const crs = Array.from({ length: 6 }, () => L.svg("circle", { fill: "rgba(80,50,20,.36)" }, svg));
+  e.style.opacity = 0;
+  return { e, p, crs, b: null };
+});
+const bodyLabels = [0, 1].map(() => {
+  const e = z(L.layer({ x: 0, y: 0, w: 400, h: 60 }, clip), 55);
+  const t = L.text({ x: 200, w: 400, align: "c", base: 40, s: 34, c: "white", txt: "", legend: true }, e);
+  e.style.opacity = 0;
+  return { e, t };
+});
+const polyD = (pts) => {
+  const n = pts.length, mid = (i) => [(pts[i][0] + pts[(i + 1) % n][0]) / 2, (pts[i][1] + pts[(i + 1) % n][1]) / 2];
+  let d = `M${mid(n - 1).map((v) => v.toFixed(1)).join(",")}`;
+  for (let i = 0; i < n; i++) d += ` Q${pts[i][0].toFixed(1)},${pts[i][1].toFixed(1)} ${mid(i).map((v) => v.toFixed(1)).join(",")}`;
+  return d + " Z";
+};
+
+// tracking rings round the bodies in the avoidance table
+const rings = Array.from({ length: 6 }, () => {
+  const e = z(L.layer({ x: 0, y: 0, w: 40, h: 40, cls: "ring" }, clip), 50);
+  const lab = z(L.layer({ x: 0, y: 0, w: 200, h: 40 }, clip), 55);
+  const t = L.text({ x: 0, base: 30, s: 30, c: "orange", txt: "", legend: true }, lab);
+  t.style.background = "#0b0603"; t.style.padding = "0 6px"; t.style.top = "0px"; t.style.lineHeight = "36px";
+  e.style.opacity = 0; lab.style.opacity = 0;
+  return { e, lab, t, rk: null, a: 0, size: 0 };
+});
+
+// fragments in the corridor, pushed aside by the navigational deflector
+const frags = Array.from({ length: 3 }, () => {
+  const e = z(L.layer({ x: 0, y: 0, w: 12, h: 12, cls: "frag" }, clip), 45);
+  e.style.opacity = 0;
+  return { e, on: false };
+});
+
+// the ship: a chevron with the deflector's field ahead of it
+const ship = z(L.layer({ x: 0, y: 0, w: 140, h: 140 }, clip), 60);
+{
+  const svg = L.svg("svg", { width: 140, height: 140, viewBox: "-70 -70 140 140" }, ship);
+  L.svg("path", { d: "M34,0 L-22,-26 L-10,0 L-22,26 Z", fill: "#f2f2ff" }, svg);
+  ship.arc = L.svg("path", { d: L.arc(0, 0, 50, 58, 52, 128), fill: "#8fd3ff" }, svg);
+  ship.arc.style.transition = "opacity .5s ease";
+}
+// the map's edges: things fade in and out rather than being cut
+[[0, 90, "to right"], [MW - 120, 120, "to left"]].forEach(([x, w, dir]) => {
+  const f = z(L.layer({ x, y: 0, w, h: MH, cls: "fade" }, clip), 90);
+  f.style.background = `linear-gradient(${dir}, ${MAPBG}, rgba(11,6,3,0))`;
+});
+const edgeFade = (x, m = 40) => L.clamp(Math.min((x - m) / 150, (MW - 70 - x) / 170));
+
+// ---------------- collision avoidance ----------------
+L.header({ x: RX0, y: 280, w: RX1 - RX0, label: "Collision Avoidance", c1: "orange", c2: "tan" });
+const BXW = 220, CL = RX0 + BXW + L.GAP, CS = 3290, CC = 3560;
+[["Body", RX0, "l"], ["Layer", CL, "l"], ["Size", CS, "r"], ["Closest", CC, "r"], ["Time", RX1, "r"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: 400, s: 36, c: "peach", txt, align }));
+const avRows = Array.from({ length: 6 }, (_, i) => ({
+  box: L.box({ x: RX0, y: rowY(i), w: BXW, h: 64, c: DARK, label: "", fs: 32, r: "l" }),
+  ly: L.text({ x: CL, base: rowBase(i), s: 40, c: "tan", txt: "" }),
+  sz: L.text({ x: CS, base: rowBase(i), s: 40, c: "tan", txt: "", align: "r" }),
+  cl: L.text({ x: CC, base: rowBase(i), s: 52, c: "white", txt: "", align: "r" }),
+  tm: L.text({ x: RX1, base: rowBase(i), s: 52, c: "white", txt: "", align: "r" }),
+}));
+
+// ---------------- navigational deflector ----------------
+const DY = 980;
+L.header({ x: RX0, y: DY, w: RX1 - RX0, label: "Navigational Deflector", c1: "ice", c2: "tan" });
+L.text({ x: RX0, base: 1104, s: 36, c: "peach", txt: "Load  ·  Last 60 Seconds  ·  Full Scale 100%" });
+const peakTxt = L.text({ x: RX1, base: 1104, s: 36, c: "white", txt: "", align: "r" });
+const TRX = RX0, TRY = 1132, TRW = RX1 - RX0, TRH = 168, NS = 60, COLW = TRW / NS;
+L.rect({ x: TRX, y: TRY, w: TRW, h: TRH, c: "#0a1014" });
+for (const v of [25, 50, 75]) L.rect({ x: TRX, y: TRY + TRH - (v / 100) * TRH - 1, w: TRW, h: 2, c: v === 50 ? "#1e3240" : "#14222c", free: true });
+const trClip = L.layer({ x: TRX, y: TRY, w: TRW, h: TRH });
+trClip.style.overflow = "hidden";
+const trLay = L.layer({ x: 0, y: 0, w: TRW + COLW, h: TRH }, trClip);
+const trace = L.canvas({ x: 0, y: 0, w: TRW + COLW, h: TRH }, trLay);
+const samples = [];
+const drawTrace = () => {
+  const g = trace.g;
+  g.clearRect(0, 0, TRW + COLW, TRH);
+  samples.forEach((v, i) => {
+    const h = (v / 100) * (TRH - 8);
+    g.fillStyle = i === samples.length - 1 ? "#ffffff" : "#8fd3ff";
+    g.fillRect(i * COLW + 3, TRH - h, COLW - 6, h);
+  });
+};
+trace.onResize = drawTrace;
+const GX = RX0 + 300, GR = 3580;
+const gauge = (i, name, c) => {
+  const base = rowBase(10 + i);
+  L.text({ x: RX0, base, s: 40, c: "tan", txt: name });
+  L.rect({ x: GX, y: base - 26, w: GR - GX, h: 26, c: DARK });
+  const f = L.layer({ x: GX, y: base - 26, w: GR - GX, h: 26 });
+  f.style.background = col(c); f.style.transformOrigin = "0 0";
+  return { f, v: L.text({ x: RX1, base, s: 52, c: "white", txt: "", align: "r" }) };
+};
+const gLoad = gauge(0, "Load", "ice"), gFlux = gauge(1, "Particulates", "tan"), gField = gauge(2, "Field Strength", "orange");
+
+// ---------------- bottom strip: transit progress ----------------
+const AX0 = X0, AX1 = 1220, AW = AX1 - AX0;
+L.header({ x: AX0, y: BH, w: AW, label: "Transit Progress", c1: "orange", c2: "tan", h: 48 });
+L.text({ x: AX0, base: BROW(0), s: 40, c: "tan", txt: "Progress" });
+const progVal = L.text({ x: AX0 + tw("Progress", 40) + 24, base: BROW(0), s: 44, c: "white", txt: "" });
+const progKm = L.text({ x: AX1, base: BROW(0), s: 36, c: "peach", txt: "", align: "r" });
+const CH0 = 1784, CH1 = 1890, BAR0 = 1900, BAR1 = 1924;
+const profile = L.svg("path", { fill: "#7a5c38", class: "boot" });
+const wTicks = Array.from({ length: 5 }, () => L.rect({ x: 0, y: 1780, w: 2, h: BAR1 - 1780, c: "peach", free: true }));
+L.text({ x: AX0, base: 1770, s: 30, c: "peach", txt: "Entry", legend: true });
+L.text({ x: AX1, base: 1770, s: 30, c: "peach", txt: "Exit", align: "r", legend: true });
+const wLabs = Array.from({ length: 5 }, () => L.text({ x: 0, base: 1770, s: 30, c: "peach", txt: "", align: "c", w: 120, legend: true }));
+const profClip = L.layer({ x: AX0, y: CH0, w: AW, h: CH1 - CH0 });
+profClip.style.overflow = "hidden";
+const dimmer = L.layer({ x: 0, y: 0, w: AW, h: CH1 - CH0 }, profClip);
+dimmer.style.background = "rgba(0,0,0,0.6)";
+L.rect({ x: AX0, y: BAR0, w: AW, h: BAR1 - BAR0, c: DARK });
+const progBar = L.layer({ x: AX0, y: BAR0, w: AW, h: BAR1 - BAR0 });
+progBar.style.background = "var(--orange)"; progBar.style.transformOrigin = "0 0";
+const nowLine = L.layer({ x: AX0 - 2, y: 1780, w: 4, h: BAR1 - 1780 });
+nowLine.style.background = "var(--white)";
+const RG = [[AX0, "Heading"], [420, "Velocity"], [800, "To Exit"]].map(([x, name]) => {
+  L.text({ x, base: BROW(5), s: 36, c: "tan", txt: name });
+  return L.text({ x: x === AX0 ? MX : x + tw(name, 36) + 20, base: BROW(5), s: 40, c: "white", txt: "" });   // the first under the map's edge
+});
+const exitVal = RG[2]; exitVal.style.left = ""; exitVal.style.right = L.W - AX1 + "px";
+let profFor = -1;
+const showProfile = (n) => {
+  profFor = n;
+  let d = `M${AX0},${CH1}`;
+  for (let k = 0; k <= 236; k++) { const p = k / 236; d += ` L${(AX0 + p * AW).toFixed(1)},${(CH1 - (dens(n * LEN + p * LEN) / 1.2) * (CH1 - CH0)).toFixed(1)}`; }
+  profile.setAttribute("d", d + ` L${AX1},${CH1} Z`);
+  bodiesOf(n).forEach((b, k) => {
+    const x = AX0 + ((b.x - n * LEN) / LEN) * AW;
+    wTicks[k].setAttribute("x", (x - 1).toFixed(1));
+    wLabs[k].style.left = x - 60 + "px"; L.set(wLabs[k], b.w);
+  });
+};
+
+// ---------------- bottom strip: field layers ----------------
+const FX0 = 1300, FX1 = MR, FN = FX0 + 60, FE = 1830, FD = 2050, FV = 2230;
+L.header({ x: FX0, y: BH, w: FX1 - FX0, label: "Field Layers", c1: "tan", c2: "peach", h: 48 });
+[["Layer", FX0, "l"], ["Elevation", FE, "r"], ["Drift", FD, "r"], ["In View", FV, "r"], ["Status", FX1, "r"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: BROW(0), s: 36, c: "peach", txt, align }));
+const LAYROWS = [["Above Plane", "peach", "+8 to +36 km", "+2.7 km/s"], ["In Plane", "tan", "−2 to +2 km", "0.0 km/s"],
+  ["Below Plane", BELOW, "−8 to −36 km", "−2.7 km/s"], ["Fragments", "white", "−2 to +2 km", "0.0 km/s"]].map(([name, c, el, dr], i) => {
+  const base = BROW(i + 1);
+  L.rect({ x: FX0, y: base - 30, w: 36, h: 36, c });
+  L.text({ x: FN, base, s: 36, c: "tan", txt: name });
+  L.text({ x: FE, base, s: 36, c: "peach", txt: el, align: "r" });
+  L.text({ x: FD, base, s: 36, c: "peach", txt: dr, align: "r" });
+  return { n: L.text({ x: FV, base, s: 40, c: "white", txt: "", align: "r" }), st: L.text({ x: FX1, base, s: 36, c: "tan", txt: "", align: "r" }) };
+});
+L.text({ x: FX0, base: BROW(5), s: 36, c: "tan", txt: "Deflected This Crossing" });
+const deflN = L.text({ x: FV, base: BROW(5), s: 40, c: "white", txt: "", align: "r" });
+const deflLast = L.text({ x: FX1, base: BROW(5), s: 36, c: "tan", txt: "", align: "r" });
+
+// ---------------- bottom strip: navigation log ----------------
+L.header({ x: RX0, y: BH, w: RX1 - RX0, label: "Navigation Log", c1: "tan", c2: "orange", h: 48 });
+const LTX = RX0 + tw("T+00:00", 36) + 40;
+const logRows = Array.from({ length: 6 }, (_, i) => ({
+  tm: L.text({ x: RX0, base: BROW(i), s: 36, c: "orange", txt: "" }),
+  tx: L.text({ x: LTX, base: BROW(i), s: 36, c: "peach", txt: "" }),
+  by: L.text({ x: RX1, base: BROW(i), s: 36, c: "white", txt: "", align: "r" }) }));
+const logged = [];
+const showLog = () => logRows.forEach((r, i) => { const e = logged[i] || [null, "", ""]; L.set(r.tm, e[0] === null ? "" : tplus(e[0])); L.set(r.tx, e[1]); L.set(r.by, e[2]); });
+const logLine = (s, txt, by) => {                            // newest at the foot, always in time order
+  logged.push([s, txt, by]); logged.sort((a, b) => a[0] - b[0]);
+  while (logged.length > logRows.length) logged.shift();
+  showLog();
+};
+
+// ---------------- the voyage ----------------
+const P0 = L.rand(0.08, 0.42), XS0 = P0 * LEN;              // where in the crossing the screen opens
+const tAt = (X) => X / V;                                    // seconds since the field was entered
+const turnText = (tn) => {
+  const prev = turns[turns.indexOf(tn) - 1], a = Math.atan(prev.s) * 180 / Math.PI, b = Math.atan(tn.s) * 180 / Math.PI;
+  return { d: Math.abs(b - a).toFixed(1), dir: b > a ? "starboard" : "port", from: hdg(AXIS + a), to: hdg(AXIS + b) };
+};
+const bodyLog = (b) => [b.x / V, `${b.w}  ·  ${b.id} abeam to ${b.side < 0 ? "port" : "starboard"}, ${b.clear} km`, "Sensors"];
+// what has already happened this crossing
+let deflected = 0, lastDefl = null;
+{
+  const past = [[0, "Entered Devolin asteroid field  ·  Inner belt", "Helm"]];
+  extendTurns(XS0 + 4000);
+  for (const tn of turns) if (tn.x - H > 0 && tn.x - H < XS0) { const q = turnText(tn); past.push([(tn.x - H) / V, `Course change ${q.d}° to ${q.dir}, heading ${q.to}`, "Helm"]); }
+  for (const b of bodiesOf(0)) if (b.x < XS0) past.push(bodyLog(b));
+  for (let s = 14; s < XS0 / V - 6; s += L.rand(15, 23)) { deflected++; lastDefl = s; if (s > XS0 / V - 140) past.push([s, `Fragment, ${L.rand(1.5, 6.5).toFixed(1)} m, deflected from the corridor`, "Deflector"]); }
+  past.sort((a, b) => a[0] - b[0]).slice(-6).forEach((e) => logged.push(e));
+  showLog();
+}
+let crossingAt = 0, nextFrag = 6 + L.rand(4, 10), lastClose = -99;
+let load = 20 + 38 * dens(XS0), bump = 0, flux = 300 + 1500 * dens(XS0), lastT = 0, lastSec = -1;
+const passed = new Set();
+let tracked = [];
+
+L.tick((t) => {
+  const dt = Math.min(0.1, t - lastT); lastT = t;
+  const Xs = XS0 + V * t, n = Math.floor(Xs / LEN);
+  // the tiles: each layer slides at its own pace
+  tiles.forEach((pool, li) => {
+    const off = SPEED[li] * Xs - SXm, j0 = Math.floor(off / TW);
+    for (const tile of pool) if (tile.j === null || tile.j < j0 || tile.j > j0 + 2) tile.j = null;
+    for (let j = j0; j <= j0 + 2; j++) if (!pool.some((tl) => tl.j === j)) {
+      const tile = pool.find((tl) => tl.j === null);
+      tile.j = j; tile.el.style.zIndex = j; drawTile(tile);   // the right-hand tile on top
+    }
+    for (const tile of pool) tf(tile.el, `translate3d(${(tile.j * TW - off).toFixed(2)}px,0,0)`);
+  });
+  // the ship, on the corridor's centre line, pointing along it
+  const yS = cy(Xs), ang = Math.atan(slopeAt(Xs)) * 180 / Math.PI;
+  tf(ship, `translate3d(${SXm - 70}px,${(yS - 70).toFixed(2)}px,0) rotate(${ang.toFixed(2)}deg)`);
+  // the catalogued bodies near the map
+  const near = [n - 1, n, n + 1].flatMap(bodiesOf).filter((b) => b.x - Xs > -SXm - b.R - 60 && b.x - Xs < MW - SXm + b.R + 60);
+  bodyEls.forEach((be, i) => {
+    const b = near[i] || null;
+    if (be.b !== b) {
+      be.b = b;
+      if (b) { be.p.setAttribute("d", polyD(b.poly)); be.crs.forEach((c, k) => { const q = b.cr[k]; c.setAttribute("r", q ? q[2].toFixed(1) : 0); if (q) { c.setAttribute("cx", q[0].toFixed(1)); c.setAttribute("cy", q[1].toFixed(1)); } }); L.set(bodyLabels[i].t, `${b.w}  ·  ${b.id}  ·  ${Math.round(2 * b.R * KM)} km`); }
+      op(be.e, b ? 1 : 0); op(bodyLabels[i].e, 0);
+    }
+    if (!b) return;
+    const x = b.x - Xs + SXm;
+    tf(be.e, `translate3d(${(x - 120).toFixed(2)}px,${(b.y - 120).toFixed(1)}px,0) rotate(${(b.rot + b.spin * t).toFixed(2)}deg)`);
+    const ly = b.side < 0 ? b.y - b.R - 58 : b.y + b.R + 6;
+    tf(bodyLabels[i].e, `translate3d(${(x - 200).toFixed(2)}px,${ly.toFixed(1)}px,0)`);
+    op(bodyLabels[i].e, edgeFade(x, 120));
+  });
+  // tracking rings follow their bodies
+  const placed = [];
+  rings.forEach((rg) => {
+    if (!rg.rk) { if (rg.a > 0) { rg.a = Math.max(0, rg.a - dt / 0.6); op(rg.e, rg.a); op(rg.lab, rg.a); } return; }
+    const rk = rg.rk, x = rk.x - (SPEED[rk.li] * Xs - SXm), s = rg.size;
+    rg.a = Math.min(1, rg.a + dt / 0.6);
+    const a = rg.a * edgeFade(x);
+    tf(rg.e, `translate3d(${(x - s / 2).toFixed(2)}px,${(rk.y - s / 2).toFixed(1)}px,0)`);
+    const lx = x + s * 0.36 + 6, lyy = rk.y - s * 0.36 - 34;
+    tf(rg.lab, `translate3d(${lx.toFixed(2)}px,${lyy.toFixed(1)}px,0)`);
+    // a label that would sit on another ring's label steps back until they part
+    const clash = placed.some(([px, py]) => Math.abs(px - lx) < 110 && Math.abs(py - lyy) < 40);
+    placed.push([lx, lyy]);
+    rg.la = L.clamp((rg.la ?? 0) + (clash ? -dt : dt) / 0.5);
+    op(rg.e, a); op(rg.lab, a * rg.la);
+  });
+  // fragments: one now and then, ahead in the corridor; the deflector pushes each aside
+  if (t > nextFrag) {
+    const f = frags.find((q) => !q.on);
+    if (f) {
+      const X = Xs + (MW - SXm) + 20;
+      Object.assign(f, { on: true, X, y: cy(X) + L.rand(-55, 55), dy: 0, hit: null, size: L.rand(1.5, 6.5) });
+      f.side = f.y < cy(X) ? -1 : 1;
+    }
+    nextFrag = t + L.rand(14, 22);
+  }
+  let deflecting = false;
+  frags.forEach((f) => {
+    if (!f.on) return;
+    const x = f.X - Xs + SXm;
+    if (f.hit === null && x - SXm < 110) {
+      f.hit = t; bump = Math.min(30, bump + 16); deflected++; lastDefl = (Xs) / V;
+      logLine(Xs / V, `Fragment, ${f.size.toFixed(1)} m, deflected from the corridor`, "Deflector");
+    }
+    let a = edgeFade(x, 0);
+    if (f.hit !== null) {
+      const u = t - f.hit;
+      f.dy = f.side * 150 * L.ease(L.clamp(u / 2.2));
+      a *= 1 - L.clamp((u - 1.4) / 0.8);
+      if (u < 1.2) deflecting = true;
+      if (u > 2.3) { f.on = false; op(f.e, 0); return; }
+    }
+    tf(f.e, `translate3d(${(x - 6).toFixed(2)}px,${(f.y + f.dy - 6).toFixed(1)}px,0)`);
+    op(f.e, a);
+  });
+  op(ship.arc, deflecting ? 1 : 0.35);
+  // the deflector's load follows the field's thickness, and each push
+  bump *= Math.exp(-dt / 3);
+  load += (20 + 38 * dens(Xs) + bump - load) * (1 - Math.exp(-dt / 1.5));
+  flux += (300 + 1500 * dens(Xs) - flux) * (1 - Math.exp(-dt / 4));
+  // the load trace: one bar a second, sliding smoothly
+  const sec = Math.floor(t);
+  if (sec !== lastSec) {
+    if (lastSec < 0) { for (let k = NS; k >= 1; k--) samples.push(L.clamp(20 + 38 * dens(Xs - k * V) + L.rand(-1.5, 1.5), 0, 100)); }
+    lastSec = sec; samples.push(load); while (samples.length > NS + 1) samples.shift();
+    drawTrace();
+  }
+  tf(trLay, `translate3d(${(-(t - sec) * COLW).toFixed(2)}px,0,0)`);
+  // transit progress
+  const p = frac(Xs / LEN);
+  if (n !== profFor) showProfile(n);
+  tf(progBar, `scaleX(${p.toFixed(5)})`);
+  tf(dimmer, `translate3d(${(p * AW).toFixed(2)}px,0,0)`);
+  tf(nowLine, `translate3d(${(p * AW).toFixed(2)}px,0,0)`);
+  // events: course changes, waypoints, a new crossing
+  for (const tn of turns) if (tn.x - H <= Xs && tn.x - H > Xs - V * dt - 1 && !passed.has(tn)) {
+    passed.add(tn); const q = turnText(tn); logLine((tn.x - H) / V, `Course change ${q.d}° to ${q.dir}, heading ${q.to}`, "Helm");
+  }
+  for (const b of bodiesOf(n)) if (b.x <= Xs && b.x > Xs - V * dt - 1 && !passed.has(b)) { passed.add(b); logLine(...bodyLog(b)); }
+  if (n > crossingAt) {
+    crossingAt = n; deflected = 0;
+    logLine(Xs / V, `${crossName(n - 1)} crossing complete  ·  ${crossName(n)} begun`, "Helm");
+  }
+});
+
+// readings and the avoidance table, four times a second
+L.every(250, (t) => {
+  const Xs = XS0 + V * t, n = Math.floor(Xs / LEN), p = frac(Xs / LEN);
+  // candidates: bodies of any layer ahead and in view that will pass within reach of the ship
+  const cand = [];
+  [0, 1, 2].forEach((li) => {
+    const off = SPEED[li] * Xs - SXm, j0 = Math.floor(off / TW), vpx = V * SPEED[li];
+    for (let j = j0; j <= j0 + 2; j++) for (const rk of chunk(li, j).rocks) {
+      const x = rk.x - off, time = (x - SXm) / vpx;
+      if (time <= 0.3 || x > MW - 70 || rk.r < 8) continue;
+      const lat = (Math.abs(rk.y - cy(Xs + V * time)) - rk.r) * KM;
+      const miss = li === 1 ? lat : Math.hypot(Math.max(0, lat), Math.abs(rk.elev) - rk.r * KM);
+      if (li === 1 ? lat > 95 : lat > HW * KM || miss > 30) continue;
+      cand.push({ rk, time, miss });
+    }
+  });
+  cand.sort((a, b) => a.time - b.time);
+  const top = cand.slice(0, 6);
+  // the rows
+  avRows.forEach((row, i) => {
+    const c = top[i];
+    if (!c) { bg(row.box, DARK); L.set(row.box, ""); L.set(row.ly, ""); L.set(row.sz, ""); L.set(row.cl, ""); L.set(row.tm, ""); return; }
+    const rk = c.rk;
+    bg(row.box, LAYC[rk.li]); L.set(row.box, rk.id);
+    L.set(row.ly, rk.li === 1 ? "In Plane" : rk.li === 2 ? `Above  +${Math.round(rk.elev)} km` : `Below  ${Math.round(rk.elev)} km`.replace("-", "−"));
+    fg(row.ly, LAYC[rk.li]);
+    L.set(row.sz, Math.round(2 * rk.r * KM) + " km");
+    L.set(row.cl, Math.round(c.miss) + " km");
+    L.set(row.tm, Math.ceil(c.time) + " s");
+  });
+  // a pass close enough to note
+  for (const c of tracked) if (!top.some((q) => q.rk === c.rk) && c.time < 1.2 && (c.rk.li !== 1 || c.miss < 62) && t - lastClose > 10) {
+    lastClose = t;
+    const rk = c.rk, how = rk.li === 1 ? `passed ${Math.round(c.miss)} km off the corridor` : `passed ${Math.round(Math.abs(rk.elev))} km ${rk.li === 2 ? "above" : "below"}`;
+    logLine(Xs / V, `${rk.id} ${how}`, "Sensors");
+    break;
+  }
+  tracked = top;
+  // rings: keep each on its body; free ones go to bodies new to the table
+  rings.forEach((rg) => { if (rg.rk && !top.some((c) => c.rk === rg.rk)) rg.rk = null; });
+  top.forEach((c) => {
+    if (rings.some((rg) => rg.rk === c.rk)) return;
+    const rg = rings.find((q) => !q.rk && q.a === 0) || rings.find((q) => !q.rk);
+    if (!rg) return;
+    rg.rk = c.rk; rg.a = 0; rg.la = 0; rg.size = Math.round(2 * c.rk.r + 26);
+    rg.e.style.width = rg.e.style.height = rg.size + "px";
+    L.set(rg.t, c.rk.id);
+  });
+  // the layers: how many of each are on the map
+  const inView = [0, 1, 2].map((li) => {
+    const off = SPEED[li] * Xs - SXm, j0 = Math.floor(off / TW);
+    let k = 0;
+    for (let j = j0; j <= j0 + 2; j++) for (const rk of chunk(li, j).rocks) { const x = rk.x - off; if (x > 0 && x < MW) k++; }
+    return k;
+  });
+  const fragsIn = frags.filter((f) => f.on && f.X - Xs + SXm < MW && f.hit === null).length;
+  const turn = turnNear(Xs);
+  [[inView[2], "Clear Overhead"], [inView[1], turn ? "Course Change" : "Corridor Clear"], [inView[0], "Clear Beneath"],
+   [fragsIn, frags.some((f) => f.on && f.hit !== null && t - f.hit < 1.2) ? "Deflecting" : "Deflector Ready"]].forEach(([k, st], i) => {
+    L.set(LAYROWS[i].n, String(k)); L.set(LAYROWS[i].st, st);
+    fg(LAYROWS[i].st, st === "Course Change" || st === "Deflecting" ? "butter" : "tan");
+  });
+  L.set(deflN, String(deflected));
+  L.set(deflLast, lastDefl === null ? "" : "Last at " + tplus(lastDefl));
+  // deflector
+  const ld = L.clamp(load, 0, 100);
+  tf(gLoad.f, `scaleX(${(ld / 100).toFixed(4)})`); L.set(gLoad.v, Math.round(ld) + "%");
+  tf(gFlux.f, `scaleX(${L.clamp(flux / 2500).toFixed(4)})`); L.set(gFlux.v, fmt(Math.round(flux / 10) * 10) + " /s");
+  const fs = 99.4 - 0.05 * ld - 0.06 * bump;
+  tf(gField.f, `scaleX(${(fs / 100).toFixed(4)})`); L.set(gField.v, fs.toFixed(1) + "%");
+  L.set(peakTxt, `Peak ${Math.round(Math.max(...samples.slice(-NS), ld))}%`);
+  // progress
+  L.set(progVal, (100 * p).toFixed(1) + "%");
+  L.set(progKm, `${crossName(n)}  ·  ${fmt(p * LEN * KM)} of ${fmt(LEN * KM)} km`);
+  const h = AXIS + Math.atan(slopeAt(Xs)) * 180 / Math.PI;
+  L.set(RG[0], `${hdg(h)} mark 0`);
+  L.set(RG[1], `${VKM.toFixed(1)} km/s`);
+  const left = (1 - p) * LEN / V;
+  L.set(exitVal, `${fmt((1 - p) * LEN * KM)} km  ·  ${Math.floor(left / 60)} min ${pad2(Math.floor(left % 60))} s`);
+  // status line
+  const state = turn ? WORDS[1] : WORDS[0];
+  L.set(stateTxt, state); fg(stateTxt, turn ? "butter" : "tan");
+  if (turn) {
+    const q = turnText(turn);
+    L.set(stateSub, `Turning ${q.d}° to ${q.dir}  ·  Heading ${q.from} to ${q.to}  ·  Corridor clear ahead`);
+  } else {
+    const nb = bodiesOf(n).find((b) => b.x > Xs);
+    const nx = nb ? nb.x : (n + 1) * LEN, s = (nx - Xs) / V;
+    const where = nb ? `Next ${nb.w}, ${nb.id}, in ${Math.floor(s / 60)} min ${pad2(Math.floor(s % 60))} s` : `Exit in ${Math.floor(s / 60)} min ${pad2(Math.floor(s % 60))} s`;
+    L.set(stateSub, `Devolin system  ·  ${crossName(n)}  ·  Heading ${hdg(h)} mark 0  ·  ${where}`);
+  }
+}, 0);
+});
+</script></body></html>

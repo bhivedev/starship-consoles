@@ -1,0 +1,349 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Tractor Beam</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* swapped text dips and comes back; colors change slowly; .boot (the start-up cascade) always wins */
+  .sw { transition: opacity .45s ease, background-color 1s ease, color 1s ease; }
+  .out:not(.boot) { opacity: .2; }
+  .beam { overflow: hidden; }
+  .tgt > div { position: absolute; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: mirrored, sidebar on the right ----------------
+L.frame({ type: "B", title: "Tractor Beam  •  Emitter Control", c: "sky", c2: "butter", accent: "ice", foot: "Tractor",
+  side: [[140, "ice", "Trac 01"], [70, "butter", "2240"], [420, "sky", "Emitter"], [70, "ice", "07"], [300, "butter", "Graviton"],
+         [70, "sky", "V3"], [216, "ice", "Tow"]] });
+
+const TRACK = "#0e1a30", DIM = "#17284a", WIN = "#050b18", GRID = "#13264a";
+const cls = (e, ...c) => (e.classList.add(...c), e);
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const op = (e, v) => { v = L.clamp(v).toFixed(2); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const bg = (e, c) => { if (e._bg !== c) { e._bg = c; e.style.background = c.startsWith("#") ? c : `var(--${c})`; } };
+const fg = (e, c) => { if (e._fg !== c) { e._fg = c; e.style.color = c.startsWith("#") ? c : `var(--${c})`; } };
+const fill = (x, y, w, h, c, origin = "0 0", parent) => {
+  const f = L.layer({ x, y, w, h, cls: "boot" }, parent);
+  f.style.background = c.startsWith("#") ? c : `var(--${c})`; f.style.transformOrigin = origin;
+  return f;
+};
+const D2 = (n) => String(n).padStart(2, "0");
+const fmt = (n) => Math.round(n).toLocaleString("en");
+const swap = (els, f) => { els.forEach((e) => e.classList.add("out")); setTimeout(() => { f(); els.forEach((e) => e.classList.remove("out")); }, 460); };
+
+// Two equal halves: the tow (left) and the emitter (right), 48 apart.
+const A = [40, 1756], B = [1804, 3520];
+const ROW0 = 428, PITCH = 88, rowBase = (i) => ROW0 + i * PITCH + 52.5;
+const STRIP = (i) => 1734 + i * 54;
+
+// ---------------- the cycle: acquire, lock, engage, tow, hold, release, clear ----------------
+const CYCLE = 96;
+const PHASES = [["Acquire", 0, 10], ["Lock", 10, 16], ["Engage", 16, 24], ["Tow", 24, 60], ["Hold", 60, 76], ["Release", 76, 84], ["Clear", 84, 96]];
+const STATE = ["Acquiring Target", "Locking On Target", "Tractor Beam Engaged", "Towing", "Holding at Tow Station", "Releasing Target", "Target Clear"];
+const smooth = (k) => k * k * k * (k * (k * 6 - 15) + 10);
+const sm = (a, b, u) => smooth(L.clamp((u - a) / (b - a)));
+const phaseAt = (u) => PHASES.findIndex(([, a, b]) => u >= a && u < b);
+
+// the targets taken in tow this watch, in turn
+const TARGETS = [
+  { name: "Shuttlecraft Sakharov", short: "Sakharov", kind: "Type 7 Shuttlecraft", mass: 19.4 },
+  { name: "Cargo Module 12", short: "Cargo 12", kind: "Standard Cargo Module", mass: 146 },
+  { name: "Class 2 Probe", short: "Probe 07", kind: "Long-Range Sensor Probe", mass: 1.8 },
+  { name: "Kataan Probe", short: "Kataan", kind: "Unidentified Probe", mass: 3.6 },
+  { name: "Lifepod 4", short: "Lifepod 4", kind: "Starfleet Lifepod", mass: 7.2 },
+  { name: "Talarian Freighter", short: "Freighter", kind: "Disabled Freighter", mass: 3850 },
+];
+const mfOf = (m) => L.clamp(Math.log10(m) / Math.log10(5000));            // how hard the emitter works for a mass
+const seeded = (n, k) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453; return x - Math.floor(x); };
+const tow = (n) => {                                                        // cycle n: who, and where from
+  const T = TARGETS[((n % TARGETS.length) + TARGETS.length) % TARGETS.length];
+  const side = seeded(n, 3) < 0.5 ? -1 : 1;
+  return { T, mf: mfOf(T.mass), R0: 1560 + 180 * seeded(n, 1), Y0: side * (90 + 130 * seeded(n, 2)), vy: -side * 1.6, Yd: -side * 50 };
+};
+const HOLD = 400;                                                           // the tow station, metres
+const rangeAt = (c, u) => (u < 24 ? c.R0 - 3 * u : L.mix(c.R0 - 72, HOLD, sm(24, 60, u))) + 160 * sm(80, 96, u);
+const latAt = (c, u) => (c.Y0 + c.vy * Math.min(u, 24)) * (1 - sm(24, 56, u)) + c.Yd * sm(80, 96, u);
+const engagedAt = (u) => sm(16, 19, u) * (1 - sm(76, 80, u));
+const lockAt = (u) => sm(10, 14.5, u) * (1 - sm(81.5, 83.5, u));
+const genLock = (i, u) => sm(16 + 0.22 * i, 16.4 + 0.22 * i, u) * (1 - sm(76 + 0.22 * i, 76.4 + 0.22 * i, u));
+// motion along the tow axis, as seen from the ship (m/s, m/s²), from the smooth path
+const velAt = (c, u) => (rangeAt(c, u + 0.2) - rangeAt(c, u - 0.2)) / 0.4;
+const accAt = (c, u) => (rangeAt(c, u + 0.3) - 2 * rangeAt(c, u) + rangeAt(c, u - 0.3)) / 0.09;
+const outputAt = (c, u) => engagedAt(u) * (220 + 560 * c.mf + 200 * c.mf * L.clamp(Math.abs(accAt(c, u)) / 6));   // MW
+const forceAt = (c, u) => engagedAt(u) * c.T.mass * 1000 * (Math.abs(accAt(c, u)) + 0.04);                     // N
+
+// ---------------- status line ----------------
+const state = cls(L.text({ x: A[0], cap: 150, s: 100, c: "sky", txt: "" }), "sw");
+const stateSub = cls(L.text({ x: 0, base: 222, s: 38, c: "butter", txt: "" }), "sw");
+const placeSub = () => { stateSub.style.left = A[0] + state.offsetWidth + 48 + "px"; };
+const pill = cls(L.box({ x: B[1] - 400, y: 150, w: 400, h: 72, c: "ice", label: "Emitter Standby", r: "lr", fs: 36 }), "sw");
+
+// a section header with a status pill at its right end
+const pillHeader = (col, y, label, c1, c2, texts, pc, h = 56) => {
+  const fs = h >= 56 ? 32 : 28;
+  const pw = Math.ceil(Math.max(...texts.map((s) => L.textWidth(s, fs))) / 10) * 10 + 90;
+  L.header({ x: col[0], y, w: col[1] - col[0] - pw - L.GAP, label, c1, c2, h });
+  return cls(L.box({ x: col[1] - pw, y, w: pw, h, c: pc, label: "", fs, r: "r" }), "sw");
+};
+
+// ---------------- the tow vector: plan view along the emitter axis ----------------
+const lockPill = pillHeader(A, 280, "Tow Vector", "sky", "ice", ["No Lock", "Locking", "Locked", "Breaking Lock"], "ice");
+L.text({ x: A[0], base: 400, s: 36, c: "sky", txt: "Plan View  ·  Ventral Tractor Emitter  ·  Range and Offset in Meters" });
+const P0 = 428, P1 = 1472, AX = 950;                    // the panel, and the beam axis through its middle
+const EX = 130, SCL = 0.77;                             // the emitter face; pixels per metre
+const px = (m) => EX + m * SCL, py = (m) => AX + m * SCL;
+L.rect({ x: A[0], y: P0, w: A[1] - A[0], h: P1 - P0, c: WIN, panel: true });
+// the grid: a line every 250 m along the axis, every 100 m across it
+const G0 = py(-500), G1 = py(500);                     // the grid's top and foot: ±500 m across the axis
+for (let m = 250; m <= 2000; m += 250) L.rect({ x: px(m) - 1, y: G0, w: 2, h: G1 - G0, c: m % 500 ? GRID : "#1c3564", free: true });
+for (let m = -500; m <= 500; m += 100) if (m) L.rect({ x: EX, y: py(m) - 1, w: px(2000) - EX, h: 2, c: m % 200 ? GRID : "#1c3564", free: true });
+L.rect({ x: EX, y: AX - 1.5, w: px(2000) - EX, h: 3, c: "#2a4d8c", free: true });
+// the range scale along the foot, labelled every 500 m
+for (let m = 0; m <= 2000; m += 100) L.rect({ x: px(m) - 1.5, y: G1 + 16, w: 3, h: m % 500 ? 12 : 22, c: m % 500 ? "#2a4d8c" : "sky", free: true });
+for (let m = 0; m <= 2000; m += 500) L.text({ x: px(m), base: G1 + 84, s: 32, c: "sky", txt: String(m), align: "c", w: 200, legend: true });
+// offset across the axis, labelled every 200 m at the right edge
+for (const m of [-400, -200, 200, 400]) L.text({ x: A[1] - 20, base: py(m) + 11, s: 32, c: "sky", txt: String(Math.abs(m)), align: "r", legend: true });
+// the tow station
+for (let y = G0; y < G1; y += 40) L.rect({ x: px(HOLD) - 2, y, w: 4, h: Math.min(22, G1 - y), c: "butter", free: true });
+L.text({ x: px(HOLD), base: G0 - 34, s: 36, c: "butter", txt: "Tow Station  400 m", align: "c", w: 600 });
+// the emitter: a half disc at the panel's edge, two arcs round it, a glow that follows the output
+L.svg("path", { d: `M40,${AX - 90} A90,90 0 0 1 40,${AX + 90} Z`, fill: "var(--sky)", class: "boot" });
+for (const [r, w] of [[112, 6], [134, 4]]) L.svg("path", { d: `M40,${AX - r} A${r},${r} 0 0 1 40,${AX + r}`, fill: "none", stroke: "var(--sky)", "stroke-width": w, opacity: 0.55, class: "boot" });
+L.text({ x: 60, cap: AX + 160, s: 36, c: "sky", txt: "Emitter" });
+const glow = L.layer({ x: -50, y: AX - 90, w: 180, h: 180, cls: "boot" });
+glow.style.cssText += "border-radius:50%;clip-path:inset(0 0 0 50%);background:radial-gradient(circle, #e8f6ff 0%, var(--ice) 45%, rgba(143,211,255,0) 72%);";
+
+// the beam: a tapered layer stretched from the emitter to the target; its pulses run toward the ship
+const MAXL = px(2000) - EX, BH = 88, BP = 72;
+const beam = L.layer({ x: EX, y: AX - BH / 2, w: MAXL, h: BH, cls: "beam boot" });
+beam.style.transformOrigin = `0 ${BH / 2}px`;
+beam.style.clipPath = "polygon(0 32%, 100% 0, 100% 100%, 0 68%)";
+beam.style.background = "linear-gradient(90deg, rgba(143,211,255,.62), rgba(92,157,255,.34))";
+const pulses = L.layer({ x: 0, y: 0, w: MAXL + BP, h: BH }, beam);
+pulses.style.transformOrigin = "0 0";
+pulses.style.background = `repeating-linear-gradient(90deg, rgba(232,246,255,0) 0px, rgba(232,246,255,0) 44px, rgba(232,246,255,.55) 52px, rgba(232,246,255,.55) 60px, rgba(232,246,255,0) ${BP}px)`;
+
+// the course behind the target: dots dropped every few seconds, fading
+const trail = Array.from({ length: 12 }, () => {
+  const d = L.layer({ x: -6, y: -6, w: 12, h: 12 });
+  d.style.background = "var(--ice)"; d.style.borderRadius = "50%"; d.style.opacity = 0;
+  return { e: d, x: 0, y: 0, t: -99 };
+});
+
+// the target: a ring, lock brackets, the tow vector and its name; one layer that moves
+const tgt = L.layer({ x: 0, y: 0, w: 0, h: 0, cls: "tgt boot" });
+const ring = L.el("div", "", tgt, { left: "-30px", top: "-30px", width: "60px", height: "60px", borderRadius: "50%", border: "12px solid var(--butter)", background: WIN });
+const vec = L.layer({ x: 0, y: -5, w: 240, h: 10 }, tgt);
+vec.style.transformOrigin = "0 5px";
+vec.innerHTML = `<svg width="240" height="10" style="position:absolute;left:0;top:0;overflow:visible"><rect x="36" y="1" width="174" height="8" fill="var(--butter)"/><path d="M240,5 L206,-12 L206,22 Z" fill="var(--butter)"/></svg>`;
+const brackets = [[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sy]) => {
+  const b = L.layer({ x: -14, y: -14, w: 28, h: 28 }, tgt);
+  b.style[sx < 0 ? "borderLeft" : "borderRight"] = "6px solid var(--butter)";
+  b.style[sy < 0 ? "borderTop" : "borderBottom"] = "6px solid var(--butter)";
+  return { e: b, sx, sy };
+});
+const tName = L.text({ x: 0, base: -112, s: 36, c: "butter", txt: "", align: "c", w: 600 }, tgt);
+const tMass = L.text({ x: 0, base: -66, s: 36, c: "ice", txt: "", align: "c", w: 600 }, tgt);
+tName.classList.remove("boot"); tMass.classList.remove("boot");
+
+// the cycle as a band under the plot, flush with its ends; a cursor runs along it
+const BY = 1496, BW = A[1] - A[0], BG = 6, PPS = (BW - BG * (PHASES.length - 1)) / CYCLE;
+let bx = A[0];
+const bands = PHASES.map(([name, a, b], i) => {
+  const w = i === PHASES.length - 1 ? A[1] - bx : Math.round((b - a) * PPS);
+  const e = cls(L.box({ x: bx, y: BY, w, h: 64, c: DIM, label: name, fs: 32, r: i === 0 ? "l" : i === PHASES.length - 1 ? "r" : null }), "sw");
+  bx += w + BG;
+  return { e, x0: bx - w - BG, w, a, b };
+});
+const cursor = L.layer({ x: -2, y: BY - 12, w: 4, h: 88, cls: "boot" });
+cursor.style.background = "var(--white)";
+
+// ---------------- the graviton emitter ----------------
+L.header({ x: B[0], y: 280, w: B[1] - B[0], label: "Graviton Emitter", c1: "butter", c2: "sky" });
+L.text({ x: B[0], base: 400, s: 36, c: "sky", txt: "Main Tractor Emitter  ·  Ventral Saucer  ·  Variable-Phase Graviton Polarity Source" });
+const BOXW = 290;
+const VALW = Math.ceil(Math.max(...["1,000 MW", "100.0%", "88.8 m", "888 K", "88.8 kg/s"].map((s) => L.textWidth(s, 52))) / 10) * 10 + 40;
+const GX = B[0] + BOXW + L.GAP, GW = B[1] - VALW - GX;
+const gauge = (i, label, c) => {
+  const base = rowBase(i);
+  L.box({ x: B[0], y: ROW0 + i * PITCH, w: BOXW, h: 64, c: i % 2 ? "ice" : c, label, fs: 32, r: "l" });
+  L.rect({ x: GX, y: base - 26, w: GW, h: 26, c: TRACK });
+  return { bar: fill(GX, base - 26, GW, 26, i % 2 ? "ice" : c), v: L.text({ x: B[1], base, s: 52, c: "white", txt: "", align: "r" }), u: -1 };
+};
+const showBar = (g, k) => { k = L.clamp(k); if (Math.abs(k - g.u) > 0.0005) { g.u = k; tf(g.bar, `scaleX(${k.toFixed(4)})`); } };
+const gOut = gauge(0, "Emitter Output", "sky"), gCoh = gauge(1, "Beam Coherence", "sky"), gSpot = gauge(2, "Spot Diameter", "butter");
+const gTemp = gauge(3, "Emitter Temperature", "sky"), gCool = gauge(4, "Coolant Flow", "sky"), gEps = gauge(5, "EPS Draw", "butter");
+
+// ---------------- the polarity source array: twelve generators, phase-locked one by one ----------------
+const arrPill = pillHeader(B, 1000, "Polarity Source Array", "sky", "butter", ["12 of 12 Phase-Locked"], "ice");
+L.text({ x: B[0], base: 1120, s: 36, c: "sky", txt: "Twelve Generators  ·  Output Shared Across the Array  ·  Rated 90 MW Each" });
+const NG = 12, GG = 12, GCW = (B[1] - B[0] - GG * (NG - 1)) / NG, GT = 1148, GB = 1472;
+const gens = Array.from({ length: NG }, (_, i) => {
+  const x = B[0] + i * (GCW + GG);
+  L.rect({ x, y: GT, w: GCW, h: GB - GT, c: TRACK });
+  const lvl = fill(x, GT, GCW, GB - GT, i % 2 ? "ice" : "sky", "50% 100%");
+  const wave = fill(x, GT, GCW, GB - GT, "#e8f6ff", "50% 100%");
+  wave.style.opacity = 0;
+  const box = cls(L.box({ x, y: BY, w: GCW, h: 64, c: DIM, label: "G" + D2(i + 1), fs: 32, r: i === 0 ? "l" : i === NG - 1 ? "r" : null }), "sw");
+  return { lvl, wave, box, lit: null, u: -1 };
+});
+
+// ---------------- target lock ----------------
+const tgtPill = pillHeader(A, 1620, "Target Lock", "butter", "sky", TARGETS.map((T) => T.short), "ice", 48);
+const lockRow = (i, name, c) => {
+  const base = STRIP(i);
+  L.text({ x: A[0], base, s: 36, c: "sky", txt: name });
+  L.rect({ x: A[0] + 300, y: base - 22, w: A[1] - 220 - (A[0] + 300), h: 22, c: TRACK });
+  return { bar: fill(A[0] + 300, base - 22, A[1] - 220 - (A[0] + 300), 22, c), v: L.text({ x: A[1], base, s: 36, c: "white", txt: "", align: "r" }), u: -1 };
+};
+const lLock = lockRow(0, "Lock Strength", "butter"), lMass = lockRow(1, "Target Mass", "sky"), lRange = lockRow(2, "Range", "ice");
+const lRate = lockRow(3, "Closing Rate", "sky"), lForce = lockRow(4, "Applied Force", "butter"), lLoad = lockRow(5, "Structural Load", "ice");
+
+// ---------------- tow log ----------------
+L.header({ x: B[0], y: 1620, w: B[1] - B[0], label: "Tow Log", c1: "sky", c2: "butter", h: 48 });
+const LOGT = B[0] + 150, LOGN = B[0] + 900, LOGR = B[0] + 1340;
+const logRows = Array.from({ length: 6 }, (_, i) => ({
+  tm: L.text({ x: B[0], base: STRIP(i), s: 36, c: "sky", txt: "" }),
+  tx: L.text({ x: LOGT, base: STRIP(i), s: 36, c: "butter", txt: "" }),
+  tg: L.text({ x: LOGN, base: STRIP(i), s: 36, c: "ice", txt: "" }),
+  rg: L.text({ x: LOGR, base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }),
+  v: L.text({ x: B[1], base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }) }));
+const logged = [];
+const clockAt = (ago = 0) => { const d = new Date(Date.now() - ago * 1000); return `${D2(d.getHours())}:${D2(d.getMinutes())}:${D2(d.getSeconds())}`; };
+const logLine = (row, ago = 0) => {
+  logged.push([clockAt(ago), ...row]); if (logged.length > logRows.length) logged.shift();
+  logRows.forEach((r, i) => { const e = logged[i] || ["", "", "", "", ""]; L.set(r.tm, e[0]); L.set(r.tx, e[1]); L.set(r.tg, e[2]); L.set(r.rg, e[3]); L.set(r.v, e[4]); });
+};
+
+// ---------------- readings ----------------
+const massTxt = (m) => (m >= 1000 ? fmt(m) : m.toFixed(1)) + " t";
+const forceTxt = (f) => (f >= 1e6 ? (f / 1e6).toFixed(2) + " MN" : (f / 1e3).toFixed(1) + " kN");
+// what the log says at each step of a tow, and when
+const EVENTS = [[0.5, "Target acquired"], [15, "Target lock confirmed"], [19, "Tractor beam engaged"], [24, "Tow under way"],
+  [60, "Target held at tow station"], [76, "Tractor beam released"], [92, "Target clear, emitter to standby"]];
+const logRow = (c, at, txt) => [txt, c.T.short, fmt(rangeAt(c, at)) + " m", fmt(outputAt(c, at)) + " MW"];
+
+// ---------------- the clock ----------------
+const OFFSET = 10 * CYCLE + 10;                        // open as the lock closes on the first target
+const now = (t) => { const k = t + OFFSET; return { n: Math.floor(k / CYCLE), u: k % CYCLE }; };
+// the log, as the watch found it: the last tow, then this one so far
+{
+  const { n, u } = now(0), prev = tow(n - 1), cur = tow(n);
+  const hist = [];
+  EVENTS.forEach(([at, txt]) => hist.push([at - CYCLE - u, logRow(prev, at, txt)]));
+  EVENTS.forEach(([at, txt]) => { if (at <= u) hist.push([at - u, logRow(cur, at, txt)]); });
+  hist.slice(-6).forEach(([dt, row]) => logLine(row, -dt));
+}
+let lastWord = null, cycleN = -1, lastPh = -1, lastU = -1, temp = null, tPrev = null, pulsePh = 0, wavePh = 0, nextDot = 0, dotI = 0;
+const model = { c: null, u: 0, P: 0 };
+L.tick((t) => {
+  const dt = tPrev === null ? 0 : Math.min(0.1, t - tPrev); tPrev = t;
+  const { n, u } = now(t);
+  if (n !== cycleN) {                                   // a new target
+    cycleN = n; model.c = tow(n);
+    const T = model.c.T;
+    L.set(tName, T.name); L.set(tMass, `${T.kind}  ·  ${massTxt(T.mass)}`);
+    trail.forEach((d) => (d.t = -99));
+    if (lastU >= 0) swap([stateSub, tgtPill], () => { L.set(stateSub, `${T.kind}  ·  ${massTxt(T.mass)}  ·  Main Tractor Emitter`); placeSub(); L.set(tgtPill, T.short); });
+    else { L.set(stateSub, `${T.kind}  ·  ${massTxt(T.mass)}  ·  Main Tractor Emitter`); L.set(tgtPill, T.short); }
+  }
+  const c = model.c;
+  if (lastU >= 0) for (const [at, txt] of EVENTS) if (lastU < at && u >= at) logLine(logRow(c, at, txt));
+  lastU = u;
+  model.u = u;
+  const P = outputAt(c, u), e = engagedAt(u);
+  model.P = P;
+  if (temp === null) temp = 302 + 0.17 * P;
+  temp += (302 + 0.17 * P - temp) * Math.min(1, dt / 14);
+  model.temp = temp;
+  const up = L.clamp((t - 0.9) / 0.9);                 // the glows come up after the start-up cascade
+  // the target, and the beam to it
+  const R = rangeAt(c, u), Y = latAt(c, u), x = px(R), y = py(Y);
+  const vis = sm(0, 3, u) * (1 - sm(92, 96, u));
+  tf(tgt, `translate3d(${x.toFixed(1)}px,${y.toFixed(1)}px,0)`); op(tgt, vis);
+  const lo = (210 * L.clamp((1300 - x) / 800)).toFixed(1);   // near the tow station the name stands to the right, clear of its line
+  tf(tName, `translate3d(${lo}px,0,0)`); tf(tMass, `translate3d(${lo}px,0,0)`);
+  const lk = lockAt(u), d = 40 - 18 * lk + 10 * (1 - lk) * Math.sin(t * 1.4);
+  brackets.forEach((b) => tf(b.e, `translate3d(${(b.sx * d).toFixed(1)}px,${(b.sy * d).toFixed(1)}px,0)`));
+  brackets.forEach((b) => op(b.e, 0.35 + 0.65 * lk));
+  const dist = Math.hypot(x - EX, y - AX), ang = Math.atan2(y - AX, x - EX);
+  const k = Math.max(0.001, (dist / MAXL) * sm(16, 18.5, u));
+  tf(beam, `rotate(${(ang * 180 / Math.PI).toFixed(3)}deg) scaleX(${k.toFixed(4)})`);
+  op(beam, up * sm(16, 16.6, u) * (1 - sm(76, 79, u)));
+  pulsePh += dt * (30 + 90 * e * (0.4 + 0.6 * L.clamp(Math.abs(velAt(c, u)) / 60)));
+  tf(pulses, `scaleX(${(1 / k).toFixed(4)}) translate3d(${(-(pulsePh % BP)).toFixed(1)}px,0,0)`);
+  op(glow, up * (0.15 + 0.85 * (P / 900)) * (0.9 + 0.1 * Math.sin(t * 1.2)));
+  // the tow vector: toward the emitter, its length the force the beam applies
+  const fk = L.clamp((Math.log10(forceAt(c, u) + 1) - 3) / 4.5);
+  tf(vec, `rotate(${(180 + ang * 180 / Math.PI).toFixed(2)}deg) scaleX(${(0.25 + 0.75 * fk).toFixed(3)})`);
+  op(vec, e);
+  // the course behind it
+  const ld = trail[(dotI + trail.length - 1) % trail.length];
+  if (t >= nextDot && (Math.hypot(ld.x - x, ld.y - y) > 30 || t - ld.t > 12)) { nextDot = t + 1.2; const dd = trail[dotI++ % trail.length]; dd.x = x; dd.y = y; dd.t = t; tf(dd.e, `translate3d(${x.toFixed(1)}px,${y.toFixed(1)}px,0)`); }
+  trail.forEach((dd) => op(dd.e, vis * 0.55 * L.clamp(1 - (t - dd.t) / 31) * L.clamp(Math.hypot(dd.x - x, dd.y - y) / 40)));
+  // the array: each generator's share, and a phase wave running through the locked ones
+  wavePh += dt * 0.35;
+  gens.forEach((g, i) => {
+    const gl = genLock(i, u);
+    // on standby each generator holds a trickle charge, dimmed; locked, it carries its share of the output
+    const lv = L.clamp(L.mix(0.18, Math.max(0.18, (P / 1080) * (0.94 + 0.06 * Math.sin(t * 0.21 + i * 1.3))), gl));
+    if (Math.abs(lv - g.u) > 0.001) { g.u = lv; tf(g.lvl, `scaleY(${lv.toFixed(4)})`); tf(g.wave, `scaleY(${lv.toFixed(4)})`); }
+    op(g.lvl, 0.4 + 0.6 * gl);
+    const w = 0.5 + 0.5 * Math.cos(2 * Math.PI * (wavePh - i / NG));
+    op(g.wave, up * gl * 0.45 * w * w * w);
+  });
+  // the cycle band
+  const bnd = bands[Math.max(0, phaseAt(u))];
+  tf(cursor, `translate3d(${(bnd.x0 + bnd.w * L.clamp((u - bnd.a) / (bnd.b - bnd.a))).toFixed(1)}px,0,0)`);
+  op(cursor, Math.min(sm(0, 0.6, u), 1 - sm(CYCLE - 0.6, CYCLE, u)));
+});
+
+// readings, a few times a second
+L.every(250, (t) => {
+  const c = model.c, u = model.u, P = model.P, e = engagedAt(u), ph = phaseAt(u);
+  const word = ph === 1 && lockAt(u) >= 0.995 ? "Target Locked" : STATE[ph];
+  if (word !== lastWord) {
+    const first = lastWord === null;
+    lastWord = word;
+    const doIt = () => { L.set(state, word); fg(state, ph === 2 || ph === 5 ? "butter" : "sky"); placeSub(); };
+    first ? doIt() : swap([state], doIt);
+  }
+  if (ph !== lastPh) {
+    lastPh = ph;
+    bands.forEach((b, i) => { bg(b.e, i === ph ? "butter" : i < ph ? "sky" : DIM); fg(b.e, i <= ph ? "#000" : "sky"); });
+  }
+  const lkNow = lockAt(u), lkTxt = lkNow >= 0.995 ? "Locked" : lkNow <= 0.005 ? "No Lock" : u < 48 ? "Locking" : "Breaking Lock";
+  L.set(lockPill, lkTxt); bg(lockPill, lkTxt === "Locked" ? "butter" : lkTxt === "No Lock" ? "ice" : "sky");
+  const on = e > 0.02;
+  L.set(pill, on ? "Emitter Online" : "Emitter Standby"); bg(pill, on ? "butter" : "ice");
+  // the emitter
+  const coh = e * (98.4 - 1.6 * L.clamp(Math.abs(accAt(c, u)) / 6) + 0.25 * Math.sin(t * 0.13));
+  const R = rangeAt(c, u), spot = 4 + 0.011 * R;
+  const cool = 22 + 0.31 * (model.temp - 302), eps = 14 + P / 0.86;
+  showBar(gOut, P / 1000); L.set(gOut.v, fmt(P) + " MW");
+  showBar(gCoh, coh / 100); L.set(gCoh.v, coh.toFixed(1) + "%");
+  showBar(gSpot, spot / 40); L.set(gSpot.v, spot.toFixed(1) + " m");
+  showBar(gTemp, (model.temp - 280) / 240); L.set(gTemp.v, fmt(model.temp) + " K");
+  showBar(gCool, cool / 80); L.set(gCool.v, cool.toFixed(1) + " kg/s");
+  showBar(gEps, eps / 1200); L.set(gEps.v, fmt(eps) + " MW");
+  let nl = 0;
+  gens.forEach((g, i) => {
+    const lit = genLock(i, u) > 0.5;
+    if (lit) nl++;
+    if (lit !== g.lit) { g.lit = lit; bg(g.box, lit ? "butter" : DIM); fg(g.box, lit ? "#000" : "sky"); }
+  });
+  L.set(arrPill, `${nl} of 12 Phase-Locked`); bg(arrPill, nl === 12 ? "butter" : nl ? "sky" : "ice");
+  // the target
+  const lk = lockAt(u), v = -velAt(c, u), f = forceAt(c, u);
+  showBar(lLock, lk); L.set(lLock.v, (lk * 100).toFixed(1) + "%");
+  showBar(lMass, c.mf); L.set(lMass.v, massTxt(c.T.mass));
+  showBar(lRange, R / 2000); L.set(lRange.v, fmt(R) + " m");
+  showBar(lRate, Math.abs(v) / 80); L.set(lRate.v, (v < -0.05 ? "-" : "") + Math.abs(v).toFixed(1) + " m/s");
+  showBar(lForce, L.clamp((Math.log10(f + 1) - 3) / 4.5)); L.set(lForce.v, forceTxt(f));
+  const load = e * (2 + (100 * Math.abs(accAt(c, u))) / 30);
+  showBar(lLoad, load / 100); L.set(lLoad.v, load.toFixed(1) + "%");
+}, 0);
+});
+</script></body></html>

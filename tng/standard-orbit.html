@@ -1,0 +1,578 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Standard Orbit</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* swapped text dips and comes back; .boot (the start-up cascade) always wins */
+  .sw { transition: opacity .45s ease; }
+  .out:not(.boot) { opacity: .15; }
+  .clip { position: absolute; overflow: hidden; }
+  .bar { position: absolute; left: 0; top: 0; width: 100px; transform-origin: 0 0; will-change: transform; }
+  .lab { position: absolute; left: 0; top: 0; line-height: 1; white-space: pre; will-change: transform; }
+  .fade { position: absolute; pointer-events: none; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: a bracket, title centred ----------------
+L.frame({ type: "C", title: "Standard Orbit  •  Insertion", c: "olive", c2: "sky", accent: "sand", foot: "Helm",
+  side: [[140, "sand", "Nav 07"], [70, "olive", "4535"], [420, "olive", "Insertion"], [70, "sky", "34"],
+         [300, "sky", "Burns"], [70, "sand", "B1"], [216, "olive", "Helm"]],
+  side2: [[140, "olive", "Plot 02"], [70, "sky", "1200"], [420, "sky", "Ground"], [70, "sand", "C3"],
+          [300, "olive", "Survey"], [70, "sky", "07"], [216, "sand", "Log"]] });
+
+const NS = "http://www.w3.org/2000/svg";
+const TRACK = "#1f2410", DARK = "#0b0f1a";
+const colr = (c) => (c.startsWith("#") ? c : `var(--${c})`);
+const cls = (e, ...c) => (e.classList.add(...c), e);
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const op = (e, v) => { v = L.clamp(v).toFixed(2); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const bg = (e, c) => { if (e._bg !== c) { e._bg = c; e.style.background = colr(c); } };
+const ink = (e, c) => { if (e._ink !== c) { e._ink = c; e.style.color = colr(c); } };
+const swap = (els, f) => { els.forEach((e) => e.classList.add("out")); setTimeout(() => { f(); els.forEach((e) => e.classList.remove("out")); }, 460); };
+const pad2 = (n) => String(n).padStart(2, "0");
+const fmt = (n) => Math.round(n).toLocaleString("en");
+const D = Math.PI / 180;
+
+// ---------------- the grid ----------------
+// Columns: parameters 220–1080, the plot 1140–2700, ground track 2760–3620. Rows on one 88 pitch:
+// upper section baselines 408 + 88k, lower 1128 + 88k; bottom strip on 54.
+const LX = 220, LR = 1080, MX = 1140, MR = 2700, RX = 2760, RR = 3620;
+const U = (k) => 408 + 88 * k, LO = (k) => 1128 + 88 * k, STRIP = (i) => 1734 + i * 54;
+
+// ---------------- the flight: one plan, everything is drawn from it ----------------
+// Ship time runs sixty times fast: a ship minute every second. ts = ship seconds from 0540.
+// Arrival on a hyperbola (periapsis 4,000 km); a retrograde insertion burn there captures the ship
+// into a 1,200 × 4,000 km orbit; half an orbit later a second burn at periapsis circularizes it.
+const GM = 295000, RP = 5840, ALT = 1200, RC = RP + ALT, RA = RP + 4000, VINF = 3.0, INC = 34;
+const aH = -GM / VINF ** 2, eH = 1 + RA / -aH, nH = Math.sqrt(GM / (-aH) ** 3);
+const aE = (RC + RA) / 2, eE = (RA - RC) / (RA + RC), nE = Math.sqrt(GM / aE ** 3), PE = (2 * Math.PI) / nE;
+const nC = Math.sqrt(GM / RC ** 3), PC = (2 * Math.PI) / nC;
+const T1 = 1500, T2 = T1 + PE / 2;                      // the two burns, at their middles
+const B1 = [T1 - 180, T1 + 180], B2 = [T2 - 120, T2 + 120];
+const PA = 120 * D;                                      // where the insertion burn happens, in the plot (0 = right, counter-clockwise)
+const PHN = 200 * D;                                     // the ascending node, in the plot
+const LAMN0 = 100, PROT = 26.3 * 3600, WP = 360 / PROT;  // node longitude at ts 0; the planet's day
+const SITE = [-20, -100], SITE_R = 20;                   // the survey site, and the sensors' reach (degrees of arc)
+const SHIP0 = 5 * 3600 + 40 * 60, SD0 = 45358.4, SD_PER_S = 1000 / (365.25 * 86400);
+const TS = (t) => 60 * t;
+const hhmm = (ts) => { const m = Math.floor((SHIP0 + ts) / 60); return pad2(Math.floor(m / 60) % 24) + pad2(((m % 60) + 60) % 60); };
+
+const hyp = (ts) => {
+  const M = nH * (ts - T1); let H = Math.asinh(M / eH);
+  for (let i = 0; i < 40; i++) H -= (eH * Math.sinh(H) - H - M) / (eH * Math.cosh(H) - 1);
+  return [-aH * (eH * Math.cosh(H) - 1), PA + 2 * Math.atan(Math.sqrt((eH + 1) / (eH - 1)) * Math.tanh(H / 2))];
+};
+const ell = (ts) => {
+  const M = nE * (ts - T2); let E = M;
+  for (let i = 0; i < 30; i++) E -= (E - eE * Math.sin(E) - M) / (1 - eE * Math.cos(E));
+  return [aE * (1 - eE * Math.cos(E)), PA + Math.PI + 2 * Math.atan2(Math.sqrt(1 + eE) * Math.sin(E / 2), Math.sqrt(1 - eE) * Math.cos(E / 2))];
+};
+const circ = (ts) => [RC, PA + Math.PI + nC * (ts - T2)];
+const xy = ([r, p]) => [r * Math.cos(p), r * Math.sin(p)];
+const mixP = (a, b, w) => [L.mix(a[0], b[0], w), L.mix(a[1], b[1], w)];
+// position in the orbital plane, km (y up)
+const pos = (ts) => {
+  if (ts < B1[0]) return xy(hyp(ts));
+  if (ts < B1[1]) return mixP(xy(hyp(ts)), xy(ell(ts)), L.ease((ts - B1[0]) / (B1[1] - B1[0])));
+  if (ts < B2[0]) return xy(ell(ts));
+  if (ts < B2[1]) return mixP(xy(ell(ts)), xy(circ(ts)), L.ease((ts - B2[0]) / (B2[1] - B2[0])));
+  return xy(circ(ts));
+};
+const vel = (ts) => { const a = pos(ts - 1), b = pos(ts + 1); return [(b[0] - a[0]) / 2, (b[1] - a[1]) / 2]; };
+// the osculating orbit
+const elements = (ts) => {
+  const r = pos(ts), v = vel(ts), rr = Math.hypot(...r), vv = Math.hypot(...v);
+  const en = (vv * vv) / 2 - GM / rr, a = -GM / (2 * en), h = Math.abs(r[0] * v[1] - r[1] * v[0]);
+  const e = Math.sqrt(Math.max(0, 1 + (2 * en * h * h) / (GM * GM)));
+  return { r: rr, v: vv, a, e, peri: a * (1 - e) - RP, apo: e < 1 ? a * (1 + e) - RP : null, per: e < 1 ? (2 * Math.PI * Math.sqrt(a ** 3 / GM)) / 60 : null };
+};
+// where on the planet the ship is overhead
+const subPoint = (ts) => {
+  const [x, y] = pos(ts), u = Math.atan2(y, x) - PHN, i = INC * D;
+  const lat = Math.asin(Math.sin(i) * Math.sin(u)) / D;
+  const lon = LAMN0 - WP * ts + Math.atan2(Math.cos(i) * Math.sin(u), Math.cos(u)) / D;
+  return [lat, ((lon % 360) + 540) % 360 - 180];
+};
+// the primary is to the left of the plot, in the orbital plane
+const USUN = Math.PI - PHN, DEC = Math.asin(Math.sin(INC * D) * Math.sin(USUN)) / D;
+const LSUN0 = Math.atan2(Math.cos(INC * D) * Math.sin(USUN), Math.cos(USUN)) / D;
+const sunLon = (ts) => LAMN0 - WP * ts + LSUN0;
+const arc = (a, b) => Math.acos(L.clamp(Math.sin(a[0] * D) * Math.sin(b[0] * D) + Math.cos(a[0] * D) * Math.cos(b[0] * D) * Math.cos((a[1] - b[1]) * D), -1, 1)) / D;
+const inShadow = (ts) => { const [x, y] = pos(ts); return x > 0 && Math.abs(y) < RP; };
+const inRange = (ts) => arc(subPoint(ts), SITE) < SITE_R;
+
+// burns: the two impulse burns, then a thruster trim at every ascending node
+const trimAt = (k) => T2 + (((PHN - (PA + Math.PI)) / D + 360 * 4) % 360) / 360 * PC + (k - 1) * PC;
+const TRIM_DV = [0.4, 0.3, 0.5, 0.2, 0.4, 0.6, 0.3];
+const BURNS = [
+  { name: "Insertion Burn", short: "Insertion", t0: B1[0], t1: B1[1], dv: 0, how: "Retrograde at 4,000 km", impulse: true },
+  { name: "Circularization Burn", short: "Circularization", t0: B2[0], t1: B2[1], dv: 0, how: "Retrograde at Periapsis", impulse: true },
+];
+// the planned delta-v: the speed on arrival less the speed wanted, at each burn point
+BURNS[0].dv = (Math.sqrt(VINF ** 2 + (2 * GM) / RA) - Math.sqrt(GM * (2 / RA - 1 / aE))) * 1000;
+BURNS[1].dv = (Math.sqrt(GM * (2 / RC - 1 / aE)) - Math.sqrt(GM / RC)) * 1000;
+const burnN = (k) => (k < 2 ? BURNS[k] : { name: "Station-Keeping Trim", short: "Trim", t0: trimAt(k - 1) - 120, t1: trimAt(k - 1) + 120,
+  dv: TRIM_DV[(k - 2) % TRIM_DV.length], how: "Thrusters  ·  Ascending Node", impulse: false, rev: k - 1 });
+const burnIndexAt = (ts) => { // the burn running now or next
+  if (ts < B1[1]) return 0; if (ts < B2[1]) return 1;
+  let k = 2; while (burnN(k).t1 <= ts) k++; return k;
+};
+const revAt = (ts) => (ts < T2 ? 0 : Math.floor((ts - T2) / PC) + 1);
+
+// shadow and site passes, sampled ahead as they are needed
+const STEP = 30, samp = { ts: -6000, sh: inShadow(-6000), rg: inRange(-6000), shadow: [], sunlit: [], passes: [], s0: -1e9, r0: 0 };
+samp.s0 = -1e9; samp.r0 = samp.rg ? -1e9 : 0;
+const sampleTo = (until) => {
+  while (samp.ts < until) {
+    const t = samp.ts + STEP, sh = inShadow(t), rg = inRange(t);
+    if (sh !== samp.sh) { (samp.sh ? samp.shadow : samp.sunlit).push([samp.s0, t]); samp.s0 = t; samp.sh = sh; }
+    if (rg !== samp.rg) { if (rg) samp.r0 = t; else samp.passes.push([samp.r0, t]); samp.rg = rg; }
+    samp.ts = t;
+  }
+};
+sampleTo(TS(60));
+
+// ---------------- status line ----------------
+const WORDS = ["Approach", "Insertion Burn", "Transfer Coast", "Circularization", "Standard Orbit"];
+const SUBX = LX + Math.max(...WORDS.map((w) => L.textWidth(w, 100))) + 56;
+const state = cls(L.text({ x: LX, cap: 150, s: 100, c: "olive", txt: "" }), "sw");
+const stateSub = cls(L.text({ x: SUBX, base: 222, s: 38, c: "sand", txt: "" }), "sw");
+L.box({ x: RX, y: 158, w: 400, h: 64, c: "olive", label: "Tavela System  ·  Survey", fs: 32, r: "l" });
+const clockBox = L.box({ x: RX + 400 + L.GAP, y: 158, w: RR - (RX + 400 + L.GAP), h: 64, c: "sand", label: "", fs: 32, r: "r" });
+
+// ---------------- insertion parameters ----------------
+L.header({ x: LX, y: 280, w: LR - LX, label: "Insertion Parameters", c1: "olive", c2: "sky" });
+const CUR = 820;
+L.text({ x: LX, base: U(0), s: 36, c: "sky", txt: "Parameter" });
+L.text({ x: CUR, base: U(0), s: 36, c: "sky", txt: "Current", align: "r" });
+L.text({ x: LR, base: U(0), s: 36, c: "sky", txt: "Target", align: "r" });
+const PARAMS = [["Periapsis", `${fmt(ALT)} km`], ["Apoapsis", `${fmt(ALT)} km`], ["Eccentricity", "0.000"],
+  ["Inclination", `${INC.toFixed(1)}°`], ["Velocity", `${Math.sqrt(GM / RC).toFixed(2)} km/s`], ["Period", `${(PC / 60).toFixed(1)} min`]];
+const par = PARAMS.map(([n, tg], k) => {
+  L.text({ x: LX, base: U(1 + k), s: 40, c: "sand", txt: n });
+  L.text({ x: LR, base: U(1 + k), s: 40, c: "sand", txt: tg, align: "r" });
+  return L.text({ x: CUR, base: U(1 + k), s: 52, c: "white", txt: "", align: "r" });
+});
+
+// ---------------- burn control ----------------
+L.header({ x: LX, y: 1000, w: LR - LX, label: "Burn Control", c1: "sky", c2: "olive" });
+const burnCap = cls(L.text({ x: LX, base: LO(0), s: 36, c: "butter", txt: "" }), "sw");
+const GBX = LX + 300, GBR = 820;
+const fill = (x, y, w, h, c) => { const f = L.layer({ x, y, w, h }); f.style.background = colr(c); f.style.transformOrigin = "0 0"; return f; };
+const gauge = (k, name, c) => {
+  L.text({ x: LX, base: LO(k), s: 40, c: "sand", txt: name });
+  L.rect({ x: GBX, y: LO(k) - 26, w: GBR - GBX, h: 26, c: TRACK });
+  return { bar: fill(GBX, LO(k) - 26, GBR - GBX, 26, c), v: L.text({ x: LR, base: LO(k), s: 44, c: "white", txt: "", align: "r" }), u: -1 };
+};
+const showBar = (g, k) => { k = L.clamp(k); if (Math.abs(k - g.u) > 0.0004) { g.u = k; tf(g.bar, `scaleX(${k.toFixed(4)})`); } };
+const G = { out: gauge(1, "Impulse Output", "butter"), dv: gauge(2, "Delta-V  m/s", "olive"), time: gauge(3, "Burn Time", "sky"),
+  next: gauge(4, "Next Burn", "sand"), deut: gauge(5, "Deuterium", "olive") };
+
+// ---------------- the plot ----------------
+L.header({ x: MX, y: 280, w: MR - MX, label: "Orbital Plot  ·  Tavela IV", c1: "olive", c2: "sand" });
+const CX = 1920, CY = 960, R6 = 560, SC = R6 / (RP + 6000);   // the outer ring is 6,000 km up
+const sx = (x) => CX + SC * x, sy = (y) => CY - SC * y;
+const PW = 1560, PH = 1220, PX0 = CX - PW / 2, PY0 = CY - PH / 2;   // the plot's own box (a picture: not audited)
+const svgLayer = (inner, c = "boot") => {
+  const l = cls(L.layer({ x: PX0, y: PY0, w: PW, h: PH }), c);
+  l.innerHTML = `<svg width="${PW}" height="${PH}" viewBox="${PX0} ${PY0} ${PW} ${PH}" style="position:absolute;left:0;top:0;overflow:visible">${inner}</svg>`;
+  return l;
+};
+const circle = (r, a) => `<circle cx="${CX}" cy="${CY}" r="${r}" ${a}/>`;
+{
+  let s = "";
+  // the planet's shadow, out to the plot's edge
+  s += `<defs><linearGradient id="shd" x1="0" x2="1"><stop offset="0" stop-color="#1a2233" stop-opacity=".9"/><stop offset="1" stop-color="#1a2233" stop-opacity="0"/></linearGradient>
+        <radialGradient id="edge" cx="${CX}" cy="${CY}" r="${R6 + 70}" gradientUnits="userSpaceOnUse">
+          <stop offset="${(R6 - 10) / (R6 + 70)}" stop-color="#fff"/><stop offset="1" stop-color="#000"/></radialGradient>
+        <mask id="fadeM" maskUnits="userSpaceOnUse" x="${PX0}" y="${PY0}" width="${PW}" height="${PH}"><rect x="${PX0}" y="${PY0}" width="${PW}" height="${PH}" fill="url(#edge)"/></mask></defs>`;
+  s += `<rect x="${CX}" y="${CY - RP * SC}" width="${R6 - 30}" height="${2 * RP * SC}" fill="url(#shd)"/>`;
+  // altitude rings at 2,000, 4,000 and 6,000 km, their figures below each
+  [2000, 4000, 6000].forEach((a, k) => {
+    const r = (RP + a) * SC;
+    s += circle(r, `fill="none" stroke="var(--${k === 2 ? "sky" : "slate"})" stroke-width="${k === 2 ? 4 : 3}"`);
+    s += `<text x="${CX}" y="${(CY + r + 34).toFixed(1)}" text-anchor="middle" font-size="30" style="fill:var(--sky)">${fmt(a)} KM</text>`;
+  });
+  // ticks round the outer ring, every ten degrees
+  let tk = "";
+  for (let a = 0; a < 360; a += 10) {
+    const l = a % 30 === 0 ? 26 : 14, c = Math.cos(a * D), n = Math.sin(a * D);
+    tk += `M${(CX + R6 * c).toFixed(1)},${(CY - R6 * n).toFixed(1)} L${(CX + (R6 - l) * c).toFixed(1)},${(CY - (R6 - l) * n).toFixed(1)} `;
+  }
+  s += `<path d="${tk}" stroke="var(--sky)" stroke-width="4"/>`;
+  // the planet: a sunlit half toward the primary, its night half, a thin atmosphere
+  const pr = RP * SC;
+  s += circle(pr + 12, `fill="none" stroke="var(--ice)" stroke-opacity=".45" stroke-width="6"`);
+  s += circle(pr, `fill="#4a4520"`);
+  s += `<path d="M${CX},${CY - pr} A${pr},${pr} 0 0 0 ${CX},${CY + pr} Z" fill="var(--olive)"/>`;
+  for (const f of [0.35, 0.68]) s += `<ellipse cx="${CX}" cy="${CY}" rx="${pr}" ry="${(pr * f).toFixed(1)}" fill="none" stroke="#000" stroke-opacity=".28" stroke-width="3"/>`;
+  s += `<line x1="${CX - pr}" y1="${CY}" x2="${CX + pr}" y2="${CY}" stroke="#000" stroke-opacity=".28" stroke-width="3"/>`;
+  svgLayer(s);
+}
+// the three paths: the approach, the transfer half-orbit, the standard orbit
+const pathD = (f, a, b, n = 160) => {
+  let d = "";
+  for (let i = 0; i <= n; i++) { const [x, y] = xy(f(L.mix(a, b, i / n))); d += (i ? "L" : "M") + sx(x).toFixed(1) + "," + sy(y).toFixed(1); }
+  return d;
+};
+const approach = svgLayer(`<path d="${pathD(hyp, T1 - 3400, T1)}" fill="none" stroke="var(--sky)" stroke-width="5" mask="url(#fadeM)"/>`);
+const transfer = svgLayer(`<path d="${pathD(ell, T1, T2)}" fill="none" stroke="var(--ice)" stroke-width="5"/>`);
+const orbit = svgLayer(circle(RC * SC, `fill="none" stroke="var(--butter)" stroke-width="6"`));
+const orbitPlan = svgLayer(circle(RC * SC, `fill="none" stroke="var(--butter)" stroke-width="4" stroke-dasharray="14 16"`));
+// burn points and the ascending node, marked
+{
+  const mk = (ts, label, dx, dy, anchor) => {
+    const [x, y] = pos(ts), X = sx(x), Y = sy(y);
+    return `<path d="M${X},${Y - 16} L${X + 16},${Y} L${X},${Y + 16} L${X - 16},${Y} Z" fill="var(--butter)" stroke="#000" stroke-width="4"/>
+      <text x="${X + dx}" y="${Y + dy}" text-anchor="${anchor}" font-size="36" style="fill:var(--butter)">${label}</text>`;
+  };
+  svgLayer(mk(T1, "BURN 1", -30, -22, "end") + mk(T2, "BURN 2", 30, 46, "start"));
+}
+// the ship: a chevron pointing where it is going
+const ship = L.layer({ x: 0, y: 0, w: 56, h: 56 });
+ship.innerHTML = `<svg width="56" height="56" style="position:absolute;left:0;top:0">
+  <circle cx="28" cy="28" r="26" fill="none" stroke="var(--butter)" stroke-opacity=".35" stroke-width="3"/>
+  <path d="M46,28 L16,12 L23,28 L16,44 Z" fill="var(--white)" stroke="#000" stroke-width="3"/></svg>`;
+// the primary's direction
+L.text({ x: MX, base: CY + 13, s: 36, c: "butter", txt: "Primary" });
+L.svg("path", { d: `M${MX + 136},${CY} l18,-12 v24 Z`, fill: "var(--butter)", class: "boot" });
+L.rect({ x: MX + 154, y: CY - 3, w: 60, h: 6, c: "butter", free: true });
+
+// readings in the plot's four corners
+const corner = (x, align, lb, label, vb, cb) => ({
+  l: L.text({ x, base: lb, s: 36, c: "sky", txt: label, align }),
+  v: L.text({ x, base: vb, s: 100, c: "white", txt: "", align }),
+  c: cls(L.text({ x, base: cb, s: 36, c: "sand", txt: "", align }), "sw"),
+});
+const cAlt = corner(MX, "l", U(0), "Altitude  ·  Kilometers", U(2), U(3));
+const cVel = corner(MR, "r", U(0), "Velocity  ·  Kilometers per Second", U(2), U(3));
+const cRev = corner(MX, "l", LO(2), "Revolution", LO(4), LO(5));
+const cNext = corner(MR, "r", LO(2), "Next Event  ·  Ship Minutes", LO(4), LO(5));
+
+// ---------------- ground track ----------------
+L.header({ x: RX, y: 280, w: RR - RX, label: "Ground Track", c1: "sky", c2: "olive" });
+const MW = RR - RX, MH = MW / 2, MY = 360;
+const mx = (lon) => ((lon + 180) / 360) * MW, my = (lat) => ((90 - lat) / 180) * MH;
+// the surface: flat 5° cells of land and sea, from a few smooth waves (periodic round the planet)
+const elev = (lon, lat) => {
+  const a = lon * D, b = lat * D;
+  return 0.55 * Math.sin(a + 0.6) * Math.cos(b * 1.3 - 0.4) + 0.35 * Math.sin(2 * a + 2.1 + b * 1.4) + 0.28 * Math.cos(3 * a - 1.2 - b * 2.2)
+    + 0.18 * Math.sin(5 * a + 0.4 + b * 3.1) + 0.12 * Math.cos(7 * a + 2.5 - b * 4.4) + 0.25 * Math.sin(b * 2.5 + 0.8);
+};
+const base = L.canvas({ x: RX, y: MY, w: MW, h: MH });
+base.onResize = () => {
+  const g = base.g; g.fillStyle = "#08101e"; g.fillRect(0, 0, MW, MH);
+  const cw = MW / 72, ch = MH / 36;
+  for (let i = 0; i < 72; i++) for (let j = 0; j < 36; j++) {
+    const lon = -177.5 + i * 5, lat = 87.5 - j * 5, e = elev(lon, lat);
+    let c = null;
+    if (Math.abs(lat) > 72) c = e > -0.2 ? "#7d8a94" : "#3c4750";
+    else if (e > 0.62) c = "#9c9466"; else if (e > 0.38) c = "#857a2e"; else if (e > 0.18) c = "#5a521f";
+    else if (e > 0.08) c = "#122440";
+    if (c) { g.fillStyle = c; g.fillRect(i * cw + 1, j * ch + 1, cw - 2, ch - 2); }
+  }
+  g.strokeStyle = "rgba(92,157,255,.35)"; g.lineWidth = 1.5;
+  for (let lon = -150; lon < 180; lon += 30) { g.beginPath(); g.moveTo(mx(lon), 0); g.lineTo(mx(lon), MH); g.stroke(); }
+  for (let lat = -60; lat <= 60; lat += 30) { g.beginPath(); g.moveTo(0, my(lat)); g.lineTo(MW, my(lat)); g.stroke(); }
+  g.strokeStyle = "rgba(92,157,255,.7)"; g.lineWidth = 2.5; g.beginPath(); g.moveTo(0, my(0)); g.lineTo(MW, my(0)); g.stroke();
+};
+// night: drawn once for the sun at longitude 0, two copies wide, slid west as the planet turns
+const nightClip = L.el("div", "clip", L.stage, { left: RX + "px", top: MY + "px", width: MW + "px", height: MH + "px" });
+const nightL = cls(L.layer({ x: 0, y: 0, w: 2 * MW, h: MH }, nightClip), "boot");
+const night = L.canvas({ x: 0, y: 0, w: 2 * MW, h: MH }, nightL);
+night.onResize = () => {
+  const cv = night.cv, W = cv.width, H = cv.height, img = night.g.createImageData(W, H), d = img.data;
+  const sd = Math.sin(DEC * D), cd = Math.cos(DEC * D);
+  for (let py = 0; py < H; py++) {
+    const lat = (90 - ((py + 0.5) / H) * 180) * D, sl = Math.sin(lat), cl = Math.cos(lat);
+    for (let px = 0; px < W; px++) {
+      const lon = (((px + 0.5) / W) * 720 - 180) * D, cz = sl * sd + cl * cd * Math.cos(lon);
+      const a = L.clamp((0.06 - cz) / 0.12) * 0.62, o = (py * W + px) * 4;
+      d[o] = 0; d[o + 1] = 2; d[o + 2] = 10; d[o + 3] = Math.round(a * 255);
+    }
+  }
+  night.g.putImageData(img, 0, 0);
+};
+const track = L.canvas({ x: RX, y: MY, w: MW, h: MH });
+const SITE_RING = Array.from({ length: 73 }, (_, k) => {   // the sensors' reach round the site: a small circle on the sphere
+  const b = k * 5 * D, d = SITE_R * D, la = SITE[0] * D;
+  const lat = Math.asin(Math.sin(la) * Math.cos(d) + Math.cos(la) * Math.sin(d) * Math.cos(b));
+  const lon = SITE[1] * D + Math.atan2(Math.sin(b) * Math.sin(d) * Math.cos(la), Math.cos(d) - Math.sin(la) * Math.sin(lat));
+  return [lat / D, lon / D];
+});
+const drawTrack = (ts) => {
+  const g = track.g; g.clearRect(0, 0, MW, MH);
+  const line = (t0, t1, style, w, dash) => {
+    g.strokeStyle = style; g.lineWidth = w; g.setLineDash(dash); g.beginPath();
+    let px = null;
+    for (let t = t0; t <= t1 + 1; t += 60) {
+      const [la, lo] = subPoint(Math.min(t, t1)), X = mx(lo), Y = my(la);
+      if (px === null || Math.abs(X - px) > MW / 2) g.moveTo(X, Y); else g.lineTo(X, Y);
+      px = X;
+    }
+    g.stroke();
+  };
+  line(ts - 100 * 60, ts, "rgba(143,211,255,.95)", 4, []);
+  line(ts, ts + 100 * 60, "rgba(255,204,102,.8)", 3, [10, 10]);
+  g.setLineDash([]);
+  const live = inRange(ts);
+  g.strokeStyle = live ? "rgba(143,211,255,1)" : "rgba(143,211,255,.55)"; g.lineWidth = 3; g.beginPath();
+  SITE_RING.forEach(([la, lo], k) => (k ? g.lineTo(mx(lo), my(la)) : g.moveTo(mx(lo), my(la)))); g.stroke();
+  const X = mx(SITE[1]), Y = my(SITE[0]);
+  g.fillStyle = "#000"; g.fillRect(X - 11, Y - 11, 22, 22);
+  g.fillStyle = live ? "#ffcc66" : "#8fd3ff"; g.fillRect(X - 7, Y - 7, 14, 14);
+};
+const mapShip = L.layer({ x: RX - 18, y: MY - 18, w: 36, h: 36 });
+mapShip.innerHTML = `<svg width="36" height="36" style="position:absolute;left:0;top:0">
+  <path d="M18,2 L34,18 L18,34 L2,18 Z" fill="var(--white)" stroke="#000" stroke-width="4"/></svg>`;
+const subV = L.text({ x: RR, base: U(5), s: 44, c: "white", txt: "", align: "r" });
+L.text({ x: RX, base: U(5), s: 40, c: "sand", txt: "Sub-Ship Point" });
+const siteV = cls(L.text({ x: RR, base: U(6), s: 44, c: "white", txt: "", align: "r" }), "sw");
+L.text({ x: RX, base: U(6), s: 40, c: "sand", txt: "Survey Site" });
+
+// ---------------- the planet ----------------
+L.header({ x: RX, y: 1000, w: RR - RX, label: "Tavela IV", c1: "olive", c2: "sky" });
+L.text({ x: RX, base: LO(0), s: 36, c: "butter", txt: `Class M  ·  Survey Site ${Math.abs(SITE[0])}° S  ${Math.abs(SITE[1])}° W` });
+const gS = (0.74 / (RP / 6371) ** 2).toFixed(2);
+const PLANET = [["Radius", `${fmt(RP)} km`], ["Surface Gravity", `${gS} g`], ["Rotation", "26.3 Hours"], ["Atmosphere", "Nitrogen-Oxygen  ·  0.91 Bar"]];
+PLANET.forEach(([n, v], k) => {
+  L.text({ x: RX, base: LO(1 + k), s: 40, c: "sand", txt: n });
+  L.text({ x: RR, base: LO(1 + k), s: 44, c: "white", txt: v, align: "r" });
+});
+L.text({ x: RX, base: LO(5), s: 40, c: "sand", txt: "Sun at Survey Site" });
+const sunV = L.text({ x: RR, base: LO(5), s: 44, c: "white", txt: "", align: "r" });
+
+// ---------------- burn timeline: a ship-time strip sliding past a Now line ----------------
+L.header({ x: LX, y: 1620, w: MR - LX, label: "Burn Timeline", c1: "olive", c2: "sky", h: 48 });
+const ROWS = ["Ship Time", "Flight Phase", "Impulse Burns", "Revolution", "Daylight", "Survey Site"];
+ROWS.forEach((n, i) => L.text({ x: LX, base: STRIP(i), s: 36, c: i ? "sand" : "sky", txt: n }));
+const TX0 = 560, TX1 = MR, TW = TX1 - TX0, SPAN = 240 * 60, PAST = 0.3, PXS = TW / SPAN;   // 240 ship minutes across
+const BY = (i) => STRIP(i) - 31, BH = 36;
+for (let i = 1; i < 6; i++) L.rect({ x: TX0, y: BY(i), w: TW, h: BH, c: "#0c0f08" });
+const TL_Y = 1690, tl = L.el("div", "clip", L.stage, { left: TX0 + "px", top: TL_Y + "px", width: TW + "px", height: 2010 - TL_Y + "px" });
+const NOWX = Math.round(PAST * TW);
+const items = [];
+const addItem = (o) => {   // {row, t0, t1, c, label, lc}
+  const b = L.el("div", "bar", tl, { top: BY(o.row) - TL_Y + "px", height: BH + "px", background: colr(o.c) });
+  const it = { ...o, b, l: null, lw: 0 };
+  if (o.label) {
+    it.lw = L.textWidth(o.label, 28);
+    it.l = L.el("div", "lab", tl, { top: BY(o.row) - TL_Y + 4 + "px", fontSize: "28px" });
+    it.l.textContent = o.label;
+  }
+  items.push(it);
+  return it;
+};
+const ticks = [];
+const addTick = (ts) => {
+  const major = Math.round(ts / 60) % 30 === 0;
+  const k = L.el("div", "bar", tl, { top: STRIP(0) + 8 - TL_Y + "px", width: "3px", height: (major ? 18 : 10) + "px", background: "var(--sky)" });
+  let l = null;
+  if (major) { l = L.el("div", "lab", tl, { top: STRIP(0) - 30 * L.BASELINE - TL_Y + "px", fontSize: "30px", color: "var(--sky)" }); l.textContent = hhmm(ts); }
+  ticks.push({ ts, k, l, lw: major ? L.textWidth(hhmm(ts), 30) : 0 });
+};
+// the plan, as rows of bars
+const genned = { phase: false, burn: 0, rev: 0, sun: 0, shd: 0, pass: 0, tick: -6000 };
+addItem({ row: 1, t0: -1e7, t1: -2400, c: "slate", label: "Warp 5", lc: "#000" });
+addItem({ row: 1, t0: -2400, t1: T1 - 4, c: "sky", label: "Approach", lc: "#000" });
+addItem({ row: 1, t0: T1 + 4, t1: T2 - 4, c: "ice", label: "Transfer Coast  ·  1,200 × 4,000 km", lc: "#000" });
+addItem({ row: 1, t0: T2 + 4, t1: 1e8, c: "olive", label: `Standard Orbit  ·  ${fmt(ALT)} km`, lc: "#000" });
+const generate = (until) => {
+  sampleTo(until + 4 * 3600);
+  for (let b; (b = burnN(genned.burn)).t0 < until; genned.burn++)
+    addItem({ row: 2, t0: b.t0, t1: b.t1, c: b.impulse ? "butter" : "sand", label: b.impulse ? `${b.short}  ${fmt(b.dv)} m/s` : `Trim  ${b.dv.toFixed(1)} m/s`, lc: "white", outside: true });
+  for (let k; T2 + (k = genned.rev) * PC < until; genned.rev++)
+    addItem({ row: 3, t0: T2 + k * PC + 4, t1: T2 + (k + 1) * PC - 4, c: k % 2 ? "sand" : "olive", label: `Rev ${k + 1}`, lc: "#000" });
+  for (; genned.sun < samp.sunlit.length; genned.sun++) { const [a, b] = samp.sunlit[genned.sun]; addItem({ row: 4, t0: a + 4, t1: b - 4, c: "sand", label: "Sunlit", lc: "#000" }); }
+  for (; genned.shd < samp.shadow.length; genned.shd++) { const [a, b] = samp.shadow[genned.shd]; addItem({ row: 4, t0: a + 4, t1: b - 4, c: "slate", label: "Shadow", lc: "#000" }); }
+  for (; genned.pass < samp.passes.length; genned.pass++) { const [a, b] = samp.passes[genned.pass]; addItem({ row: 5, t0: a, t1: b, c: "sky", label: `Pass ${genned.pass + 1}`, lc: "#000" }); }
+  for (; genned.tick < until; genned.tick += 600) addTick(genned.tick);
+};
+// the open sunlit stretch that runs into the present
+const sunOpen = addItem({ row: 4, t0: -1e7, t1: 1e8, c: "sand", label: "Sunlit", lc: "#000" });
+const drawTimeline = (ts) => {
+  const x = (t) => NOWX + (t - ts) * PXS;
+  sunOpen.t1 = samp.sunlit.length ? -1e7 : 1e8;   // replaced once the first shadow has been sampled
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i], a = Math.max(x(it.t0), -40), b = Math.min(x(it.t1), TW + 40);
+    if (b < -30) { it.b.remove(); if (it.l) it.l.remove(); items.splice(i, 1); continue; }
+    if (b <= a) { tf(it.b, "scaleX(0)"); if (it.l) op(it.l, 0); continue; }
+    tf(it.b, `translate3d(${a.toFixed(1)}px,0,0) scaleX(${((b - a) / 100).toFixed(4)})`);
+    if (it.l) {
+      let lx, c = it.lc, o = 1;
+      if (it.outside) lx = x(it.t1) + 12;
+      else {   // inside its bar, held at the left edge while the bar runs past it
+        lx = Math.max(x(it.t0) + 16, 90);
+        if (lx + it.lw + 16 > x(it.t1)) { lx = x(it.t1) - it.lw - 16; o = L.clamp((lx - 20) / 70); }   // pushed out: fades before the edge
+        if (it.t1 - it.t0 < (it.lw + 32) / PXS) { op(it.l, 0); continue; }   // too short to label
+      }
+      o = Math.min(o, L.clamp((lx - 20) / 70), L.clamp((TW - 20 - lx - it.lw) / 70));   // nothing cut by either edge
+      op(it.l, o); ink(it.l, c);
+      tf(it.l, `translate3d(${lx.toFixed(1)}px,0,0)`);
+    }
+  }
+  for (let i = ticks.length - 1; i >= 0; i--) {
+    const k = ticks[i], X = x(k.ts);
+    if (X < -60) { k.k.remove(); if (k.l) k.l.remove(); ticks.splice(i, 1); continue; }
+    tf(k.k, `translate3d(${(X - 1.5).toFixed(1)}px,0,0)`);
+    if (k.l) { tf(k.l, `translate3d(${(X - k.lw / 2).toFixed(1)}px,0,0)`); op(k.l, Math.min(L.clamp((X - k.lw / 2 - 20) / 70), L.clamp((TW - 20 - X - k.lw / 2) / 70))); }
+  }
+};
+// the ends fade, so nothing is cut by the edge
+for (const [x, dir] of [[TX0, "to right"], [TX1 - 110, "to left"]])
+  L.el("div", "fade", L.stage, { left: x + "px", top: TL_Y + "px", width: "110px", height: 2010 - TL_Y + "px", background: `linear-gradient(${dir}, #000 10%, rgba(0,0,0,0))` });
+// the Now line
+L.el("div", "fade", L.stage, { left: TX0 + NOWX - 2 + "px", top: STRIP(0) + 4 + "px", width: "4px", height: 2010 - STRIP(0) - 4 + "px", background: "var(--white)" });
+
+// ---------------- helm log ----------------
+L.header({ x: RX, y: 1620, w: RR - RX, label: "Helm Log", c1: "sky", c2: "sand", h: 48 });
+const LOGT = RX + 130;
+const logRows = Array.from({ length: 6 }, (_, i) => ({
+  tm: L.text({ x: RX, base: STRIP(i), s: 36, c: "olive", txt: "" }),
+  tx: L.text({ x: LOGT, base: STRIP(i), s: 36, c: "sand", txt: "" }),
+  v: L.text({ x: RR, base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }) }));
+const logged = [];
+const logLine = (ts, txt, v = "") => {
+  logged.push([hhmm(ts), txt, v]); if (logged.length > logRows.length) logged.shift();
+  logRows.forEach((r, i) => { const e = logged[i] || ["", "", ""]; L.set(r.tm, e[0]); L.set(r.tx, e[1]); L.set(r.v, e[2]); });
+};
+// the watch so far, in time order
+[[-2400, "Dropped out of warp  ·  Tavela system", "Warp 5"], [-2220, "Approach plotted  ·  Ensign Ro", "Impulse"],
+ [-1500, "Survey site designated", "20° S  100° W"], [-960, "Insertion burn programmed", `${fmt(BURNS[0].dv)} m/s`],
+ [-540, "Navigational deflector  ·  Path clear", "Clear"], [-120, "Standard orbit plotted  ·  Data", `${fmt(ALT)} km`]]
+  .forEach(([ts, txt, v]) => logLine(ts, txt, v));
+// what happens next, in ship seconds
+const events = [];
+const addEvent = (ts, f) => events.push({ ts, f });
+addEvent(B1[0], () => logLine(B1[0], "Insertion burn ignition", "Retrograde"));
+addEvent(B1[1], () => logLine(B1[1], "Captured  ·  1,200 × 4,000 km orbit", `${fmt(BURNS[0].dv)} m/s`));
+addEvent(B2[0], () => logLine(B2[0], "Circularization burn ignition", "Retrograde"));
+addEvent(B2[1], () => logLine(B2[1], "Standard orbit established", `${fmt(ALT)} km`));
+let evGen = { trim: 2, shd: 0, pass: 0 };
+const genEvents = (until) => {
+  for (let b; (b = burnN(evGen.trim)).t1 < until; evGen.trim++) { const bb = b; addEvent(bb.t1, () => logLine(bb.t1, `Station-keeping trim  ·  Rev ${bb.rev}`, `${bb.dv.toFixed(1)} m/s`)); }
+  for (; evGen.shd < samp.shadow.length; evGen.shd++) { const a = samp.shadow[evGen.shd][0]; if (a > 0) addEvent(a, () => logLine(a, "Entering the planet's shadow", "Night")); }
+  for (; evGen.pass < samp.passes.length; evGen.pass++) {
+    const [a, b] = samp.passes[evGen.pass], n = evGen.pass + 1;
+    if (a > 0) addEvent(a, () => logLine(a, "Survey site in sensor range", `Pass ${n}`));
+    if (b > 0) addEvent(b, () => logLine(b, "Sensor sweep of survey site complete", `Pass ${n}`));
+  }
+  events.sort((p, q) => p.ts - q.ts);
+};
+
+// ---------------- the running state ----------------
+const phaseAt = (ts) => (ts < B1[0] ? 0 : ts < B1[1] ? 1 : ts < B2[0] ? 2 : ts < B2[1] ? 3 : 4);
+const nextEvent = (ts) => {
+  const c = [];
+  const bi = burnIndexAt(ts), b = burnN(bi);
+  if (b.t0 > ts) c.push([b.t0, b.name]); else { const n = burnN(bi + 1); c.push([n.t0, n.name]); }
+  const p = samp.passes.find(([a]) => a > ts); if (p) c.push([p[0], "Survey Site in Range"]);
+  const s = samp.shadow.find(([a]) => a > ts); if (s) c.push([s[0], "Enter Planet's Shadow"]);
+  c.sort((x, y) => x[0] - y[0]);
+  return c[0];
+};
+const subFor = (ts, ph) => {
+  const e = elements(ts), b = burnN(burnIndexAt(ts)), min = (t) => Math.max(0, Math.ceil((t - ts) / 60));
+  if (ph === 0) return `Tavela IV  ·  Range ${fmt(e.r)} km  ·  Insertion burn in ${min(B1[0])} minutes`;
+  if (ph === 1) return `Retrograde at 4,000 km  ·  Capture into a 1,200 × 4,000 km orbit`;
+  if (ph === 2) return `Capture orbit  ·  Circularization at periapsis in ${min(B2[0])} minutes`;
+  if (ph === 3) return `Lowering apoapsis to ${fmt(ALT)} km  ·  Retrograde at periapsis`;
+  const rg = inRange(ts), p = samp.passes.find(([a]) => a > ts);
+  return `Tavela IV  ·  Revolution ${revAt(ts)}  ·  ${fmt(ALT)} km  ·  ` + (rg ? "Survey site in sensor range" : p ? "Survey site in range next pass" : "Survey site out of range");
+};
+const subKey = (ts, ph) => ph + (ph === 4 ? (inRange(ts) ? "r" : "o") + revAt(ts) : "");
+
+let phaseKey = "", lastTs = -1e9, trackAt = -1, lastSub = "";
+let deut = 78.4;
+generate(TS(0) + SPAN); genEvents(TS(0) + SPAN);
+
+L.tick((t) => {
+  const ts = TS(t);
+  // the plot
+  const [x, y] = pos(ts), v = vel(ts), rpx = Math.hypot(x, y) * SC;
+  const hd = Math.atan2(-v[1], v[0]) / D;
+  tf(ship, `translate3d(${(sx(x) - 28).toFixed(1)}px,${(sy(y) - 28).toFixed(1)}px,0) rotate(${hd.toFixed(2)}deg)`);
+  op(ship, L.clamp((R6 + 60 - rpx) / 60));
+  const ph = phaseAt(ts);
+  op(approach, ph === 0 ? 1 : ph === 1 ? 1 - 0.65 * L.ease((ts - B1[0]) / 360) : 0.35);
+  op(transfer, ph <= 1 ? 0.3 + 0.7 * (ph === 1 ? L.ease((ts - B1[0]) / 360) : 0) : ph <= 3 ? 1 - (ph === 3 ? 0.65 * L.ease((ts - B2[0]) / 240) : 0) : 0.35);
+  const ok = ph < 3 ? 0 : ph === 3 ? L.ease((ts - B2[0]) / 240) : 1;
+  op(orbit, ok); op(orbitPlan, 1 - ok);
+  // the map
+  const [la, lo] = subPoint(ts);
+  tf(mapShip, `translate3d(${mx(lo).toFixed(1)}px,${my(la).toFixed(1)}px,0)`);
+  const dx = ((((sunLon(ts) / 360) * MW) % MW) + MW) % MW - MW;
+  tf(nightL, `translate3d(${dx.toFixed(1)}px,0,0)`);
+  // the timeline
+  generate(ts + SPAN); genEvents(ts + SPAN);
+  drawTimeline(ts);
+  // the log, in order
+  while (events.length && events[0].ts <= ts) { const e = events.shift(); if (e.ts > lastTs) e.f(); }
+  lastTs = ts;
+  // the state, changed only when it changes
+  const key = subKey(ts, ph);
+  if (key !== phaseKey) {
+    const first = !phaseKey; phaseKey = key;
+    const show = () => { const tn = TS(L.t), pn = phaseAt(tn); L.set(state, WORDS[pn]); ink(state, pn === 1 || pn === 3 ? "butter" : "olive"); L.set(stateSub, subFor(tn, pn)); };
+    if (first) show(); else if (state.textContent !== WORDS[ph]) swap([state, stateSub], show); else swap([stateSub], show);
+  }
+});
+
+L.every(250, (t) => {
+  const ts = TS(t), e = elements(ts), ph = phaseAt(ts);
+  L.set(clockBox, `Ship Time  ${hhmm(ts)}  ·  Stardate ${(SD0 + ts * SD_PER_S).toFixed(1)}`);
+  if (Math.floor(t) !== Math.floor(t - 0.25) || !lastSub) { lastSub = "1"; L.set(stateSub, subFor(ts, ph)); }
+  // parameters
+  L.set(par[0], `${fmt(e.peri)} km`);
+  L.set(par[1], e.apo === null ? "Unbound" : `${fmt(e.apo)} km`);
+  L.set(par[2], e.e < 0.0005 ? "0.000" : e.e.toFixed(3));
+  L.set(par[3], `${INC.toFixed(1)}°`);
+  L.set(par[4], `${e.v.toFixed(2)} km/s`);
+  L.set(par[5], e.per === null ? "Unbound" : `${e.per.toFixed(1)} min`);
+  const near = (a, b, tol) => a !== null && Math.abs(a - b) <= tol;
+  [near(e.peri, ALT, 2), near(e.apo, ALT, 2), e.e < 0.0005, true, Math.abs(e.v - Math.sqrt(GM / RC)) < 0.005, near(e.per, PC / 60, 0.05)]
+    .forEach((m, k) => ink(par[k], m ? "white" : "butter"));
+  // the corners
+  L.set(cAlt.v, fmt(e.r - RP)); L.set(cVel.v, e.v.toFixed(3));
+  L.set(cAlt.c, ph === 4 ? `On Target  ·  ${fmt(ALT)} km` : `Target  ${fmt(ALT)} km`);
+  L.set(cVel.c, `Circular  ${Math.sqrt(GM / RC).toFixed(3)}`);
+  const rv = revAt(ts);
+  L.set(cRev.v, pad2(rv));
+  L.set(cRev.c, ph < 4 ? "Standard Orbit Not Yet Established" : `Standard Orbit Since ${hhmm(B2[1])}`);
+  const ne = nextEvent(ts);
+  L.set(cNext.v, String(Math.max(0, Math.ceil((ne[0] - ts) / 60))));
+  L.set(cNext.c, ne[1]);
+  // burn control: the burn running now, or the next one
+  const bi = burnIndexAt(ts), b = burnN(bi), on = ts >= b.t0 && ts < b.t1;
+  const prev = bi > 0 ? burnN(bi - 1) : { t1: -2400 };
+  const k = on ? (ts - b.t0) / (b.t1 - b.t0) : 0, w = L.ease(k);
+  L.set(burnCap, on ? `${b.name}  ·  ${b.how}` : `Next  ·  ${b.name}  ·  ${b.how}`);
+  const acc = on && b.impulse ? (b.dv / (b.t1 - b.t0)) * 2 * (k < 0.5 ? 2 * k : 2 * (1 - k)) : 0;   // m/s², eased in and out
+  const outK = acc / 30;
+  showBar(G.out, outK); L.set(G.out.v, on && !b.impulse ? "Thrusters" : `${Math.round(outK * 100)}%`);
+  const done = b.dv * w;
+  showBar(G.dv, b.dv ? done / b.dv : 0);
+  L.set(G.dv.v, b.impulse ? `${fmt(done)} / ${fmt(b.dv)}` : `${done.toFixed(1)} / ${b.dv.toFixed(1)}`);
+  const dur = (b.t1 - b.t0) / 60;
+  showBar(G.time, on ? k : 0); L.set(G.time.v, `${(on ? k * dur : 0).toFixed(1)} / ${dur.toFixed(1)} min`);
+  const left = on ? 0 : b.t0 - ts;
+  showBar(G.next, on ? 0 : left / (b.t0 - prev.t1)); L.set(G.next.v, on ? "Burning" : `${Math.ceil(left / 60)} min`);
+  // deuterium: spent by the impulse burns
+  const used = (j) => { const bj = BURNS[j]; return L.ease(L.clamp((ts - bj.t0) / (bj.t1 - bj.t0))) * bj.dv; };
+  deut = 78.4 - (used(0) + used(1)) * 0.00031;
+  showBar(G.deut, deut / 100); L.set(G.deut.v, `${deut.toFixed(2)}%`);
+  // ground
+  const [la, lo] = subPoint(ts);
+  L.set(subV, `${Math.abs(la).toFixed(1)}° ${la < 0 ? "S" : "N"}   ${String(Math.abs(lo).toFixed(1)).padStart(5, "0")}° ${lo < 0 ? "W" : "E"}`);
+  const rg = inRange(ts), p = samp.passes.find(([a]) => a > ts);
+  L.set(siteV, rg ? "In Sensor Range" : p ? `In Range in ${Math.ceil((p[0] - ts) / 60)} min` : "Out of Range");
+  ink(siteV, rg ? "butter" : "white");
+  const cz = Math.sin(SITE[0] * D) * Math.sin(DEC * D) + Math.cos(SITE[0] * D) * Math.cos(DEC * D) * Math.cos((SITE[1] - sunLon(ts)) * D);
+  const elv = Math.asin(L.clamp(cz, -1, 1)) / D;
+  L.set(sunV, elv > 0 ? `Day  ·  ${elv.toFixed(1)}° above Horizon` : `Night  ·  ${(-elv).toFixed(1)}° below Horizon`);
+  if (ts - trackAt > 20) { trackAt = ts; drawTrack(ts); }
+}, 0);
+});
+</script></body></html>

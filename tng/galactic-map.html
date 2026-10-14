@@ -1,0 +1,591 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Galactic Cartography</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .nm { text-shadow: 0 0 6px #07061a, 0 0 6px #07061a, 0 0 12px #07061a; }   /* names stand off the chart behind them */
+  .fade { transition: opacity .45s ease; }
+  .out:not(.boot) { opacity: .2; }
+  .route { background: linear-gradient(to right, rgba(255,204,102,.95), rgba(255,204,102,.75)); transform-origin: 0 50%; border-radius: 2px; }
+  .tip { border-radius: 50%; background: radial-gradient(closest-side, #fff 0%, #ffe6a8 40%, rgba(255,204,102,0)); }
+  .ripple { border-radius: 50%; border: 4px solid var(--butter); }
+  .sweep { border-radius: 50%;
+           background: conic-gradient(from 0deg, rgba(199,160,216,0) 0deg, rgba(199,160,216,0) 285deg, rgba(199,160,216,.07) 330deg, rgba(199,160,216,.24) 360deg); }
+  .sweep i { position: absolute; display: block; width: 3px; border-radius: 2px;
+             background: linear-gradient(to top, rgba(232,220,255,.85), rgba(232,220,255,.15)); }
+  .band { background: rgba(199,160,216,.16); border-radius: 0 28px 28px 0; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: sidebar left, title top right ----------------
+const BAR = 64;
+L.title({ x: 3700, y: 40, h: BAR, c: "lilac", txt: "Galactic Cartography  •  Alpha and Beta Quadrants" });
+// (L.title measures with a canvas, which sets this line ~11px wider than the page draws it; use the page's own width)
+const titleLeft = 3700 - document.querySelector("[data-title]").offsetWidth;
+L.box({ x: 3724, y: 40, w: 92, h: BAR, c: "violet", r: "r" });
+L.elbow({ corner: "tl", x: 40, y: 40, w: 1360, h: 250, bw: 240, bh: BAR, R: 150, r: 60, c: "violet" });
+L.rect({ x: 1400 + L.GAP, y: 40, w: 300, h: BAR, c: "gold" });
+L.rect({ x: 1724 + L.GAP, y: 40, w: titleLeft - L.GAP - (1724 + L.GAP), h: BAR, c: "plum" });
+[[298, 140, "lilac", "Carto 01"], [446, 70, "gold", "Grid"], [524, 420, "violet", "Galaxy"], [952, 70, "butter", "47"],
+ [1030, 300, "plum", "Powers"], [1338, 70, "gold", "Range"], [1416, 216, "lilac", "Survey"]]
+  .forEach(([y, h, c, label]) => L.box({ x: 40, y, w: 240, h, c, label }));
+L.elbow({ corner: "bl", x: 40, y: 1640, w: 1500, h: 480, bw: 240, bh: BAR, R: 150, r: 60, c: "lilac" });
+L.text({ x: 258, base: 1712, s: 40, c: "#000", txt: "Cartography", align: "r", on: true });
+[[1540 + L.GAP, 600, "plum"], [2164 + L.GAP, 900, "gold"], [3088 + L.GAP, 3700 - (3088 + L.GAP), "violet"]]
+  .forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
+L.box({ x: 3724, y: 2056, w: 92, h: BAR, c: "lilac", r: "r" });
+
+const header = (x, y, w, label, c1, c2, h = 56, fs = 32) => {
+  const lw = Math.round((L.textWidth(label, fs) + 64) / 10) * 10;
+  L.box({ x, y, w: lw, h, c: c1, label, fs, r: "l" });
+  L.rect({ x: x + lw + L.GAP, y, w: w - lw - L.GAP, h, c: c2 });
+};
+const cls = (e, ...c) => (e.classList.add(...c), e);
+// write only what changed: an unchanged reading costs nothing
+const put = (e, txt) => { if (e.textContent !== txt) e.textContent = txt; };
+const css = (e, k, v) => { if (e.style[k] !== v) e.style[k] = v; };
+const fmt = (n, d = 0) => n.toLocaleString("en", { minimumFractionDigits: d, maximumFractionDigits: d });
+// a seeded random: the same galaxy every time
+const rng = (seed) => () => {
+  seed = (seed + 0x6D2B79F5) | 0;
+  let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+};
+const gauss = (r) => (r() + r() + r() + r() - 2) / 0.577;
+const rgba = (hex, a) => `rgba(${parseInt(hex.slice(1, 3), 16)},${parseInt(hex.slice(3, 5), 16)},${parseInt(hex.slice(5, 7), 16)},${a})`;
+// a soft territory outline, as an SVG path (also used on the canvases through Path2D)
+const blob = (cx, cy, rx, ry, seed) => {
+  const r = rng(seed), p = [r() * 6.28, r() * 6.28, r() * 6.28], a = [0.06 + 0.05 * r(), 0.04 + 0.04 * r(), 0.02 + 0.02 * r()];
+  let d = "";
+  for (let k = 0; k < 96; k++) {
+    const th = (2 * Math.PI * k) / 96, f = 1 + a[0] * Math.sin(2 * th + p[0]) + a[1] * Math.sin(3 * th + p[1]) + a[2] * Math.sin(5 * th + p[2]);
+    d += (k ? "L" : "M") + (cx + rx * f * Math.cos(th)).toFixed(1) + "," + (cy + ry * f * Math.sin(th)).toFixed(1);
+  }
+  return d + "Z";
+};
+// a layer holding one SVG drawing, for things that brighten and fade
+const svgLayer = (x, y, w, h) => {
+  const e = L.layer({ x, y, w, h });
+  const s = L.svg("svg", { width: w, height: h, viewBox: `${x} ${y} ${w} ${h}` }, e);
+  s.style.overflow = "visible";
+  e.style.opacity = 0;
+  return [e, s];
+};
+
+// ---------------- the powers ----------------
+// Chart coordinates in light-years from Sol: +x towards the Beta Quadrant, +y towards the galactic core.
+const POWERS = [
+  { short: "Federation", name: "United Federation of Planets", cap: "Earth", gov: "Federation Council", founded: "2161",
+    species: "Human  ·  Vulcan  ·  Andorian  ·  Tellarite", borders: "Klingon  ·  Romulan  ·  Cardassian", rel: "Member",
+    relLong: "Founding world  ·  Sector 001", quads: ["Alpha", "Beta"], c: "#5c9dff",
+    at: [0, 0], terr: [-12, -8, 104, 100, 11], label: [-30, -62], capSide: "r", route: "Origin  ·  Sector 001", mark: 0 },
+  { short: "Klingon Empire", name: "Klingon Empire", cap: "Qo'noS", gov: "High Council  ·  Chancellor", founded: "c. 9th century  ·  Kahless",
+    species: "Klingon", borders: "Federation  ·  Romulan", rel: "Allied", relLong: "Allied  ·  Khitomer Accords", quads: ["Beta"], c: "#e0533f",
+    at: [68, 89], terr: [118, 182, 118, 122, 23], label: [138, 238], capSide: "r", route: "Open  ·  Khitomer Accords", mark: 4 },
+  { short: "Romulan Empire", name: "Romulan Star Empire", cap: "Romulus", gov: "Senate  ·  Praetor", founded: "c. 4th century  ·  Sundering",
+    species: "Romulan  ·  Reman", borders: "Federation  ·  Klingon", rel: "Hostile", relLong: "Treaty of Algeron  ·  Neutral Zone", quads: ["Beta"], c: "#6fc48c",
+    at: [196, 30], terr: [252, 8, 108, 118, 37], label: [262, -78], capSide: "r", route: "Restricted  ·  Neutral Zone", mark: 2 },
+  { short: "Cardassian Union", name: "Cardassian Union", cap: "Cardassia Prime", gov: "Detapa Council  ·  Central Command", founded: "Unknown",
+    species: "Cardassian", borders: "Federation  ·  Bajor  ·  Breen", rel: "Treaty", relLong: "Treaty of 2370  ·  Demilitarized Zone", quads: ["Alpha"], c: "#d6a032",
+    at: [-165, -130], terr: [-208, -176, 96, 92, 41], label: [-212, -262], capSide: "l", route: "Via Demilitarized Zone", mark: 7 },
+  { short: "Ferengi Alliance", name: "Ferengi Alliance", cap: "Ferenginar", gov: "Grand Nagus  ·  Commerce Authority", founded: "Antiquity  ·  Gint",
+    species: "Ferengi", borders: "Federation", rel: "Trade", relLong: "Trade  ·  First contact 2364", quads: ["Alpha"], c: "#ff9c1a",
+    at: [-250, 120], terr: [-262, 128, 92, 86, 53], label: [-262, 238], capSide: "r", route: "Open  ·  Trade routes", mark: 9 },
+  { short: "Tholian Assembly", name: "Tholian Assembly", cap: "Tholia", gov: "The Assembly", founded: "Unknown",
+    species: "Tholian", borders: "Federation  ·  Klingon", rel: "Wary", relLong: "Wary  ·  Territorial disputes", quads: ["Alpha"], c: "#f4b6e6",
+    at: [-55, 315], terr: [-62, 318, 74, 62, 67], label: [-218, 322], capSide: "r", route: "Restricted  ·  Tholian space", mark: 11 },
+  { short: "Breen Confederacy", name: "Breen Confederacy", cap: "Breen", gov: "The Confederacy", founded: "Unknown",
+    species: "Breen", borders: "Cardassian  ·  Federation", rel: "Neutral", relLong: "Unaligned  ·  Privateers", quads: ["Alpha"], c: "#8fd3ff",
+    at: [0, -310], terr: [-8, -318, 92, 70, 79], label: [-118, -322], capSide: "r", route: "Not advised  ·  Unaligned", mark: 3 },
+  { short: "The Dominion", name: "The Dominion", cap: "Founders' Homeworld", gov: "The Founders  ·  Great Link", founded: "c. 4th century",
+    species: "Changeling  ·  Vorta  ·  Jem'Hadar", borders: "Gamma Quadrant", rel: "Wary", relLong: "First contact 2370", quads: ["Gamma"], c: "#b48cf0",
+    gamma: true, route: "Via the Bajoran wormhole", mark: 1 },
+  { short: "Borg Collective", name: "Borg Collective", cap: "Unimatrix 01", gov: "The Collective", founded: "Unknown",
+    species: "Borg  ·  Assimilated", borders: "Delta Quadrant", rel: "Hostile", relLong: "Hostile  ·  Wolf 359, 2367", quads: ["Delta"], c: "#7fd0b8",
+    delta: true, route: "Not advised  ·  Borg space", mark: 6 },
+];
+const BAJOR = [-120, -95];
+const REL_C = { Member: "sky", Allied: "ice", Hostile: "mars", Treaty: "peach", Trade: "butter", Wary: "orange", Neutral: "lilac" };
+
+// ---------------- status line ----------------
+const stateTxt = L.text({ x: 330, cap: 150, s: 100, c: "butter", txt: "" });
+const stateSub = L.text({ x: 1470, base: 222, s: 38, c: "lilac", txt: "" });          // on the chart column's line
+const pill = L.box({ x: 3416, y: 150, w: 400, h: 72, c: "lilac", label: "", r: "lr", fs: 36 });
+pill.style.willChange = "opacity";
+
+// =============================================================================================
+// ---------------- the galaxy, face on: four quadrants ----------------
+// =============================================================================================
+header(330, 280, 1080, "Milky Way  ·  Galactic Plane", "lilac", "violet");
+const AX0 = 330, AY0 = 360, AW = 1080, AH = 1200;
+const GX = 870, GY = 960, GR = 470, LYG = 50000 / GR;              // 50,000 light-years to the rim
+const SOL = [GX, GY + 0.52 * GR];                                   // 26,000 ly out, on the Alpha / Beta line
+const IDRAN = [626, 786], FOUNDERS = [560, 712], UNIMATRIX = [1124, 742];
+const DOMB = [574, 728, 84, 70, 101], BORGB = [1112, 758, 112, 94, 131];
+L.rect({ x: AX0, y: AY0, w: AW, h: AH, c: "#07061a", panel: true });
+const gal = L.canvas({ x: AX0, y: AY0, w: AW, h: AH, panel: true });
+const WORM = `M${SOL[0] - 26},${SOL[1] - 8} Q620,1120 ${IDRAN[0]},${IDRAN[1]}`;
+{
+  const r = rng(90210), dots = [];
+  const ARM = ["#c7a0d8", "#e8dcff", "#9c84e0", "#8fd3ff", "#f2f2ff", "#b8a8e8"];
+  const K = 0.34, R0 = 0.15 * GR, SMAX = Math.log(GR / R0) / K;
+  [[-0.5, 3600], [Math.PI - 0.5, 3600], [Math.PI / 2 - 0.5, 1600], [1.5 * Math.PI - 0.5, 1600]].forEach(([th0, n]) => {
+    for (let i = 0; i < n; i++) {
+      const s = Math.pow(r(), 0.85) * SMAX * 1.04, rad = R0 * Math.exp(K * s), th = th0 - s;
+      const sp = 0.012 * GR + 0.04 * rad;
+      const x = GX + rad * Math.cos(th) + gauss(r) * sp * 0.6, y = GY + rad * Math.sin(th) + gauss(r) * sp * 0.6;
+      const fall = 1 - 0.55 * (rad / GR);
+      dots.push([x, y, 0.8 + r() ** 3 * 2.0, ARM[Math.floor(r() * ARM.length)], (0.18 + 0.6 * r()) * fall]);
+      if (n > 2000 && r() < 0.03) dots.push([x, y, 2.2 + r() * 1.6, "#f4b6e6", 0.55 * fall]);   // star-forming knots
+    }
+  });
+  for (let i = 0; i < 2400; i++) {                                    // the disc between the arms
+    const rad = Math.min(GR * 1.02, -Math.log(1 - r() * 0.985) * 0.3 * GR), th = r() * 2 * Math.PI;
+    dots.push([GX + rad * Math.cos(th), GY + rad * Math.sin(th), 0.7 + r() ** 4 * 1.6, ARM[Math.floor(r() * 3)], 0.06 + 0.22 * r()]);
+  }
+  for (let i = 0; i < 1100; i++) {                                    // the bar
+    const u = gauss(r) * 0.11 * GR, v = gauss(r) * 0.035 * GR, a = -0.5;
+    dots.push([GX + u * Math.cos(a) - v * Math.sin(a), GY + u * Math.sin(a) + v * Math.cos(a), 0.8 + r() ** 3 * 1.6, "#ffe6a8", 0.25 + 0.5 * r()]);
+  }
+  const bg = Array.from({ length: 700 }, () => [AX0 + r() * AW, AY0 + r() * AH, 0.7 + r() ** 4 * 1.4, ARM[Math.floor(r() * 3)], 0.15 + 0.3 * r()]);
+  gal.onResize = () => {
+    const g = gal.g;
+    g.clearRect(0, 0, AW, AH);
+    g.save(); g.translate(-AX0, -AY0);
+    for (const [x, y, rr, c, a] of bg) { if (Math.hypot(x - GX, y - GY) < GR * 1.05) continue; g.globalAlpha = a; g.fillStyle = c; g.beginPath(); g.arc(x, y, rr, 0, 7); g.fill(); }
+    // a faint glow under the disc
+    let n = g.createRadialGradient(GX, GY, 0, GX, GY, GR * 1.05);
+    n.addColorStop(0, "rgba(156,111,180,.22)"); n.addColorStop(0.5, "rgba(107,86,216,.08)"); n.addColorStop(1, "rgba(107,86,216,0)");
+    g.globalAlpha = 1; g.fillStyle = n; g.fillRect(GX - GR * 1.1, GY - GR * 1.1, GR * 2.2, GR * 2.2);
+    for (const [x, y, rr, c, a] of dots) { g.globalAlpha = a; g.fillStyle = c; g.beginPath(); g.arc(x, y, rr, 0, 7); g.fill(); }
+    g.globalAlpha = 1;
+    n = g.createRadialGradient(GX, GY, 0, GX, GY, 0.34 * GR);           // the core
+    n.addColorStop(0, "rgba(255,244,214,.95)"); n.addColorStop(0.1, "rgba(255,214,140,.7)"); n.addColorStop(0.35, "rgba(214,160,50,.2)"); n.addColorStop(1, "rgba(214,160,50,0)");
+    g.fillStyle = n; g.beginPath(); g.arc(GX, GY, 0.34 * GR, 0, 7); g.fill();
+    // the rim, ticked every 10 degrees, and the quadrant lines through the core
+    g.strokeStyle = "rgba(199,160,216,.55)"; g.lineWidth = 2.5;
+    g.beginPath(); g.arc(GX, GY, GR + 14, 0, 7); g.stroke();
+    for (let d = 0; d < 360; d += 10) {
+      const a = (d * Math.PI) / 180, l = d % 90 === 0 ? 0 : d % 30 === 0 ? 22 : 12;
+      if (!l) continue;
+      g.beginPath(); g.moveTo(GX + (GR + 14) * Math.cos(a), GY + (GR + 14) * Math.sin(a)); g.lineTo(GX + (GR + 14 + l) * Math.cos(a), GY + (GR + 14 + l) * Math.sin(a)); g.stroke();
+    }
+    g.strokeStyle = "rgba(255,204,102,.6)"; g.lineWidth = 3; g.setLineDash([18, 12]);
+    g.beginPath(); g.moveTo(GX, AY0 + 40); g.lineTo(GX, AY0 + AH - 40); g.moveTo(AX0 + 40, GY); g.lineTo(AX0 + AW - 40, GY); g.stroke();
+    g.setLineDash([]);
+    // Dominion and Borg space
+    for (const [b, c] of [[DOMB, "#b48cf0"], [BORGB, "#7fd0b8"]]) {
+      const p = new Path2D(blob(...b));
+      g.fillStyle = rgba(c, 0.16); g.fill(p);
+      g.strokeStyle = rgba(c, 0.75); g.lineWidth = 4; g.lineCap = "round"; g.setLineDash([1, 10]); g.stroke(p); g.setLineDash([]);
+    }
+    // the Bajoran wormhole, Bajor to the Idran system
+    g.strokeStyle = "rgba(255,204,102,.45)"; g.lineWidth = 3; g.setLineDash([10, 10]); g.stroke(new Path2D(WORM)); g.setLineDash([]);
+    for (const [x, y] of [IDRAN]) { g.strokeStyle = "rgba(255,204,102,.85)"; g.lineWidth = 3; g.beginPath(); g.arc(x, y, 9, 0, 7); g.stroke(); }
+    for (const [x, y] of [FOUNDERS, UNIMATRIX]) { g.fillStyle = "#f2f2ff"; g.beginPath(); g.arc(x, y, 6, 0, 7); g.fill(); }
+    // Sol, and the part of the galaxy the chart beside it shows
+    g.strokeStyle = "rgba(255,204,102,.95)"; g.lineWidth = 3;
+    g.strokeRect(SOL[0] - 26, SOL[1] - 26, 52, 52);
+    g.fillStyle = "#ffcc66"; g.beginPath(); g.arc(SOL[0], SOL[1], 7, 0, 7); g.fill();
+    g.restore();
+  };
+}
+// the quadrants light as the powers in them are charted
+const QUADS = { Gamma: [0, 0], Delta: [1, 0], Alpha: [0, 1], Beta: [1, 1] };
+const quadTint = {};
+for (const [q, [i, j]] of Object.entries(QUADS)) {
+  const e = L.layer({ x: GX - GR + i * GR, y: GY - GR + j * GR, w: GR, h: GR });
+  e.style.background = `radial-gradient(circle at ${i ? 0 : 100}% ${j ? 0 : 100}%, rgba(199,160,216,.05), rgba(199,160,216,.16) 98%, rgba(199,160,216,0) 100%)`;
+  e.style.borderRadius = [!i && !j, i && !j, i && j, !i && j].map((b) => (b ? GR + "px" : "0")).join(" ");
+  e.style.opacity = 0;
+  quadTint[q] = { e, v: 0, goal: 0, shown: -1 };
+}
+// the galaxy turns: a slow sweep, clockwise, as the disc rotates seen from the north
+const sweep = L.layer({ x: GX - GR, y: GY - GR, w: 2 * GR, h: 2 * GR, cls: "sweep" });
+L.el("i", "", sweep, { left: GR - 1.5 + "px", top: "0px", height: GR + "px" });
+// Dominion, Borg, the wormhole: brightened when theirs is the power being charted
+const [domHi, domSvg] = svgLayer(DOMB[0] - DOMB[2] * 1.2, DOMB[1] - DOMB[3] * 1.2, DOMB[2] * 2.4, DOMB[3] * 2.4);
+L.svg("path", { d: blob(...DOMB), fill: rgba("#b48cf0", 0.34), stroke: "#b48cf0", "stroke-width": 4 }, domSvg);
+const [borgHi, borgSvg] = svgLayer(BORGB[0] - BORGB[2] * 1.2, BORGB[1] - BORGB[3] * 1.2, BORGB[2] * 2.4, BORGB[3] * 2.4);
+L.svg("path", { d: blob(...BORGB), fill: rgba("#7fd0b8", 0.3), stroke: "#7fd0b8", "stroke-width": 4 }, borgSvg);
+const [wormHi, wormSvg] = svgLayer(580, 780, SOL[0] - 570, SOL[1] - 770);
+L.svg("path", { d: WORM, fill: "none", stroke: "#ffcc66", "stroke-width": 5, "stroke-linecap": "round" }, wormSvg);
+const gRoute = L.layer({ x: 0, y: 0, w: 100, h: 4, cls: "route" }), gTip = L.layer({ x: 0, y: 0, w: 36, h: 36, cls: "tip" });
+const gRipple = L.layer({ x: 0, y: 0, w: 100, h: 100, cls: "ripple" });
+[gRoute, gTip, gRipple].forEach((e) => (e.style.opacity = 0));
+// names
+const quadLab = {
+  Gamma: L.text({ x: AX0 + 40, base: AY0 + 72, s: 40, c: "lilac", txt: "Gamma Quadrant" }),
+  Delta: L.text({ x: AX0 + AW - 40, base: AY0 + 72, s: 40, c: "lilac", txt: "Delta Quadrant", align: "r" }),
+  Alpha: L.text({ x: AX0 + 40, base: AY0 + AH - 40, s: 40, c: "lilac", txt: "Alpha Quadrant" }),
+  Beta: L.text({ x: AX0 + AW - 40, base: AY0 + AH - 40, s: 40, c: "lilac", txt: "Beta Quadrant", align: "r" }),
+};
+L.text({ x: GX + 30, base: GY - 26, s: 36, c: "butter", txt: "Galactic Core", cls: "nm" });
+L.text({ x: SOL[0] + 44, base: SOL[1] + 13, s: 36, c: "butter", txt: "Sol  ·  Sector 001", cls: "nm" });
+const domLab = L.text({ x: DOMB[0], base: DOMB[1] + DOMB[3] + 58, s: 36, c: "lilac", txt: "Dominion", align: "c", w: 300, cls: "nm" });
+const borgLab = L.text({ x: BORGB[0], base: BORGB[1] - BORGB[3] - 26, s: 36, c: "lilac", txt: "Borg Collective", align: "c", w: 360, cls: "nm" });
+L.text({ x: 640, base: 1092, s: 36, c: "butter", txt: "Bajoran Wormhole", align: "r", cls: "nm" });
+
+// =============================================================================================
+// ---------------- explored space: the Alpha / Beta border, Sol at the centre ----------------
+// =============================================================================================
+header(1470, 280, 1360, "Explored Space  ·  Alpha / Beta Border", "gold", "plum");
+const BX0 = 1470, BY0 = 360, BW = 1360, BH = 1200;
+const S = 1.32, SX = 2143, SY = 975;                                // px per light-year; Sol on the chart
+const P = ([x, y]) => [SX + x * S, SY - y * S];
+const lyTo = (a) => Math.hypot(a[0], a[1]);
+L.rect({ x: BX0, y: BY0, w: BW, h: BH, c: "#07061a", panel: true });
+const chart = L.canvas({ x: BX0, y: BY0, w: BW, h: BH, panel: true });
+const NZ = [[100, -78], [132, 104]];                                // the Romulan Neutral Zone, a band of space
+for (const p of POWERS) {
+  if (!p.terr) continue;
+  const [x, y, rx, ry, seed] = p.terr, [cx, cy] = P([x, y]);
+  p.path = blob(cx, cy, rx * S, ry * S, seed);
+  p.box = [cx - rx * S * 1.2, cy - ry * S * 1.2, rx * S * 2.4, ry * S * 2.4];
+}
+{
+  const r = rng(31337);
+  const DUST = ["#3a2c58", "#4a3a6e", "#5e4c86", "#8a7aaa", "#b8a8d8"];
+  const dust = Array.from({ length: 1500 }, () => [BX0 + r() * BW, BY0 + r() * BH, r() ** 3 * 2.0 + 0.7, DUST[Math.floor(r() * DUST.length)]]);
+  chart.onResize = () => {
+    const g = chart.g;
+    g.clearRect(0, 0, BW, BH);
+    g.save(); g.translate(-BX0, -BY0);
+    // the Orion Arm, a soft band across the chart
+    for (const [x, y, rr, a] of [[1640, 1380, 520, 0.12], [2000, 1050, 560, 0.09], [2400, 720, 600, 0.11], [2760, 420, 420, 0.08]]) {
+      const n = g.createRadialGradient(x, y, 0, x, y, rr);
+      n.addColorStop(0, `rgba(107,86,216,${a})`); n.addColorStop(0.5, `rgba(156,111,180,${a * 0.45})`); n.addColorStop(1, "rgba(156,111,180,0)");
+      g.fillStyle = n; g.fillRect(x - rr, y - rr, 2 * rr, 2 * rr);
+    }
+    for (const [x, y, rr, c] of dust) { g.fillStyle = c; g.beginPath(); g.arc(x, y, rr, 0, 7); g.fill(); }
+    // a 50 light-year grid, dotted
+    g.fillStyle = "#2a2350";
+    for (let gx = -500; gx <= 500; gx += 50) for (let gy = -500; gy <= 500; gy += 50) {
+      const [x, y] = P([gx, gy]);
+      if (x > BX0 + 20 && x < BX0 + BW - 20 && y > BY0 + 20 && y < BY0 + BH - 20) g.fillRect(x - 2, y - 2, 4, 4);
+    }
+    // range rings round Sol
+    [100, 200, 300].forEach((R) => {
+      g.strokeStyle = R === 300 ? "#7a5aa0" : "#4e3878"; g.lineWidth = R === 300 ? 3.5 : 2.5; g.setLineDash(R === 300 ? [] : [14, 10]);
+      g.beginPath(); g.arc(SX, SY, R * S, 0, 7); g.stroke();
+    });
+    g.setLineDash([]);
+    // the territories: a soft fill, a dotted edge
+    for (const p of POWERS) {
+      if (!p.path) continue;
+      const path = new Path2D(p.path);
+      g.fillStyle = rgba(p.c, 0.15); g.fill(path);
+      g.strokeStyle = rgba(p.c, 0.8); g.lineWidth = 5; g.lineCap = "round"; g.setLineDash([1, 11]); g.stroke(path); g.setLineDash([]);
+    }
+    // the Neutral Zone, hatched
+    {
+      const [x0, y0] = P([NZ[0][0], NZ[1][1]]), [x1, y1] = P([NZ[1][0], NZ[0][1]]);
+      g.save(); g.beginPath(); g.rect(x0, y0, x1 - x0, y1 - y0); g.clip();
+      g.strokeStyle = "rgba(217,74,58,.45)"; g.lineWidth = 3;
+      for (let k = -300; k < 300; k += 16) { g.beginPath(); g.moveTo(x0 + k, y0); g.lineTo(x0 + k + 300, y0 + 300); g.stroke(); }
+      g.restore();
+      g.strokeStyle = "rgba(217,74,58,.85)"; g.lineWidth = 3; g.setLineDash([12, 8]);
+      g.beginPath(); g.moveTo(x0, y0); g.lineTo(x0, y1); g.moveTo(x1, y0); g.lineTo(x1, y1); g.stroke(); g.setLineDash([]);
+    }
+    // the Alpha / Beta line: through Sol, towards the core
+    g.strokeStyle = "rgba(255,204,102,.6)"; g.lineWidth = 3; g.setLineDash([18, 12]);
+    g.beginPath(); g.moveTo(SX, BY0 + 92); g.lineTo(SX, BY0 + BH - 30); g.stroke(); g.setLineDash([]);
+    g.fillStyle = "rgba(255,204,102,.85)";
+    g.beginPath(); g.moveTo(SX, BY0 + 40); g.lineTo(SX + 16, BY0 + 72); g.lineTo(SX - 16, BY0 + 72); g.closePath(); g.fill();
+    // capitals, Bajor and the wormhole's mouth
+    for (const p of POWERS) {
+      if (!p.at || p === POWERS[0]) continue;
+      const [x, y] = P(p.at);
+      g.fillStyle = "#f2f2ff"; g.beginPath(); g.arc(x, y, 7, 0, 7); g.fill();
+      g.strokeStyle = rgba(p.c, 0.9); g.lineWidth = 2.5; g.beginPath(); g.arc(x, y, 14, 0, 7); g.stroke();
+    }
+    {
+      const [x, y] = P(BAJOR);
+      g.fillStyle = "#f2f2ff"; g.beginPath(); g.arc(x, y, 6, 0, 7); g.fill();
+      g.strokeStyle = "rgba(255,204,102,.9)"; g.lineWidth = 3;
+      for (let k = 0; k < 3; k++) { g.beginPath(); g.arc(x - 26, y + 26, 5 + k * 5, k * 2, k * 2 + 4.2); g.stroke(); }   // the wormhole, a small swirl
+    }
+    // Sol
+    g.strokeStyle = "rgba(255,204,102,.95)"; g.lineWidth = 3;
+    g.beginPath(); g.arc(SX, SY, 16, 0, 7); g.stroke();
+    g.fillStyle = "#ffcc66"; g.beginPath(); g.arc(SX, SY, 8, 0, 7); g.fill();
+    g.restore();
+  };
+}
+// highlights: each territory brightened on its own layer, so changing it never repaints the chart
+for (const p of POWERS) {
+  if (!p.path) continue;
+  const [e, s] = svgLayer(...p.box);
+  L.svg("path", { d: p.path, fill: rgba(p.c, 0.3), stroke: p.c, "stroke-width": 4.5 }, s);
+  p.hi = e;
+}
+const bRoute = L.layer({ x: 0, y: 0, w: 100, h: 4, cls: "route" }), bTip = L.layer({ x: 0, y: 0, w: 36, h: 36, cls: "tip" });
+const bRipple = L.layer({ x: 0, y: 0, w: 100, h: 100, cls: "ripple" });
+[bRoute, bTip, bRipple].forEach((e) => (e.style.opacity = 0));
+// names: the powers, their capitals
+for (const p of POWERS) {
+  if (!p.label) continue;
+  const [x, y] = P(p.label);
+  p.lab = L.text({ x, base: y + 14, s: 40, c: p.c, txt: p.short, align: "c", w: 420, cls: "nm" });
+  const [cx, cy] = P(p.at), l = p.capSide === "l";
+  p.capLab = L.text({ x: cx + (l ? -28 : 28), base: cy + 13, s: 36, c: "white", txt: p.cap, align: l ? "r" : undefined, cls: "nm" });
+}
+{
+  const [x, y] = P(BAJOR);
+  L.text({ x: x + 24, base: y + 13, s: 36, c: "white", txt: "Bajor  ·  DS9", cls: "nm" });
+  const [nx, ny] = P([116, -78]);
+  L.text({ x: nx, base: ny + 52, s: 36, c: "mars", txt: "Neutral Zone", align: "c", w: 300, cls: "nm" });
+}
+L.text({ x: SX + 30, base: BY0 + 72, s: 36, c: "butter", txt: "Galactic Core" });
+L.text({ x: BX0 + 40, base: BY0 + 72, s: 36, c: "lilac", txt: "Sol centered  ·  Plane projection" });
+L.text({ x: BX0 + 40, base: BY0 + BH - 40, s: 40, c: "lilac", txt: "Alpha Quadrant" });
+L.text({ x: BX0 + BW - 40, base: BY0 + BH - 40, s: 40, c: "lilac", txt: "Beta Quadrant", align: "r" });
+// range rings, labelled down and to the right
+const RA = (330 * Math.PI) / 180;
+[100, 200, 300].forEach((R) => L.text({ x: SX + R * S * Math.sin(R < 300 ? RA : RA - Math.PI) + (R < 300 ? -12 : 12), base: SY - R * S * Math.cos(R < 300 ? RA : RA - Math.PI) + (R < 300 ? -12 : 34), align: R < 300 ? "r" : undefined, s: 30, c: "plum", txt: R + " LY", legend: true }));
+// a scale bar, top right
+{
+  const x1 = BX0 + BW - 76, x0 = x1 - 200 * S, y = BY0 + 92;
+  [[0, "lilac"], [1, "plum"]].forEach(([i, c]) => L.rect({ x: x0 + i * 100 * S, y, w: 100 * S, h: 14, c, free: true }));
+  [0, 100, 200].forEach((d, i) => {
+    L.rect({ x: x0 + d * S - 1.5, y: y - 8, w: 3, h: 22, c: "lilac", free: true });
+    L.text({ x: x0 + d * S, base: y - 20, s: 30, c: "lilac", txt: d + (i === 2 ? " LY" : ""), align: "c", w: 140, legend: true });
+  });
+}
+
+// =============================================================================================
+// ---------------- major powers ----------------
+// =============================================================================================
+const CX = 2890, CR = 3816;
+header(CX, 280, CR - CX, "Major Powers", "butter", "violet");
+const PC = { name: CX + 48, cap: 3330 };
+[["Power", CX], ["Capital", PC.cap]].forEach(([h, x]) => L.text({ x, base: 404, s: 36, c: "lilac", txt: h }));
+L.text({ x: CR, base: 404, s: 36, c: "lilac", txt: "Relations", align: "r" });
+const rowBase = (i) => 470 + i * 66;
+const band = L.layer({ x: CX, y: 0, w: CR - CX, h: 58, cls: "band" });
+let bandY = rowBase(0) - 44, bandGoal = bandY;
+POWERS.forEach((p, i) => {
+  const base = rowBase(i);
+  L.rect({ x: CX, y: base - 40, w: 24, h: 48, c: p.c });
+  p.row = [L.text({ x: PC.name, base, s: 40, c: "white", txt: p.name }), L.text({ x: PC.cap, base, s: 40, c: "lilac", txt: p.cap }),
+           L.text({ x: CR, base, s: 40, c: REL_C[p.rel], txt: p.rel, align: "r" })];
+});
+
+// ---------------- course plot ----------------
+header(CX, 1060, CR - CX, "Course Plot  ·  From Earth", "lilac", "plum");
+const PLOT = ["Destination", "Distance", "Bearing", "At Warp 6", "At Warp 9", "Route"];
+const plotVals = PLOT.map((name, i) => {
+  const base = 1172 + i * 76;
+  L.text({ x: CX, base, s: 40, c: "lilac", txt: name });
+  return cls(L.text({ x: CR, base, s: i === 0 ? 52 : 48, c: i === 0 ? "butter" : "white", txt: "", align: "r" }), "fade");
+});
+
+// =============================================================================================
+// ---------------- the bottom strip ----------------
+// =============================================================================================
+header(330, 1620, 1080, "Power Profile", "lilac", "violet", 48, 28);
+const PROF = [["Capital", (p) => p.cap], ["Government", (p) => p.gov], ["Founded", (p) => p.founded], ["Species", (p) => p.species],
+  ["Borders", (p) => p.borders], ["Relations", (p) => p.relLong]];
+const PV = 580, GAUGE = 1110;                                       // the values' column; the relations gauge
+const profVals = PROF.map(([name], i) => {
+  const base = 1734 + i * 54;
+  L.text({ x: 330, base, s: 40, c: "lilac", txt: name });
+  return cls(L.text({ x: PV, base, s: 40, c: "white", txt: "" }), "fade");
+});
+// relations with the Federation, as a column of states: the power's own lights
+const STATES = [["Member", "Member  ·  Ally", "sky"], ["Treaty", "Treaty", "peach"], ["Trade", "Trade", "butter"],
+  ["Neutral", "Neutral", "lilac"], ["Wary", "Wary", "orange"], ["Hostile", "Hostile", "mars"]];
+const gauge = STATES.map(([key, label, c], i) => {
+  const y = 1734 + i * 54 - 36;
+  L.box({ x: GAUGE, y, w: 1410 - GAUGE, h: 44, c: "#1a1438", r: "r" });
+  const lit = L.layer({ x: GAUGE, y, w: 1410 - GAUGE, h: 44 });
+  lit.style.background = `var(--${c})`; lit.style.borderRadius = "0 22px 22px 0"; lit.style.opacity = 0;
+  const b = L.box({ x: GAUGE, y, w: 1410 - GAUGE, h: 44, c: "#00000000", label, fs: 28, r: "r" });
+  b.style.color = "var(--lilac)"; b.style.transition = "color .6s ease";
+  return { key, lit, b, v: 0, shown: -1 };
+});
+const stateOf = (p) => (p.rel === "Allied" ? "Member" : p.rel);
+
+header(1470, 1620, 1360, "Quadrant Statistics", "gold", "plum", 48, 28);
+const QC = { name: 1470, bar: 1760, barR: 2140, pct: 2300, sys: 2560, sb: 2830 };
+L.text({ x: QC.name, base: 1734, s: 36, c: "lilac", txt: "Quadrant" });
+L.text({ x: QC.bar, base: 1734, s: 36, c: "lilac", txt: "Charted" });
+L.text({ x: QC.sys, base: 1734, s: 36, c: "lilac", txt: "Systems", align: "r" });
+L.text({ x: QC.sb, base: 1734, s: 36, c: "lilac", txt: "Starbases", align: "r" });
+const QSTAT = [["Alpha", 26.82, 18240, 112], ["Beta", 15.37, 11906, 61], ["Gamma", 1.29, 642, 0], ["Delta", 0.52, 213, 0]]
+  .map(([q, pct, sys, sb]) => ({ q, pct, sys, sb }));
+const qRows = [...QSTAT, { q: "Galaxy" }].map((s, i) => {
+  const base = 1788 + i * 54;
+  L.rect({ x: QC.bar, y: base - 28, w: QC.barR - QC.bar, h: 26, c: "#1a1438" });
+  const bar = L.layer({ x: QC.bar, y: base - 28, w: QC.barR - QC.bar, h: 26 });
+  bar.style.background = i === 4 ? "var(--gold)" : "var(--violet)"; bar.style.transformOrigin = "0 0";
+  return { s, bar, u: 0, name: L.text({ x: QC.name, base, s: 40, c: i === 4 ? "gold" : "white", txt: i === 4 ? "Galaxy" : s.q + " Quadrant" }),
+    pct: L.text({ x: QC.pct, base, s: 40, c: "white", txt: "", align: "r" }), sys: L.text({ x: QC.sys, base, s: 40, c: "white", txt: "", align: "r" }),
+    sb: L.text({ x: QC.sb, base, s: 40, c: "white", txt: "", align: "r" }) };
+});
+const galaxy = () => {
+  const t = { pct: QSTAT.reduce((a, s) => a + s.pct, 0) / 4, sys: QSTAT.reduce((a, s) => a + s.sys, 0), sb: QSTAT.reduce((a, s) => a + s.sb, 0) };
+  return t;
+};
+
+header(CX, 1620, CR - CX, "Subspace Traffic", "pink", "plum", 48, 28);
+let ships = 2416, relay = 71.4, transits = 37;
+const TRAFFIC = [["Starships in Transit  ·  Alpha and Beta", () => fmt(ships), () => ships / 4000],
+  ["Subspace Relay Load", () => relay.toFixed(1) + "%", () => relay / 100],
+  ["Wormhole Transits  ·  Today", () => String(transits), () => transits / 60]];
+const traffic = TRAFFIC.map(([name], i) => {
+  const base = 1734 + i * 108;
+  L.text({ x: CX, base, s: 40, c: "lilac", txt: name });
+  const v = L.text({ x: CR, base, s: 40, c: "white", txt: "", align: "r" });
+  L.rect({ x: CX, y: base + 18, w: CR - CX, h: 22, c: "#1a1438" });
+  const bar = L.layer({ x: CX, y: base + 18, w: CR - CX, h: 22 });
+  bar.style.background = i === 2 ? "var(--gold)" : "var(--lilac)"; bar.style.transformOrigin = "0 0";
+  return { v, bar, u: 0 };
+});
+
+// ---------------- a guard: every power's words fit their places ----------------
+{
+  const bad = [];
+  const fits = (txt, s, w, where) => { if (L.textWidth(txt, s) > w) bad.push(`${where}: "${txt}"`); };
+  for (const p of POWERS) {
+    fits(p.name, 40, PC.cap - PC.name - 40, "power"); fits(p.cap, 40, CR - PC.cap - 200, "capital");
+    fits(p.short, 100, 1410 - 330 - 140, "status");
+    for (const [, f] of PROF) fits(f(p), 40, GAUGE - PV - 40, "profile");
+    fits(p.cap, 52, CR - CX - 260, "destination"); fits(p.route, 48, CR - CX - 200, "route");
+  }
+  if (bad.length) setTimeout(() => { throw new Error("galactic-map: " + bad.join(" | ")); });
+}
+
+// =============================================================================================
+// ---------------- the cycle: one power at a time, 8 s each ----------------
+// =============================================================================================
+const DWELL = 8, N = POWERS.length;
+const START = L.irand(0, N - 1);
+const W6 = 392, W9 = 1516;                                         // warp 6 and warp 9, in multiples of c
+const span = (ly, w) => { const d = (ly / w) * 365.25; return d < 400 ? d.toFixed(1) + " days" : fmt(d / 365.25, 1) + " years"; };
+// each power's course: where it ends on the explored-space chart, or on the galaxy, and how far it is
+for (const p of POWERS) {
+  if (p.gamma) { p.dest = BAJOR; p.ly = lyTo(BAJOR); }
+  else if (p.delta) { p.gdest = UNIMATRIX; p.ly = Math.round((Math.hypot(UNIMATRIX[0] - SOL[0], UNIMATRIX[1] - SOL[1]) * LYG) / 1000) * 1000; }
+  else if (p !== POWERS[0]) { p.dest = p.at; p.ly = lyTo(p.at); }
+  else p.ly = 0;
+  const b = p.dest ? (Math.atan2(p.dest[0], p.dest[1]) * 180) / Math.PI : p.gdest ? (Math.atan2(p.gdest[0] - SOL[0], SOL[1] - p.gdest[1]) * 180) / Math.PI : 0;
+  p.bearing = p.ly ? `${String(Math.round((b + 360) % 360)).padStart(3, "0")} mark ${p.mark}` : "—";
+  p.hv = 0; p.hshown = -1;
+}
+const distText = (p, k) => (p.gamma ? fmt(p.ly * k, 1) + " LY  ·  Bajor" : p.delta ? "~ " + fmt(p.ly * k) + " LY" : p.ly ? fmt(p.ly * k, 1) + " LY" : "0.0 LY");
+let cur = -1, act = POWERS[0], plotK = 0, swapAt = -1;
+const aim = (line, tip, from, to) => {                              // a course line from one point to another
+  const dx = to[0] - from[0], dy = to[1] - from[1];
+  line.style.width = Math.hypot(dx, dy) + "px";
+  line.base = [from[0], from[1] - 2, (Math.atan2(dy, dx) * 180) / Math.PI, dx, dy];
+};
+const fillData = (p) => {
+  put(stateTxt, p.short);
+  put(pill, p.quads.length > 1 ? "Alpha  ·  Beta" : p.quads[0] + " Quadrant");
+  PROF.forEach(([, f], i) => put(profVals[i], f(p)));
+  [p.cap, null, p.bearing, p.ly ? span(p.ly, W6) : "—", p.ly ? span(p.ly, W9) : "—", p.route].forEach((v, i) => v !== null && put(plotVals[i], v));
+  if (p.gamma) { put(plotVals[3], span(p.ly, W6) + " to Bajor"); put(plotVals[4], span(p.ly, W9) + " to Bajor"); }
+};
+const fades = [...profVals, ...plotVals];
+const activate = (p, first) => {
+  act = p;
+  POWERS.forEach((q, i) => {
+    css(q.row[0], "color", q === p ? "var(--butter)" : "var(--white)");
+    if (q.lab) css(q.lab, "color", q === p ? "var(--white)" : q.c);
+    if (q.capLab) css(q.capLab, "color", q === p ? "var(--butter)" : "var(--white)");
+  });
+  bandGoal = rowBase(POWERS.indexOf(p)) - 44;
+  for (const [q, o] of Object.entries(quadTint)) { o.goal = p.quads.includes(q) ? 1 : 0; css(quadLab[q], "color", o.goal ? "var(--butter)" : "var(--lilac)"); }
+  gauge.forEach((g) => css(g.b, "color", g.key === stateOf(p) ? "#000" : "var(--lilac)"));
+  css(domLab, "color", p.gamma ? "var(--white)" : "var(--lilac)"); css(borgLab, "color", p.delta ? "var(--white)" : "var(--lilac)");
+  if (p.dest) aim(bRoute, bTip, [SX, SY], P(p.dest));
+  if (p.gdest) aim(gRoute, gTip, SOL, p.gdest);
+  if (first) { fillData(p); return; }
+  fades.forEach((e) => e.classList.add("out"));
+  swapAt = L.t + 0.48;                                               // swap while invisible, then fade back in
+};
+let tPrev = null;
+L.tick((t) => {
+  const dt = tPrev === null ? 0 : Math.min(0.1, t - tPrev); tPrev = t;
+  const k = Math.floor(t / DWELL), u = t - k * DWELL;
+  if (k !== cur) { cur = k; activate(POWERS[(START + k) % N], k === 0); }
+  if (swapAt > 0 && t >= swapAt) { swapAt = -1; fillData(act); fades.forEach((e) => e.classList.remove("out")); }
+  const p = act;
+  // territories brighten and fade
+  for (const q of POWERS) {
+    q.hv += ((q === p ? 1 : 0) - q.hv) * Math.min(1, dt * 2.4);
+    const o = Math.round(q.hv * 100) / 100;
+    if (o !== q.hshown) {
+      q.hshown = o;
+      const e = q.hi || (q.gamma ? domHi : q.delta ? borgHi : null);
+      if (e) e.style.opacity = o;
+      if (q.gamma) wormHi.style.opacity = o;
+    }
+  }
+  for (const o of Object.values(quadTint)) {
+    o.v += (o.goal - o.v) * Math.min(1, dt * 2);
+    const r = Math.round(o.v * 100) / 100;
+    if (r !== o.shown) { o.shown = r; o.e.style.opacity = r; }
+  }
+  // the course: drawn out from Sol, a ripple on arrival, gone before the next power
+  plotK = L.ease(L.clamp((u - 0.7) / 2.0));
+  const out = 1 - L.clamp((u - DWELL + 1.0) / 0.8);
+  for (const [line, tip, rip, on] of [[bRoute, bTip, bRipple, !!p.dest], [gRoute, gTip, gRipple, !!p.gdest]]) {
+    if (!on) { css(line, "opacity", "0"); css(tip, "opacity", "0"); continue; }
+    const [x, y, a, dx, dy] = line.base;
+    css(line, "transform", `translate3d(${x}px,${y}px,0) rotate(${a.toFixed(3)}deg) scaleX(${plotK.toFixed(4)})`);
+    css(line, "opacity", (0.9 * out).toFixed(3));
+    L.move(tip, x + dx * plotK - 18, y + 2 + dy * plotK - 18);
+    css(tip, "opacity", (plotK > 0 && plotK < 1 ? 1 : 0).toString());
+  }
+  // a ripple where the course ends (at Sol for the Federation itself)
+  const end = p.dest ? P(p.dest) : p.gdest ? p.gdest : [SX, SY], rip = p.gdest ? gRipple : bRipple, other = p.gdest ? bRipple : gRipple;
+  const ru = (u - (p.ly ? 2.7 : 0.9)) / 1.6;
+  css(other, "opacity", "0");
+  if (ru > 0 && ru < 1) { L.move(rip, end[0] - 50, end[1] - 50, 0, 0.3 + ru * 1.3); css(rip, "opacity", (0.9 * (1 - ru)).toFixed(3)); }
+  else css(rip, "opacity", "0");
+  // the selection band in the powers table
+  for (const g of gauge) {
+    g.v += ((g.key === stateOf(p) ? 1 : 0) - g.v) * Math.min(1, dt * 2.4);
+    const o = Math.round(g.v * 100) / 100;
+    if (o !== g.shown) { g.shown = o; g.lit.style.opacity = o; }
+  }
+  bandY += (bandGoal - bandY) * Math.min(1, dt * 5);
+  css(band, "transform", `translate3d(0px,${bandY.toFixed(1)}px,0px)`);
+  // the galaxy turns once a minute
+  L.move(sweep, 0, 0, (t * 6) % 360);
+  pill.style.opacity = (0.8 + 0.2 * Math.sin(t * 1.1)).toFixed(3);
+  for (const [i, r] of qRows.entries()) {
+    const goal = (i === 4 ? galaxy().pct : r.s.pct) / 100 / 0.3;   // the bars read to 30%
+    r.u += (goal - r.u) * Math.min(1, dt * 1.5);
+    css(r.bar, "transform", `scaleX(${r.u.toFixed(4)})`);
+  }
+  TRAFFIC.forEach(([, , f], i) => {
+    const c = traffic[i];
+    c.u += (L.clamp(f()) - c.u) * Math.min(1, dt * 1.2);
+    css(c.bar, "transform", `scaleX(${c.u.toFixed(4)})`);
+  });
+});
+L.every(250, () => {
+  const p = act;
+  put(stateSub, p.ly ? `${p.cap}  ·  ${p.quads[0]} Quadrant  ·  Plotting course  ·  ${distText(p, plotK)}` : `${p.cap}  ·  Sector 001  ·  Seat of the Federation Council`);
+  if (swapAt < 0) put(plotVals[1], distText(p, p.ly ? plotK : 1));
+  qRows.forEach((r, i) => {
+    const s = i === 4 ? galaxy() : r.s;
+    put(r.pct, s.pct.toFixed(2) + "%"); put(r.sys, fmt(s.sys)); put(r.sb, String(s.sb));
+    css(r.name, "color", i === 4 ? "var(--gold)" : p.quads.includes(r.s.q) ? "var(--butter)" : "var(--white)");
+  });
+  TRAFFIC.forEach(([, f], i) => put(traffic[i].v, f()));
+}, 0);
+L.every(2500, () => {                                               // the survey goes on, slowly; traffic wanders
+  ships = L.clamp(ships + L.irand(-5, 5), 2360, 2480);
+  relay = L.clamp(relay + L.rand(-0.3, 0.3), 66, 76);
+  if (Math.random() < 0.09) transits = Math.min(59, transits + 1);
+  if (Math.random() < 0.2) { const s = L.pick(QSTAT); s.sys += 1; s.pct += 0.01 * (s.q === "Alpha" || s.q === "Beta" ? 1 : 0.2); }
+}, 0.2);
+});
+</script></body></html>

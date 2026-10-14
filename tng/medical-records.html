@@ -1,0 +1,419 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Medical Records</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* swapped text dips and comes back; colors change slowly; .boot (the start-up cascade) always wins */
+  .sw { transition: opacity .45s ease, background-color 1s ease, color 1s ease; }
+  .out:not(.boot) { opacity: .15; }
+  .rc { transition: color .8s ease, background-color .8s ease; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: mirrored, sidebar on the right ----------------
+L.frame({ type: "B", title: "Medical Records  •  Patient Database", c: "sky", c2: "lilac", accent: "ice", foot: "Records",
+  side: [[140, "lilac", "Med 04"], [70, "ice", "2416"], [420, "sky", "Database"], [70, "lilac", "Index"], [300, "sky", "Patients"],
+         [70, "ice", "24"], [216, "lilac", "Archive"]] });
+
+const TRACK = "#0e1a30", GRID = "#1a2c52", BAND = "#2c2342";
+const cls = (e, ...c) => (e.classList.add(...c), e);
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const op = (e, v) => { v = v < 0.005 ? "0" : v > 0.995 ? "1" : v.toFixed(2); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const bg = (e, c) => { if (e._bg !== c) { e._bg = c; e.style.background = c.startsWith("#") ? c : `var(--${c})`; } };
+const fg = (e, c) => { if (e._fg !== c) { e._fg = c; e.style.color = c.startsWith("#") ? c : `var(--${c})`; } };
+const fill = (x, y, w, h, c, origin = "0 0", parent) => {
+  const f = L.layer({ x, y, w, h, cls: "boot" }, parent);
+  f.style.background = c.startsWith("#") ? c : `var(--${c})`; f.style.transformOrigin = origin;
+  return f;
+};
+const D2 = (n) => String(n).padStart(2, "0");
+const fmt = (n) => Math.round(n).toLocaleString("en");
+const swap = (els, f) => { els.forEach((e) => e.classList.add("out")); setTimeout(() => { f(); els.forEach((e) => e.classList.remove("out")); }, 460); };
+const rng = (seed) => () => { seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t ^= t + Math.imul(t ^ (t >>> 7), 61 | t); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+const hash = (n) => (Math.imul(n | 0, 2654435761) >>> 0) % 9973;
+
+// Two columns over a three-panel strip. Rows of 48 on a 60 grid, shared by the table and the record.
+const A = [40, 2100], B = [2160, 3520];
+const ROW0 = 428, P = 60, RH = 48, rowY = (i) => ROW0 + i * P, rowBase = (i) => rowY(i) + 37;
+const LROW0 = 1148, lrowY = (i) => LROW0 + i * P, lrowBase = (i) => lrowY(i) + 37;
+const STRIP = (i) => 1734 + i * 54;
+
+// ---------------- the ship's clock (the Mac's own) and the stardate ----------------
+const SLOT = 10;                                            // check-ups run on ten-minute slots
+const minutes = () => (Date.now() - new Date().getTimezoneOffset() * 60000) / 60000;   // local minutes since the epoch
+const dayStart = Math.floor(minutes() / 1440) * 1440;
+const stardate = (m) => 47508.2 + ((m - dayStart) / 1440) * 2.74;
+const hhmm = (m) => { m = ((Math.floor(m) % 1440) + 1440) % 1440; return `${D2(Math.floor(m / 60))}:${D2(m % 60)}`; };
+
+// ---------------- the patients ----------------
+const RANKS = { Ensign: ["Ensign", "Ens."], Lieutenant: ["Lieutenant", "Lt."], "Lt. (j.g.)": ["Lieutenant (j.g.)", "Lt. (j.g.)"],
+  Crewman: ["Crewman", "Crewman"], "Petty Officer": ["Petty Officer", "P.O."], Civilian: ["", ""] };
+const VAX = [["Rigelian Fever", "Annual"], ["Vegan Choriomeningitis", "5 Years"], ["Andronesian Encephalitis", "3 Years"],
+             ["Plasma Plague", "Annual"], ["Anchilles Fever", "2 Years"], ["Symbalene Blood Burn", "10 Years"]];
+const COMPLEMENT = 1014;
+const vaxCount = [1002, 1011, 996, 984, 1007, 1009];        // current, ship-wide (the patients below with a booster due are among the rest)
+const FIT = ["Fit for Duty", "Restricted Duty", "Under Treatment", "Medical Leave"];
+const FITC = ["ice", "butter", "pink", "lilac"];
+const fitCount = [981, 19, 10, 4];
+// heart rate at rest: typical, normal range, chart scale
+const SPECIES = { Human: [67, 55, 85, 120], Bajoran: [72, 60, 90, 120], Betazoid: [75, 60, 90, 120], Bolian: [90, 75, 105, 120],
+  Vulcan: [234, 210, 250, 300], "Human / Romulan": [66, 55, 85, 120] };
+// [record, family, given, rank, species, division, post, age, blood, height · mass, physician, allergies, notes, fitness, booster due, last exam]
+const ROSTER = [
+  ["0127", "Abara", "Lena", "Crewman", "Human", "Operations", "Cargo Bay 4", 31, "O Pos", "1.70 m  ·  64 kg", "Dr. Okafor", "None known", "Hand fracture 46220, healed", 0, -1, 47396.4],
+  ["0233", "Bautista", "Rafael", "Lieutenant", "Human", "Engineering", "Main Engineering", 38, "A Pos", "1.82 m  ·  88 kg", "Dr. Crusher", "Tricordrazine, mild", "Theta radiation exposure 47120, within limits", 0, 3, 47122.8],
+  ["0291", "Brennan", "Hollis", "Petty Officer", "Human", "Operations", "Transporter Room 3", 44, "B Neg", "1.76 m  ·  81 kg", "Dr. Selar", "None known", "Transporter psychosis screen, clear", 0, -1, 47301.5],
+  ["0318", "Chen", "Mei", "Ensign", "Human", "Sciences", "Stellar Cartography", 23, "A Neg", "1.62 m  ·  52 kg", "Dr. Crusher", "Kelotane", "First posting, baseline scans filed", 0, 0, 47211.0],
+  ["0356", "Dalca", "Teodor", "Lt. (j.g.)", "Human", "Security", "Security Office", 29, "O Pos", "1.88 m  ·  92 kg", "Dr. Okafor", "None known", "Shoulder strain, phaser range 47490", 1, -1, 47490.6],
+  ["0402", "Ellery", "Ruth", "Civilian", "Human", "Civilian", "Ship's School", 52, "AB Pos", "1.66 m  ·  61 kg", "Dr. Selar", "Pollen, Earth flora", "Seasonal allergy, antihistamine on file", 0, -1, 47058.9],
+  ["0447", "Hanor", "Vessa", "Lt. (j.g.)", "Betazoid", "Sciences", "Exobiology Lab", 34, "B Pos", "1.71 m  ·  60 kg", "Dr. Crusher", "None known", "Telepathic baseline filed, Betazed norm", 0, 1, 47264.2],
+  ["0469", "Imre", "Daniel", "Lt. (j.g.)", "Human", "Engineering", "Plasma Systems", 32, "A Pos", "1.79 m  ·  77 kg", "Dr. Crusher", "None known", "Plasma burn grafts 47410, healed", 0, -1, 47466.1],
+  ["0512", "Jorvan", "Kel", "Crewman", "Bolian", "Operations", "Replicator Systems", 27, "Type 2", "1.81 m  ·  83 kg", "Dr. Selar", "None known", "Bolian cardiac baseline filed", 0, -1, 47187.3],
+  ["0538", "Kaplan", "Aviva", "Lieutenant", "Human", "Sciences", "Hydroponics", 41, "O Neg", "1.68 m  ·  63 kg", "Dr. Selar", "None known", "Spore exposure, hydroponics bay 2", 2, -1, 47501.7],
+  ["0571", "Lavelle", "Sam", "Ensign", "Human", "Operations", "Ops, Gamma Shift", 25, "A Pos", "1.80 m  ·  75 kg", "Dr. Crusher", "None known", "Promotion review, physical required", 0, -1, 47033.6],
+  ["0604", "Moriyama", "Saya", "Lieutenant", "Human", "Sciences", "Biology Lab 2", 36, "B Pos", "1.60 m  ·  54 kg", "Dr. Crusher", "None known", "Hepatic repair 46379, follow-up clear", 0, 4, 47145.0],
+  ["0627", "Nyland", "Per", "Lieutenant", "Human", "Command", "Main Bridge", 39, "O Pos", "1.85 m  ·  84 kg", "Dr. Okafor", "None known", "Bridge watch officer, vision corrected", 0, -1, 47350.2],
+  ["0653", "Okonkwo", "Mira", "Ensign", "Human", "Engineering", "EPS Maintenance", 26, "A Neg", "1.74 m  ·  68 kg", "Dr. Okafor", "Dermaline gel", "Thoracic repair 46890, recovered", 0, -1, 47240.8],
+  ["0688", "Ro", "Laren", "Ensign", "Bajoran", "Command", "Conn, Main Bridge", 27, "B Pos", "1.65 m  ·  55 kg", "Dr. Crusher", "None known", "Malnutrition in youth, Valo II, resolved", 0, -1, 47322.9],
+  ["0702", "Sito", "Jaxa", "Ensign", "Bajoran", "Security", "Security, Deck 8", 22, "O Pos", "1.69 m  ·  57 kg", "Dr. Crusher", "None known", "Academy flight accident 45703, no sequelae", 0, -1, 47011.4],
+  ["0731", "T'Sel", "", "Lieutenant", "Vulcan", "Sciences", "Astrometrics", 61, "T Neg", "1.78 m  ·  66 kg", "Dr. Selar", "None known", "Copper-based physiology, Vulcan norm", 0, -1, 47175.5],
+  ["0745", "Talbot", "Gwen", "Ensign", "Human", "Operations", "Shuttlebay 2", 24, "A Pos", "1.67 m  ·  59 kg", "Dr. Crusher", "None known", "Retinal reconstruction 46102, clear", 0, -1, 47288.0],
+  ["0763", "Tarses", "Simon", "Crewman", "Human / Romulan", "Medical", "Sickbay", 25, "O Pos", "1.77 m  ·  71 kg", "Dr. Crusher", "None known", "Ancestry record amended 44769", 0, 5, 47090.3],
+  ["0788", "Taurik", "", "Ensign", "Vulcan", "Engineering", "Main Engineering", 29, "T Neg", "1.80 m  ·  70 kg", "Dr. Selar", "None known", "Vulcan norm, no findings", 0, -1, 47227.6],
+  ["0819", "Varga", "Ilona", "Lieutenant", "Human", "Security", "Brig, Deck 13", 33, "B Neg", "1.72 m  ·  66 kg", "Dr. Okafor", "None known", "Away team clearance renewed", 0, -1, 47412.9],
+  ["0846", "Wexler", "Joel", "Crewman", "Human", "Engineering", "EPS Maintenance", 30, "O Pos", "1.83 m  ·  86 kg", "Dr. Okafor", "Kelotane", "Plasma burn, right hand 47496", 1, -1, 47496.2],
+  ["0872", "Yoon", "Ha-eun", "Lt. (j.g.)", "Human", "Operations", "Cargo Bay 2", 31, "A Pos", "1.63 m  ·  55 kg", "Dr. Selar", "None known", "Zero-g training 47220, cleared", 0, 0, 47220.4],
+  ["0905", "Zayas", "Marco", "Ensign", "Human", "Engineering", "Warp Propulsion", 24, "O Neg", "1.78 m  ·  74 kg", "Dr. Crusher", "None known", "Ankle fracture 47502, regenerating", 1, -1, 47502.3],
+].map(([no, fam, given, rank, species, div, post, age, blood, hm, doc, allergy, notes, fit, due, last], i) => {
+  const bajoran = species === "Bajoran", [rFull, rShort] = RANKS[rank];
+  const name = bajoran ? `${fam} ${given}` : given ? `${fam}, ${given}` : fam;
+  const plain = bajoran ? `${fam} ${given}` : given ? `${given} ${fam}` : fam;
+  const short = (rShort ? rShort + " " : "") + (bajoran ? `${fam} ${given}` : given ? `${given[0]}. ${fam}` : fam);
+  // the last eight examinations: about every 360 stardates, heart rate at rest
+  const r = rng(i * 977 + 13), [hr0] = SPECIES[species], exams = [], filed = 8 + Math.floor(r() * 7);
+  for (let k = 7; k >= 0; k--) {
+    const at = k === 0 ? last : Math.round((last - 360 * k + (r() - 0.5) * 80) * 10) / 10;
+    exams.push({ sd: at, hr: Math.round(hr0 * (0.94 + r() * 0.1)) });
+  }
+  return { i, no, name, full: (rFull ? rFull + " " : "") + plain, short, rank, species, div, post, age, blood, hm, doc, allergy, notes,
+           fit, due, promo: /Promotion/.test(notes) || fam === "Sito", exams, filed, seen: filed + 2 + Math.floor(r() * 8) };
+});
+const N = ROSTER.length;
+const lastExam = (p) => p.exams[p.exams.length - 1].sd;
+
+// ---------------- the check-up schedule: one patient in each ten-minute slot ----------------
+const slotPatient = (s) => ROSTER[(((s % N) + N) % N * 7) % N];     // 7 and 24 share no factor: nobody twice in 24 slots
+const visitFor = (s, p) => {
+  if (p.fit === 1 || p.fit === 2) return { type: "Follow-up", doc: p.doc };
+  if (p.due >= 0) return { type: "Inoculation", doc: "Nurse Ogawa" };
+  if (p.promo) return { type: "Promotion Physical", doc: p.doc };
+  return { type: "Annual Physical", doc: p.doc };
+};
+const setFit = (p, f) => { fitCount[p.fit]--; fitCount[f]++; p.fit = f; };
+// a visit is done: what it found, and what it changed
+const completeVisit = (s) => {
+  const p = slotPatient(s), v = visitFor(s, p), h = hash(s), end = (s + 1) * SLOT;
+  let outcome = "Fit for Duty";
+  if (v.type === "Follow-up") { setFit(p, p.fit - 1); outcome = p.fit === 0 ? "Cleared for Duty" : "Restricted Duty"; }
+  else if (v.type === "Inoculation") { vaxCount[p.due]++; p.due = -1; outcome = "Inoculated"; }
+  else {
+    if (p.promo) { p.promo = false; p.notes = "Promotion physical complete, no findings"; }
+    if (h % 7 === 0) { setFit(p, 1); outcome = "Restricted Duty"; }
+    else if (h % 5 === 1) { p.due = h % VAX.length; vaxCount[p.due]--; }     // a booster has lapsed: it is due now
+  }
+  const [hr0] = SPECIES[p.species];
+  p.exams.push({ sd: Math.round(stardate(end) * 10) / 10, hr: Math.round(hr0 * (0.95 + (h % 9) / 100)) });
+  if (p.exams.length > 8) p.exams.shift();
+  p.seen++; p.filed++;
+  return [hhmm(s * SLOT), p.short, v.type, outcome, p];
+};
+
+// ---------------- status line ----------------
+const state = cls(L.text({ x: A[0], cap: 150, s: 100, c: "lilac", txt: "" }), "sw");
+const stateSub = cls(L.text({ x: 0, base: 222, s: 38, c: "sky", txt: "" }), "sw");
+const placeSub = () => { stateSub.style.left = A[0] + state.offsetWidth + 48 + "px"; };
+const conf = L.box({ x: B[1] - 400, y: 150, w: 400, h: 72, c: "lilac", label: "Medical Confidential", r: "lr", fs: 36 });
+conf.style.willChange = "opacity";
+
+// a section header with a status pill at its right end
+const pillHeader = (col, y, label, c1, c2, texts, pc, h = 56) => {
+  const fs = h >= 56 ? 32 : 28;
+  const pw = Math.ceil(Math.max(...texts.map((s) => L.textWidth(s, fs))) / 10) * 10 + 90;
+  L.header({ x: col[0], y, w: col[1] - col[0] - pw - L.GAP, label, c1, c2, h });
+  return cls(L.box({ x: col[1] - pw, y, w: pw, h, c: pc, label: "", fs, r: "r" }), "sw");
+};
+
+// ---------------- the patient database: a list that scrolls under a fixed cursor ----------------
+const dbPill = pillHeader(A, 280, "Patient Database", "sky", "lilac", ["Record 24 of 24"], "ice");
+const BOXW = 170, CUR = 3;                                   // the cursor sits on the fourth row
+// the columns: as wide as what they hold, the space left shared equally between them
+const COLS = [["Patient", (p) => p.name], ["Rank", (p) => p.rank], ["Species", (p) => p.species], ["Division", (p) => p.div],
+              ["Post", (p) => p.post], ["Last Exam", () => "47999.9"], ["Inoculations", () => "Booster Due"], ["Fitness", () => "Under Treatment"]];
+{
+  const wd = COLS.map(([h, f]) => Math.max(L.textWidth(h, 36), ...ROSTER.map((p) => L.textWidth(f(p), 36)))), x0 = A[0] + BOXW + 24;
+  const gap = (A[1] - x0 - wd.reduce((a, b) => a + b, 0)) / (COLS.length - 1);
+  let x = x0;
+  COLS.forEach((c, k) => { c.push(k === COLS.length - 1 ? A[1] : Math.round(x), k === COLS.length - 1 ? "r" : "l"); x += wd[k] + gap; });
+}
+L.text({ x: A[0], base: 400, s: 36, c: "sky", txt: "Record" });
+COLS.forEach(([txt, , x, align]) => L.text({ x, base: 400, s: 36, c: "sky", txt, align }));
+// the cursor band behind the selected row, and the clipped list
+const band = fill(A[0] + BOXW + 12, rowY(CUR), A[1] - A[0] - BOXW - 12, RH, BAND);
+band.style.borderRadius = `0 ${RH / 2}px ${RH / 2}px 0`;
+const clip = L.el("div", "boot", L.stage, { position: "absolute", left: A[0] + "px", top: ROW0 + "px", width: A[1] - A[0] + "px",
+  height: rowY(8) + RH - ROW0 + 4 + "px", overflow: "hidden" });
+const VIS = 9;
+const rows = Array.from({ length: VIS + 1 }, (_, k) => {
+  const e = L.layer({ x: 0, y: 0, w: A[1] - A[0], h: RH }, clip);
+  const box = cls(L.box({ x: 0, y: 0, w: BOXW, h: RH, c: "sky", label: "", fs: 28, r: "l" }, e), "rc");
+  const t = COLS.map(([, , x, align]) => cls(L.text({ x: x - A[0], base: 37, s: 36, c: "lilac", txt: "", align, rightIn: align === "r" }, e), "rc"));
+  return { e, box, t, o: k - CUR, p: null };
+});
+const showRow = (r) => {
+  const p = r.p, sel = r.o === 0;
+  L.set(r.box, p.no);
+  [p.name, p.rank, p.species, p.div, p.post, lastExam(p).toFixed(1), p.due >= 0 ? "Booster Due" : "Current", FIT[p.fit]].forEach((v, k) => L.set(r.t[k], v));
+  bg(r.box, sel ? "butter" : "sky");
+  r.t.forEach((t, k) => fg(t, sel ? "white" : k === 0 ? "ice" : k === 5 ? "white" : k === 6 ? (p.due >= 0 ? "butter" : "lilac") : k === 7 ? FITC[p.fit] : "lilac"));
+};
+let sel = L.irand(0, N - 1);
+const pat = (k) => ROSTER[(((sel + k) % N) + N) % N];
+const placeRows = (k, u) => rows.forEach((r) => {
+  tf(r.e, `translate3d(0,${((r.o + CUR - k) * P).toFixed(2)}px,0)`);
+  op(r.e, r.o === -CUR ? 1 - L.clamp(u / 0.35) : r.o === VIS - CUR ? L.clamp((u - 0.45) / 0.55) : 1);
+});
+rows.forEach((r) => { r.p = pat(r.o); showRow(r); });
+placeRows(0, 0);
+
+// ---------------- the open record ----------------
+const recPill = pillHeader(B, 280, "Medical Record", "lilac", "sky", ["Exams on File 99"], "ice");
+L.text({ x: B[0], base: 400, s: 36, c: "sky", txt: "Starfleet Medical Database  ·  U.S.S. Enterprise  ·  CMO Access" });
+const FX = [B[0], B[0] + 240, B[0] + 700, B[0] + 940];
+const field = (i, k, label) => {
+  L.text({ x: FX[2 * k], base: rowBase(i), s: 36, c: "sky", txt: label });
+  return cls(L.text({ x: FX[2 * k + 1], base: rowBase(i), s: 40, c: "white", txt: "" }), "sw");
+};
+const F = {
+  no: field(0, 0, "Record"), rank: field(0, 1, "Rank"), div: field(1, 0, "Division"), post: field(1, 1, "Post"),
+  species: field(2, 0, "Species"), age: field(2, 1, "Age"), blood: field(3, 0, "Blood Type"), hm: field(3, 1, "Height · Mass"),
+  doc: field(4, 0, "Physician"), last: field(4, 1, "Last Exam"), allergy: field(5, 0, "Allergies"), notes: field(6, 0, "Notes"),
+  next: field(7, 0, "Next Exam"), visits: field(7, 1, "Sickbay Visits"),
+};
+const TW3 = (B[1] - B[0] - 2 * L.GAP) / 3;
+const flags = [0, 1, 2].map((k) => cls(L.box({ x: B[0] + k * (TW3 + L.GAP), y: rowY(8), w: TW3, h: RH, c: "sky", label: "", fs: 28,
+  r: k === 0 ? "l" : k === 2 ? "r" : null }), "sw"));
+let open = null, schedS = 0;
+const nextExam = (p) => {
+  for (let k = 0; k < 6; k++) if (slotPatient(schedS + k) === p) return k === 0 ? "In Progress" : `Today ${hhmm((schedS + k) * SLOT)}`;
+  return p.fit === 1 || p.fit === 2 ? "Follow-up Pending" : (lastExam(p) + 1000).toFixed(1);
+};
+const showRecord = (p) => {
+  L.set(F.no, p.no); L.set(F.rank, p.rank); L.set(F.div, p.div); L.set(F.post, p.post); L.set(F.species, p.species);
+  L.set(F.age, p.age); L.set(F.blood, p.blood); L.set(F.hm, p.hm); L.set(F.doc, p.doc); L.set(F.last, lastExam(p).toFixed(1));
+  L.set(F.allergy, p.allergy); L.set(F.notes, p.notes); L.set(F.next, nextExam(p)); L.set(F.visits, p.seen);
+  L.set(recPill, `Exams on File ${p.filed}`);
+  L.set(flags[0], FIT[p.fit]); bg(flags[0], FITC[p.fit]);
+  L.set(flags[1], p.due >= 0 ? `Booster Due  ·  ${VAX[p.due][0]}` : "Inoculations Current"); bg(flags[1], p.due >= 0 ? "butter" : "sky");
+  const away = p.fit === 0 && p.due < 0;
+  L.set(flags[2], away ? "Away Team Cleared" : "Away Team Hold"); bg(flags[2], away ? "lilac" : "#3a3150"); fg(flags[2], away ? "#000" : "lilac");
+  L.set(state, p.full);
+  L.set(stateSub, `Record ${p.no}  ·  ${p.div}  ·  ${p.post}`);
+  placeSub();
+  L.set(dbPill, `Record ${p.i + 1} of ${N}`);
+};
+
+// ---------------- examination history: the open record's last eight exams ----------------
+const histPill = pillHeader(B, 1000, "Examination History", "sky", "lilac", ROSTER.map((p) => p.short), "ice");
+L.text({ x: B[0], base: 1120, s: 36, c: "sky", txt: "Heart Rate at Rest  ·  BPM" });
+const KEYTXT = "Species Normal Range", KW = L.textWidth(KEYTXT, 36);
+L.text({ x: B[1], base: 1120, s: 36, c: "lilac", txt: KEYTXT, align: "r" });
+L.rect({ x: B[1] - KW - 24 - 48, y: 1120 - 26, w: 48, h: 26, c: "#4a3a62" });
+const CX0 = B[0] + 100, CX1 = B[1], CTOP = 1212, CBOT = 1500, CH = CBOT - CTOP;
+const BW = (CX1 - CX0 - 7 * L.GAP) / 8, barX = (k) => CX0 + k * (BW + L.GAP);
+const range = fill(CX0, CTOP, CX1 - CX0, CH, "#4a3a62"); range.style.opacity = "0.55";
+const grid = [0, 1, 2, 3].map((k) => L.rect({ x: CX0, y: CBOT - (k * CH) / 3 - (k === 0 ? 2 : 1), w: CX1 - CX0, h: 2, c: k === 0 ? "#3a5a9a" : GRID, free: true }));
+const scaleTxt = [0, 1, 2, 3].map((k) => cls(L.text({ x: CX0 - 24, base: CBOT - (k * CH) / 3 + 11, s: 32, c: "sky", txt: "", align: "r", legend: true }), "sw"));
+const bars = Array.from({ length: 8 }, (_, k) => {
+  return { f: fill(barX(k), CTOP, BW, CH, k === 7 ? "ice" : "sky", "50% 100%"),
+           v: cls(L.text({ x: barX(k) + BW / 2, base: lrowBase(0) - 0, s: 36, c: "white", txt: "", align: "c", w: BW }), "sw"),
+           d: cls(L.text({ x: barX(k) + BW / 2, base: lrowBase(6), s: 32, c: "lilac", txt: "", align: "c", w: BW, legend: true }), "sw"),
+           from: 0, to: 0, now: 0 };
+});
+const chart = { t0: -99, rFrom: [0, 0], rTo: [0, 0], r: [0, 0] };
+const showChart = (p, t) => {
+  const [, lo, hi, max] = SPECIES[p.species];
+  bars.forEach((b, k) => {
+    const ex = p.exams[k];
+    b.from = b.now; b.to = ex.hr / max;
+    L.set(b.v, ex.hr); L.set(b.d, ex.sd.toFixed(1));
+    fg(b.v, ex.hr < lo || ex.hr > hi ? "butter" : "white");
+  });
+  scaleTxt.forEach((e, k) => L.set(e, (k * max) / 3));
+  chart.rFrom = chart.r.slice(); chart.rTo = [lo / max, hi / max]; chart.t0 = t;
+  L.set(histPill, p.short);
+};
+
+// ---------------- immunization status ----------------
+const vaxPill = pillHeader(A, 1000, "Immunization Status", "lilac", "sky", ["Starfleet Medical Schedule"], "ice");
+L.set(vaxPill, "Starfleet Medical Schedule");
+const VBOX = 470, VB0 = 740, VB1 = 1560, VLO = 0.9;           // the bars show 90 to 100 per cent
+[["Inoculation", A[0], "l"], ["Booster", 534, "l"], ["Coverage  ·  90 – 100%", VB0, "l"], ["Current", 1760, "r"], ["Share", 1930, "r"], ["Lapsed", 2100, "r"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: 1120, s: 36, c: "sky", txt, align }));
+const vrow = (i, label, booster, c) => {
+  const base = lrowBase(i);
+  L.box({ x: A[0], y: lrowY(i), w: VBOX, h: RH, c, label, fs: 28, r: "l" });
+  if (booster) L.text({ x: 534, base, s: 36, c: "lilac", txt: booster });
+  L.rect({ x: VB0, y: base - 26, w: VB1 - VB0, h: 26, c: TRACK });
+  for (let k = 1; k < 5; k++) L.rect({ x: VB0 + ((VB1 - VB0) * k) / 5 - 1, y: base - 30, w: 2, h: 4, c: "#3a5a9a", free: true });
+  return { f: fill(VB0, base - 26, VB1 - VB0, 26, c), n: L.text({ x: 1760, base, s: 40, c: "white", txt: "", align: "r" }),
+           pct: L.text({ x: 1930, base, s: 36, c: "lilac", txt: "", align: "r" }), lap: L.text({ x: 2100, base, s: 36, c: "butter", txt: "", align: "r" }),
+           shown: 0, sc: -1 };
+};
+const vrows = VAX.map(([name, booster], i) => vrow(i, name, booster, i % 2 ? "sky" : "ice"));
+const vsum = vrow(6, "All Six  ·  Doses", "", "lilac");
+const showVax = (snap) => {
+  const all = vaxCount.reduce((a, b) => a + b, 0);
+  [...vrows, vsum].forEach((r, i) => {
+    const goal = i < 6 ? vaxCount[i] : all, tot = i < 6 ? COMPLEMENT : 6 * COMPLEMENT;
+    r.shown = snap ? goal : r.shown + (goal - r.shown) * 0.06;
+    if (Math.abs(goal - r.shown) < 0.02) r.shown = goal;
+    const n = Math.round(r.shown), k = L.clamp((r.shown / tot - VLO) / (1 - VLO));
+    if (Math.abs(k - r.sc) > 0.0002) { r.sc = k; tf(r.f, `scaleX(${k.toFixed(4)})`); }
+    L.set(r.n, fmt(n)); L.set(r.pct, ((100 * n) / tot).toFixed(1) + "%"); L.set(r.lap, fmt(tot - n));
+  });
+};
+
+// ---------------- check-ups ----------------
+const P1 = [40, 1040], P2 = [1100, 2100], P3 = [2160, 3520];
+const ckPill = pillHeader(P1, 1620, "Check-ups", "sky", "lilac", ["10 Min Left"], "ice", 48);
+const PROGW = 190;
+const ck = Array.from({ length: 6 }, (_, i) => ({
+  tm: cls(L.text({ x: P1[0], base: STRIP(i), s: 36, c: i ? "sky" : "butter", txt: "" }), "sw"),
+  pt: cls(L.text({ x: P1[0] + 130, base: STRIP(i), s: 36, c: i ? "ice" : "white", txt: "" }), "sw"),
+  ty: cls(L.text({ x: P1[0] + 430, base: STRIP(i), s: 36, c: "lilac", txt: "" }), "sw"),
+  dr: i ? cls(L.text({ x: P1[1] - PROGW, base: STRIP(i), s: 36, c: "sky", txt: "" }), "sw") : null,
+}));
+L.rect({ x: P1[1] - PROGW, y: STRIP(0) - 26, w: PROGW, h: 26, c: TRACK, noalign: true });   // flush left with the column under it
+const prog = fill(P1[1] - PROGW, STRIP(0) - 26, PROGW, 26, "butter");
+const showSchedule = () => ck.forEach((r, i) => {
+  const s = schedS + i, p = slotPatient(s), v = visitFor(s, p);
+  L.set(r.tm, hhmm(s * SLOT)); L.set(r.pt, p.short); L.set(r.ty, v.type); if (r.dr) L.set(r.dr, v.doc);
+});
+
+// ---------------- recent visits: the newest at the bottom ----------------
+L.header({ x: P2[0], y: 1620, w: P2[1] - P2[0], label: "Recent Visits", c1: "lilac", c2: "sky", h: 48 });
+const vis = Array.from({ length: 6 }, (_, i) => [
+  L.text({ x: P2[0], base: STRIP(i), s: 36, c: "sky", txt: "" }), L.text({ x: P2[0] + 130, base: STRIP(i), s: 36, c: "ice", txt: "" }),
+  L.text({ x: P2[0] + 430, base: STRIP(i), s: 36, c: "lilac", txt: "" }), L.text({ x: P2[1], base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }),
+].map((e) => cls(e, "sw")));
+const visited = [];
+const showVisits = () => vis.forEach((r, i) => {
+  const e = visited[visited.length - 6 + i];
+  r.forEach((t, k) => L.set(t, e ? e[k] : ""));
+  if (e) fg(r[3], e[3] === "Restricted Duty" ? "butter" : e[3] === "Inoculated" ? "lilac" : "white");
+});
+
+// ---------------- duty fitness ----------------
+L.set(pillHeader(P3, 1620, "Duty Fitness", "sky", "lilac", ["Complement 1,014"], "ice", 48), `Complement ${fmt(COMPLEMENT)}`);
+const FC = [P3[0] + 54, 2800, 3160, P3[1]];
+[["Status", FC[0] - 54, "l"], ["Aboard", FC[1], "r"], ["Share", FC[2], "r"], ["In Database", FC[3], "r"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: STRIP(0), s: 36, c: "sky", txt, align }));
+const SEGY = 1762, SEGH = 32, SEGGAP = 6;
+const fitRows = FIT.map((name, i) => {
+  const base = STRIP(i + 2);
+  L.rect({ x: P3[0], y: base - 30, w: 30, h: 30, c: FITC[i] });
+  L.text({ x: FC[0], base, s: 36, c: "lilac", txt: name });
+  return { seg: fill(P3[0], SEGY, P3[1] - P3[0], SEGH, FITC[i]), n: L.text({ x: FC[1], base, s: 40, c: "white", txt: "", align: "r" }),
+           pct: L.text({ x: FC[2], base, s: 36, c: "lilac", txt: "", align: "r" }), db: L.text({ x: FC[3], base, s: 40, c: "ice", txt: "", align: "r" }),
+           shown: fitCount[i] };
+});
+const showDb = () => fitRows.forEach((r, i) => L.set(r.db, `${ROSTER.filter((p) => p.fit === i).length} of ${N}`));
+const showFit = (snap) => {
+  let moving = snap;
+  fitRows.forEach((r, i) => {
+    const d = fitCount[i] - r.shown;
+    if (snap) r.shown = fitCount[i]; else if (Math.abs(d) > 0.02) { r.shown += d * 0.06; moving = true; } else r.shown = fitCount[i];
+  });
+  if (!moving && fitRows.drawn) return;
+  fitRows.drawn = true;
+  const W = P3[1] - P3[0], span = W - SEGGAP * (FIT.length - 1);
+  // the small groups are drawn at a readable minimum, taken from the large one
+  const MIN = 0.012, raw = fitRows.map((r) => r.shown / COMPLEMENT), w = raw.map((v, i) => (i ? Math.max(MIN, v) : 0));
+  w[0] = 1 - w.slice(1).reduce((a, b) => a + b, 0);
+  let x = 0;
+  fitRows.forEach((r, i) => {
+    tf(r.seg, `translate3d(${x.toFixed(2)}px,0,0) scaleX(${((w[i] * span) / W).toFixed(5)})`);
+    x += w[i] * span + SEGGAP;
+    const n = Math.round(r.shown);
+    L.set(r.n, fmt(n)); L.set(r.pct, ((100 * n) / COMPLEMENT).toFixed(1) + "%");
+  });
+};
+
+// ---------------- the morning so far: the last six visits ----------------
+schedS = Math.floor(minutes() / SLOT);
+for (let s = schedS - 6; s < schedS; s++) visited.push(completeVisit(s));
+showVisits(); showSchedule(); showVax(true); showFit(true); showDb();
+open = pat(0); showRecord(open); showChart(open, 0);
+
+// ---------------- running ----------------
+const DWELL = 30, SCROLL = 1.3;
+let scrollT0 = -99, nextAt = DWELL * L.rand(0.4, 0.8), scrolling = false;
+L.tick((t) => {
+  op(conf, 0.82 + 0.18 * Math.sin(t * 1.1));
+  // the list
+  if (!scrolling && t >= nextAt) {
+    scrolling = true; scrollT0 = t;
+    open = pat(1);
+    swap([state, stateSub, ...Object.values(F), ...flags, recPill, histPill, ...bars.flatMap((b) => [b.v, b.d]), ...scaleTxt],
+      () => { showRecord(open); showChart(open, L.t); });
+  }
+  if (scrolling) {
+    const u = L.clamp((t - scrollT0) / SCROLL), k = L.ease(u);
+    placeRows(k, u);
+    if (u >= 0.5 && !rows.moved) {                       // the cursor passes to the next row
+      rows.moved = true;
+      rows.forEach((r) => { r.o -= 1; });
+      rows.forEach((r) => showRow(r));
+      rows.forEach((r) => { r.o += 1; });
+    }
+    if (u >= 1) {
+      scrolling = false; rows.moved = false; sel = (sel + 1) % N; nextAt = t + DWELL;
+      rows.forEach((r) => { r.o -= 1; });
+      const gone = rows.find((r) => r.o < -CUR);
+      gone.o = VIS - CUR; gone.p = pat(gone.o);
+      rows.forEach((r) => showRow(r));
+      placeRows(0, 0);
+    }
+  }
+  // the chart eases to the open record
+  const ck2 = L.ease(L.clamp((t - chart.t0 - 0.45) / 1.6));
+  if (t - chart.t0 < 2.2) {
+    bars.forEach((b) => { b.now = L.mix(b.from, b.to, ck2); tf(b.f, `scaleY(${Math.max(0.001, b.now).toFixed(4)})`); });
+    chart.r = [L.mix(chart.rFrom[0], chart.rTo[0], ck2), L.mix(chart.rFrom[1], chart.rTo[1], ck2)];
+    tf(range, `translate3d(0,${((1 - chart.r[1]) * CH).toFixed(2)}px,0) scaleY(${(chart.r[1] - chart.r[0]).toFixed(4)})`);
+  }
+  showVax(false); showFit(false);
+});
+// (the row that becomes selected half-way through a scroll is styled from its new offset; showRow reads r.o)
+
+// the clock: a check-up ends every ten minutes
+L.every(250, () => {
+  const m = minutes(), s = Math.floor(m / SLOT);
+  if (s !== schedS) {
+    const done = [];
+    for (let k = schedS; k < s; k++) done.push(completeVisit(k));
+    schedS = s;
+    visited.push(...done); while (visited.length > 6) visited.shift();
+    swap([...ck.flatMap((r) => [r.tm, r.pt, r.ty, r.dr].filter(Boolean)), ...vis.flat()], () => { showSchedule(); showVisits(); });
+    rows.forEach((r) => showRow(r)); showDb();
+    if (done.some((d) => d[4] === open)) swap([...Object.values(F), ...flags], () => { showRecord(open); showChart(open, L.t); });
+    else L.set(F.next, nextExam(open));
+  }
+  const left = schedS * SLOT + SLOT - m, k = 1 - left / SLOT;
+  tf(prog, `scaleX(${L.clamp(k).toFixed(4)})`);
+  L.set(ckPill, `${Math.max(1, Math.ceil(left))} Min Left`);
+}, 0);
+});
+</script></body></html>

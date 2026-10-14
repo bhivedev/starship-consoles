@@ -1,0 +1,388 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Ready Room</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .clip { position: absolute; overflow: hidden; }
+  .sw { transition: background-color 1.2s ease, color 1.2s ease, opacity .6s ease; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: sidebar left, title top right ----------------
+L.frame({ type: "A", title: "Captain's Ready Room  •  Log", c: "lilac", c2: "plum", accent: "pink", foot: "Ready Room",
+  side: [[140, "plum", "Deck 01"], [70, "pink", "Log"], [420, "lilac", "Ready Room"], [70, "butter", "4715"],
+         [300, "plum", "Command"], [70, "pink", "Sealed"], [216, "lilac", "Captain"]] });
+
+// Two equal columns: the log on the left, the captain's day on the right. Everything sits on one
+// 72px grid of baselines from 480, so the log's lines and the right column's rows share baselines.
+const LX = 330, LR = 2043, RX = 2103, RR = 3816;
+const ROW = (k) => 480 + 72 * k;
+const TRACK = "#2a1a30";
+const pad2 = (n) => String(n).padStart(2, "0");
+const later = (ms, f, jitter) => L.every(ms, (t) => { if (t > 1) f(t); }, jitter);
+const bad = [];                                           // words that would not fit their places
+const fits = (txt, s, w, where) => { if (L.textWidth(txt, s) > w) bad.push(`${where}: "${txt}"`); };
+
+// ---------------- ship's time and the stardate: the Mac's own clock ----------------
+const minutes = () => { const d = new Date(); return d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60; };
+const stardate = () => 47780 + (minutes() / 1440) * 2.74;   // a thousand units a year
+const SHIFTS = [["Gamma", "Lt. Worf"], ["Alpha", "Cmdr. Riker"], ["Beta", "Lt. Cmdr. Data"]];   // 0000, 0800, 1600
+const shift = () => SHIFTS[Math.floor(minutes() / 480) % 3];
+
+// ---------------- status line ----------------
+const sdBig = L.text({ x: LX, cap: 150, s: 100, c: "lilac", txt: "" });
+const sub = L.text({ x: 0, base: 222, s: 38, c: "peach", txt: "Captain Jean-Luc Picard  ·  U.S.S. Enterprise  ·  NCC-1701-D  ·  Deck 1" });
+const showStardate = () => {
+  const txt = "Stardate " + stardate().toFixed(1);
+  if (sdBig.textContent === txt) return;
+  sdBig.textContent = txt;
+  sub.style.left = LX + sdBig.offsetWidth + 40 + "px";
+};
+L.box({ x: RR - 400, y: 150, w: 400, h: 72, c: "plum", label: "Voiceprint Verified", r: "lr", fs: 36 });
+
+// =====================================================================================
+// THE LOG
+// =====================================================================================
+// [kind, subject (for the index), the words]. Original prose in the captain's voice.
+const ENTRIES = [
+  ["Captain's", "Course for Starbase 74",
+   "We have completed our survey of the Argolis Cluster and are proceeding to Starbase 74 at warp six. Commander La Forge reports that the repairs to the starboard nacelle have held under sustained speed, and Mister Data has begun cataloging the survey results for the Federation Science Council. I have asked Commander Riker to use the transit for drills. The crew has earned a quiet week; quiet weeks are when habits slip."],
+  ["Supplemental", "Senior staff briefing",
+   "At this morning's briefing Commander La Forge proposed a full overhaul of the warp coil diagnostics before we reach Starbase 74. Doctor Crusher wants the same time for the fleet inoculation schedule, and Lieutenant Worf wants both postponed for a security drill. I have given each of them a day. A captain is fortunate whose officers argue only over how best to keep the ship ready. I would not have it otherwise."],
+  ["Captain's", "Junior officer evaluations",
+   "Commander Riker's evaluations for the quarter are on my desk. Several of the junior officers have done fine work, and one of them has asked to be judged on what she has done since the Academy, not on what happened there. It is a fair request, and I mean to honor it. I will see her this afternoon. A captain's hardest duty is to be fair without being merely kind, and to know the difference. I suspect she knows it already."],
+  ["Supplemental", "Tamarian contact protocols",
+   "Starfleet has asked for my notes on the Tamarians for the revised first contact protocols. I have sent everything I learned on El-Adrel, though I doubt any manual can teach it. Their language lives in shared stories: one must know the story before the words mean anything at all. I have recommended the Epic of Gilgamesh as required reading for every contact team. Dathon, I think, would have approved of that."],
+  ["Captain's", "Sensor anomaly logged",
+   "Mister Data reports a faint subspace distortion at the edge of the Typhon Expanse, at the very limit of long range sensors. He believes it to be a natural phenomenon, and I have no reason to doubt him. I have nonetheless asked that it be logged in full and flagged for the next survey vessel through the sector. Experience has taught me to respect the anomalies that seem to be nothing at all, and to look twice."],
+  ["Personal", "Annual physical",
+   "Doctor Crusher has completed my annual physical and pronounced the heart in excellent order, with the same raised eyebrow she gives it every year. I was a reckless young man once, and a Nausicaan made certain I would never forget it. I have long since stopped resenting the lesson. Without it I might have become a very different officer, and I am not at all sure I would have liked him. Nor, I suspect, would she."],
+  ["Personal", "A letter from La Barre",
+   "A letter from Marie today, and a drawing from René: the Enterprise, with rather more nacelles than Starfleet would approve of. Robert, she writes, is replanting the lower slope by hand and refusing every machine in the valley on principle. I can see him at it. When I was there last I could not wait to leave, and now I find myself counting the weeks until the harvest. Perhaps that was always the point of going home."],
+  ["Personal", "The Ressikan flute",
+   "I played for an hour this evening, the old melody from Ressik. Commander Data tells me that my fingering has improved; Lieutenant Commander Daren is less generous, and a good deal more useful. It is a strange thing to keep alive a song from a world that ended a thousand years ago. Perhaps it is all any of us can hope for: that someone, somewhere, still remembers the tune, and plays it now and then for those who are gone."],
+];
+const heading = (kind, sd) => kind === "Supplemental" ? "Captain's Log, Supplemental" : `${kind} Log, Stardate ${sd.toFixed(1)}`;
+
+// the log window: 16 lines on the grid, a time gutter, then the words
+const N = 16, PITCH = 72, GUT = 120, TX = 150, TW = LR - LX - TX;   // text 480 → 2043
+const SPEED = 230, HOLD = 0.7, SCROLL = 1.0, PAUSE = 5;             // px/s of dictation; seconds
+const wrap = (txt, s, w) => {                                       // greedy, measured in the LCARS face
+  const out = []; let line = "";
+  for (const word of txt.split(" ")) {
+    const next = line ? line + " " + word : word;
+    if (L.textWidth(next, s) <= w || !line) line = next; else { out.push(line); line = word; }
+  }
+  if (line) out.push(line);
+  return out;
+};
+const mss = (s) => `${Math.floor(s / 60)}:${pad2(Math.floor(s % 60))}`;
+let entryNo = 409;
+// an entry as lines: [kind, text, gutter, colour]; and how long it takes to speak
+const entryLines = (e, sd) => {
+  const lines = [{ kind: "head", txt: heading(e[0], sd), gut: pad2(Math.floor(entryNo / 100)) + pad2(entryNo % 100) }];
+  const sp = SPEED * { "Captain's": 1.08, Supplemental: 1, Personal: 0.84 }[e[0]];   // reflective entries are spoken slower
+  let at = L.textWidth(lines[0].txt, 48) / sp + HOLD + SCROLL;
+  for (const l of wrap(e[2], 48, TW - 8)) {
+    lines.push({ kind: "text", txt: l, gut: mss(at) });
+    at += L.textWidth(l, 48) / sp + HOLD + SCROLL;
+  }
+  return { lines, len: at, no: entryNo++, e, sd, sp };
+};
+
+L.header({ x: LX, y: 280, w: LR - LX, label: "Captain's Log", c1: "lilac", c2: "plum" });
+// the caption row: recording state, the entry and its time, a voice level meter
+const recWord = L.text({ x: LX, base: 400, s: 36, c: "butter", txt: "Standing By", cls: "sw" });
+const recInfo = L.text({ x: LX + 300, base: 400, s: 36, c: "lilac", txt: "" });
+const MX = 1300, BARS = 31, BW = 16, BG = 8;                      // meter: 1300 → 2043
+const meterW = BARS * BW + (BARS - 1) * BG, mx0 = LR - meterW;
+const meter = Array.from({ length: BARS }, (_, i) => {
+  const x = mx0 + i * (BW + BG);
+  L.rect({ x, y: 360, w: BW, h: 40, c: TRACK, free: true });
+  const f = L.layer({ x, y: 360, w: BW, h: 40 });
+  f.style.background = i < BARS * 0.62 ? "var(--lilac)" : i < BARS * 0.86 ? "var(--pink)" : "var(--butter)";
+  f.style.transformOrigin = "50% 100%";
+  return { f, v: 0.06, seed: Math.random() * 9 };
+});
+L.text({ x: mx0 - 24, base: 400, s: 36, c: "plum", txt: "Voice", align: "r" });
+
+const clip = L.el("div", "clip", L.stage, { left: LX + "px", top: ROW(0) - 54 + "px", width: LR - LX + "px", height: N * PITCH + "px" });
+const slots = Array.from({ length: N }, (_, i) => {
+  const e = L.layer({ x: 0, y: 0, w: LR - LX, h: PITCH }, clip);
+  const gut = L.text({ x: GUT, base: 54, s: 36, c: "plum", txt: "", align: "r", rightIn: true }, e);
+  const box = L.box({ x: 0, y: 54 - 37.24, w: GUT, h: 48, c: "lilac", label: "", fs: 28, r: "l" }, e);
+  const txt = L.text({ x: TX, base: 54, s: 48, c: "white", txt: "" }, e);
+  const s = { e, gut, box, txt, slot: i };
+  s.set = (l) => {
+    L.set(txt, l ? l.txt : "");
+    txt.style.color = l && l.kind === "head" ? "var(--butter)" : "var(--white)";
+    box.style.display = l && l.kind === "head" ? "" : "none";
+    if (l && l.kind === "head") L.set(box, l.gut);
+    L.set(gut, l && l.kind === "text" ? l.gut : "");
+  };
+  L.move(e, 0, i * PITCH);
+  return s;
+});
+// the dictation: a cover the colour of the panel slides off the newest line, a cursor at its edge
+const cover = L.layer({ x: TX, y: (N - 1) * PITCH, w: TW, h: PITCH }, clip);
+cover.style.background = "#000";
+const cursor = L.el("div", "", cover, { position: "absolute", left: "0px", top: 54 - 35 + "px", width: "22px", height: "35px", background: "var(--lilac)" });
+
+// ---------------- the log index ----------------
+const IX = { sd: LX, kind: LX + 180, subj: LX + 420, len: LX + 1080, bar: LX + 1120 };
+L.header({ x: LX, y: 1620, w: LR - LX, label: "Log Index", c1: "plum", c2: "lilac", h: 48 });
+// a strip of six rows that slide up one place when a row is added
+const strip = (x, w, build) => {
+  const c = L.el("div", "clip", L.stage, { left: x + "px", top: 1734 - 40 + "px", width: w + "px", height: 6 * 54 + 8 + "px" });
+  const rows = Array.from({ length: 6 }, (_, i) => {
+    const e = L.layer({ x: 0, y: 0, w, h: 54 }, c);
+    const r = build(e); r.e = e; r.slot = i; L.move(e, 0, i * 54);
+    return r;
+  });
+  const st = { rows, t0: -1, data: [] };
+  st.push = (d, t) => { st.data.push(d); st.t0 = t; st.pending = d; };
+  L.tick((t) => {
+    if (st.t0 < 0) return;
+    const u = t - st.t0;
+    if (!st.landed) {                                    // all slide up one place; the top row fades away
+      const top = rows.find((r) => r.slot === 0), k = L.ease(L.clamp(u / 1.1));
+      rows.forEach((r) => L.move(r.e, 0, (r.slot - k) * 54));
+      top.e.style.opacity = (1 - L.clamp(u / 0.7)).toFixed(3);
+      if (k < 1) return;
+      rows.forEach((r) => (r.slot = r.slot === 0 ? 5 : r.slot - 1));   // it becomes the new bottom row
+      top.fill(st.pending); L.move(top.e, 0, 5 * 54); st.landed = top; st.t1 = t;
+    } else {
+      const a = L.clamp((t - st.t1) / 0.8);
+      st.landed.e.style.opacity = a.toFixed(3);
+      if (a >= 1) { st.t0 = -1; st.landed = null; }
+    }
+  });
+  return st;
+};
+const index = strip(LX, LR - LX, (e) => {
+  const sd = L.text({ x: 0, base: 40, s: 36, c: "orange", txt: "" }, e);
+  const kind = L.text({ x: IX.kind - LX, base: 40, s: 36, c: "lilac", txt: "" }, e);
+  const subj = L.text({ x: IX.subj - LX, base: 40, s: 36, c: "peach", txt: "" }, e);
+  const len = L.text({ x: IX.len - LX, base: 40, s: 36, c: "white", txt: "", align: "r", rightIn: true }, e);
+  // the length of the recording, as a bar from 0:15 to 0:50
+  const track = L.el("div", "", e, { position: "absolute", left: IX.bar - LX + "px", top: "14px", width: LR - IX.bar + "px", height: "26px", background: TRACK });
+  const bar = L.el("div", "", track, { position: "absolute", left: "0px", top: "0px", width: "100%", height: "100%", transformOrigin: "0 0" });
+  return { fill: (d) => {
+    L.set(sd, d.sd.toFixed(1)); L.set(kind, d.e[0]); L.set(subj, `${pad2(Math.floor(d.no / 100))}${pad2(d.no % 100)}  ·  ${d.e[1]}`); L.set(len, mss(d.len));
+    bar.style.background = d.e[0] === "Personal" ? "var(--pink)" : "var(--lilac)";
+    bar.style.transform = `scaleX(${L.clamp((d.len - 15) / 35).toFixed(3)})`;
+  } };
+});
+
+// ---------------- running the log ----------------
+// The six entries before the first one spoken here are already in the index; the window shows the
+// end of the last two, and a blank line after them.
+let ei = L.irand(0, ENTRIES.length - 1);
+const sdNow = stardate();
+const history = [];
+for (let j = 6; j >= 1; j--) history.push(entryLines(ENTRIES[(ei - j + 8 * ENTRIES.length) % ENTRIES.length], sdNow - j * 0.3));
+history.forEach((h, i) => index.rows[i].fill(h));
+{
+  const tail = [];
+  for (const h of history.slice(-4)) tail.push(...h.lines);
+  tail.slice(-N).forEach((l, i) => slots[i].set(l));
+}
+L.move(cover, 0, 0); cover.style.transform = `translate3d(${TW}px,${(N - 1) * PITCH}px,0)`;
+cursor.style.opacity = 0;
+
+let phase = "pause", t0 = 0.4, cur = null, li = 0, recT0 = 0, recording = false, lineW = 0;
+const coverAt = (x) => { cover.style.transform = `translate3d(${x.toFixed(1)}px,${(N - 1) * PITCH}px,0)`; };
+const nextLine = () => {                     // what comes up next: a heading, the words, then a blank line
+  if (!cur) { cur = entryLines(ENTRIES[ei], stardate()); ei = (ei + 1) % ENTRIES.length; li = 0; }
+  if (li < cur.lines.length) return cur.lines[li++];
+  return null;
+};
+const setRec = (on, t) => {
+  recording = on;
+  if (on) recT0 = t;
+  L.set(recWord, on ? "Recording" : "Standing By");
+  recWord.style.color = on ? "var(--butter)" : "var(--plum)";
+};
+let pendingLine = null;
+L.tick((t) => {
+  const u = t - t0;
+  if (phase === "pause") {                                 // between entries
+    if (u < PAUSE) return;
+    pendingLine = nextLine(); phase = "scroll"; t0 = t;
+    setRec(true, t);
+  } else if (phase === "scroll") {                         // every line moves up one place
+    const k = L.ease(L.clamp(u / SCROLL));
+    slots.forEach((s) => L.move(s.e, 0, (s.slot - k) * PITCH));
+    slots.find((s) => s.slot === 0).e.style.opacity = (1 - L.clamp(u / (SCROLL * 0.6))).toFixed(3);
+    if (k < 1) return;
+    const top = slots.find((s) => s.slot === 0);
+    slots.forEach((s) => (s.slot = s.slot === 0 ? N - 1 : s.slot - 1));
+    L.move(top.e, 0, (N - 1) * PITCH); top.e.style.opacity = 1;
+    coverAt(0); top.set(pendingLine);
+    if (pendingLine && pendingLine.kind !== "blank") {
+      lineW = top.txt.offsetWidth; cursor.style.opacity = 1;
+      phase = "reveal";
+    } else { coverAt(TW); phase = "pause"; }
+    t0 = t;
+  } else if (phase === "reveal") {                         // the words appear at the pace they are spoken
+    const x = Math.min(lineW, u * cur.sp);
+    coverAt(x);
+    if (x >= lineW) { phase = "hold"; t0 = t; }
+  } else if (phase === "hold") {
+    if (u < HOLD) return;
+    coverAt(TW); cursor.style.opacity = 0;
+    pendingLine = nextLine();
+    if (!pendingLine) {                                    // the entry is complete: into the index
+      index.push(cur, t); cur = null; setRec(false, t);
+      phase = "pause"; t0 = t; return;
+    }
+    phase = "scroll"; t0 = t;
+  }
+});
+// the voice level: a calm, smooth envelope while the captain speaks
+let act = 0;
+L.tick((t) => {
+  act += ((phase === "reveal" ? 1 : 0) - act) * 0.06;
+  if (act < 0.002 && meter[0].still) return;
+  meter.forEach((m, i) => {
+    const shape = 1 - 0.55 * (i / BARS);
+    const n = 0.55 + 0.25 * Math.sin(t * 2.3 + m.seed) * Math.sin(t * 0.7 + i * 0.37) + 0.2 * Math.sin(t * 1.6 + i * 0.9);
+    const goal = 0.06 + act * shape * L.clamp(n) * 0.94;
+    m.v += (goal - m.v) * 0.2;
+    m.f.style.transform = `scaleY(${m.v.toFixed(3)})`;
+  });
+  meter[0].still = act < 0.002;
+});
+L.every(500, (t) => L.set(recInfo, cur ? `Entry ${pad2(Math.floor(cur.no / 100))}${pad2(cur.no % 100)}  ·  ${mss(t - recT0)}` : "Log sealed  ·  Starfleet Command archive"), 0);
+
+// =====================================================================================
+// THE CAPTAIN'S DAY
+// =====================================================================================
+// ---------------- ship status: eight readings in two rows of four ----------------
+L.header({ x: RX, y: 280, w: RR - RX, label: "Ship Status", c1: "plum", c2: "lilac" });
+const arrival = () => { const m = 4320 - (Math.floor(Date.now() / 60000) % 4320); return `${Math.floor(m / 60)} h ${pad2(m % 60)} m`; };
+const clockTxt = () => { const d = new Date(); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
+const TILES = [
+  ["Condition", () => "Green", () => "All decks normal", "butter"],
+  ["Course", () => "047 mark 12", () => "Bound for Starbase 74", "lilac"],
+  ["Speed", () => "Warp 6", () => "Warp core at 62%", "plum"],
+  ["Arrival", arrival, () => "Tarsas III orbit", "pink"],
+  ["Position", () => "Sector 21503", () => "Federation space", "lilac"],
+  ["Aboard", () => "1,014", () => "838 crew  ·  176 civilians", "plum"],
+  ["The Conn", () => shift()[1], () => "Main Bridge", "pink"],
+  ["Ship's Time", clockTxt, () => shift()[0] + " shift", "butter"],
+];
+const TP = (RR - RX + 48) / 4, TIW = TP - 48;                 // four tiles, 48 apart
+const tiles = TILES.map(([label, val, det, c], i) => {
+  const x = RX + (i % 4) * TP, k = Math.floor(i / 4) * 4;  // rows 0–2 and 4–6 of the grid
+  L.rect({ x, y: ROW(k) - 29, w: 12, h: ROW(k + 2) - ROW(k) + 29, c });
+  L.text({ x: x + 36, base: ROW(k), s: 40, c: "lilac", txt: label });
+  const v = L.text({ x: x + 36, base: ROW(k + 1), s: 52, c: "white", txt: "" });
+  const d = L.text({ x: x + 36, base: ROW(k + 2), s: 36, c: "peach", txt: "" });
+  return { val, det, v, d };
+});
+const showTiles = () => tiles.forEach((t) => { L.set(t.v, t.val()); L.set(t.d, t.det()); });
+
+// ---------------- today's schedule ----------------
+const SY = 1008;
+L.header({ x: RX, y: SY, w: RR - RX, label: "Today's Schedule", c1: "pink", c2: "plum" });
+const SC = { time: RX, what: RX + 224, where: RX + 940, pill: RR - 300 };
+const EVENTS = [
+  [7, 0, "Breakfast, Doctor Crusher", "Captain's Quarters"], [8, 0, "Senior staff briefing", "Observation Lounge"],
+  [9, 30, "Duty roster review, Cmdr. Riker", "Ready Room"], [11, 0, "Fencing practice", "Gymnasium  ·  Deck 12"],
+  [13, 0, "Subspace conference, Adm. Nechayev", "Ready Room"], [14, 30, "Interview, Ensign Sito Jaxa", "Ready Room"],
+  [16, 0, "Inspection, Lt. Cmdr. La Forge", "Main Engineering"], [18, 0, "Archaeology Council correspondence", "Ready Room"],
+  [19, 30, "Dinner, Guinan", "Ten Forward"], [21, 0, "Personal log", "Ready Room"],
+  [22, 0, "Flute practice", "Captain's Quarters"], [23, 0, "Off duty", "Captain's Quarters"],
+].map(([h, m, what, where]) => ({ at: h * 60 + m, time: pad2(h) + pad2(m), what, where }));
+L.text({ x: SC.time, base: ROW(9), s: 36, c: "lilac", txt: "Time" });
+[["Appointment", SC.what], ["Location", SC.where]].forEach(([txt, x]) => L.text({ x, base: ROW(9), s: 36, c: "lilac", txt }));
+L.text({ x: SC.pill, base: ROW(9), s: 36, c: "lilac", txt: "Status" });
+const STATES = { Complete: ["plum", "#000", "plum", "plum"], "In Progress": ["butter", "#000", "white", "peach"],
+                 Next: ["lilac", "#000", "white", "lilac"], Scheduled: [TRACK, "lilac", "white", "lilac"] };
+const sched = Array.from({ length: 6 }, (_, i) => {
+  const base = ROW(10 + i), y = base - 44.56;
+  return {
+    box: L.box({ x: SC.time, y, w: 200, h: 56, c: "lilac", label: "", fs: 32, r: "l", cls: "sw" }),
+    what: L.text({ x: SC.what, base, s: 40, c: "white", txt: "", cls: "sw" }),
+    where: L.text({ x: SC.where, base, s: 36, c: "lilac", txt: "", cls: "sw" }),
+    pill: L.box({ x: SC.pill, y, w: RR - SC.pill, h: 56, c: "lilac", label: "", fs: 28, r: "lr", cls: "sw" }),
+  };
+});
+const col = (c) => (c.startsWith("#") ? c : `var(--${c})`);
+let curEv = -1;
+const showSchedule = () => {
+  const m = minutes();
+  let c = EVENTS.length - 1;                                   // before 0700: still off duty from last night
+  EVENTS.forEach((e, i) => { if (e.at <= m) c = i; });
+  if (c === curEv) return;
+  curEv = c;
+  sched.forEach((r, i) => {
+    const e = EVENTS[(c - 1 + i + EVENTS.length) % EVENTS.length];
+    const st = i === 0 ? "Complete" : i === 1 ? "In Progress" : i === 2 ? "Next" : "Scheduled";
+    const [bc, lc, wc, pc] = STATES[st];
+    L.set(r.box, e.time); r.box.style.background = col(bc); r.box.style.color = col(lc);
+    L.set(r.what, e.what); r.what.style.color = col(wc === "white" ? "white" : wc);
+    L.set(r.where, e.where); r.where.style.color = col(pc);
+    L.set(r.pill, st); r.pill.style.background = col(bc); r.pill.style.color = col(lc);
+  });
+};
+L.tick((t) => { sched[1].pill.style.opacity = (0.82 + 0.18 * Math.sin(t * 1.1)).toFixed(3); });
+
+// ---------------- Starfleet communiqués ----------------
+L.header({ x: RX, y: 1620, w: RR - RX, label: "Starfleet Communiqués", c1: "lilac", c2: "pink", h: 48 });
+const CM = { sd: 0, from: 180, subj: 620 };
+const COMMS = [
+  ["Starfleet Command", "Revised orders, Starbase 74 rendezvous"],
+  ["Admiral Nechayev", "Subspace conference confirmed, 1300 hours"],
+  ["Starfleet Medical", "Fleet inoculation schedule, revised"],
+  ["Starfleet Academy", "Cadet field placements, spring term"],
+  ["Archaeology Council", "Keynote invitation, annual symposium"],
+  ["Starbase 74", "Docking clearance, berth 3"],
+  ["La Barre, France", "Personal message, M. Picard"],
+  ["Starfleet Intelligence", "Cardassian patrols near Minos Korva"],
+  ["U.S.S. Hood", "Captain DeSoto sends his regards"],
+  ["Starfleet Engineering", "Warp coil diagnostics, new procedure"],
+  ["Science Council", "Argolis Cluster survey data received"],
+  ["Bajoran Government", "Relief convoy, escort requested"],
+];
+const comms = strip(RX, RR - RX, (e) => {
+  const sd = L.text({ x: CM.sd, base: 40, s: 36, c: "orange", txt: "" }, e);
+  const from = L.text({ x: CM.from, base: 40, s: 36, c: "peach", txt: "" }, e);
+  const subj = L.text({ x: CM.subj, base: 40, s: 36, c: "white", txt: "" }, e);
+  const st = L.text({ x: RR - RX, base: 40, s: 36, c: "lilac", txt: "", align: "r", rightIn: true, cls: "sw" }, e);
+  const r = { st };
+  r.fill = (d) => { r.d = d; L.set(sd, d.sd.toFixed(1)); L.set(from, d.c[0]); L.set(subj, d.c[1]); r.mark(); };
+  r.mark = () => { L.set(st, r.d.st); st.style.color = r.d.st === "Unread" ? "var(--butter)" : "var(--lilac)"; };
+  return r;
+});
+let ci = L.irand(0, COMMS.length - 1);
+const READ = ["Read", "Acknowledged", "Read", "Replied", "Filed"];
+for (let i = 0; i < 6; i++) {
+  const d = { c: COMMS[(ci + i) % COMMS.length], sd: sdNow - (6 - i) * 0.2, st: i === 5 ? "Unread" : L.pick(READ) };
+  comms.rows[i].fill(d);
+}
+ci += 6;
+later(41000, (t) => {                                          // a new communiqué arrives
+  comms.rows.forEach((r) => { if (r.d.st === "Unread") { r.d.st = L.pick(READ); r.mark(); } });
+  comms.push({ c: COMMS[ci++ % COMMS.length], sd: stardate(), st: "Unread" }, t);
+}, 0.25);
+
+// ---------------- a guard: every line of words fits its place ----------------
+for (const e of ENTRIES) {
+  fits(e[1], 36, IX.len - IX.subj - 120, "index subject");
+  const w = wrap(e[2], 48, TW - 8), last = L.textWidth(w[w.length - 1], 48) / TW;
+  if (last < 0.5) bad.push(`log "${e[1]}" ends on a short line (${Math.round(last * 100)}%)`);
+}
+TILES.forEach(([label, val, det]) => { fits(label, 40, TIW - 36, "tile"); fits(val(), 52, TIW - 36, "tile"); fits(det(), 36, TIW - 36, "tile"); });
+SHIFTS.forEach(([, who]) => fits(who, 52, TIW - 36, "conn"));
+EVENTS.forEach((e) => { fits(e.what, 40, SC.where - SC.what - 40, "appointment"); fits(e.where, 36, SC.pill - SC.where - 40, "location"); });
+COMMS.forEach(([from, subj]) => { fits(from, 36, CM.subj - CM.from - 40, "from"); fits(subj, 36, RR - RX - CM.subj - 220, "subject"); });
+if (bad.length) setTimeout(() => { throw new Error("ready-room: " + bad.join(" | ")); });
+
+showStardate(); showTiles(); showSchedule();
+L.every(1000, () => { showStardate(); showTiles(); showSchedule(); }, 0);
+});
+</script></body></html>

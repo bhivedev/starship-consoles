@@ -1,0 +1,869 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Intruder Tracking</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* swapped text dips and comes back; colors change slowly; .boot (the start-up cascade) always wins */
+  .sw { transition: opacity .5s ease, color 1.2s ease, background-color 1.2s ease; }
+  .out:not(.boot) { opacity: .15; }
+  .band { background: linear-gradient(to right, rgba(143,211,255,0) 0%, rgba(143,211,255,.06) 55%, rgba(143,211,255,.26) 93%, rgba(143,211,255,.85) 100%); }
+  .ring { border: 6px solid var(--mars); border-radius: 50%; }
+  .core { background: var(--white); border-radius: 50%; }
+  .est  { border: 5px dashed var(--ice); border-radius: 50%; }
+  .ping { border: 5px solid var(--mars); border-radius: 50%; }
+  .team { background: var(--ice); border-radius: 18px; color: #000; font-size: 30px; line-height: 36px; text-align: center; }
+  .ff   { background: var(--sky); border-radius: 6px; box-shadow: 0 0 18px 3px rgba(92,157,255,.65); }
+  .hold { border: 6px solid var(--mars); }
+  .hold.anyon { border-color: var(--ice); box-shadow: inset 0 0 40px rgba(143,211,255,.35); }
+  .tint { background: rgba(255,90,60,.13); transform-origin: 0 0; }
+  .seg  { background: var(--ice); }
+  .sw-ring { position: absolute; border-radius: 50%; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+const NS = "http://www.w3.org/2000/svg";
+const X0 = 330, GR = 2490, RX = 2554, X1 = 3816, ML = 1398, MR = 1422;
+const TRACK = "#1b2a40", ROOM = "#12223a", CORR = "#22354b";
+const cls = (e, ...c) => (e.classList.add(...c), e);
+const op = (e, v) => { v = v < 0.005 ? "0" : v > 0.995 ? "1" : v.toFixed(3); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const fg = (e, c) => { const v = c.startsWith("#") ? c : `var(--${c})`; if (e._fg !== v) { e._fg = v; e.style.color = v; } };
+const bg = (e, c) => { const v = c.startsWith("#") ? c : `var(--${c})`; if (e._bg !== v) { e._bg = v; e.style.background = v; } };
+const fill = (x, y, w, h, c) => { const f = L.layer({ x, y, w, h }); f.style.background = `var(--${c})`; f.style.transformOrigin = "0 0"; f._bg = `var(--${c})`; return f; };
+const scaleX = (e, k) => tf(e, `scaleX(${L.clamp(k).toFixed(4)})`);
+const swap = (els, f) => { els.forEach((e) => e.classList.add("out")); setTimeout(() => { f(); els.forEach((e) => e.classList.remove("out")); }, 520); };
+const pad2 = (n) => String(n).padStart(2, "0");
+const range = (n) => Array.from({ length: n }, (_, i) => i);
+const shuffle = (a) => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = L.irand(0, i); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const sv = (tag, attrs, parent) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); parent.appendChild(e); return e; };
+const svgIn = (parent, w, h) => { const s = sv("svg", { width: w, height: h }, parent); Object.assign(s.style, { position: "absolute", left: 0, top: 0, overflow: "visible" }); return s; };
+const bad = [];
+const fits = (txt, s, w, where) => { if (L.textWidth(txt, s) > w) bad.push(`${where}: "${txt}" ${Math.round(L.textWidth(txt, s))}>${Math.round(w)}`); };
+const hyp = (a, b) => Math.hypot(b[0] - a[0], b[1] - a[1]);
+const polyLen = (p) => { let s = 0; for (let i = 1; i < p.length; i++) s += hyp(p[i - 1], p[i]); return s; };
+const along = (p, s) => {
+  for (let i = 1; i < p.length; i++) {
+    const l = hyp(p[i - 1], p[i]);
+    if (s <= l || i === p.length - 1) { const k = l ? L.clamp(s / l) : 1; return [L.mix(p[i - 1][0], p[i][0], k), L.mix(p[i - 1][1], p[i][1], k)]; }
+    s -= l;
+  }
+  return p[0].slice();
+};
+// distance along a leg that eases in and out: accelerate for a, cruise, decelerate for a
+const trap = (len, dur, tau, a) => {
+  a = Math.min(a, dur / 2); const v = len / (dur - a);
+  if (tau <= 0) return 0; if (tau >= dur) return len;
+  if (tau < a) return (v * tau * tau) / (2 * a);
+  if (tau < dur - a) return v * (tau - a / 2);
+  const r = dur - tau; return len - (v * r * r) / (2 * a);
+};
+const trapV = (len, dur, tau, a) => {
+  a = Math.min(a, dur / 2); const v = len / (dur - a);
+  if (tau <= 0 || tau >= dur) return 0;
+  return tau < a ? (v * tau) / a : tau < dur - a ? v : (v * (dur - tau)) / a;
+};
+const trapT = (len, dur, s, a) => {                            // the time a leg reaches distance s
+  a = Math.min(a, dur / 2); const v = len / (dur - a);
+  if (s <= (v * a) / 2) return Math.sqrt((2 * a * s) / v);
+  if (s <= len - (v * a) / 2) return s / v + a / 2;
+  return dur - Math.sqrt(Math.max(0, (2 * a * (len - s)) / v));
+};
+
+// ---------------- the frame: sidebar left, title top right ----------------
+const SD = (45896 + L.rand(0.1, 0.8)).toFixed(1);             // after The Next Phase (45892) — its interphase signature is on file
+L.frame({ type: "A", title: "Intruder Tracking  •  Internal Sensors", c: "mars", c2: "ice", accent: "red", foot: "Security",
+  side: [[140, "ice", SD], [70, "red", "08-21"], [420, "mars", "Sensors"], [70, "ice", "Lv 3"],
+         [300, "mars", "Teams"], [70, "red", "04"], [216, "ice", "Force Fields"]] });
+
+// ---------------- the decks: 24 rooms each, numbered fore to aft ----------------
+// order per column: row A (whole, or upper and lower), row B, row C (whole, or upper and lower)
+const DECKS = {
+  6: ["Crew Quarters", "Science Lab 4", "Guest Quarters", "Storage",
+      "Transporter Room 2", "Crew Quarters", "Transporter Room 3", "Crew Lounge",
+      "Officers' Quarters", "Gymnasium", "Crew Quarters", "Replicator Bay",
+      "Storage", "Crew Quarters", "Science Lab 5", "Guest Quarters",
+      "Ensigns' Quarters", "Cargo Transporter", "Life Support", "Storage",
+      "Crew Quarters", "Crew Quarters", "Science Lab 6", "Observation Lounge"],
+  22: ["Cargo Control", "Cargo Bay 3", "Storage", "Antigrav Lifts",
+       "Crew Quarters", "Storage", "Cargo Transporter", "Matter Stores",
+       "Quartermaster", "Cargo Bay 4", "Storage", "Crew Quarters",
+       "Storage", "Workshop", "Cargo Bay 5", "Hazardous Cargo",
+       "Inventory Control", "Freight Lift", "Storage", "Crew Quarters",
+       "Storage", "Crew Quarters", "Bulk Stores", "Docking Port"],
+  12: ["Crew Quarters", "Biology Lab", "Storage", "Crew Quarters",
+       "Nursery", "Crew Quarters", "Sickbay", "Intensive Care",
+       "Surgery", "Medical Lab", "Morgue", "Pharmacy",
+       "CMO's Office", "Physical Therapy", "Counselor's Office", "Crew Quarters",
+       "Exobiology Lab", "Isolation Ward", "Storage", "Crew Quarters",
+       "Crew Quarters", "Medical Stores", "Diagnostics", "Crew Lounge"],
+  36: ["Engineering Lab", "Main Engineering", "Storage", "Crew Quarters",
+       "Chief Engineer", "Engineering Office", "Warp Core", "Dilithium Chamber",
+       "Fabrication Shop", "Engineering Bay", "Storage", "Crew Quarters",
+       "Transfer Conduits", "Storage", "Plasma Conduits", "Workshop",
+       "Engineering Stores", "Field Generators", "EPS Junction", "Crew Quarters",
+       "Storage", "Crew Quarters", "Systems Lab", "Crew Lounge"],
+};
+// what the sensors find, and how each kind of intruder behaves
+const LIB = ["Humanoid", "Borg Drone  ·  Third of Five", "Romulan Interphase Signature", "Nonhumanoid Lifeform", "Energy-Based Lifeform"];
+const PROFILES = [
+  { deck: 6, origin: 6, cls: "Interphase Signature", life: "Intermittent", mass: () => "Indeterminate", speed: 46, base: 44, amp: 13,
+    match: [12, 4, 86, 9, 31], losses: 2, phase: true },
+  { deck: 22, origin: 9, cls: "Nonhumanoid Lifeform", life: "Nonhumanoid", mass: () => L.irand(34, 42) + " kg", speed: 74, base: 78, amp: 5,
+    match: [7, 3, 2, 81, 6], losses: 1 },
+  { deck: 12, origin: 21, cls: "Unregistered Humanoid", life: "Humanoid", mass: () => L.irand(68, 84) + " kg", speed: 56, base: 84, amp: 4,
+    match: [74, 9, 3, 14, 2], losses: 1 },
+  { deck: 36, origin: 18, cls: "Energy-Based Lifeform", life: "Energy Pattern", mass: () => "Negligible", speed: 86, base: 70, amp: 8,
+    match: [3, 1, 18, 6, 83], losses: 1 },
+];
+const TEAMS = [{ n: "Team 1", leader: "Lt. Worf" }, { n: "Team 2", leader: "Lt. j.g. Ortega" }, { n: "Team 3", leader: "Ens. Kessler" }];
+const MPX = 0.025;                                               // metres per design px on the plan
+
+// ---------------- status line ----------------
+const BIG = 100;
+const state = cls(L.text({ x: X0, cap: 150, s: BIG, c: "ice", txt: "" }), "sw");
+const sub = cls(L.text({ x: 0, base: 222, s: 38, c: "ice", txt: "" }), "sw");
+const placeSub = () => { sub.style.left = X0 + L.textWidth(state.textContent, BIG) + 48 + "px"; };
+const reading = (x, label, align) => {
+  const lw = L.textWidth(label, 40);
+  if (align === "r") {
+    const v = L.text({ x, cap: 150, s: BIG, c: "white", txt: "00:00", align: "r" });
+    const lab = L.text({ x: 0, base: 222, s: 40, c: "ice", txt: label });
+    return { v, place: () => { lab.style.left = x - L.textWidth(v.textContent, BIG) - 36 - lw + "px"; } };
+  }
+  L.text({ x, base: 222, s: 40, c: "ice", txt: label });
+  return { v: L.text({ x: x + lw + 36, cap: 150, s: BIG, c: "white", txt: "0" }), place: () => {} };
+};
+const rFix = reading(RX, "Track Fixes");
+const rTime = reading(X1, "Contact Time", "r");
+
+// ---------------- the deck plan ----------------
+const PX0 = X0, PX1 = GR, PY0 = 360, PY1 = 1484, CWD = 48, G8 = 8;
+const planBox = L.box({ x: X0, y: 280, w: Math.ceil(L.textWidth("Deck Plan  ·  Deck 22", 32) + 88), h: 56, c: "mars", label: "", fs: 32, r: "l", cls: "sw" });
+const planLW = parseFloat(planBox.style.width);
+L.rect({ x: X0 + planLW + L.GAP, y: 280, w: GR - X0 - planLW - L.GAP, h: 56, c: "ice" });
+const COLW = [304, 308, 308, 308, 308, 304];
+const colL = [];
+{ let x = PX0; for (const w of COLW) { colL.push(x); x += w + 2 * G8 + CWD; } }
+const VX = range(5).map((i) => colL[i] + COLW[i] + G8 + CWD / 2);
+const HY = [724, 1120];
+// corridors: two running fore and aft, five across
+HY.forEach((y) => L.rect({ x: PX0, y: y - CWD / 2, w: PX1 - PX0, h: CWD, c: CORR, noalign: true }));
+VX.forEach((x) => L.rect({ x: x - CWD / 2, y: PY0, w: CWD, h: PY1 - PY0, c: CORR, noalign: true }));
+// rooms
+const rooms = [];
+for (let c = 0; c < 6; c++) {
+  const add = (row, y0, y1, part) => rooms.push({ i: rooms.length, row, col: c, part, x: colL[c], y: y0, w: COLW[c], h: y1 - y0 });
+  if (c % 2 === 0) add(0, 360, 692, "w"); else { add(0, 360, 522, "t"); add(0, 530, 692, "b"); }
+  add(1, 756, 1088, "w");
+  if (c % 2 === 1) add(2, 1152, 1484, "w"); else { add(2, 1152, 1314, "t"); add(2, 1322, 1484, "b"); }
+}
+for (const r of rooms) {
+  r.cx = r.x + r.w / 2; r.cy = r.y + r.h / 2;
+  r.sx = r.x + r.w - 50; r.sy = r.h > 200 ? r.y + 200 : r.y + 124;   // where someone stands, and its doors: aft of its labels
+  L.rect({ x: r.x, y: r.y, w: r.w, h: r.h, c: ROOM, panel: true, noalign: true });
+  L.rect({ x: r.x, y: r.y, w: r.w, h: 8, c: r.row === 1 ? "mars" : "ice", noalign: true });
+  r.num = cls(L.text({ x: r.x + 22, cap: r.y + 28, s: 36, c: "ice", txt: "" }), "sw");
+  r.name = cls(L.text({ x: r.x + 22, cap: r.y + 70, s: 36, c: "sand", txt: "" }), "sw");
+}
+
+// ---------------- the graph the intruder and the teams move on ----------------
+const nodes = [], keyOf = new Map();
+const node = (x, y, kind) => {
+  const k = Math.round(x) + "," + Math.round(y);
+  if (keyOf.has(k)) return keyOf.get(k);
+  nodes.push({ id: nodes.length, x, y, kind, adj: [] }); keyOf.set(k, nodes.length - 1); return nodes.length - 1;
+};
+const link = (a, b, phase = false) => {
+  if (a === b) return;
+  const A = nodes[a], B = nodes[b], len = Math.hypot(A.x - B.x, A.y - B.y);
+  A.adj.push({ to: b, len, phase }); B.adj.push({ to: a, len, phase });
+};
+const ek = (a, b) => (a < b ? a + "-" + b : b + "-" + a);
+const hList = HY.map(() => []), vList = VX.map(() => []);
+const hEnds = HY.map((y, j) => { const a = node(PX0 + 22, y, "end"), b = node(PX1 - 22, y, "end"); hList[j].push(a, b); return [a, b]; });
+const vEnds = VX.map((x, i) => { const a = node(x, PY0 + 22, "end"), b = node(x, PY1 - 22, "end"); vList[i].push(a, b); return [a, b]; });
+VX.forEach((x, i) => HY.forEach((y, j) => { const n = node(x, y, "x"); vList[i].push(n); hList[j].push(n); }));
+// doors: onto the corridor fore and aft where the room touches one, else onto the corridor beside it
+const doorMarks = [];
+for (const r of rooms) {
+  r.node = node(r.sx, r.sy, "room"); nodes[r.node].room = r;
+  r.doors = [];
+  const hDoor = (j, above) => {
+    const d = node(r.sx, HY[j], "door"); hList[j].push(d); r.doors.push({ n: d, gx: r.sx, gy: above ? r.y + r.h + 4 : r.y - 4, h: true });
+  };
+  if (r.row === 1) { hDoor(0, false); hDoor(1, true); }
+  else if (r.row === 0 && r.part !== "t") hDoor(0, true);
+  else if (r.row === 2 && r.part !== "b") hDoor(1, false);
+  else {
+    const i = Math.min(r.col, 4), right = i === r.col;
+    const d = node(VX[i], r.sy, "door"); vList[i].push(d);
+    r.doors.push({ n: d, gx: right ? r.x + r.w + 4 : r.x - 4, gy: r.sy, h: false });
+  }
+  for (const d of r.doors) {
+    link(r.node, d.n);
+    doorMarks.push(d.h ? { x: d.gx - 32, y: d.gy - 4, w: 64, h: 8 } : { x: d.gx - 4, y: d.gy - 32, w: 8, h: 64 });
+  }
+}
+const sortLink = (list, axis) => {
+  const u = [...new Set(list)].sort((a, b) => nodes[a][axis] - nodes[b][axis]);
+  for (let i = 1; i < u.length; i++) link(u[i - 1], u[i]);
+};
+hList.forEach((l) => sortLink(l, "x")); vList.forEach((l) => sortLink(l, "y"));
+// an interphased being walks through bulkheads: straight from one middle-row room to the next
+const rowB = rooms.filter((r) => r.row === 1);
+for (let i = 1; i < rowB.length; i++) link(rowB[i - 1].node, rowB[i].node, true);
+doorMarks.forEach((d) => L.rect({ ...d, c: "ice", free: true }));
+const LIFTS = [hEnds[0][0], hEnds[1][1], vEnds[1][0], vEnds[3][1], vEnds[2][1], vEnds[4][0], hEnds[0][1], hEnds[1][0]];
+
+const roomAt = (x, y) => rooms.find((r) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h);
+const nearRoom = (x, y) => roomAt(x, y) || rooms.reduce((b, r) => (Math.hypot(r.cx - x, r.cy - y) < Math.hypot(b.cx - x, b.cy - y) ? r : b));
+
+// a wandering path from the origin room to another room, along corridors (and, for a phased being, through walls)
+function genPath(start, phase, minLen, maxLen) {
+  const startRoom = nodes[start].room;
+  let best = null;
+  for (let tries = 0; tries < 4000; tries++) {
+    const path = [start], seen = new Set(path);
+    let len = 0, cur = start, prevDir = "";
+    for (let step = 0; step < 90; step++) {
+      const cand = [];
+      for (const e of nodes[cur].adj) {
+        if (seen.has(e.to) || (e.phase && !phase)) continue;
+        const n = nodes[e.to], C = nodes[cur];
+        if (n.kind === "end") continue;
+        const dir = Math.sign(Math.round(n.x - C.x)) + "," + Math.sign(Math.round(n.y - C.y));
+        if (n.kind === "room") {
+          const ends = len + e.len >= minLen && n.room !== startRoom;
+          const onward = n.adj.some((f) => f.to !== cur && !seen.has(f.to) && (phase || !f.phase));
+          if (ends) cand.push({ e, w: 8, ends: true, dir });
+          else if (onward && n.room !== startRoom) cand.push({ e, w: phase ? 2 : 0.6, ends: false, dir });
+          continue;
+        }
+        cand.push({ e, w: dir === prevDir ? 3 : 1, ends: false, dir });
+      }
+      if (!cand.length) break;
+      let r = Math.random() * cand.reduce((a, c) => a + c.w, 0), pick = cand[0];
+      for (const c of cand) { r -= c.w; if (r <= 0) { pick = c; break; } }
+      path.push(pick.e.to); seen.add(pick.e.to); len += pick.e.len; prevDir = pick.dir; cur = pick.e.to;
+      if (pick.ends) {
+        if (len <= maxLen) return path;
+        if (!best || len < best.len) best = { path, len };
+        break;
+      }
+    }
+  }
+  return best.path;
+}
+// the teams keep to the corridors: shortest way from a turbolift to the door
+function route(a, b) {
+  const N = nodes.length, dist = new Array(N).fill(Infinity), prev = new Array(N).fill(-1), done = new Array(N).fill(false);
+  dist[a] = 0;
+  for (;;) {
+    let u = -1;
+    for (let i = 0; i < N; i++) if (!done[i] && dist[i] < Infinity && (u < 0 || dist[i] < dist[u])) u = i;
+    if (u < 0 || u === b) break;
+    done[u] = true;
+    for (const e of nodes[u].adj) {
+      if (e.phase || nodes[e.to].kind === "room") continue;
+      const d = dist[u] + e.len;
+      if (d < dist[e.to]) { dist[e.to] = d; prev[e.to] = u; }
+    }
+  }
+  const out = [];
+  for (let u = b; u >= 0; u = prev[u]) out.unshift(u);
+  return out;
+}
+const trimEnd = (pts, d) => {
+  pts = pts.map((p) => p.slice());
+  while (pts.length > 1 && d > 0) {
+    const a = pts[pts.length - 2], b = pts[pts.length - 1], l = hyp(a, b);
+    if (l <= d) { pts.pop(); d -= l; }
+    else { const k = (l - d) / l; pts[pts.length - 1] = [L.mix(a[0], b[0], k), L.mix(a[1], b[1], k)]; d = 0; }
+  }
+  return pts;
+};
+
+// ---------------- an incident, worked out in full when it begins ----------------
+const ACC = 1.0, TSPD = 72, TACC = 1.2;
+function makeIncident(T0, prof) {
+  const I = { prof, T0, deck: prof.deck, dd: pad2(prof.deck), ph: L.rand(0, 6), massTxt: prof.mass() };
+  I.sec = (r) => `${I.dd}-${pad2(r.i + 1)}`;
+  I.secAt = (x, y) => I.sec(nearRoom(x, y));
+  I.origin = rooms[prof.origin];
+  const g = genPath(I.origin.node, !!prof.phase, prof.speed * 32, prof.speed * 44);
+  const pts = g.map((id) => [nodes[id].x, nodes[id].y]);
+  I.path = g; I.final = nodes[g[g.length - 1]].room;
+  I.tDet = T0 + L.rand(10, 13);
+  I.tMove0 = I.tDet + 1.6;
+  // one or two pauses at junctions; legs between them
+  const inner = range(g.length).filter((i) => i >= 2 && i <= g.length - 4 && nodes[g[i]].kind === "x");
+  const pauses = new Map();
+  shuffle(inner).slice(0, L.irand(1, 2)).forEach((i) => pauses.set(i, L.rand(2.4, 3.6)));
+  I.legs = []; I.nodeT = [];
+  let tc = I.tMove0, a = 0;
+  for (const b of [...[...pauses.keys()].sort((p, q) => p - q), g.length - 1]) {
+    const lp = pts.slice(a, b + 1), len = polyLen(lp), dur = len / prof.speed + ACC;
+    const leg = { t0: tc, t1: tc + dur, pts: lp, len, dur };
+    I.legs.push(leg);
+    let s = 0;
+    for (let i = a; i <= b; i++) { if (i > a) s += hyp(pts[i - 1], pts[i]); I.nodeT[i] = tc + trapT(len, dur, s, ACC); }
+    tc = leg.t1 + (pauses.get(b) || 0);
+    a = b;
+  }
+  I.tArrive = I.legs[I.legs.length - 1].t1;
+  // contact lost now and then
+  I.losses = [];
+  const lo = I.tMove0 + 6, hi = I.tArrive - 6;
+  for (let tries = 0; tries < 200 && I.losses.length < prof.losses; tries++) {
+    const d = L.rand(5.5, 7.5), s = L.rand(lo, hi - d);
+    if (s < lo || s + d > hi) continue;
+    if (I.losses.every((w) => s > w.l1 + 5 || s + d < w.l0 - 5)) I.losses.push({ l0: s, l1: s + d });
+  }
+  I.losses.sort((p, q) => p.l0 - q.l0);
+  // the teams: from three turbolifts to the door the intruder went in by, arriving after it stops
+  const entry = g[g.length - 2];
+  const starts = shuffle(LIFTS.filter((id) => id !== entry));
+  const used = new Set();
+  I.teams = TEAMS.map((tm, k) => {
+    const rt = route(starts[k], entry);
+    for (let i = 1; i < rt.length; i++) used.add(ek(rt[i - 1], rt[i]));
+    const full = rt.map((id) => [nodes[id].x, nodes[id].y]);
+    const rp = trimEnd(full, Math.min([36, 110, 184][k], polyLen(full) - 1));
+    const len = polyLen(rp), td = I.tDet + 3 + 2.2 * k;
+    let ta = I.tArrive + 2 + 2.6 * k;
+    const tm0 = Math.max(td + 1.2, ta - len / TSPD - TACC);
+    if (len / (ta - tm0) > 150) ta = tm0 + len / 150 + TACC;
+    const end = rp[rp.length - 1];
+    return { ...tm, k, route: rp, len, td, tm: tm0, ta, endSec: I.secAt(end[0], end[1]) };
+  });
+  I.tCont = Math.min(...I.teams.map((t) => t.ta));
+  I.tDone = Math.max(...I.teams.map((t) => t.ta)) + 1.2;
+  if (prof.phase) I.tDone = Math.max(I.tDone, I.tCont + 6);
+  I.tSD = I.tDone + 12;
+  I.tEnd = I.tSD + 4;
+  // force fields: corridors sealed ahead of the intruder (never where it or a team will pass), then its room's doors
+  I.fields = [];
+  const pathSet = new Set(g);
+  for (const i of shuffle(range(g.length))) {
+    if (I.fields.length >= 2) break;
+    if (i < 2 || i > g.length - 3 || nodes[g[i]].kind !== "x" || I.nodeT[i] < I.tDet + 14 || I.nodeT[i] > I.tArrive - 3) continue;
+    const N = nodes[g[i]], tOn = I.nodeT[i] - 5;
+    if (I.fields.some((f) => Math.abs(f.tOn - tOn) < 6)) continue;
+    const opts = N.adj.filter((e) => !e.phase && !pathSet.has(e.to) && nodes[e.to].kind !== "room" && !used.has(ek(g[i], e.to)) && e.len >= 70);
+    if (!opts.length) continue;
+    const e = L.pick(opts), M = nodes[e.to], ux = (M.x - N.x) / e.len, uy = (M.y - N.y) / e.len;
+    const cx = N.x + ux * 44, cy = N.y + uy * 44;
+    I.fields.push(Object.assign(Math.abs(ux) > 0.5 ? { x: cx - 6, y: cy - 29, w: 12, h: 58 } : { x: cx - 29, y: cy - 6, w: 58, h: 12 },
+      { tOn, sec: I.secAt(cx, cy) }));
+  }
+  if (!prof.phase) for (const d of I.final.doors)
+    I.fields.push(Object.assign(d.h ? { x: d.gx - 44, y: d.gy - 6, w: 88, h: 12 } : { x: d.gx - 6, y: d.gy - 44, w: 12, h: 88 },
+      { tOn: I.tCont, sec: I.sec(I.final) }));
+  I.fields.sort((p, q) => p.tOn - q.tOn);
+  // sensor fixes: one every 34 px of travel while there is contact
+  I.fixes = [];
+  let last = null, gap = false;
+  for (let t = I.tDet + 0.5; t <= I.tArrive + 0.01; t += 34 / prof.speed) {
+    if (visAt(I, t) < 0.98) { if (last) gap = true; continue; }
+    const p = posAt(I, t);
+    if (last && hyp(last, p) < 20) continue;
+    I.fixes.push({ t, x: p[0], y: p[1], gap }); last = p; gap = false;
+  }
+  { const p = posAt(I, I.tArrive + 0.02); if (!last || hyp(last, p) > 4) I.fixes.push({ t: I.tArrive + 0.02, x: p[0], y: p[1], gap }); }
+  // the log
+  const E = [], ev = (A, sec, txt, dt, c) => E.push({ A, sec, ev: txt, dt, c });
+  const at = (t) => { const p = posAt(I, t); return I.secAt(p[0], p[1]); };
+  ev(T0 + 0.6, `Deck ${I.dd}`, "Sweep Begun", "Internal Sensors", "sand");
+  ev(I.tDet, I.sec(I.origin), "Intruder Alert", DECKS[I.deck][I.origin.i], "mars");
+  ev(I.tDet + 0.8, `Deck ${I.dd}`, "Bridge Notified", "Capt. Picard", "sand");
+  I.teams.forEach((tm) => { ev(tm.td, "Deck 08", `${tm.n} Dispatched`, tm.leader, "ice"); ev(tm.ta, tm.endSec, `${tm.n} in Position`, tm.leader, "ice"); });
+  I.losses.forEach((w) => {
+    ev(w.l0, at(w.l0), "Contact Lost", prof.phase ? "Interphase Shift" : "Sensor Shadow", "peach");
+    ev(w.l1, at(w.l1), "Contact Reacquired", prof.phase ? "Chroniton Scan" : "Internal Sensors", "ice");
+  });
+  ev(I.tDet + 19, at(I.tDet + 19), "Signature Analysis", prof.cls, "ice");
+  I.fields.forEach((f) => { if (f.tOn < I.tCont) ev(f.tOn, f.sec, "Force Field Raised", "Corridor Sealed", "sky"); });
+  ev(I.tArrive, I.sec(I.final), "Lifeform Stationary", DECKS[I.deck][I.final.i], "sand");
+  if (prof.phase) {
+    ev(I.tCont, I.sec(I.final), "Anyon Sweep", "Emitters Active", "sky");
+    ev(I.tDone, I.sec(I.final), "Chronitons Dispersed", "Signature Resolved", "ice");
+  } else {
+    ev(I.tCont, I.sec(I.final), "Containment Field", "Doors Sealed", "sky");
+    ev(I.tDone, I.sec(I.final), "Lifeform Contained", "3 Teams on Site", "ice");
+  }
+  ev(I.tSD, `Deck ${I.dd}`, "Stand Down", "Lt. Worf", "sand");
+  E.sort((p, q) => p.A - q.A);
+  I.events = E;
+  I.fi = 0; I.ei = 0; I.lastFix = null;
+  return I;
+}
+function posAt(I, t) {
+  const legs = I.legs;
+  for (const lg of legs) {
+    if (t < lg.t0) return lg.pts[0].slice();
+    if (t <= lg.t1) return along(lg.pts, trap(lg.len, lg.dur, t - lg.t0, ACC));
+  }
+  const lp = legs[legs.length - 1].pts; return lp[lp.length - 1].slice();
+}
+function speedAt(I, t) {
+  for (const lg of I.legs) if (t >= lg.t0 && t <= lg.t1) return trapV(lg.len, lg.dur, t - lg.t0, ACC);
+  return 0;
+}
+function visAt(I, t) {
+  if (t < I.tDet) return 0;
+  let v = L.clamp((t - I.tDet) / 0.5);
+  for (const w of I.losses)
+    if (t >= w.l0 && t < w.l1 + 0.6) v = Math.min(v, t < w.l1 ? 1 - L.clamp((t - w.l0) / 0.8) : L.clamp((t - w.l1) / 0.6));
+  if (I.prof.phase && t > I.tCont + 3) v = Math.min(v, 1 - L.clamp((t - I.tCont - 3) / 2.5));
+  if (I.tSD !== undefined && t > I.tSD) v = Math.min(v, 1 - L.clamp((t - I.tSD) / 1.6));
+  return v;
+}
+const lossAt = (I, t) => I.losses.find((w) => t >= w.l0 && t < w.l1);
+function teamPos(tm, t) {
+  if (t < tm.tm) return tm.route[0].slice();
+  if (t >= tm.ta) return tm.route[tm.route.length - 1].slice();
+  return along(tm.route, trap(tm.len, tm.ta - tm.tm, t - tm.tm, TACC));
+}
+
+// ---------------- layers on the plan, back to front ----------------
+const crewL = cls(L.layer({ x: PX0, y: PY0, w: PX1 - PX0, h: PY1 - PY0 }), "sw");
+const crewSvg = svgIn(crewL, PX1 - PX0, PY1 - PY0);
+const tints = [0, 1].map(() => { const e = L.layer({ x: 0, y: 0, w: 100, h: 100, cls: "tint" }); op(e, 0); return { e, room: null, t0: -9, on: false, from: 0 }; });
+const trailL = L.layer({ x: PX0, y: PY0, w: PX1 - PX0, h: PY1 - PY0 });
+const trailSvg = svgIn(trailL, PX1 - PX0, PY1 - PY0);
+const gLines = sv("g", {}, trailSvg), gDots = sv("g", {}, trailSvg);
+const holdL = L.layer({ x: 0, y: 0, w: 100, h: 100, cls: "hold" }); op(holdL, 0);
+const fieldEls = range(6).map(() => { const e = L.layer({ x: 0, y: 0, w: 10, h: 10, cls: "ff" }); op(e, 0); return e; });
+// the sweep: a band crossing the plan fore to aft, clipped to it
+const clip = L.el("div", "", L.stage, { position: "absolute", left: PX0 + "px", top: PY0 + "px", width: PX1 - PX0 + "px", height: PY1 - PY0 + "px", overflow: "hidden" });
+const BANDW = 150;
+const band = L.layer({ x: 0, y: 0, w: BANDW, h: PY1 - PY0, cls: "band" }, clip); op(band, 0);
+const teamEls = TEAMS.map((tm, k) => { const e = L.layer({ x: PX0 - 28, y: PY0 - 18, w: 56, h: 36, cls: "team" }); e.textContent = String(k + 1); op(e, 0); return e; });
+const estL = L.layer({ x: PX0 - 60, y: PY0 - 60, w: 120, h: 120, cls: "est" }); op(estL, 0);
+const pingL = L.layer({ x: PX0 - 60, y: PY0 - 60, w: 120, h: 120, cls: "ping" }); op(pingL, 0);
+const mk = L.layer({ x: PX0 - 30, y: PY0 - 30, w: 60, h: 60 }); op(mk, 0);
+const mkRing = L.layer({ x: 0, y: 0, w: 60, h: 60, cls: "ring" }, mk);
+L.layer({ x: 18, y: 18, w: 24, h: 24, cls: "core" }, mk);
+const SWEEP_PER = 8, SWEEP_PASS = 6, SWEEP_OFF = L.rand(0, 8);
+
+// legend under the plan: fore and aft at its ends, the symbols between
+L.text({ x: X0, base: 1536, s: 36, c: "ice", txt: "Fore" });
+L.text({ x: GR, base: 1536, s: 36, c: "ice", txt: "Aft", align: "r" });
+{
+  const items = [["ring", "Intruder"], ["fix", "Track Fixes"], ["est", "Estimated Position"], ["team", "Security Team"], ["ff", "Force Field"], ["door", "Door"]];
+  const SWW = 44, IG = 18, GAPI = 72, mid = 1536 - 13;
+  const total = items.reduce((a, [, t]) => a + SWW + IG + L.textWidth(t, 36), 0) + GAPI * (items.length - 1);
+  let x = (X0 + GR) / 2 - total / 2;
+  const sw = (css, extra = "") => { const e = L.el("div", "boot " + extra, L.stage, Object.assign({ position: "absolute" }, css)); return e; };
+  for (const [k, txt] of items) {
+    if (k === "ring") sw({ left: x + 7 + "px", top: mid - 15 + "px", width: "30px", height: "30px", border: "5px solid var(--mars)", borderRadius: "50%" });
+    if (k === "fix") { sw({ left: x + "px", top: mid - 2 + "px", width: SWW + "px", height: "4px", background: "var(--mars)", opacity: ".6" });
+                       [4, 22, 40].forEach((d) => sw({ left: x + d - 6 + "px", top: mid - 6 + "px", width: "12px", height: "12px", background: "var(--mars)", borderRadius: "50%" })); }
+    if (k === "est") sw({ left: x + 5 + "px", top: mid - 17 + "px", width: "34px", height: "34px", border: "4px dashed var(--ice)", borderRadius: "50%" });
+    if (k === "team") sw({ left: x + "px", top: mid - 14 + "px", width: SWW + "px", height: "28px", background: "var(--ice)", borderRadius: "14px" });
+    if (k === "ff") sw({ left: x + "px", top: mid - 5 + "px", width: SWW + "px", height: "10px", background: "var(--sky)", borderRadius: "5px", boxShadow: "0 0 12px 2px rgba(92,157,255,.6)" });
+    if (k === "door") sw({ left: x + "px", top: mid - 4 + "px", width: SWW + "px", height: "8px", background: "var(--ice)" });
+    L.text({ x: x + SWW + IG, base: 1536, s: 36, c: "sand", txt, legend: true });
+    x += SWW + IG + L.textWidth(txt, 36) + GAPI;
+  }
+}
+
+// ---------------- contact ----------------
+L.header({ x: RX, y: 280, w: X1 - RX, label: "Contact", c1: "ice", c2: "mars" });
+const CB = (k) => 424 + 84 * k, CM = 3150, CR = 3214;
+const kv = (x, xr, base, label) => {
+  L.text({ x, base, s: 40, c: "ice", txt: label });
+  return cls(L.text({ x: xr, base, s: 52, c: "white", txt: "–", align: "r" }), "sw");
+};
+const vClass = kv(RX, X1, CB(0), "Classification");
+const vLife = kv(RX, CM, CB(1), "Life Signs"), vMass = kv(CR, X1, CB(1), "Mass");
+const vVel = kv(RX, CM, CB(2), "Velocity"), vHead = kv(CR, X1, CB(2), "Heading");
+const vSec = kv(RX, CM, CB(3), "Section"), vNear = kv(CR, X1, CB(3), "Nearest Team");
+// signal strength: a trace scrolling past, an hour's minute a second
+const CHY = 784, CHH = 176, CWW = X1 - RX, CSPD = 20;
+L.text({ x: RX, base: 760, s: 40, c: "ice", txt: "Signal Strength" });
+const vSig = L.text({ x: X1, base: 760, s: 40, c: "white", txt: "0%", align: "r" });
+const yOf = (v) => CHH - 10 - (v / 100) * (CHH - 20);
+L.rect({ x: RX, y: CHY, w: CWW, h: CHH, c: "#0a1524" });
+[25, 50, 75].forEach((v) => L.rect({ x: RX, y: CHY + yOf(v) - 1, w: CWW, h: 2, c: "#1b2d48", free: true }));
+for (let k = 1; k < 6; k++) L.rect({ x: RX + (CWW / 6) * k - 1, y: CHY, w: 2, h: CHH, c: "#1b2d48", free: true });
+const strip = L.el("div", "boot", L.stage, { position: "absolute", left: RX + "px", top: CHY + "px", width: CWW + "px", height: CHH + "px", overflow: "hidden" });
+const tiles = [0, 1].map((k) => { const c = L.canvas({ x: 0, y: 0, w: CWW + 8, h: CHH }, strip); c.cv.style.willChange = "transform"; c.idx = k; return c; });
+
+// ---------------- security response ----------------
+L.header({ x: RX, y: 1000, w: X1 - RX, label: "Security Response", c1: "mars", c2: "ice" });
+const MB = (k) => 1116 + 84 * k;
+const TC = { leader: RX + 190, loc: RX + 460, st: RX + 690 };
+[["Team", RX, ""], ["Leader", TC.leader, ""], ["Location", TC.loc, ""], ["Status", TC.st, ""], ["ETA", X1, "r"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: MB(0), s: 36, c: "ice", txt, align }));
+const trow = (k, team, leader) => {
+  const base = MB(k);
+  L.text({ x: RX, base, s: 36, c: "sand", txt: team });
+  return { leader: L.text({ x: TC.leader, base, s: 36, c: "white", txt: leader }),
+           loc: cls(L.text({ x: TC.loc, base, s: 36, c: "sand", txt: "" }), "sw"),
+           st: cls(L.text({ x: TC.st, base, s: 36, c: "white", txt: "" }), "sw"),
+           eta: L.text({ x: X1, base, s: 36, c: "white", txt: "", align: "r" }) };
+};
+const trows = TEAMS.map((tm, k) => trow(k + 1, tm.n, tm.leader));
+const brig = trow(4, "Team 4", "Ens. Mbeki");
+L.set(brig.loc, "Brig  ·  Deck 08"); L.set(brig.st, "Standing By"); L.set(brig.eta, "–"); fg(brig.st, "sand");
+const ffRow = trow(5, "Force Fields", "–");
+L.set(ffRow.eta, "–");
+
+// ---------------- the bottom strip ----------------
+L.header({ x: X0, y: 1620, w: ML - X0, label: "Sensor Sweeps", c1: "ice", c2: "mars", h: 48 });
+L.header({ x: MR, y: 1620, w: GR - MR, label: "Signature Comparison", c1: "mars", c2: "ice", h: 48 });
+L.header({ x: RX, y: 1620, w: X1 - RX, label: "Track Log", c1: "ice", c2: "mars", h: 48 });
+const SB = (k) => 1734 + k * 54, BH = 20;
+const SBAR = [730, 1250], CBAR = [1822, 2342], SEGW = 84;
+// sweeps: a lit segment runs along each track once a pass; the count is passes completed
+L.text({ x: X0, base: SB(0), s: 36, c: "ice", txt: "Sweep" });
+L.text({ x: SBAR[0], base: SB(0), s: 36, c: "ice", txt: "Pass" });
+L.text({ x: ML, base: SB(0), s: 36, c: "ice", txt: "Passes", align: "r" });
+const SWEEPS = [
+  { name: "Internal Sensors", per: SWEEP_PER, pass: SWEEP_PASS, off: SWEEP_OFF, n0: L.irand(2100, 2300) },
+  { name: "Biosign Scan", per: 11, pass: 8.5, off: L.rand(0, 11), n0: L.irand(1400, 1600) },
+  { name: "Thermal Imaging", per: 13, pass: 10, off: L.rand(0, 13), n0: L.irand(1100, 1300) },
+  { name: "Chroniton Scan", per: 17, pass: 13, off: L.rand(0, 17), n0: L.irand(800, 950) },
+  { name: "Anyon Sweep", per: 3.4, pass: 2.8, off: 0, n0: L.irand(12, 30), anyon: true },
+];
+SWEEPS.forEach((s, k) => {
+  const base = SB(k + 1);
+  s.nameEl = L.text({ x: X0, base, s: 36, c: "sand", txt: s.name });
+  L.rect({ x: SBAR[0], y: base - BH, w: SBAR[1] - SBAR[0], h: BH, c: TRACK });
+  s.seg = L.layer({ x: SBAR[0], y: base - BH, w: SEGW, h: BH, cls: "seg" }); op(s.seg, 0);
+  s.nEl = L.text({ x: ML, base, s: 36, c: "white", txt: "", align: "r" });
+  s.n = s.n0; s.u = 0; s.done = 0;
+});
+// signature comparison against the library
+L.text({ x: MR, base: SB(0), s: 36, c: "ice", txt: "Signature Library" });
+L.text({ x: CBAR[0], base: SB(0), s: 36, c: "ice", txt: "Correlation" });
+L.text({ x: GR, base: SB(0), s: 36, c: "ice", txt: "Match", align: "r" });
+const cmp = LIB.map((nm, k) => {
+  const base = SB(k + 1);
+  L.rect({ x: CBAR[0], y: base - BH, w: CBAR[1] - CBAR[0], h: BH, c: TRACK });
+  return { name: cls(L.text({ x: MR, base, s: 36, c: "sand", txt: nm }), "sw"),
+           bar: cls(fill(CBAR[0], base - BH, CBAR[1] - CBAR[0], BH, "ice"), "sw"),
+           pct: L.text({ x: GR, base, s: 36, c: "white", txt: "0%", align: "r" }) };
+});
+const ANALYSIS = 19;                                             // seconds from detection to a classification
+const matchAt = (I, k, t) => {
+  if (!I || t < I.tDet) return 0;
+  let v = I.prof.match[k] * L.ease(L.clamp((t - I.tDet - 2 - 1.2 * k) / 12));
+  if (t > I.tSD) v *= 1 - L.ease(L.clamp((t - I.tSD) / 1.6));
+  return v;
+};
+
+// the track log: oldest at the top, a new line arrives at the bottom
+const LG = { sec: RX + 190, ev: RX + 360 };
+const LN = 6, LPH = 54, LY = SB(0) - 44;
+const logRows = range(LN).map((i) => {
+  const e = L.layer({ x: RX, y: LY, w: X1 - RX, h: LPH });
+  const r = { e, slot: i,
+    tm: L.text({ x: 0, base: 44, s: 36, c: "ice", txt: "" }, e),
+    sec: L.text({ x: LG.sec - RX, base: 44, s: 36, c: "mars", txt: "" }, e),
+    ev: L.text({ x: LG.ev - RX, base: 44, s: 36, c: "sand", txt: "" }, e),
+    dt: L.text({ x: X1 - RX, base: 44, s: 36, c: "white", txt: "", align: "r", rightIn: true }, e) };
+  L.move(e, 0, i * LPH);
+  return r;
+});
+const CLK0 = L.rand(8, 20) * 3600;
+const shipTime = (A) => { const s = Math.floor(CLK0 + A); return `${pad2(Math.floor(s / 3600) % 24)}:${pad2(Math.floor(s / 60) % 60)}:${pad2(s % 60)}`; };
+const showLog = (r, x) => { L.set(r.tm, shipTime(x.A)); L.set(r.sec, x.sec); L.set(r.ev, x.ev); L.set(r.dt, x.dt); fg(r.ev, x.c || "sand"); };
+const pendingLog = [];
+let lastLogA = -1e12;
+const logEvent = (x) => { x = Object.assign({}, x, { A: Math.max(x.A, lastLogA) }); lastLogA = x.A; pendingLog.push(x); };
+
+// ---------------- the guard: every word fits its place ----------------
+for (const d in DECKS) DECKS[d].forEach((nm, i) => fits(nm, 36, rooms[i].w - 50 - 22 - 30, `room ${d}-${i + 1}`));
+const fitPair = (label, xl, xr, vals, where) => vals.forEach((v) => fits(v, 52, xr - xl - L.textWidth(label, 40) - 40, where));
+fitPair("Classification", RX, X1, ["No Contact", "Analyzing", ...PROFILES.map((p) => p.cls)], "class");
+fitPair("Life Signs", RX, CM, ["No Contact", ...PROFILES.map((p) => p.life)], "life");
+fitPair("Mass", CR, X1, ["Indeterminate", "Negligible", "84 kg"], "mass");
+fitPair("Velocity", RX, CM, ["2.2 m/s"], "velocity");
+fitPair("Heading", CR, X1, ["Starboard", "Stationary"], "heading");
+fitPair("Nearest Team", CR, X1, ["188 m"], "nearest");
+for (const tm of TEAMS) { fits(tm.n, 36, TC.leader - RX - 36, "team"); fits(tm.leader, 36, TC.loc - TC.leader - 36, "leader"); }
+fits("Force Fields", 36, TC.leader - RX - 36, "team"); fits("Ens. Mbeki", 36, TC.loc - TC.leader - 36, "leader");
+fits("Brig  ·  Deck 08", 36, TC.st - TC.loc - 36, "loc");
+for (const s of ["Standing By", "Dispatched", "Intercepting", "In Position", "Returning", "None Active", "4 Active"]) fits(s, 36, X1 - TC.st - L.textWidth("On Site", 36) - 36, "status");
+for (const s of SWEEPS) fits(s.name, 36, SBAR[0] - X0 - 40, "sweep");
+for (const s of LIB) fits(s, 36, CBAR[0] - MR - 40, "library");
+fits("Lifeform Stationary", 36, X1 - LG.ev - L.textWidth("Observation Lounge", 36) - 48, "log");
+fits("Contact Reacquired", 36, X1 - LG.ev - L.textWidth("Internal Sensors", 36) - 48, "log");
+fits("Chronitons Dispersed", 36, X1 - LG.ev - L.textWidth("Signature Resolved", 36) - 48, "log");
+fits("Signature Analysis", 36, X1 - LG.ev - L.textWidth("Unregistered Humanoid", 36) - 48, "log");
+fits("Team 3 in Position", 36, X1 - LG.ev - L.textWidth("Lt. j.g. Ortega", 36) - 48, "log");
+for (const p of PROFILES) for (const nm of DECKS[p.deck]) fits("Intruder Alert", 36, X1 - LG.ev - L.textWidth(nm, 36) - 48, "log");
+fits("Deck 22", 36, LG.ev - LG.sec - 36, "log section"); fits("00:00:00", 36, LG.sec - RX - 36, "log time");
+for (const w of ["Containment", "Intruder Alert", "Contact Lost"])
+  for (const p of PROFILES) for (const nm of DECKS[p.deck])
+    fits(`Deck 22  ·  Section 22-24  ·  ${nm}`, 38, RX - 300 - X0 - L.textWidth(w, BIG) - 48, "subtitle");
+fits("Deck 22  ·  Section 22-24  ·  Chronitons Dispersed", 38, RX - 300 - X0 - L.textWidth("Resolved", BIG) - 48, "subtitle");
+if (bad.length) setTimeout(() => { throw new Error("intruder-tracking: " + bad.join(" | ")); });
+
+// ---------------- incidents, one after another ----------------
+let order = shuffle(range(PROFILES.length)), oi = 0;
+const nextProf = () => {
+  if (oi >= order.length) { const lastP = order[order.length - 1]; do order = shuffle(range(PROFILES.length)); while (order[0] === lastP); oi = 0; }
+  return PROFILES[order[oi++]];
+};
+const firstT0 = -L.rand(0, 70);
+const firstProf = nextProf();
+// a history for the log: the incident before this one, on another deck
+const before = makeIncident(firstT0 - 130, PROFILES[(PROFILES.indexOf(firstProf) + 1 + L.irand(0, 2)) % PROFILES.length]);
+let cur = makeIncident(firstT0, firstProf), prevI = before;
+
+function crewDots(I) {
+  while (crewSvg.firstChild) crewSvg.removeChild(crewSvg.firstChild);
+  for (const r of rooms) {
+    const n = L.irand(0, r.h > 200 ? 4 : 2);
+    for (let k = 0; k < n; k++) {
+      let x, y, tries = 0;
+      do { x = L.rand(r.x + 28, r.x + r.w - 28); y = L.rand(r.y + 118, r.y + r.h - 24); tries++; }
+      while (tries < 20 && Math.hypot(x - r.sx, y - r.sy) < 60);
+      sv("circle", { cx: x - PX0, cy: y - PY0, r: 7, fill: "#bdb497", opacity: 0.75 }, crewSvg);
+    }
+  }
+}
+function setup(I, first) {
+  fieldEls.forEach((f, i) => {
+    const d = I.fields[i];
+    if (d) Object.assign(f.style, { left: d.x + "px", top: d.y + "px", width: d.w + "px", height: d.h + "px" });
+    op(f, 0);
+  });
+  const r = I.final;
+  Object.assign(holdL.style, { left: r.x - 3 + "px", top: r.y - 3 + "px", width: r.w + 6 + "px", height: r.h + 6 + "px" });
+  holdL.classList.toggle("anyon", !!I.prof.phase);
+  op(holdL, 0);
+  while (gLines.firstChild) gLines.removeChild(gLines.firstChild);
+  while (gDots.firstChild) gDots.removeChild(gDots.firstChild);
+  op(trailL, 1);
+  tints.forEach((tn) => { tn.room = null; tn.on = false; tn.from = 0; op(tn.e, 0); });
+  const put = () => {
+    rooms.forEach((rm) => { L.set(rm.num, I.sec(rm)); L.set(rm.name, DECKS[I.deck][rm.i]); });
+    L.set(planBox, `Deck Plan  ·  Deck ${I.dd}`);
+    crewDots(I);
+  };
+  if (first) put(); else swap([planBox, crewL, ...rooms.flatMap((rm) => [rm.num, rm.name])], put);
+}
+setup(cur, true);
+function drawFix(I, f) {
+  const x = f.x - PX0, y = f.y - PY0, p = I.lastFix;
+  if (p) sv("line", { x1: p.x - PX0, y1: p.y - PY0, x2: x, y2: y, stroke: f.gap ? "#8fd3ff" : "#ff5a3c", "stroke-width": f.gap ? 4 : 5,
+    "stroke-dasharray": f.gap ? "12 12" : "none", opacity: f.gap ? 0.85 : 0.6, "stroke-linecap": "round" }, gLines);
+  if (p) sv("circle", { cx: x, cy: y, r: 8, fill: "#ff5a3c" }, gDots);
+  else sv("circle", { cx: x, cy: y, r: 14, fill: "none", stroke: "#ff5a3c", "stroke-width": 5 }, gDots);   // where it was first seen
+  I.lastFix = f;
+}
+// the log starts with what has already happened
+{
+  const hist = [...before.events.filter((e) => e.A < cur.T0), ...cur.events.filter((e) => e.A <= 0)].slice(-LN);
+  while (cur.ei < cur.events.length && cur.events[cur.ei].A <= 0) cur.ei++;
+  lastLogA = hist[hist.length - 1].A;
+  logRows.forEach((r, i) => showLog(r, hist[i]));
+}
+
+// ---------------- the signal trace ----------------
+const floorSig = (t) => 4 + 1.6 * Math.sin(t * 1.3) + 1.1 * Math.sin(t * 3.7 + 1);
+const sigAt = (t) => {
+  const I = t >= cur.T0 ? cur : prevI && t >= prevI.T0 ? prevI : null, f = floorSig(t);
+  if (!I) return f;
+  const s = I.prof.base + I.prof.amp * Math.sin(t * 0.9 + I.ph) + I.prof.amp * 0.4 * Math.sin(t * 2.3);
+  return L.clamp(f + visAt(I, t) * (s - f), 0, 100);
+};
+let written = 0, prevPt = null, filled = false, lastT = 0;
+function stepTrace(dt, time) {
+  const x = written + dt * CSPD, y = yOf(sigAt(time));
+  for (const tile of tiles) if (x >= (tile.idx + 2) * CWW) { tile.idx += 2; tile.g.clearRect(0, 0, CWW + 8, CHH); }
+  if (prevPt) for (const tile of tiles) {
+    const g = tile.g, o = tile.idx * CWW;
+    g.strokeStyle = "#ff5a3c"; g.lineWidth = 3.4; g.lineCap = "round"; g.lineJoin = "round";
+    g.beginPath(); g.moveTo(prevPt[0] - o, prevPt[1]); g.lineTo(x - o, y); g.stroke();
+  }
+  prevPt = [x, y]; written = x;
+}
+// the trace is drawn ten times a second; between draws the tiles keep gliding, so the scroll stays smooth
+const placeTiles = (lead) => tiles.forEach((tile) => tf(tile.cv, `translate3d(${(tile.idx * CWW - (written + lead - CWW)).toFixed(2)}px,0,0)`));
+tiles.forEach((c) => (c.onResize = () => { filled = false; }));
+
+// ---------------- readings, a few times a second ----------------
+let word = "", subTxt = "";
+const mmss = (s) => `${pad2(Math.floor(s / 60))}:${pad2(Math.floor(s % 60))}`;
+function stateOf(I, t) {
+  const dk = `Deck ${I.dd}`, fin = `Section ${I.sec(I.final)}`;
+  if (t < I.tDet) return ["Sweeping", "ice", `${dk}  ·  No Contact`];
+  if (t >= I.tSD) return ["Stand Down", "ice", `${dk}  ·  Teams Returning`];
+  if (t >= I.tDone) return I.prof.phase ? ["Resolved", "ice", `${dk}  ·  ${fin}  ·  Chronitons Dispersed`] : ["Contained", "ice", `${dk}  ·  ${fin}  ·  Security Holding`];
+  if (t >= I.tCont) return I.prof.phase ? ["Anyon Sweep", "sky", `${dk}  ·  ${fin}  ·  Emitters Active`] : ["Containment", "sky", `${dk}  ·  ${fin}  ·  Doors Sealed`];
+  if (t < I.tMove0 + 1.5) return ["Intruder Alert", "mars", `${dk}  ·  Section ${I.sec(I.origin)}  ·  ${DECKS[I.deck][I.origin.i]}`];
+  if (lossAt(I, t)) return ["Contact Lost", "peach", `${dk}  ·  Last Fix  ·  Section ${I.lastFix ? I.secAt(I.lastFix.x, I.lastFix.y) : I.sec(I.origin)}`];
+  const p = posAt(I, t);
+  return ["Tracking", "mars", `${dk}  ·  Section ${I.secAt(p[0], p[1])}  ·  ${headingAt(I, t)}`];
+}
+function headingAt(I, t) {
+  if (speedAt(I, t) < 4) return "Stationary";
+  const a = posAt(I, t - 0.15), b = posAt(I, t + 0.15), dx = b[0] - a[0], dy = b[1] - a[1];
+  return Math.abs(dx) >= Math.abs(dy) ? (dx > 0 ? "Moving Aft" : "Moving Fore") : dy < 0 ? "Moving to Port" : "Moving to Starboard";
+}
+function readings(t) {
+  const I = cur;
+  const [w, c, s] = stateOf(I, t);
+  if (w !== word) { word = w; subTxt = s; swap([state, sub], () => { L.set(state, w); L.set(sub, s); fg(state, c); placeSub(); }); }
+  else if (s !== subTxt) { subTxt = s; swap([sub], () => L.set(sub, s)); }
+  // top readings
+  L.set(rFix.v, I.fi);
+  L.set(rTime.v, t < I.tDet ? "00:00" : mmss(Math.min(t, I.tSD) - I.tDet)); rTime.place();
+  // contact
+  const vis = visAt(I, t), seen = vis > 0.5, live = t >= I.tDet && t < I.tSD;
+  const p = posAt(I, t);
+  L.set(vClass, !live ? "No Contact" : t < I.tDet + ANALYSIS ? "Analyzing" : I.prof.cls);
+  L.set(vLife, !live ? "–" : seen ? I.prof.life : "No Contact");
+  L.set(vMass, live && t >= I.tDet + 4 ? I.massTxt : "–");
+  L.set(vVel, live && seen ? (speedAt(I, t) * MPX).toFixed(1) + " m/s" : "–");
+  L.set(vHead, live && seen ? headingAt(I, t).replace("Moving ", "").replace("to ", "") : "–");
+  L.set(vSec, !live ? "–" : seen ? I.secAt(p[0], p[1]) : I.lastFix ? I.secAt(I.lastFix.x, I.lastFix.y) : "–");
+  let near = Infinity;
+  I.teams.forEach((tm) => { if (t >= tm.td) near = Math.min(near, hyp(teamPos(tm, t), p)); });
+  L.set(vNear, live && seen && near < Infinity ? Math.round(near * MPX) + " m" : "–");
+  L.set(vSig, Math.round(sigAt(t)) + "%");
+  // teams
+  I.teams.forEach((tm, k) => {
+    const r = trows[k];
+    let loc = "Deck 08", st = "Standing By", eta = "–", col = "sand";
+    if (t >= tm.td && t < I.tSD) {
+      const q = teamPos(tm, t); loc = I.secAt(q[0], q[1]);
+      if (t < tm.tm) { st = "Dispatched"; col = "ice"; } else if (t < tm.ta) { st = "Intercepting"; col = "mars"; } else { st = "In Position"; col = "white"; }
+      eta = t < tm.ta ? mmss(Math.ceil(tm.ta - t)).replace(/^0/, "") : "On Site";
+    } else if (t >= I.tSD) { const q = teamPos(tm, t); loc = I.secAt(q[0], q[1]); st = "Returning"; }
+    L.set(r.loc, loc); L.set(r.st, st); fg(r.st, col); L.set(r.eta, eta);
+  });
+  const act = I.fields.filter((f) => t >= f.tOn && t < I.tSD);
+  L.set(ffRow.loc, act.length ? act[act.length - 1].sec : "–");
+  L.set(ffRow.st, act.length ? act.length + " Active" : "None Active"); fg(ffRow.st, act.length ? "sky" : "sand");
+}
+readings(0);
+L.every(250, (t) => readings(t), 0);
+
+// the log moves one line at a time: the oldest fades, the rest slide up, the new one fades in
+let logAnim = null;
+const stepLog = (t) => {
+  if (!logAnim) { if (!pendingLog.length) return; logAnim = { phase: "fade", t0: t, row: logRows.find((r) => r.slot === 0) }; }
+  const u = t - logAnim.t0, r0 = logAnim.row;
+  if (logAnim.phase === "fade") {
+    op(r0.e, 1 - L.clamp(u / 0.5));
+    if (u >= 0.5) logAnim = { phase: "slide", t0: t, row: r0 };
+  } else if (logAnim.phase === "slide") {
+    const k = L.ease(L.clamp(u / 0.8));
+    logRows.forEach((r) => { if (r.slot > 0) L.move(r.e, 0, (r.slot - k) * LPH); });
+    if (k >= 1) {
+      logRows.forEach((r) => (r.slot = r === r0 ? LN - 1 : r.slot - 1));
+      showLog(r0, pendingLog.shift()); L.move(r0.e, 0, (LN - 1) * LPH);
+      logAnim = { phase: "in", t0: t, row: r0 };
+    }
+  } else {
+    op(r0.e, L.clamp(u / 0.6));
+    if (u >= 0.6) logAnim = null;
+  }
+};
+
+// ---------------- every frame ----------------
+const pt = (x, y, r = 0) => `translate3d(${(x).toFixed(1)}px,${(y).toFixed(1)}px,0)` + (r ? ` scale(${r.toFixed(3)})` : "");
+L.tick((t) => {
+  if (t >= cur.tEnd) { prevI = cur; cur = makeIncident(cur.tEnd, nextProf()); setup(cur, false); }
+  const I = cur;
+  while (I.fi < I.fixes.length && I.fixes[I.fi].t <= t) drawFix(I, I.fixes[I.fi++]);
+  while (I.ei < I.events.length && I.events[I.ei].A <= t) logEvent(I.events[I.ei++]);
+  const vis = visAt(I, t), p = posAt(I, t);
+  // the intruder: a pulsing ring (a phased one flickers gently)
+  tf(mk, pt(p[0] - PX0, p[1] - PY0));
+  op(mk, vis * (I.prof.phase ? 0.72 + 0.28 * Math.sin(t * 2.1) : 1));
+  tf(mkRing, `scale(${(0.92 + 0.1 * Math.sin(t * 3)).toFixed(3)})`);
+  // first sighting: a ring opens out from it
+  const up = (t - I.tDet) / 1.6;
+  if (up >= 0 && up <= 1) { const o = I.origin; tf(pingL, pt(o.sx - PX0, o.sy - PY0, 0.4 + 2 * up)); op(pingL, 1 - up); } else op(pingL, 0);
+  // contact lost: the estimate of where it might be grows from the last fix
+  const w = I.losses.find((x) => t >= x.l0 && t < x.l1 + 0.6);
+  if (w && I.lastFix) {
+    const k = L.clamp((t - w.l0) / (w.l1 - w.l0));
+    tf(estL, pt(I.lastFix.x - PX0, I.lastFix.y - PY0, 0.7 + 1.1 * k)); op(estL, 1 - vis);
+  } else op(estL, 0);
+  // the section it is in glows faintly
+  const room = vis > 0.05 ? roomAt(p[0], p[1]) : null;
+  const ta = tints.find((x) => x.on);
+  if ((ta ? ta.room : null) !== room) {
+    if (ta) { ta.from = ta.cur || 0; ta.on = false; ta.t0 = t; }
+    if (room) {
+      const tn = tints.find((x) => x !== ta);
+      tn.room = room; tn.on = true; tn.t0 = t; tn.from = 0;
+      tf(tn.e, `translate3d(${room.x}px,${room.y}px,0) scale(${room.w / 100},${room.h / 100})`);
+    }
+  }
+  tints.forEach((tn) => {
+    tn.cur = tn.on ? L.mix(tn.from, 1, L.clamp((t - tn.t0) / 0.6)) : tn.from * (1 - L.clamp((t - tn.t0) / 0.6));
+    op(tn.e, tn.cur * Math.min(1, vis * 1.2));
+  });
+  // teams
+  I.teams.forEach((tm, k) => {
+    const e = teamEls[k];
+    if (t < tm.td) { op(e, 0); return; }
+    const q = teamPos(tm, t);
+    tf(e, pt(q[0] - PX0, q[1] - PY0));
+    op(e, L.clamp((t - tm.td) / 0.6) * (1 - L.clamp((t - I.tSD) / 1.6)));
+  });
+  // force fields and the hold on the room
+  const off = 1 - L.clamp((t - I.tSD) / 1.2);
+  fieldEls.forEach((f, i) => { const d = I.fields[i]; op(f, d ? L.clamp((t - d.tOn) / 0.5) * off : 0); });
+  op(holdL, L.clamp((t - I.tCont) / 0.8) * off);
+  op(trailL, 1 - L.clamp((t - I.tSD) / 2));
+  // the internal sensor sweep crosses the plan
+  const su = ((t + SWEEP_OFF) % SWEEP_PER) / SWEEP_PASS;
+  if (su < 1) {
+    const lead = su * (PX1 - PX0);
+    tf(band, `translate3d(${(lead - BANDW).toFixed(1)}px,0,0)`);
+    op(band, Math.min(1, lead / 120, (PX1 - PX0 - lead) / 160));
+  } else op(band, 0);
+  // the sweeps panel
+  const anyonOn = !!I.prof.phase && t >= I.tCont && t < I.tSD;
+  SWEEPS.forEach((s) => {
+    let u;
+    if (s.anyon) {
+      if (anyonOn || s.u > 0) { s.u += 1 / 30 / s.per; if (s.u >= 1) { s.u = anyonOn ? s.u - 1 : 0; s.n++; } }
+      u = (s.u * s.per) / s.pass;
+      fg(s.nameEl, anyonOn ? "white" : "#7d8a99");
+    } else {
+      const ph = t + s.off;
+      u = (ph % s.per) / s.pass;
+      s.n = s.n0 + Math.floor((ph - s.pass) / s.per) + 1;
+    }
+    if (u > 0 && u < 1) {
+      tf(s.seg, `translate3d(${(u * (SBAR[1] - SBAR[0] - SEGW)).toFixed(1)}px,0,0)`);
+      op(s.seg, Math.min(1, u / 0.08, (1 - u) / 0.08));
+    } else op(s.seg, 0);
+    L.set(s.nEl, s.anyon && !anyonOn && s.u === 0 ? "Standby" : s.n);
+  });
+  // signature comparison
+  const best = I.prof.match.indexOf(Math.max(...I.prof.match)), classified = t >= I.tDet + ANALYSIS && t < I.tSD;
+  cmp.forEach((c, k) => {
+    const v = matchAt(I, k, t);
+    scaleX(c.bar, v / 100); L.set(c.pct, Math.round(v) + "%");
+    const hi = classified && k === best;
+    fg(c.name, hi ? "white" : "sand"); bg(c.bar, hi ? "mars" : "ice");
+  });
+  // the signal trace
+  if (!filled) {
+    filled = true; written = 0; tiles[0].idx = -1; tiles[1].idx = 0; prevPt = null;
+    tiles.forEach((tile) => tile.g.clearRect(0, 0, CWW + 8, CHH));
+    const n = Math.ceil((CWW / CSPD) * 30) + 2;
+    for (let i = n; i >= 0; i--) stepTrace(1 / 30, t - i / 30);
+    lastT = t; placeTiles(0);
+  } else {
+    if (t - lastT >= 0.1) { stepTrace(Math.min(0.3, t - lastT), t); lastT = t; }
+    placeTiles(Math.min(0.3, t - lastT) * CSPD);
+  }
+  stepLog(t);
+});
+});
+</script></body></html>

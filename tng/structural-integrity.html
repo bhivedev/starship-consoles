@@ -1,0 +1,316 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Structural Integrity</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* swapped text dips and comes back; .boot (the start-up cascade) always wins */
+  .sw { transition: opacity .45s ease; }
+  .out:not(.boot) { opacity: .2; }
+  /* a hull block: dark navy, lit from within by its stress (an ice overlay whose opacity eases) */
+  .blk { overflow: hidden; font-size: 24px; }
+  .blk .glow { left: 0; top: 0; background: var(--ice); opacity: 0; transition: opacity .5s linear; }
+  .blk span { position: relative; z-index: 1; }
+  .peak { border: 6px solid var(--butter); }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: a bracket, title centred ----------------
+L.frame({ type: "C", title: "Structural Integrity  •  Hull Stress", c: "sky", c2: "ice", accent: "blue", foot: "Hull",
+  side: [[140, "ice", "SIF 01"], [70, "blue", "4471"], [420, "sky", "Hull"], [70, "ice", "36"], [300, "blue", "Stress"],
+         [70, "ice", "B2"], [216, "sky", "Frame"]],
+  side2: [[140, "ice", "Field 02"], [70, "blue", "0835"], [420, "sky", "Emitters"], [70, "ice", "14"], [300, "blue", "Load"],
+          [70, "ice", "C4"], [216, "sky", "Log"]] });
+
+const TRACK = "#0e1c3c", BASE = "#284c94";
+const fill = (x, y, w, h, c) => {
+  const f = L.layer({ x, y, w, h });
+  f.style.background = c.startsWith("#") ? c : `var(--${c})`; f.style.transformOrigin = "0 0";
+  return f;
+};
+const cls = (e, ...c) => (e.classList.add(...c), e);
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const op = (e, v) => { v = v.toFixed(3); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const swap = (els, f) => { els.forEach((e) => e.classList.add("out")); setTimeout(() => { f(); els.forEach((e) => e.classList.remove("out")); }, 460); };
+const pct = (v) => Math.round(v * 100) + "%";
+
+// Columns: the map 220–2460, the field 2540–3620. Rows share the grid of the other screens.
+const LX = 220, LR = 2460, RX = 2540, RR = 3620;
+const BX = 300, BRW = 220;                                 // gauges start 300 in, stop 220 short of the column's edge
+const ROW0 = 428, ROW1 = 1148, PITCH = 88;
+const base0 = (i) => ROW0 + i * PITCH + 52.5, base1 = (i) => ROW1 + i * PITCH + 52.5;
+const STRIP = (i) => 1734 + i * 54;
+
+// a block's colour: navy lit towards ice as stress rises (the glow is fully up at 75% of rated load)
+const glowOf = (s) => L.clamp((s - 0.06) / 0.69);
+const mixHex = (k) => {
+  const a = [0x28, 0x4c, 0x94], b = [0x8f, 0xd3, 0xff];
+  return "#" + a.map((v, i) => Math.round(L.mix(v, b[i], k)).toString(16).padStart(2, "0")).join("");
+};
+
+// ---------------- the hull, as blocks: five sections, eight rows ----------------
+const SECTIONS = [
+  { name: "Saucer", code: "S", cols: 6 }, { name: "Dorsal", code: "D", cols: 2 }, { name: "Stardrive", code: "E", cols: 5 },
+  { name: "Port Nacelle", code: "P", cols: 2 }, { name: "Stbd Nacelle", code: "N", cols: 2 },
+];
+const ROWS = 8, CG = 10, MY0 = 360, MY1 = 1476;
+const NCOL = SECTIONS.reduce((a, s) => a + s.cols, 0);
+const CW = (LR - LX - (SECTIONS.length - 1) * L.GAP - (NCOL - SECTIONS.length) * CG) / NCOL;
+const RP = (MY1 - MY0 + CG) / ROWS, BH = RP - CG;
+const blocks = [];
+{
+  let x = LX, gc = 0;
+  SECTIONS.forEach((sec, si) => {
+    sec.x = x; sec.w = sec.cols * CW + (sec.cols - 1) * CG; sec.blocks = [];
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < sec.cols; c++) {
+      const bx = x + c * (CW + CG), by = MY0 + r * RP;
+      const e = cls(L.box({ x: bx, y: by, w: CW, h: BH, c: BASE }), "blk");
+      const glow = L.layer({ x: 0, y: 0, w: CW, h: BH }, e); glow.className += " glow";
+      const lab = L.el("span", "", e); lab.textContent = sec.code + String(r * sec.cols + c + 1).padStart(2, "0");
+      const b = { e, glow, lab, si, c, r, x: bx, y: by, gc: gc + c,
+        u: sec.cols > 1 ? c / (sec.cols - 1) : 0.5, v: r / (ROWS - 1),
+        base: L.rand(0.08, 0.2), ph: L.rand(0, 6.28), s: 0, shown: -1, lit: false };
+      b.edge = Math.abs(b.v - 0.5) * 2;
+      blocks.push(b); sec.blocks.push(b);
+    }
+    x += sec.w + L.GAP; gc += sec.cols;
+  });
+}
+// the section names head the map; their means stand at its foot
+SECTIONS.forEach((sec, i) => {
+  const last = i === SECTIONS.length - 1;
+  L.box({ x: sec.x, y: 280, w: sec.w, h: 56, c: i % 2 ? "sky" : "ice", label: sec.name, fs: 32, r: i === 0 ? "l" : last ? "r" : null });
+  sec.foot = L.box({ x: sec.x, y: 1500, w: sec.w, h: 64, c: i % 2 ? "ice" : "sky", label: "", fs: 32, r: i === 0 ? "l" : last ? "r" : null });
+});
+// the block under the most stress, ringed
+const peakRing = cls(L.layer({ x: 0, y: 0, w: CW, h: BH }), "peak");
+let peakB = null, ringX = null, ringY = null;
+
+// ---------------- load events: manoeuvres, and what each one asks of the hull ----------------
+// weight(b) says how hard a block is loaded; origin is the column the strain spreads out from
+const EVENTS = [
+  { name: "Full Impulse Acceleration", mag: 0.8, origin: 7, at: "Dorsal",
+    w: (b) => [0.15 + 0.35 * b.u, 0.9, 0.45 + 0.3 * b.u, 0.55 + 0.25 * b.v, 0.55 + 0.25 * b.v][b.si] },
+  { name: "Hard Turn to Port", mag: 0.85, origin: 16, at: "Stbd Nacelle",
+    w: (b) => [0.2 + 0.3 * b.edge, 0.75, 0.3 + 0.2 * b.edge, 0.6, 0.95][b.si] },
+  { name: "Accelerating to Warp 7", mag: 0.8, origin: 14, at: "Nacelles",
+    w: (b) => [0.18, 0.5, 0.35, 0.85 + 0.15 * (1 - b.edge), 0.85 + 0.15 * (1 - b.edge)][b.si] },
+  { name: "Drop to Impulse", mag: 0.75, origin: 0, at: "Saucer",
+    w: (b) => [0.3 + 0.4 * (1 - b.u), 0.6, 0.3, 0.7, 0.7][b.si] },
+  { name: "Tractor Beam Tow", mag: 0.8, origin: 12, at: "Stardrive", hold: 1.4,
+    w: (b) => [0.1, 0.35, 0.3 + 0.7 * b.u * (0.6 + 0.4 * b.v), 0.25, 0.25][b.si] },
+  { name: "Full Stop", mag: 0.75, origin: 6, at: "Dorsal",
+    w: (b) => [0.35 + 0.4 * (1 - b.u), 0.8, 0.35, 0.4, 0.4][b.si] },
+  { name: "Evasive Maneuver", mag: 0.85, origin: 9, at: "Nacelle Pylons",
+    w: (b) => [0.4, 0.8, 0.4 + 0.2 * b.edge, 0.8, 0.8][b.si] },
+  { name: "Quantum Filament Wake", mag: 0.9, origin: 2, at: "Saucer", rare: true,
+    w: (b) => [0.45 + 0.5 * b.v, 0.5, 0.25, 0.2, 0.2][b.si] },
+];
+const RISE = 2.5, FALL = 5.5, SPREAD = 0.14;              // seconds; SPREAD: seconds per column for the strain to travel
+let ev = null, evDeck = [], nextAt = L.rand(2, 5), evPeak = 0, resp = 0, lastT = 0;
+const envOf = (e, dt) => {
+  if (dt <= 0) return 0;
+  if (dt < RISE) return L.ease(dt / RISE);
+  if (dt < RISE + e.hold) return 1;
+  return 1 - L.ease(L.clamp((dt - RISE - e.hold) / FALL));
+};
+const nextEvent = () => {
+  if (Math.random() < 0.08) return EVENTS.find((e) => e.rare);
+  if (!evDeck.length) evDeck = EVENTS.filter((e) => !e.rare).sort(() => Math.random() - 0.5);
+  return evDeck.pop();
+};
+
+// ---------------- status line ----------------
+const WORDS = ["Field Nominal", "Compensating"];
+const SUBX = LX + Math.max(...WORDS.map((w) => L.textWidth(w, 100))) + 56;
+const state = cls(L.text({ x: LX, cap: 150, s: 100, c: "ice", txt: "" }), "sw");
+const stateSub = cls(L.text({ x: SUBX, base: 222, s: 38, c: "sky", txt: "" }), "sw");
+// the map's key, as pills over the field column: the header below takes the first pill's width
+const KW = (RR - RX - 3 * L.GAP) / 4;
+[["Under 25%", 0.125], ["25 – 50%", 0.375], ["50 – 75%", 0.625], ["Over 75%", 0.875]].forEach(([n, s], i) => {
+  const k = glowOf(s), e = L.box({ x: RX + i * (KW + L.GAP), y: 166, w: KW, h: 56, c: mixHex(k), label: n, fs: 28, r: i === 0 ? "l" : i === 3 ? "r" : null });
+});
+
+// ---------------- the field generators ----------------
+const gaugeRow = (x, r, base, name, c) => {
+  L.text({ x, base, s: 40, c: "sky", txt: name });
+  L.rect({ x: x + BX, y: base - 26, w: r - BRW - (x + BX), h: 26, c: TRACK });
+  return { bar: fill(x + BX, base - 26, r - BRW - (x + BX), 26, c), v: L.text({ x: r, base, s: 52, c: "white", txt: "", align: "r" }), u: -1 };
+};
+const showBar = (g, k) => { k = L.clamp(k); if (Math.abs(k - g.u) > 0.0005) { g.u = k; tf(g.bar, `scaleX(${k.toFixed(4)})`); } };
+L.header({ x: RX, y: 280, w: RR - RX, label: "Field Generators", c1: "ice", c2: "sky", lw: KW });
+L.text({ x: RX, base: 400, s: 36, c: "ice", txt: "Primary SIF  ·  Main Engineering, Deck 36" });
+const GEN = [
+  gaugeRow(RX, RR, base0(0), "Generator 1", "ice"), gaugeRow(RX, RR, base0(1), "Generator 2", "ice"),
+  gaugeRow(RX, RR, base0(2), "Generator 3", "sky"), gaugeRow(RX, RR, base0(3), "Backup", "sky"),
+];
+const emit = gaugeRow(RX, RR, base0(4), "Emitter Grid", "blue");
+const power = gaugeRow(RX, RR, base0(5), "Power Draw", "blue");
+L.set(GEN[3].v, "Standby"); showBar(GEN[3], 0);
+
+// ---------------- the load monitor ----------------
+L.header({ x: RX, y: 1000, w: RR - RX, label: "Load Monitor", c1: "sky", c2: "ice", lw: KW });
+const monT = cls(L.text({ x: RX, base: 1120, s: 36, c: "ice", txt: "" }), "sw");
+const MON = {
+  peak: gaugeRow(RX, RR, base1(0), "Peak Stress", "ice"), mean: gaugeRow(RX, RR, base1(1), "Mean Stress", "sky"),
+  reinf: gaugeRow(RX, RR, base1(2), "Reinforcement", "ice"), damp: gaugeRow(RX, RR, base1(3), "Damper Load", "sky"),
+  margin: gaugeRow(RX, RR, base1(4), "Safety Margin", "blue"),
+};
+
+// ---------------- stress history: one lane a section, and the field's own output ----------------
+const TX = 600, TW = LR - TX;
+L.header({ x: LX, y: 1620, w: LR - LX, label: "Stress History  ·  90 s", c1: "ice", c2: "sky", h: 48, lw: TX - L.GAP - LX });
+const LANES = [...SECTIONS.map((s) => s.name), "SIF Output"];
+const LH = 44, LY0 = STRIP(0) - 38;
+const lanes = LANES.map((n, i) => {
+  L.text({ x: LX, base: STRIP(i), s: 36, c: i === 5 ? "ice" : "sky", txt: n });
+  L.rect({ x: TX, y: LY0 + i * 54, w: TW, h: LH, c: TRACK });
+  return { v: L.text({ x: TX - L.GAP, base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }), val: 0, prev: null,
+    ink: i === 5 ? "#c7a0d8" : "#8fd3ff", area: i === 5 ? "#4a3a78" : "#24509e", lo: i === 5 ? 0.4 : 0.05, hi: i === 5 ? 1 : 0.65 };
+});
+// The lanes scroll: two canvas tiles slid as layers, the newest sliver drawn each frame (as Sickbay)
+const STRIP_H = 5 * 54 + LH, SPEED = TW / 90;               // design px per second: 90 s across
+const strip = L.el("div", "boot", L.stage, { position: "absolute", left: TX + "px", top: LY0 + "px", width: TW + "px", height: STRIP_H + "px", overflow: "hidden" });
+const tiles = [0, 1].map((k) => {
+  const c = L.canvas({ x: 0, y: 0, w: TW + 8, h: STRIP_H }, strip);
+  c.cv.style.willChange = "transform"; c.idx = k;   // idx, not k: the kit keeps the pixel scale in c.k
+  return c;
+});
+let written = TW;
+const laneY = (i, v) => i * 54 + LH - 4 - L.clamp((v - lanes[i].lo) / (lanes[i].hi - lanes[i].lo)) * (LH - 10);
+const drawTo = (x) => {
+  for (const tile of tiles) if (x >= (tile.idx + 2) * TW) { tile.idx += 2; tile.g.clearRect(0, 0, TW + 8, STRIP_H); }
+  lanes.forEach((ln, i) => {
+    const y = laneY(i, ln.val);
+    if (ln.prev) for (const tile of tiles) {
+      const g = tile.g, o = tile.idx * TW, x0 = ln.prev[0] - o, x1 = x - o, bot = i * 54 + LH;
+      if (x1 < -4 || x0 > TW + 12) continue;
+      g.fillStyle = ln.area;
+      g.beginPath(); g.moveTo(x0 - 0.75, bot); g.lineTo(x0 - 0.75, ln.prev[1]); g.lineTo(x1, y); g.lineTo(x1, bot); g.closePath(); g.fill();
+      g.strokeStyle = ln.ink; g.lineWidth = 3; g.lineCap = "round"; g.lineJoin = "round";
+      g.beginPath(); g.moveTo(x0, ln.prev[1]); g.lineTo(x1, y); g.stroke();
+    }
+    ln.prev = [x, y];
+  });
+};
+const place = () => tiles.forEach((tile) => tf(tile.cv, `translate3d(${(tile.idx * TW - (written - TW)).toFixed(2)}px,0,0)`));
+
+// ---------------- the load event log ----------------
+L.header({ x: RX, y: 1620, w: RR - RX, label: "Load Event Log", c1: "sky", c2: "ice", h: 48, lw: KW });
+const logRows = Array.from({ length: 6 }, (_, i) => ({
+  sd: L.text({ x: RX, base: STRIP(i), s: 36, c: "ice", txt: "" }),
+  tx: L.text({ x: RX + 160, base: STRIP(i), s: 36, c: "sky", txt: "" }),
+  by: L.text({ x: RR, base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }) }));
+let stardate = 47304.2 + L.irand(0, 40) / 10;
+const logged = [];
+const logLine = (txt, by) => {
+  stardate += 0.1;
+  logged.push([stardate.toFixed(1), txt, by]); if (logged.length > logRows.length) logged.shift();
+  logRows.forEach((r, i) => { const e = logged[i] || ["", "", ""]; L.set(r.sd, e[0]); L.set(r.tx, e[1]); L.set(r.by, e[2]); });
+};
+const ROUTINE = [["Field harmonics checked", "Nominal"], ["Emitter segment 214 recalibrated", "Gen 2"], ["Generator 1 output trimmed", "Gen 1"],
+  ["Hull stress survey complete", "Nominal"], ["Backup generator self-test", "Passed"], ["Field and inertial dampers in phase", "Nominal"],
+  ["Typhon Expanse load profile archived", "Archive"], ["Frame members 40 to 52 scanned", "Nominal"], ["Generator 3 coolant flow checked", "Gen 3"]];
+let rDeck = [];
+const routine = () => { if (!rDeck.length) rDeck = ROUTINE.slice().sort(() => Math.random() - 0.5); logLine(...rDeck.pop()); };
+for (let i = 0; i < 6; i++) routine();
+
+// ---------------- the model, every frame ----------------
+const secMean = SECTIONS.map(() => 0);
+let peakS = 0, meanS = 0, envNow = 0;
+const step = (t) => {
+  const dt = Math.min(0.1, t - lastT); lastT = t;
+  if (!ev && t >= nextAt) {
+    const e = nextEvent();
+    ev = Object.assign({}, e, { t0: t, hold: (e.hold || 1) * L.rand(4, 8) });
+    evPeak = 0;
+    logLine(ev.name, ev.at);
+  }
+  envNow = ev ? envOf(ev, t - ev.t0) : 0;
+  // the field answers the load a little behind it: the stress spikes, then the field takes it up
+  resp += (envNow - resp) * (1 - Math.exp(-dt / 1.6));
+  let mx = 0, sum = 0, pb = null;
+  secMean.fill(0);
+  for (const b of blocks) {
+    const load = ev ? ev.mag * ev.w(b) * envOf(ev, t - ev.t0 - Math.abs(b.gc - ev.origin) * SPREAD) : 0;
+    b.s = b.base + 0.012 * Math.sin(t * 0.07 + b.ph) + load * (1 - 0.55 * resp);
+    sum += b.s; secMean[b.si] += b.s;
+    if (b.s > mx) { mx = b.s; pb = b; }
+  }
+  SECTIONS.forEach((s, i) => (secMean[i] /= s.blocks.length));
+  peakS = mx; meanS = sum / blocks.length;
+  if (ev) evPeak = Math.max(evPeak, mx);
+  // the ring moves only when another block is clearly worse
+  if (!peakB || (pb !== peakB && pb.s > peakB.s + 0.02)) peakB = pb;
+  if (ev && t - ev.t0 > RISE + ev.hold + FALL + 17 * SPREAD) {
+    logLine("Load compensated", "Peak " + pct(evPeak));
+    ev = null; nextAt = t + L.rand(9, 17);
+  }
+};
+
+// ---------------- the clock ----------------
+let filled = false, lastDraw = 0;
+tiles.forEach((c) => (c.onResize = () => { filled = false; }));   // a resize wipes the canvases: refill them
+const PAST = [[0.1, 0.3, 0.2, 0.14, 0.14, 0.24], [0.22, 0.26, 0.12, 0.3, 0.34, 0.28]].map((a) => a.map((v) => v * L.rand(0.8, 1.2)));
+const sifOut = () => 0.58 + 0.34 * resp;
+L.tick((t) => {
+  step(t);
+  // the ring glides to the worst block
+  if (ringX === null) { ringX = peakB.x; ringY = peakB.y; }
+  ringX += (peakB.x - ringX) * 0.08; ringY += (peakB.y - ringY) * 0.08;
+  tf(peakRing, `translate3d(${ringX.toFixed(1)}px,${ringY.toFixed(1)}px,0)`);
+  // the lanes follow the readings smoothly
+  lanes.forEach((ln, i) => { ln.val = i < 5 ? secMean[i] : sifOut(); });
+  if (!filled) {                                           // start with the history already full, quiet
+    filled = true; written = 0; tiles[0].idx = -1; tiles[1].idx = 0;
+    lanes.forEach((ln) => (ln.prev = null));            // start each line afresh: no stroke from the old pen position
+    lanes.forEach((ln, i) => { ln.val = i < 5 ? secMean[i] : sifOut(); });
+    for (let x = 0; x <= TW; x += 6) {
+      // two earlier manoeuvres, already taken up by the field
+      const bump = (c, w) => Math.exp(-Math.pow((x - c * TW) / (w * TW), 2));
+      lanes.forEach((ln, i) => { ln.hist = ln.hist ?? ln.val;
+        ln.val = ln.hist + PAST[0][i] * bump(0.3, 0.045) + PAST[1][i] * bump(0.68, 0.06) + 0.008 * Math.sin(x * 0.011 + i * 1.7); });
+      written = x; drawTo(x);
+    }
+    lanes.forEach((ln) => (ln.val = ln.hist));
+    written = TW; lastDraw = t; place(); return;
+  }
+  written += (t - lastDraw) * SPEED; lastDraw = t;
+  drawTo(written);
+  place();
+});
+
+// the map, the gauges and the numbers: a few times a second, eased by CSS between
+const showState = (comp) => {
+  L.set(state, WORDS[comp ? 1 : 0]);
+  L.set(stateSub, comp ? `${ev.name}  ·  Field reinforcing the ${SECTIONS[peakB.si].name.toLowerCase()}` : "Primary SIF online  ·  Hull stress within tolerance");
+  L.set(monT, comp ? `Maneuver  ·  ${ev.name}` : "Maneuver  ·  None  ·  Station keeping");
+};
+let comp = null;
+L.every(400, (t) => {
+  for (const b of blocks) {
+    const k = glowOf(b.s);
+    if (Math.abs(k - b.shown) > 0.006) { b.shown = k; op(b.glow, k); }
+  }
+  SECTIONS.forEach((s, i) => L.set(s.foot, `Mean ${pct(secMean[i])}`));
+  lanes.forEach((ln) => L.set(ln.v, pct(ln.val)));
+  // the generators: the two primaries carry the field, the third follows them, the backup waits
+  const w = 0.006 * Math.sin(t * 0.05);
+  [sifOut() + w, sifOut() - 0.01 - w, 0.31 + 0.2 * resp + w].forEach((v, i) => { showBar(GEN[i], v); L.set(GEN[i].v, (v * 100).toFixed(1) + "%"); });
+  const em = 0.9975 + 0.0008 * Math.sin(t * 0.03); showBar(emit, em); L.set(emit.v, (em * 100).toFixed(1) + "%");
+  const mw = 380 + 520 * resp; showBar(power, mw / 1200); L.set(power.v, Math.round(mw) + " MW");
+  showBar(MON.peak, peakS); L.set(MON.peak.v, pct(peakS));
+  showBar(MON.mean, meanS); L.set(MON.mean.v, pct(meanS));
+  showBar(MON.reinf, 0.12 + 0.8 * resp); L.set(MON.reinf.v, pct(0.12 + 0.8 * resp));
+  const damp = 0.06 + 0.6 * envNow; showBar(MON.damp, damp); L.set(MON.damp.v, pct(damp));
+  showBar(MON.margin, 1 - peakS); L.set(MON.margin.v, pct(1 - peakS));
+  const c = !!ev && envNow > 0.04;
+  if (c !== comp) {
+    const first = comp === null; comp = c;
+    if (first) showState(c); else swap([state, stateSub, monT], () => showState(comp));
+  }
+}, 0);
+L.every(26000, (t) => { if (t > 3 && !ev) routine(); }, 0.3);
+});
+</script></body></html>

@@ -1,0 +1,401 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>EPS Grid</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .flow { position: absolute; overflow: hidden; }
+  .strip { position: absolute; left: 0; top: 0; transition: opacity 1.4s ease; }
+  .node { position: absolute; border-radius: 10px; }
+  .tapn { position: absolute; border-radius: 8px; transition: background-color 1s ease; }
+  .warn { transition: opacity 0.9s ease; }
+  .bar { transition: transform 0.7s ease; transform-origin: 0 50%; }
+  .sw { transition: background-color 1s ease; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: wide, no sidebars — the network is the screen ----------------
+L.frame({ type: "D", title: "EPS Grid  •  Power Distribution", c: "orange", c2: "butter", accent: "peach" });
+
+const G = L.GAP;
+const DX = 40, DR = 2780, RX = 2844, RR = 3816;          // diagram, and the table beside it, 64 apart
+const ROW0 = 428, PITCH = 92, BH = 72;                   // twelve rows of 72 on a 92 grid
+const rowY = (i) => ROW0 + i * PITCH, rowC = (i) => rowY(i) + BH / 2;
+const rowBase = (i) => rowY(i) + BH - 6 - (1 - L.BASELINE) * 32;   // a 32px button label's baseline
+const TRACK = "#3a2a0e", DEAD = "#24190a", RED = "#5a1a10";
+const fmt = (n) => Math.round(n).toLocaleString("en");
+const later = (ms, f, jitter) => L.every(ms, (t) => { if (t > 1) f(t); }, jitter);
+
+// ---------------- the network ----------------
+// four trunks fed from the plasma manifold; each runs through a relay (J1), a cross-tie valve (X)
+// and a distribution node (J2), which splits it three ways to the EPS taps and their subsystems
+const MX = 560, J1 = 1000, XV = 1440, J2 = 1880, TX = 2236, BX = 2380, BW = DR - BX;
+const TRUNKS = [
+  { id: "A", name: "Saucer Primary", c: "butter" },
+  { id: "B", name: "Saucer Secondary", c: "orange" },
+  { id: "C", name: "Stardrive Primary", c: "butter" },
+  { id: "D", name: "Stardrive Secondary", c: "orange" },
+];
+TRUNKS.forEach((tr, k) => (tr.y = rowC(3 * k + 1)));
+// [subsystem, rated MW, normal load]
+const TAPS = [
+  ["Bridge Systems", 180, 0.62], ["Long Range Sensors", 260, 0.55], ["Shield Generators", 640, 0.48],
+  ["Life Support", 310, 0.71], ["Replicators", 220, 0.52], ["Holodecks", 380, 0.44],
+  ["Phaser Arrays", 520, 0.18], ["Transporters", 240, 0.36], ["Computer Core", 290, 0.67],
+  ["Main Deflector", 720, 0.58], ["Structural Integrity", 560, 0.63], ["Inertial Dampers", 340, 0.57],
+].map(([name, rated, base], i) => ({ name, rated, base, goal: base, u: base, i, k: Math.floor(i / 3), on: true, status: "Nominal" }));
+
+// static tracks (drawn once) and the flowing plasma over them (composited layers)
+const P = 96;                                            // one plasma packet every 96px
+const segs = [];
+const seg = (x0, y0, x1, y1, th, key) => {
+  const hz = y0 === y1, len = hz ? Math.abs(x1 - x0) : Math.abs(y1 - y0);
+  const x = hz ? Math.min(x0, x1) : x0 - th / 2, y = hz ? y0 - th / 2 : Math.min(y0, y1);
+  const w = hz ? len : th, h = hz ? th : len;
+  L.rect({ x, y, w, h, c: TRACK, free: true });
+  const box = L.layer({ x, y, w, h, cls: "flow" });
+  const s = L.el("div", "strip layer", box);
+  Object.assign(s.style, hz ? { width: len + P + "px", height: th + "px" } : { width: th + "px", height: len + P + "px" });
+  s.style.backgroundImage = `linear-gradient(${hz ? 90 : 180}deg, rgba(255,156,26,0) 0%, rgba(255,156,26,.95) 34%, #ffcc66 56%, rgba(255,204,102,0) 82%)`;
+  s.style.backgroundSize = hz ? `${P}px 100%` : `100% ${P}px`;
+  const fwd = hz ? x1 > x0 : y1 > y0;                    // which way the plasma runs
+  const tf = (d) => (hz ? `translate3d(${d}px,0,0)` : `translate3d(0,${d}px,0)`);
+  const anim = s.animate([{ transform: tf(fwd ? -P : 0) }, { transform: tf(fwd ? 0 : -P) }], { duration: 1000, iterations: Infinity, easing: "linear" });
+  anim.currentTime = Math.random() * 1000;
+  anim.playbackRate = 0;
+  const g = { key, x, y, w, h, s, anim, rate: 0, goal: 0, op: "" };
+  segs.push(g);
+  return g;
+};
+// speed in px/s for a flow in MW: calm, and a little faster with load
+const speed = (mw) => (mw <= 0.5 ? 0 : 46 + 0.11 * Math.min(mw, 1600));
+
+// the sources
+const SRC = [
+  { name: "Saucer Impulse", y: rowY(0), h: rowY(2) + BH - rowY(0), out: rowC(0) + PITCH, c: "peach", rated: 900 },
+  { name: "Warp Core", y: rowY(3), h: rowY(8) + BH - rowY(3), out: (TRUNKS[1].y + TRUNKS[2].y) / 2, c: "orange", rated: 4800 },
+  { name: "Stardrive Impulse", y: rowY(9), h: rowY(11) + BH - rowY(9), out: rowC(10), c: "peach", rated: 900 },
+];
+SRC.forEach((s) => (s.box = L.box({ x: DX, y: s.y, w: 360, h: s.h, c: s.c, label: s.name, fs: 32 })));
+
+// cross-ties between neighbouring trunks, at the X valves (drawn first: beneath the trunks)
+const ties = [0, 1, 2].map((k) => ({ a: k, b: k + 1,
+  down: seg(XV, TRUNKS[k].y, XV, TRUNKS[k + 1].y, 14, "tie"), up: seg(XV, TRUNKS[k + 1].y, XV, TRUNKS[k].y, 14, "tie"), open: 0, from: -1 }));
+// trunks
+TRUNKS.forEach((tr) => {
+  tr.s0 = seg(MX, tr.y, J1, tr.y, 22, "trunk");
+  tr.s1 = seg(J1, tr.y, XV, tr.y, 22, "trunk");
+  tr.s2 = seg(XV, tr.y, J2, tr.y, 22, "trunk");
+});
+// risers and branches to the taps
+TRUNKS.forEach((tr, k) => {
+  tr.up = seg(J2, tr.y, J2, rowC(3 * k) - 8, 16, "riser");          // to the far side of the branch: square corners
+  tr.dn = seg(J2, tr.y, J2, rowC(3 * k + 2) + 8, 16, "riser");
+});
+TAPS.forEach((tp) => {
+  tp.b0 = seg(J2 - 8, rowC(tp.i), BX, rowC(tp.i), 16, "branch");       // through the tap: one run
+});
+// the plasma manifold, fed by the warp core, with the impulse reactors at either end
+const man = {
+  up1: seg(MX, SRC[1].out, MX, TRUNKS[1].y, 26, "man"), up2: seg(MX, TRUNKS[1].y, MX, TRUNKS[0].y, 26, "man"),
+  dn1: seg(MX, SRC[1].out, MX, TRUNKS[2].y, 26, "man"), dn2: seg(MX, TRUNKS[2].y, MX, TRUNKS[3].y, 26, "man"),
+  // when a saucer or stardrive trunk is isolated, its impulse reactor feeds back along the manifold
+  up2r: seg(MX, TRUNKS[0].y, MX, TRUNKS[1].y, 26, "man"), dn2r: seg(MX, TRUNKS[3].y, MX, TRUNKS[2].y, 26, "man"),
+};
+SRC.forEach((s) => (s.feed = seg(DX + 360, s.out, MX - 13, s.out, 22, "feed")));
+
+// nodes over the joints
+const node = (x, y, w, c, cls = "node") => {
+  const e = L.el("div", cls + " boot", L.stage, { left: x - w / 2 + "px", top: y - w / 2 + "px", width: w + "px", height: w + "px", background: `var(--${c})` });
+  return e;
+};
+TRUNKS.forEach((tr) => {
+  node(MX, tr.y, 44, "orange");
+  tr.n1 = node(J1, tr.y, 48, "butter");
+  tr.nx = node(XV, tr.y, 40, "peach");
+  tr.n2 = node(J2, tr.y, 52, "orange");
+});
+SRC.forEach((s) => node(MX, s.out, 44, "orange"));
+TAPS.forEach((tp) => (tp.node = node(TX, rowC(tp.i), 36, "butter", "tapn")));
+// red over an isolated conduit
+TRUNKS.forEach((tr) => {
+  const e = L.layer({ x: J1 + 30, y: tr.y - 11, w: XV - J1 - 56, h: 22, cls: "warn" });
+  e.style.background = "var(--red)"; e.style.opacity = 0;
+  tr.warn = e;
+});
+
+// labels on the diagram
+TRUNKS.forEach((tr, k) => {
+  L.text({ x: MX + 60, base: tr.y - 34, s: 36, c: tr.c, txt: `Trunk ${tr.id}  ·  ${tr.name}` });
+  tr.flowTxt = L.text({ x: J1 - 44, base: tr.y + 70, s: 36, c: "white", txt: "", align: "r" });
+  L.text({ x: J1 + 40, base: tr.y + 70, s: 36, c: "peach", txt: `Relay ${tr.id}1` });
+  tr.valveTxt = L.text({ x: J2 - 44, base: tr.y - 34, s: 36, c: "peach", txt: "", align: "r" });
+});
+TAPS.forEach((tp) => {
+  tp.box = L.box({ x: BX, y: rowY(tp.i), w: BW, h: BH, c: TRUNKS[tp.k].c, label: tp.name, fs: 32, cls: "sw" });
+});
+
+// ---------------- status line ----------------
+const stateTxt = L.text({ x: DX, cap: 150, s: 100, c: "butter", txt: "" });
+const stateSub = L.text({ x: 0, base: 222, s: 38, c: "peach", txt: "" });
+const setState = (word, sub) => {
+  L.set(stateTxt, word);
+  stateSub.style.left = DX + L.textWidth(word, 100) + 40 + "px";
+  L.set(stateSub, sub);
+};
+const stardate0 = 47457.1 + Math.random() * 0.4;
+L.text({ x: RX, base: 222, s: 40, c: "peach", txt: "Stardate" });          // on the right column's edge
+const sdVal = L.text({ x: RX + L.textWidth("Stardate", 40) + 24, base: 222, s: 52, c: "white", txt: "" });
+const stardate = (t = L.t) => stardate0 + t / 3600 / 8.766;
+const pill = L.box({ x: RR - 400, y: 150, w: 400, h: 72, c: "butter", label: "Load Balanced", r: "lr", fs: 36, cls: "sw" });
+
+// ---------------- headers ----------------
+L.header({ x: DX, y: 280, w: DR - DX, label: "Primary EPS Network  ·  Deck-Spanning Conduits", c1: "orange", c2: "butter" });
+[["Sources", DX, "l"], ["Plasma Manifold", MX - 22, "l"], ["EPS Taps", TX - 18, "l"], ["Subsystems", BX, "l"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: 400, s: 36, c: "peach", txt, align }));
+L.header({ x: RX, y: 280, w: RR - RX, label: "Tap Load", c1: "butter", c2: "orange" });
+const TB = { bar: RX, barW: 340, pct: 3330, mw: 3580 };
+[["Load", TB.bar, "l"], ["Draw", TB.pct, "r"], ["Power", TB.mw, "r"], ["Status", RR, "r"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: 400, s: 36, c: "peach", txt, align }));
+TAPS.forEach((tp) => {
+  const base = rowBase(tp.i);
+  L.rect({ x: TB.bar, y: base - 26, w: TB.barW, h: 26, c: TRACK });
+  tp.bar = L.layer({ x: TB.bar, y: base - 26, w: TB.barW, h: 26, cls: "bar" });
+  tp.bar.style.background = `var(--${TRUNKS[tp.k].c})`;
+  tp.pct = L.text({ x: TB.pct, base, s: 52, c: "white", txt: "", align: "r" });
+  tp.mw = L.text({ x: TB.mw, base, s: 40, c: "butter", txt: "", align: "r" });
+  tp.st = L.text({ x: RR, base, s: 40, c: "peach", txt: "", align: "r" });
+});
+
+// ---------------- bottom strip ----------------
+const LOGX = 1244, LOGR = 2300, PCX = 2364;
+L.header({ x: DX, y: 1620, w: 1180 - DX, label: "Power Sources", c1: "orange", c2: "peach", h: 48 });
+L.header({ x: LOGX, y: 1620, w: LOGR - LOGX, label: "EPS Grid Log", c1: "butter", c2: "orange", h: 48 });
+L.header({ x: PCX, y: 1620, w: DR - PCX, label: "Plasma", c1: "orange", c2: "butter", h: 48 });
+L.header({ x: RX, y: 1620, w: RR - RX, label: "Trunk Lines", c1: "peach", c2: "butter", h: 48 });
+const bRow = (i) => 1734 + i * 54;
+// sources: a bar of output against rating, the percentage and the megawatts
+const SB = { bar: 420, barW: 330, pct: 900, mw: 1180 };
+const srcRows = [["Warp Core", "orange"], ["Saucer Impulse", "peach"], ["Stardrive Impulse", "peach"], ["Reserve Batteries", "butter"],
+  ["Grid Demand", "butter"], ["Reserve Margin", "orange"]].map(([name, c], i) => {
+  const base = bRow(i);
+  L.text({ x: DX, base, s: 36, c: "peach", txt: name });
+  L.rect({ x: SB.bar, y: base - 22, w: SB.barW, h: 22, c: TRACK });
+  const bar = L.layer({ x: SB.bar, y: base - 22, w: SB.barW, h: 22, cls: "bar" });
+  bar.style.background = `var(--${c})`;
+  return { bar, pct: L.text({ x: SB.pct, base, s: 36, c: "white", txt: "", align: "r" }), mw: L.text({ x: SB.mw, base, s: 36, c: "butter", txt: "", align: "r" }) };
+});
+// the log
+const logRows = Array.from({ length: 6 }, (_, i) => ({
+  sd: L.text({ x: LOGX, base: bRow(i), s: 36, c: "orange", txt: "" }),
+  tx: L.text({ x: LOGX + 164, base: bRow(i), s: 36, c: "butter", txt: "" }),
+}));
+let sd = stardate0 - 0.6;
+const logged = [];
+const log = (txt, at) => {
+  sd = at ?? Math.max(sd, stardate()); logged.push([sd.toFixed(1), txt]); if (logged.length > 6) logged.shift();
+  logRows.forEach((r, i) => {
+    const e = logged[i] || ["", ""];
+    L.set(r.sd, e[0]); L.set(r.tx, e[1]);
+    r.tx.style.color = i === logged.length - 1 ? "var(--white)" : "var(--butter)";
+  });
+};
+// the plasma itself
+const plasma = [["Temperature", ""], ["Pressure", ""], ["Velocity", ""], ["Phase Sync", ""], ["Taps On Line", ""], ["Relays", ""]].map(([name], i) => {
+  L.text({ x: PCX, base: bRow(i), s: 36, c: "peach", txt: name });
+  return L.text({ x: DR, base: bRow(i), s: 36, c: "white", txt: "", align: "r" });
+});
+// trunk lines
+const TL = { mw: 3330 };
+const trunkRows = TRUNKS.map((tr, i) => {
+  const base = bRow(i);
+  L.text({ x: RX, base, s: 36, c: "peach", txt: `Trunk ${tr.id}` });
+  return { mw: L.text({ x: TL.mw, base, s: 36, c: "white", txt: "", align: "r" }), st: L.text({ x: RR, base, s: 36, c: "butter", txt: "", align: "r" }) };
+});
+L.text({ x: RX, base: bRow(4), s: 36, c: "peach", txt: "Cross-Ties Open" });
+const tiesTxt = L.text({ x: RR, base: bRow(4), s: 36, c: "white", txt: "", align: "r" });
+L.text({ x: RX, base: bRow(5), s: 36, c: "peach", txt: "Reroutes This Shift" });
+const reroutesTxt = L.text({ x: RR, base: bRow(5), s: 36, c: "white", txt: "", align: "r" });
+
+// ---------------- the model ----------------
+let reroutes = L.irand(3, 7);
+let ev = null;                                          // the reroute in progress: {k, n, t0, stage}
+const IMPULSE = 300;                                    // each impulse reactor's share, MW
+const mwOf = (tp) => (tp.on ? tp.u * tp.rated : 0);
+const sum = (k) => TAPS.slice(3 * k, 3 * k + 3).reduce((a, tp) => a + mwOf(tp), 0);
+let flows = {};
+const solve = () => {
+  const own = TRUNKS.map((_, k) => sum(k));
+  const s1 = own.slice(), tie = [0, 0, 0];
+  if (ev && ev.stage >= 1) {                            // the isolated trunk is fed through the tie from its neighbour
+    s1[ev.k] = 0;
+    if (ev.stage === 2) { s1[ev.n] += own[ev.k]; tie[Math.min(ev.k, ev.n)] = own[ev.k]; }
+  }
+  const s0 = s1;
+  const sI = IMPULSE, dI = IMPULSE, nA = s0[0] - sI, nD = s0[3] - dI;
+  const up2 = Math.max(0, nA), up2r = Math.max(0, -nA), up1 = Math.max(0, s0[1] + nA);
+  const dn2 = Math.max(0, nD), dn2r = Math.max(0, -nD), dn1 = Math.max(0, s0[2] + nD);
+  flows = { own, s0, s1, tie, sI, dI, up1, up2, up2r, dn1, dn2, dn2r, warp: up1 + dn1, total: own.reduce((a, b) => a + b, 0) };
+};
+const setFlow = (g, mw) => { g.goal = Math.round(speed(mw) / 8) * 8; };   // in steps: fewer changes to send
+const apply = () => {
+  solve();
+  const f = flows;
+  TRUNKS.forEach((tr, k) => {
+    setFlow(tr.s0, f.s0[k]); setFlow(tr.s1, f.s1[k]); setFlow(tr.s2, ev && ev.k === k && ev.stage === 1 ? 0 : f.own[k]);
+    const T = TAPS.slice(3 * k, 3 * k + 3), feeding = !(ev && ev.k === k && ev.stage === 1);
+    setFlow(tr.up, feeding ? mwOf(T[0]) : 0); setFlow(tr.dn, feeding ? mwOf(T[2]) : 0);
+    T.forEach((tp) => setFlow(tp.b0, feeding ? mwOf(tp) : 0));
+  });
+  ties.forEach((ti, j) => {
+    const mw = f.tie[j], fromA = ev && ev.n === ti.a;
+    setFlow(ti.down, fromA ? mw : 0); setFlow(ti.up, !fromA ? mw : 0);
+  });
+  setFlow(man.up1, f.up1); setFlow(man.up2, f.up2); setFlow(man.dn1, f.dn1); setFlow(man.dn2, f.dn2);
+  setFlow(man.up2r, f.up2r); setFlow(man.dn2r, f.dn2r);
+  setFlow(SRC[0].feed, f.sI); setFlow(SRC[1].feed, f.warp); setFlow(SRC[2].feed, f.dI);
+};
+
+// the plasma speeds ease towards their goals; a stopped conduit fades its packets out
+L.every(200, () => {
+  for (const g of segs) {
+    const d = g.goal - g.rate;
+    if (d === 0) { /* steady */ }
+    else if (Math.abs(d) > 12) { g.rate += d * 0.35; g.anim.playbackRate = g.rate / P; }
+    else { g.rate = g.goal; g.anim.playbackRate = g.rate / P; }
+    const op = g.goal > 0 ? (g.key === "branch" || g.key === "riser" ? "0.9" : "1") : "0";
+    if (op !== g.op) { g.op = op; g.s.style.opacity = op; }
+  }
+}, 0);
+
+// loads drift a little round their goals, and glide there
+later(3200, () => TAPS.forEach((tp) => { if (tp.status === "Nominal") tp.goal = L.clamp(tp.base + L.rand(-0.025, 0.025), 0.05, 0.98); }), 0.3);
+L.every(250, () => {
+  TAPS.forEach((tp) => { tp.u += (tp.goal - tp.u) * 0.1; });
+  apply();
+}, 0);
+
+// ---------------- events ----------------
+// tap events: a subsystem steps up or stands down for a while, then comes back
+const TAP_EV = [
+  [5, "Standby", 0, "Holodecks 1 – 4 secured, power to standby", "Holodecks back on line"],
+  [6, "Charging", 0.94, "Phaser arrays charging, tactical drill", "Phaser arrays to standby charge"],
+  [2, "Boosted", 0.88, "Shield generators boosted, ion storm ahead", "Shield generators to normal output"],
+  [9, "Peak", 0.92, "Main deflector at full power, particle sweep", "Main deflector to cruise output"],
+  [4, "Peak", 0.86, "Replicator demand peak, shift change", "Replicator demand nominal"],
+  [7, "Cycling", 0.84, "Transporter rooms 3 and 5 cycling", "Transporter rooms on standby"],
+  [1, "Boosted", 0.9, "Long range sensors boosted, dekyon scan", "Long range sensors to normal sweep"],
+  [8, "Peak", 0.89, "Computer core at peak, Library sweep", "Computer core load nominal"],
+];
+let tapBusy = null, tapDeck = [];
+later(11000, () => {
+  if (tapBusy) {
+    const [i, , , , back] = tapBusy, tp = TAPS[i];
+    tp.status = "Nominal"; tp.on = true; tp.goal = tp.base; log(back); tapBusy = null;
+    return;
+  }
+  if (!tapDeck.length) tapDeck = TAP_EV.slice().sort(() => Math.random() - 0.5);
+  const e = tapDeck.pop(), [i, st, goal, msg] = e, tp = TAPS[i];
+  if (ev && ev.k === tp.k) { tapDeck.unshift(e); return; }
+  tapBusy = e; tp.status = st;
+  if (goal === 0) tp.on = false; else tp.goal = goal;
+  log(msg);
+}, 0.25);
+
+// reroutes: a surge on one trunk isolates a conduit; its neighbour feeds the rest through the cross-tie
+const CAUSES = ["Plasma surge", "Coolant pressure drop", "Phase variance", "Microfracture detected", "Field coil drift"];
+const startReroute = (t) => {
+  const k = L.irand(0, 3), n = k === 0 ? 1 : k === 3 ? 2 : k + L.pick([-1, 1]);
+  ev = { k, n, t0: t, stage: 0 };
+  log(`${L.pick(CAUSES)}, conduit ${TRUNKS[k].id}-2 · Deck ${L.pick(["08", "11", "14", "23", "27", "31", "36"])}`);
+};
+L.tick((t) => {
+  if (!ev) return;
+  const u = t - ev.t0, tr = TRUNKS[ev.k];
+  if (ev.stage === 0 && u > 1.6) { ev.stage = 1; tr.warn.style.opacity = 0.9; log(`Conduit ${tr.id}-2 isolated at Relay ${tr.id}1`); }
+  else if (ev.stage === 1 && u > 4.2) {
+    ev.stage = 2; reroutes++;
+    log(`Cross-tie ${TRUNKS[Math.min(ev.k, ev.n)].id}${TRUNKS[Math.max(ev.k, ev.n)].id} open · Trunk ${tr.id} fed from Trunk ${TRUNKS[ev.n].id}`);
+  } else if (ev.stage === 2 && u > 21) {
+    tr.warn.style.opacity = 0;
+    log(`Conduit ${tr.id}-2 restored · cross-tie closed`);
+    ev = null; nextEv = t + L.rand(14, 22);
+  }
+});
+let nextEv = 6;
+L.every(500, (t) => { if (!ev && t > nextEv) startReroute(t); }, 0);
+
+// ---------------- readings, a few times a second ----------------
+const STC = { Nominal: "peach", Standby: "butter", Charging: "white", Boosted: "white", Peak: "white", Cycling: "white", Rerouted: "butter" };
+L.every(300, (t) => {
+  const f = flows;
+  TAPS.forEach((tp) => {
+    const frac = tp.on ? tp.u : 0, pct = Math.round(frac * 100);
+    tp.bar.style.transform = `scaleX(${(pct / 100).toFixed(3)})`;
+    L.set(tp.pct, pct + "%");
+    L.set(tp.mw, tp.on ? fmt(Math.round(mwOf(tp) / 5) * 5) + " MW" : "—");
+    const rer = ev && ev.k === tp.k && ev.stage >= 1;
+    const st = rer ? (ev.stage === 1 ? "Isolated" : "Rerouted") : tp.status;
+    L.set(tp.st, st);
+    tp.st.style.color = `var(--${st === "Isolated" ? "red" : STC[st] || "peach"})`;
+    const look = !tp.on ? "off" : rer && ev.stage === 1 ? "iso" : "on";
+    if (look !== tp.look) {
+      tp.look = look;
+      tp.node.style.background = look === "off" ? DEAD : look === "iso" ? "var(--red)" : "var(--butter)";
+      tp.box.style.background = look === "off" ? "#7a6234" : `var(--${TRUNKS[tp.k].c})`;
+    }
+  });
+  TRUNKS.forEach((tr, k) => {
+    L.set(tr.flowTxt, fmt(Math.round(f.s0[k] / 5) * 5) + " MW");
+    tr.flowTxt.style.color = f.s0[k] > f.own[k] + 1 ? "var(--butter)" : f.s0[k] < 1 ? "var(--red)" : "var(--white)";
+    const iso = ev && ev.k === k && ev.stage >= 1, feeds = ev && ev.n === k && ev.stage === 2;
+    L.set(tr.valveTxt, iso ? (ev.stage === 2 ? `Fed via Valve ${tr.id}X` : `Valve ${tr.id}X Closed`) : feeds ? `Feeding Trunk ${TRUNKS[ev.k].id}` : `Node ${tr.id}2`);
+    tr.valveTxt.style.color = iso || feeds ? "var(--white)" : "var(--peach)";
+    tr.nx.style.background = iso || feeds ? "var(--white)" : "var(--peach)";
+    tr.n1.style.background = iso ? "var(--red)" : "var(--butter)";
+    const r = trunkRows[k];
+    L.set(r.mw, fmt(Math.round(f.s0[k] / 5) * 5) + " MW");
+    L.set(r.st, iso ? (ev.stage === 2 ? `Isolated · Fed from ${TRUNKS[ev.n].id}` : "Isolated") : feeds ? `Carrying ${TRUNKS[ev.k].id}` : "Nominal");
+    r.st.style.color = iso ? "var(--red)" : feeds ? "var(--white)" : "var(--butter)";
+  });
+  const open = ev && ev.stage === 2 ? 1 : 0;
+  L.set(tiesTxt, `${open} of 3`);
+  L.set(reroutesTxt, reroutes);
+  // sources
+  const gen = f.warp + f.sI + f.dI, cap = SRC.reduce((a, s) => a + s.rated, 0);
+  const rows = [[f.warp, 4800], [f.sI, 900], [f.dI, 900]];
+  rows.forEach(([mw, rated], i) => {
+    const pct = Math.round((mw / rated) * 100);
+    srcRows[i].bar.style.transform = `scaleX(${(pct / 100).toFixed(3)})`;
+    L.set(srcRows[i].pct, pct + "%"); L.set(srcRows[i].mw, fmt(Math.round(mw / 5) * 5) + " MW");
+  });
+  srcRows[3].bar.style.transform = "scaleX(1)"; L.set(srcRows[3].pct, "100%"); L.set(srcRows[3].mw, "Standby");
+  const dPct = Math.round((f.total / cap) * 100);
+  srcRows[4].bar.style.transform = `scaleX(${(dPct / 100).toFixed(3)})`; L.set(srcRows[4].pct, dPct + "%"); L.set(srcRows[4].mw, fmt(Math.round(f.total / 5) * 5) + " MW");
+  const mPct = 100 - dPct;
+  srcRows[5].bar.style.transform = `scaleX(${(mPct / 100).toFixed(3)})`; L.set(srcRows[5].pct, mPct + "%"); L.set(srcRows[5].mw, fmt(Math.round((cap - gen) / 5) * 5) + " MW");
+  L.set(sdVal, stardate(t).toFixed(1));
+  // plasma
+  const load = f.total / 3600;
+  L.set(plasma[0], fmt(Math.round((18200 + 2600 * load) / 10) * 10) + " K");
+  L.set(plasma[1], (412 + 60 * load).toFixed(0) + " kPa");
+  L.set(plasma[2], (0.31 + 0.12 * load).toFixed(2) + " c");
+  L.set(plasma[3], ev && ev.stage >= 1 ? "99.62%" : "99.98%");
+  L.set(plasma[4], `${TAPS.filter((tp) => tp.on).length} of 12`);
+  L.set(plasma[5], ev && ev.stage >= 1 ? "3 of 4" : "4 of 4");
+  // status
+  if (ev && ev.stage >= 1) setState(`Rerouting Trunk ${TRUNKS[ev.k].id}`, `Conduit ${TRUNKS[ev.k].id}-2 isolated  ·  ${ev.stage === 2 ? `cross-tie open to Trunk ${TRUNKS[ev.n].id}` : "opening cross-tie"}  ·  ${fmt(Math.round(f.total / 5) * 5)} MW distributed`);
+  else if (ev) setState("Surge Detected", `Conduit ${TRUNKS[ev.k].id}-2  ·  isolating at Relay ${TRUNKS[ev.k].id}1`);
+  else setState("Grid Nominal", `${fmt(Math.round(f.total / 5) * 5)} MW distributed  ·  4 trunks  ·  12 taps  ·  Lt. Cmdr. La Forge`);
+  const busy = !!ev;
+  L.set(pill, busy ? "Reroute Active" : "Load Balanced");
+  pill.style.background = busy ? "var(--white)" : "var(--butter)";
+}, 0);
+
+["EPS grid on line, all trunks pressurized", "Plasma manifold balanced, warp core at cruise", "Tap 14 recalibrated, Deck 36",
+ "Relay B1 phase-matched to Trunk B", "Deflector modification power routing verified", "Saucer separation interlocks nominal"]
+  .forEach((txt, i) => log(txt, stardate0 - 0.6 + i * 0.1));
+apply();
+});
+</script></body></html>

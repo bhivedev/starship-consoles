@@ -1,0 +1,573 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Geology</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .sw { transition: background-color 1s ease, color 1s ease; }
+  .fd { transition: opacity .45s ease; }
+  .fd.out { opacity: .2; }
+  .clip { position: absolute; overflow: hidden; }
+  .sheet svg { position: absolute; overflow: visible; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: sidebar left, title top right ----------------
+L.frame({ type: "A", title: "Geology  •  Core Sample Analysis", c: "tan", c2: "sand", accent: "olive", foot: "Geology",
+  side: [[140, "sand", "Sci 07"], [70, "olive", "Lab 2"], [420, "tan", "Strata"], [70, "peach", "Cores"],
+         [300, "sand", "Minerals"], [70, "olive", "Seismic"], [216, "tan", "Catalog"]] });
+
+const PANEL = "#1c150c", GRID = "#3b2e1c", TRACK = "#2a2016";
+const HEX = { olive: "#a99a3a", butter: "#ffcc66", gold: "#d6a032", tan: "#c9a77c", sand: "#bdb497", peach: "#ffb070",
+              sunset: "#e2631b", pink: "#f4b6e6", orange: "#ff9c1a", lilac: "#c7a0d8" };
+const col = (c) => (c.startsWith("#") ? c : `var(--${c})`);
+const pad2 = (n) => String(n).padStart(2, "0");
+const fmt = (n) => Math.round(n).toLocaleString("en");
+const smooth = (k) => k * k * k * (k * (k * 6 - 15) + 10);
+const sm = (a, b, u) => smooth(L.clamp((u - a) / (b - a)));
+const rng = (seed) => () => {                             // seeded: a core reads the same every time it is shown
+  seed = (seed + 0x6d2b79f5) | 0;
+  let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+};
+const fill = (x, y, w, h, c, origin = "0 0", parent) => {  // a bar that grows: a composited layer
+  const f = L.layer({ x, y, w, h }, parent);
+  f.style.background = col(c); f.style.transformOrigin = origin;
+  return f;
+};
+const widest = (items, s) => Math.ceil(Math.max(...items.map((t) => L.textWidth(t, s))));
+// a table's columns spread evenly from x0 to x1: [left, right] of each
+const columns = (x0, x1, widths) => {
+  const total = widths.reduce((a, b) => a + b, 0), gap = (x1 - x0 - total) / (widths.length - 1);
+  let x = x0;
+  return widths.map((w) => { const c = [Math.round(x), Math.round(x + w)]; x += w + gap; return c; });
+};
+const fmtAge = (a) => (a < 10 ? a.toFixed(2) : a < 1000 ? a.toFixed(1) : fmt(a));
+const fmtErr = (e) => (e >= 1 ? fmtAge(e) : e.toFixed(Math.max(2, 1 - Math.floor(Math.log10(e)))));
+
+// ---------------- rocks ----------------
+// colour, pattern, density g/cc, P-wave velocity km/s, composition:
+// quartz, feldspar, calcite, pyroxene, clay minerals, magnetite, dilithium
+const MINERALS = [["Quartz", "sand"], ["Feldspar", "peach"], ["Calcite", "butter"], ["Pyroxene", "olive"],
+                  ["Clay Minerals", "gold"], ["Magnetite", "sunset"], ["Dilithium", "lilac"]];
+const LITH = {
+  "Regolith":         { c: "olive",  pat: "dots",    rho: 1.68, vp: 0.9, comp: [42, 18, 6, 8, 22, 4, 0],     origin: "Surface Deposit" },
+  "Sandstone":        { c: "butter", pat: "dots",    rho: 2.34, vp: 3.2, comp: [68, 14, 4, 2, 9, 3, 0],      sed: true },
+  "Siltstone":        { c: "gold",   pat: "dash",    rho: 2.45, vp: 3.5, comp: [44, 16, 6, 3, 28, 3, 0],     sed: true },
+  "Shale":            { c: "tan",    pat: "lines",   rho: 2.52, vp: 3.0, comp: [24, 10, 5, 2, 56, 3, 0],     sed: true },
+  "Limestone":        { c: "sand",   pat: "brick",   rho: 2.68, vp: 5.4, comp: [4, 2, 88, 0, 5, 1, 0],       sed: true },
+  "Tuff":             { c: "peach",  pat: "vee",     rho: 2.10, vp: 2.7, comp: [18, 34, 2, 14, 28, 4, 0],    origin: "Ash Fall" },
+  "Basalt":           { c: "sunset", pat: "column",  rho: 2.96, vp: 5.9, comp: [1, 30, 1, 52, 4, 12, 0],     origin: "Lava Flow" },
+  "Granite":          { c: "pink",   pat: "cross",   rho: 2.66, vp: 6.0, comp: [33, 56, 0, 4, 3, 3, 0.4],   origin: "Plutonic Intrusion" },
+  "Gneiss":           { c: "orange", pat: "wave",    rho: 2.76, vp: 6.2, comp: [30, 48, 0, 10, 4, 6, 1.1],   origin: "Metamorphic" },
+  "Dilithium Schist": { c: "lilac",  pat: "diamond", rho: 2.88, vp: 5.8, comp: [26, 30, 0, 12, 8, 8, 15],    origin: "Metamorphic  ·  Dilithium Lattice" },
+};
+// dating: half-life constants (per year), how far each can be trusted, its precision
+const METHODS = [
+  { name: "Uranium–Lead", lam: 1.55125e-10, k: 1, min: 0, err: 0.0015 },
+  { name: "Potassium–Argon", lam: 5.543e-10, k: 0.1048, min: 0, err: 0.008 },
+  { name: "Rubidium–Strontium", lam: 1.42e-11, k: 1, min: 10, err: 0.012 },
+  { name: "Samarium–Neodymium", lam: 6.54e-12, k: 1, min: 50, err: 0.018 },
+];
+const ratioOf = (m, myr) => m.k * (Math.exp(m.lam * myr * 1e6) - 1);
+const fmtRatio = (r) => r.toFixed(Math.max(4, 3 - Math.floor(Math.log10(r))));
+
+// ---------------- the cores: Drema IV, one every 80 s ----------------
+const DEPTH = 240, CYC = 80, LOAD = 3, SCAN = 72, K0 = 417, OFFSET = 31;
+const SITES = ["Kessik Rift", "Tal Plateau", "Varo Basin", "Southern Shield", "Equatorial Ridge", "Northern Shelf"];
+const coreAt = (s) => K0 + Math.floor((s + OFFSET) / CYC);
+const cyc = (s) => (((s + OFFSET) % CYC) + CYC) % CYC;
+const scanOf = (u) => L.clamp((u - LOAD) / SCAN);            // 0 … 1 down the core
+const cores = new Map();
+const core = (k) => {
+  if (cores.has(k)) return cores.get(k);
+  const r = rng(5000 + k * 7919);
+  const names = ["Regolith"], SED = ["Sandstone", "Siltstone", "Shale", "Limestone"];
+  let last = null;
+  for (let i = 0, n = 3 + Math.floor(r() * 3); i < n; i++) {
+    const opts = SED.filter((s) => s !== last); last = opts[Math.floor(r() * opts.length)]; names.push(last);
+  }
+  if (r() < 0.7) names.push(r() < 0.5 ? "Tuff" : "Basalt");
+  const base = r() < 0.5 ? ["Gneiss"] : ["Granite"];
+  if (r() < 0.75) base.push("Dilithium Schist");
+  if (names.length + base.length < 9 && r() < 0.6) base.push(base[0] === "Gneiss" ? "Granite" : "Gneiss");
+  names.push(...base);
+  // thicknesses: every band thick enough to read
+  const mins = names.map((n) => (n === "Regolith" ? 7 : 12));
+  const wts = names.map((n) => (n === "Regolith" ? 0.2 + r() * 0.4 : 1 + r() * 2));
+  const spare = DEPTH - mins.reduce((a, b) => a + b, 0), sw = wts.reduce((a, b) => a + b, 0);
+  let d = 0;
+  const units = names.map((name, i) => {
+    const th = i === names.length - 1 ? DEPTH - d : Math.round((mins[i] + (wts[i] * spare) / sw) * 2) / 2;
+    const u = { name, i, top: d, bot: d + th, th, L: LITH[name] };
+    d += th;
+    return u;
+  });
+  // ages at each unit's middle, older with depth; an unconformity above the basement
+  let age = 0.2 + r() * 1.4, prev = null, inBase = false;
+  for (const u of units) {
+    const basement = ["Granite", "Gneiss", "Dilithium Schist"].includes(u.name);
+    if (prev) {
+      const rate = u.L.sed ? 0.15 + r() * 0.75 : 0.02 + r() * 0.1;   // Myr per metre
+      age += ((prev.th + u.th) / 2) * rate;
+      if (basement && !inBase) age += 300 + r() * 1100;
+      else if (basement) age += 20 + r() * 180;
+      u.rate = rate;
+    }
+    inBase = inBase || basement;
+    u.age = age;
+    u.comp = (() => {
+      const v = u.L.comp.map((p) => p * (1 + (r() * 2 - 1) * 0.14)), s = v.reduce((a, b) => a + b, 0);
+      return v.map((p) => (100 * p) / s);
+    })();
+    u.rho = u.L.rho * (1 + (r() * 2 - 1) * 0.025) + 0.0004 * u.top;
+    u.vp = u.L.vp * (1 + (r() * 2 - 1) * 0.04) + 0.001 * u.top;
+    u.ph = [r() * 6, r() * 6];
+    u.argonLoss = r() < 0.25 ? 0.03 + r() * 0.04 : 0;
+    u.dev = METHODS.map(() => (r() * 2 - 1) * 0.3);
+    u.seed = Math.floor(r() * 1e9);
+    prev = u;
+  }
+  const C = {
+    k, units, site: SITES[k % SITES.length], id: `DR4-${String(k).padStart(4, "0")}`,
+    oldest: units[units.length - 1].age,
+    dil: Math.max(...units.map((u) => u.comp[6])),
+    rho: units.reduce((a, u) => a + u.rho * u.th, 0) / DEPTH,
+  };
+  cores.set(k, C);
+  for (const old of cores.keys()) if (old < k - 4) cores.delete(old);
+  return C;
+};
+const unitAt = (C, depth) => C.units.find((u) => depth < u.bot) || C.units[C.units.length - 1];
+// a unit's radiometric results
+const dating = (u) => {
+  const rows = METHODS.map((m, j) => {
+    if (u.age < m.min) return { m, ok: false };
+    const a = u.age * (1 + u.dev[j] * m.err - (j === 1 ? u.argonLoss : 0));
+    return { m, ok: true, age: a, ratio: ratioOf(m, a), err: a * m.err, disc: j === 1 && u.argonLoss > 0 };
+  });
+  const good = rows.filter((r) => r.ok && !r.disc);
+  const wsum = good.reduce((a, r) => a + 1 / (r.err * r.err), 0);
+  const best = good.reduce((a, r) => a + r.age / (r.err * r.err), 0) / wsum;
+  return { rows, best, err: Math.sqrt(1 / wsum), conc: good.length, avail: rows.filter((r) => r.ok).length };
+};
+
+// ---------------- status line ----------------
+const stateTxt = L.text({ x: 330, cap: 150, s: 100, c: "sand", txt: "" });
+const subTxt = L.text({ x: 1760, base: 222, s: 38, c: "tan", txt: "" });
+const quakePill = L.box({ x: 3416, y: 150, w: 400, h: 72, c: "sand", label: "", r: "lr", fs: 36, cls: "sw" });
+
+// ================= the core sample log (left): the core, its units, two logs on one depth scale =================
+const LX0 = 330, LX1 = 1700, Y0 = 476, Y1 = 2004, PXM = (Y1 - Y0) / DEPTH;
+const DEP_R = 410, CORE_X = 440, CORE_W = 320, TAB_X = 784, TAB_W = 96, NAME_X = 904;
+const TRK = [
+  { x: 1104, w: 286, lo: 1.5, hi: 3.5, labels: ["1.5", "2.5", "3.5"], key: "rho", amp: 0.025, ink: HEX.butter, cap: "Density  g/cc" },
+  { x: 1414, w: 286, lo: 0, hi: 8, labels: ["0", "4", "8"], key: "vp", amp: 0.09, ink: HEX.peach, cap: "Velocity  km/s" },
+];
+const INSET = 28;
+const tx = (T, v) => T.x + INSET + ((v - T.lo) / (T.hi - T.lo)) * (T.w - 2 * INSET);
+const dy = (d) => Y0 + d * PXM;
+L.header({ x: LX0, y: 280, w: LX1 - LX0, label: "Core Sample Log", c1: "sand", c2: "tan" });
+[["Depth  m", LX0], ["Unit", TAB_X]].forEach(([txt, x]) => L.text({ x, base: 400, s: 36, c: "tan", txt }));
+L.text({ x: CORE_X + CORE_W / 2, base: 400, s: 36, c: "tan", txt: "Core", align: "c", w: CORE_W });
+TRK.forEach((T) => {
+  L.text({ x: T.x, base: 400, s: 36, c: "tan", txt: T.cap });
+  L.rect({ x: T.x, y: Y0, w: T.w, h: Y1 - Y0, c: PANEL });
+  T.labels.forEach((txt, q) => L.text({ x: tx(T, T.lo + (q * (T.hi - T.lo)) / 2), base: 452, s: 30, c: "sand", txt, align: "c", w: 80, legend: true }));
+});
+for (let m = 0; m <= DEPTH; m += 5) {
+  const y = dy(m), major = m % 20 === 0;
+  L.rect({ x: major ? 416 : 424, y: y - 1, w: major ? 16 : 8, h: 2, c: major ? "sand" : GRID, free: true });
+  if (major) L.text({ x: DEP_R, base: y + 11, s: 30, c: "sand", txt: String(m), align: "r", legend: true });
+}
+
+// two sheets, one per core, crossfaded when the next core is loaded
+const curvePath = (C, T) => {
+  let d = "";
+  for (const u of C.units) {
+    for (let m = u.top; m <= u.bot + 1e-6; m += 1) {
+      const mm = Math.min(m, u.bot);
+      const v = u[T.key] + T.amp * (0.6 * Math.sin(mm * 0.9 + u.ph[0]) + 0.4 * Math.sin(mm * 2.3 + u.ph[1]));
+      d += `${d ? "L" : "M"}${(tx(T, v) - LX0).toFixed(1)},${(mm * PXM).toFixed(1)}`;
+    }
+  }
+  return d;
+};
+// the core itself: each lithology in its colour and its map pattern, drawn once per core
+const drawCore = (c, C) => {
+  const g = c.g;
+  g.clearRect(0, 0, c.w, c.h);
+  for (const u of C.units) {
+    const y0 = u.top * PXM + (u.i ? 3 : 0), y1 = u.bot * PXM - (u.i < C.units.length - 1 ? 3 : 0), h = y1 - y0;
+    g.fillStyle = HEX[u.L.c]; g.fillRect(0, y0, CORE_W, h);
+    g.save(); g.beginPath(); g.rect(0, y0, CORE_W, h); g.clip();
+    g.strokeStyle = g.fillStyle = "rgba(0,0,0,0.42)"; g.lineWidth = 3; g.lineCap = "round";
+    const r = rng(u.seed), p = u.L.pat;
+    const rows = (pitch, f) => { for (let y = y0 + pitch / 2, j = 0; y < y1 + pitch; y += pitch, j++) f(y, j); };
+    if (p === "dots") rows(18, (y, j) => { for (let x = (j % 2 ? 9 : 0) + 6; x < CORE_W; x += 18) { g.beginPath(); g.arc(x + r() * 3, y + r() * 3, 2.6, 0, 7); g.fill(); } });
+    else if (p === "dash") rows(16, (y, j) => { for (let x = (j % 2 ? 14 : 2); x < CORE_W; x += 28) g.fillRect(x, y - 1.5, 14, 3); });
+    else if (p === "lines") rows(14, (y) => g.fillRect(0, y - 1.5, CORE_W, 3));
+    else if (p === "brick") rows(26, (y, j) => { g.fillRect(0, y - 13, CORE_W, 3); for (let x = j % 2 ? 26 : 0; x < CORE_W; x += 52) g.fillRect(x, y - 13, 3, 26); });
+    else if (p === "vee") rows(26, (y, j) => { for (let x = (j % 2 ? 20 : 0) + 10; x < CORE_W; x += 40) { g.beginPath(); g.moveTo(x - 7, y - 6); g.lineTo(x, y + 6); g.lineTo(x + 7, y - 6); g.stroke(); } });
+    else if (p === "column") { for (let x = 16; x < CORE_W; x += 32) for (let y = y0 + 4 + r() * 20; y < y1; y += 46 + r() * 20) g.fillRect(x, y, 3, 34); }
+    else if (p === "cross") rows(28, (y, j) => { for (let x = (j % 2 ? 22 : 0) + 12; x < CORE_W; x += 44) { g.fillRect(x - 8, y - 1.5, 16, 3); g.fillRect(x - 1.5, y - 8, 3, 16); } });
+    else if (p === "wave") rows(20, (y) => { g.beginPath(); for (let x = 0; x <= CORE_W; x += 6) g[x ? "lineTo" : "moveTo"](x, y + 5 * Math.sin(x / 18)); g.stroke(); });
+    else if (p === "diamond") rows(30, (y, j) => {
+      g.fillRect(0, y - 15, CORE_W, 2);
+      for (let x = (j % 2 ? 26 : 0) + 14; x < CORE_W; x += 52) { g.beginPath(); g.moveTo(x, y - 9); g.lineTo(x + 7, y); g.lineTo(x, y + 9); g.lineTo(x - 7, y); g.closePath(); g.fill(); }
+    });
+    g.restore();
+  }
+};
+const NS = "http://www.w3.org/2000/svg";
+const sheets = [0, 1].map(() => {
+  const e = L.layer({ x: LX0, y: Y0, w: LX1 - LX0, h: Y1 - Y0, cls: "sheet" });
+  e.style.opacity = "0"; e.style.overflow = "hidden";
+  const cv = L.canvas({ x: CORE_X - LX0, y: 0, w: CORE_W, h: Y1 - Y0 }, e);
+  cv.cv.classList.remove("boot");
+  const units = L.el("div", "", e);
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("width", LX1 - LX0); svg.setAttribute("height", Y1 - Y0);
+  Object.assign(svg.style, { left: "0px", top: "0px" });
+  e.appendChild(svg);
+  const paths = TRK.map((T) => L.svg("path", { d: "", fill: "none", stroke: T.ink, "stroke-width": 4, "stroke-linejoin": "round" }, svg));
+  // what the scanner has not reached yet: dimmed on the core, faint on the logs (the drill log's estimate)
+  const cover = L.layer({ x: CORE_X - LX0, y: 0, w: LX1 - CORE_X, h: Y1 - Y0 + 4 }, e);
+  L.el("div", "", cover, { position: "absolute", left: "0px", top: "0px", width: TAB_X - CORE_X + "px", height: "100%", background: "rgba(0,0,0,0.45)" });
+  TRK.forEach((T) => L.el("div", "", cover, { position: "absolute", left: T.x - CORE_X + "px", top: "0px", width: T.w + "px", height: "100%", background: "rgba(28,21,12,0.8)" }));
+  const S = { e, cv, units, paths, cover, C: null, tabs: [], y: -1 };
+  cv.onResize = () => { if (S.C) drawCore(cv, S.C); };
+  return S;
+});
+const loadSheet = (S, C) => {
+  S.C = C; S.y = -1;
+  drawCore(S.cv, C);
+  S.units.textContent = "";
+  S.tabs = C.units.map((u) => {
+    const mid = ((u.top + u.bot) / 2) * PXM;
+    const tab = L.box({ x: TAB_X - LX0, y: Math.round(mid - 20), w: TAB_W, h: 40, c: u.L.c, label: "U" + (u.i + 1), fs: 28, r: "lr", cls: "c sw" }, S.units);
+    const name = L.text({ x: NAME_X - LX0, base: Math.round(mid + 11.5), s: 32, c: "sand", txt: u.name, cls: "sw" }, S.units);
+    tab.classList.remove("boot"); name.classList.remove("boot");
+    return { tab, name, c: u.L.c };
+  });
+  S.lit = -1;
+  TRK.forEach((T, i) => S.paths[i].setAttribute("d", curvePath(C, T)));
+};
+// a grid over the logs, and the scanner
+const grid = L.layer({ x: 0, y: 0, w: 0, h: 0 });
+TRK.forEach((T) => {
+  for (let q = 0; q <= 2; q++) L.el("div", "", grid, { position: "absolute", left: Math.round(tx(T, T.lo + (q * (T.hi - T.lo)) / 2)) - 1 + "px", top: Y0 + "px", width: "2px", height: Y1 - Y0 + "px", background: GRID });
+  for (let m = 20; m < DEPTH; m += 20) L.el("div", "", grid, { position: "absolute", left: T.x + "px", top: Math.round(dy(m)) - 1 + "px", width: T.w + "px", height: "2px", background: GRID });
+});
+const scanCore = fill(CORE_X - 8, Y0 - 2, CORE_W + 16, 4, "white");
+const scanLogs = fill(TRK[0].x, Y0 - 2, LX1 - TRK[0].x, 4, "white");
+
+// ================= mineral composition (top middle) =================
+const MX0 = 1760, MX1 = 2758, ROWB = (i) => 480 + i * 80;
+L.header({ x: MX0, y: 280, w: MX1 - MX0, label: "Mineral Composition", c1: "tan", c2: "olive" });
+const unitCap = L.text({ x: MX0, base: 400, s: 36, c: "butter", txt: "" });
+L.text({ x: MX1, base: 400, s: 36, c: "tan", txt: "Percent by Mass", align: "r" });
+const MVW = Math.ceil(L.textWidth("100.0%", 52) / 10) * 10;
+const MBX = MX0 + Math.ceil(widest(MINERALS.map((m) => m[0]), 40) / 10) * 10 + 40, MBW = MX1 - MVW - 40 - MBX;
+const mins = MINERALS.map(([name, c], i) => {
+  const base = ROWB(i);
+  L.text({ x: MX0, base, s: 40, c: "tan", txt: name });
+  L.rect({ x: MBX, y: base - 30, w: MBW, h: 30, c: TRACK });
+  return { bar: fill(MBX, base - 30, MBW, 30, c), val: L.text({ x: MX1, base, s: 52, c: "white", txt: "", align: "r" }), v: 0, from: 0, to: 0, drawn: -1 };
+});
+let compT0 = -9, compKey = null;
+
+// ================= radiometric age (top right) =================
+const AX0 = 2818, AX1 = 3816;
+L.header({ x: AX0, y: 280, w: AX1 - AX0, label: "Radiometric Age", c1: "peach", c2: "tan" });
+const ACAP = ["Method", "Daughter / Parent", "Age  Myr", "Error"];
+const acols = columns(AX0, AX1, [widest(METHODS.map((m) => m.name).concat("Best Estimate"), 40), L.textWidth("0.00000000", 40),
+  Math.max(L.textWidth("Below Range", 40), L.textWidth("8,888", 52)), L.textWidth("Error", 36)]);
+ACAP.forEach((txt, j) => L.text({ x: j ? acols[j][1] : acols[0][0], base: 400, s: 36, c: "tan", txt, align: j ? "r" : "l" }));
+const arows = METHODS.map((m, i) => {
+  L.text({ x: AX0, base: ROWB(i), s: 40, c: "peach", txt: m.name });
+  return [1, 2, 3].map((j) => L.text({ x: acols[j][1], base: ROWB(i), s: 40, c: j === 2 ? "white" : "sand", txt: "", align: "r", cls: "fd sw" }));
+});
+L.rect({ x: AX0, y: ROWB(3) + 21, w: AX1 - AX0, h: 3, c: "tan", noalign: true });
+L.text({ x: AX0, base: ROWB(4), s: 40, c: "butter", txt: "Best Estimate" });
+const bestConc = L.text({ x: acols[1][1], base: ROWB(4), s: 40, c: "sand", txt: "", align: "r", cls: "fd" });
+const bestAge = L.text({ x: acols[2][1], base: ROWB(4), s: 52, c: "butter", txt: "", align: "r", cls: "fd" });
+const bestErr = L.text({ x: acols[3][1], base: ROWB(4), s: 40, c: "sand", txt: "", align: "r", cls: "fd" });
+L.text({ x: AX0, base: ROWB(5), s: 40, c: "peach", txt: "Unit Interval" });
+const ivVal = L.text({ x: AX1, base: ROWB(5), s: 40, c: "white", txt: "", align: "r", cls: "fd" });
+L.text({ x: AX0, base: ROWB(6), s: 40, c: "peach", txt: "Origin" });
+const orVal = L.text({ x: AX1, base: ROWB(6), s: 40, c: "white", txt: "", align: "r", cls: "fd" });
+const ageCells = [...arows.flat(), bestConc, bestAge, bestErr, ivVal, orVal];
+let ageKey = null, ageShown = null, ageT0 = 0;
+
+// ================= seismic readings (middle) =================
+const SX0 = 1760, SX1 = 3196, PT = 1188, CHH = 104, CHP = 120, NCH = 3;
+const STX = SX0 + 240 + L.GAP, STW = SX1 - STX, WIN = 15;
+L.header({ x: SX0, y: 1040, w: SX1 - SX0, label: "Seismic Readings", c1: "sand", c2: "tan" });
+L.text({ x: SX0, base: 1160, s: 36, c: "tan", txt: "Drema IV Surface Network  ·  Ground Velocity, Micrometres per Second" });
+L.text({ x: SX1, base: 1160, s: 36, c: "tan", txt: "Last 15 Seconds", align: "r" });
+const STATIONS = [
+  { name: "Kessik Rift", c: "butter", ink: HEX.butter, ph: [0.3, 2.1, 4.4] },
+  { name: "Tal Plateau", c: "peach", ink: HEX.peach, ph: [1.7, 0.6, 3.2] },
+  { name: "Varo Basin", c: "tan", ink: HEX.tan, ph: [2.9, 5.0, 1.1] },
+];
+STATIONS.forEach((st, i) => {
+  const y = PT + i * CHP;
+  L.box({ x: SX0, y, w: 240, h: CHH, c: st.c, label: st.name, fs: 30 });
+  st.num = L.text({ x: SX0 + 20, cap: y + 14, s: 60, c: "#000", txt: "", on: true });
+  L.rect({ x: STX, y, w: STW, h: CHH, c: PANEL });
+  for (let q = 1; q < WIN; q++) L.rect({ x: Math.round(STX + (STW * q) / WIN) - 1, y, w: 2, h: CHH, c: q % 5 ? "#271e12" : GRID, free: true });
+  L.rect({ x: STX, y: y + CHH / 2 - 1, w: STW, h: 2, c: GRID, free: true });
+});
+["15 s", "10 s", "5 s", "Now"].forEach((txt, q) => {
+  const x = STX + (STW * q) / 3;
+  L.text({ x, base: 1580, s: 30, c: "tan", txt, align: q === 0 ? "l" : q === 3 ? "r" : "c", w: 120, legend: true });
+});
+// tremors: a seeded sequence; each reaches the stations in turn, P wave then S wave
+const quakes = [];
+let qr = rng(424242), qNext = 7;
+const makeQuake = (T) => {
+  const M = 1.0 + 2.3 * qr() * qr(), depth = 4 + qr() * 24, e = Math.floor(qr() * NCH);
+  const arr = STATIONS.map((_, i) => {
+    const dist = Math.abs(i - e), tp = T + 0.6 + dist * 1.4 + depth / 14 + qr() * 0.3;
+    return { tp, ts: tp + 1.2 + depth / 9, A: (Math.pow(10, M - 1) * 0.9) / (1 + 0.8 * dist) };
+  });
+  return { T, M, depth, e, arr, logT: Math.max(...arr.map((a) => a.ts)) + 3 };
+};
+{ // the history before the screen came on
+  let T = qNext;
+  const past = [];
+  for (let j = 0; j < 8; j++) { T -= 26 + qr() * 34; past.unshift(makeQuake(T)); }
+  quakes.push(...past);
+}
+const quakesTo = (s) => { while (qNext < s + 30) { quakes.push(makeQuake(qNext)); qNext += 26 + qr() * 34; } };
+const envP = (x) => (x < 0 ? 0 : (1 - Math.exp(-x / 0.12)) * Math.exp(-x / 1.4));
+const envS = (x) => (x < 0 ? 0 : (1 - Math.exp(-x / 0.25)) * Math.exp(-x / 2.6));
+const BGV = 0.38;
+const near = (s) => quakes.filter((q) => q.T > s - 40 && q.T < s + 1);
+const ground = (i, s, list) => {                           // ground velocity at a station, µm/s
+  const ph = STATIONS[i].ph;
+  let v = BGV * (0.5 * Math.sin(2 * Math.PI * 0.9 * s + ph[0]) + 0.3 * Math.sin(2 * Math.PI * 1.7 * s + ph[1]) + 0.2 * Math.sin(2 * Math.PI * 2.9 * s + ph[2]));
+  for (const q of list) {
+    const a = q.arr[i];
+    v += a.A * (0.35 * envP(s - a.tp) * Math.sin(2 * Math.PI * 3.0 * (s - a.tp)) + envS(s - a.ts) * Math.sin(2 * Math.PI * 1.6 * (s - a.ts) + 1));
+  }
+  return v;
+};
+const level = (i, s, list) => {                            // its smooth envelope: what the tab reads
+  let v = BGV * (1 + 0.04 * Math.sin(0.07 * s + i * 2));
+  for (const q of list) { const a = q.arr[i]; v += a.A * (0.35 * envP(s - a.tp) + envS(s - a.ts)); }
+  return v;
+};
+// the traces scroll (as on tng/sickbay): two canvas tiles slid side by side in a clipped strip
+const SPEED = STW / WIN, SUB = 3, STH = NCH * CHP - (CHP - CHH);
+const strip = L.el("div", "clip boot", L.stage, { left: STX + "px", top: PT + "px", width: STW + "px", height: STH + "px" });
+const tiles = [0, 1].map((n) => {
+  const c = L.canvas({ x: 0, y: 0, w: STW + 8, h: STH }, strip);
+  c.cv.style.willChange = "transform"; c.idx = n;        // idx, not k: the kit keeps the pixel scale in c.k
+  return c;
+});
+let simT = -WIN, written = 0, lastT = null, prev = STATIONS.map(() => null), filled = false;
+const step = (dt) => {
+  const pts = STATIONS.map(() => []);
+  for (let j = 1; j <= SUB; j++) {
+    simT += dt / SUB;
+    const list = near(simT), x = written + (dt * SPEED * j) / SUB;
+    STATIONS.forEach((_, i) => {
+      const v = ground(i, simT, list);
+      pts[i].push([x, i * CHP + CHH / 2 - (CHH / 2 - 8) * Math.tanh(v / 3)]);
+    });
+  }
+  const end = written + dt * SPEED;
+  for (const tile of tiles) if (end >= (tile.idx + 2) * STW) { tile.idx += 2; tile.g.clearRect(0, 0, STW + 8, STH); }
+  STATIONS.forEach((st, i) => {
+    if (prev[i]) for (const tile of tiles) {
+      const g = tile.g, o = tile.idx * STW;
+      g.strokeStyle = st.ink; g.lineWidth = 3; g.lineJoin = "round"; g.lineCap = "round";
+      g.beginPath(); g.moveTo(prev[i][0] - o, prev[i][1]);
+      for (const [x, y] of pts[i]) g.lineTo(x - o, y);
+      g.stroke();
+    }
+    prev[i] = pts[i][SUB - 1];
+  });
+  written = end;
+};
+const placeTiles = () => tiles.forEach((tile) => (tile.cv.style.transform = `translate3d(${(tile.idx * STW - (written - STW)).toFixed(2)}px,0,0)`));
+tiles.forEach((c) => (c.onResize = () => { filled = false; }));   // a resize wipes the canvases: refill them
+
+// ================= tremor log (middle right) =================
+const TX0 = 3256, TX1 = 3816, TROW = (i) => 1236 + i * 54, NT = 6;
+L.header({ x: TX0, y: 1040, w: TX1 - TX0, label: "Tremor Log", c1: "olive", c2: "sand" });
+const TCAP = ["Time", "Mag", "Depth", "Nearest"];
+const tcols = columns(TX0, TX1, [L.textWidth("00:00:00", 36), L.textWidth("Mag", 36) + 10, L.textWidth("28 km", 36), widest(STATIONS.map((s) => s.name), 36)]);
+TCAP.forEach((txt, j) => L.text({ x: j ? tcols[j][1] : tcols[0][0], base: 1160, s: 36, c: "tan", txt, align: j ? "r" : "l" }));
+const TCOL = ["sand", "white", "sand", "tan"];
+const trows = Array.from({ length: NT }, (_, i) => TCAP.map((_, j) =>
+  L.text({ x: j ? tcols[j][1] : tcols[0][0], base: TROW(i), s: 36, c: TCOL[j], txt: "", align: j ? "r" : "l", cls: "fd" })));
+const wall0 = Date.now();
+const clockOf = (T) => { const d = new Date(wall0 + T * 1000); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`; };
+let loggedN = -1;
+const showTremors = (s, fade) => {
+  const done = quakes.filter((q) => q.logT <= s);
+  if (done.length === loggedN) return;
+  loggedN = done.length;
+  const put = () => trows.forEach((row, i) => {
+    const q = done[done.length - 1 - i];
+    const cells = q ? [clockOf(q.T), q.M.toFixed(1), Math.round(q.depth) + " km", STATIONS[q.e].name] : ["", "", "", ""];
+    row.forEach((e, j) => L.set(e, cells[j]));
+    row[1].style.color = q && q.M >= 2.5 ? "var(--orange)" : "var(--white)";
+  });
+  if (!fade) return put();
+  trows.flat().forEach((e) => e.classList.add("out"));
+  setTimeout(() => { put(); trows.flat().forEach((e) => e.classList.remove("out")); }, 450);
+};
+
+// ================= sample catalog (bottom) =================
+const CX0 = 1760, CX1 = 3816, CROW = (i) => 1776 + i * 54, NC = 5;
+L.header({ x: CX0, y: 1620, w: CX1 - CX0, label: "Sample Catalog", c1: "tan", c2: "peach", h: 48 });
+const CCAP = ["Sample", "Bore Site", "Units", "Oldest Unit", "Peak Dilithium", "Mean Density", "Status"];
+const CSAMPLE = ["DR4-0000", widest(SITES, 36), "10", "2,888 Myr", "14.8%", "2.88 g/cc", "Scanning 100%"];
+const ccols = columns(CX0, CX1, CCAP.map((c, j) => Math.max(L.textWidth(c, 36), typeof CSAMPLE[j] === "number" ? CSAMPLE[j] : L.textWidth(CSAMPLE[j], 36))));
+const CALIGN = ["l", "l", "r", "r", "r", "r", "r"];
+const cx = (j) => (CALIGN[j] === "l" ? ccols[j][0] : ccols[j][1]);
+CCAP.forEach((txt, j) => L.text({ x: cx(j), base: 1716, s: 36, c: "tan", txt, align: CALIGN[j] }));
+const crows = Array.from({ length: NC }, (_, i) => CCAP.map((_, j) =>
+  L.text({ x: cx(j), base: CROW(i), s: 36, c: "sand", txt: "", align: CALIGN[j], cls: "fd sw" })));
+let catK = null;
+const catStatus = (k, kNow, u) => {
+  if (k < kNow) return ["Logged", "tan"];
+  if (k > kNow) return ["Queued", "olive"];
+  if (u < LOAD) return ["Loading", "butter"];
+  if (u >= LOAD + SCAN) return ["Logged", "butter"];
+  return [`Scanning ${Math.floor(scanOf(u) * 100)}%`, "butter"];
+};
+const catCells = (k, kNow) => {
+  const C = core(k), known = k < kNow || (k === kNow && catLogged);
+  return [C.id, C.site, String(C.units.length), known ? fmt(C.oldest) + " Myr" : "—",
+          known ? (C.dil < 1 ? "Trace" : C.dil.toFixed(1) + "%") : "—", known ? C.rho.toFixed(2) + " g/cc" : "—"];
+};
+let catLogged = false;
+const showCatalog = (kNow, u) => {
+  crows.forEach((row, i) => {
+    const k = kNow - 2 + i, cells = catCells(k, kNow), [st, sc] = catStatus(k, kNow, u);
+    cells.forEach((v, j) => L.set(row[j], v));
+    L.set(row[6], st); row[6].style.color = col(sc);
+    const cur = k === kNow;
+    row.slice(0, 6).forEach((e, j) => (e.style.color = col(cur ? (j === 0 ? "butter" : "white") : j === 0 ? "tan" : "sand")));
+  });
+};
+
+// ================= the clock =================
+let shownK = null, active = 0, fadeT0 = -99;
+const sheetFor = (k) => sheets.find((S) => S.C && S.C.k === k);
+L.tick((t) => {
+  const s = t, u = cyc(s), k = coreAt(s);
+  // a new core: load it into the hidden sheet and crossfade
+  if (k !== shownK) {
+    const first = shownK === null;
+    shownK = k;
+    const S = sheetFor(k) || sheets[1 - active];
+    if (S.C !== core(k)) loadSheet(S, core(k));
+    active = sheets.indexOf(S);
+    fadeT0 = first ? -99 : t;
+  }
+  // the old core fades out, then the new one in: never two sets of units over each other
+  const f = L.clamp((t - fadeT0) / 2.6), fin = L.ease(L.clamp(f * 2 - 1)), fout = 1 - L.ease(L.clamp(f * 2));
+  sheets.forEach((S, i) => {
+    const o = (i === active ? fin : fout).toFixed(3);
+    if (S.o !== o) { S.o = o; S.e.style.opacity = o; }
+  });
+  // the scanner
+  const sc = scanOf(u), y = sc * (Y1 - Y0);
+  const S = sheets[active];
+  if (Math.abs(S.y - y) > 0.05) { S.y = y; L.move(S.cover, 0, y); }
+  L.move(scanCore, 0, y); L.move(scanLogs, 0, y);
+  const lo = (Math.min(sm(LOAD - 0.4, LOAD + 0.4, u), 1 - sm(LOAD + SCAN, LOAD + SCAN + 0.8, u))).toFixed(3);
+  scanCore.style.opacity = lo; scanLogs.style.opacity = lo;
+  // the unit under the scanner, lit
+  const C = S.C, U = unitAt(C, sc * DEPTH);
+  if (S.lit !== U.i) {
+    if (S.lit >= 0) { const p = S.tabs[S.lit]; p.tab.style.background = col(p.c); p.name.style.color = "var(--sand)"; }
+    S.lit = U.i; const p = S.tabs[U.i]; p.tab.style.background = "var(--white)"; p.name.style.color = "var(--white)";
+  }
+  // composition: eases to the new unit's minerals
+  const key = C.k + ":" + U.i;
+  if (key !== compKey) { compKey = key; compT0 = t; mins.forEach((m, i) => { m.from = m.v; m.to = U.comp[i]; }); }
+  const ce = L.ease(L.clamp((t - compT0) / 1.6));
+  mins.forEach((m) => {
+    m.v = L.mix(m.from, m.to, ce);
+    const w = (m.v / 100).toFixed(4);
+    if (w !== m.drawn) { m.drawn = w; m.bar.style.transform = `scaleX(${w})`; }
+  });
+  // the seismic traces
+  quakesTo(s);
+  if (!filled) {                                         // start with the window already full, ending now
+    filled = true; written = 0; simT = s - WIN; tiles[0].idx = -1; tiles[1].idx = 0;
+    prev = STATIONS.map(() => null);
+    tiles.forEach((c) => c.g.clearRect(0, 0, STW + 8, STH));
+    for (let i = 0; i < WIN * 30 + 1; i++) step(1 / 30);
+    lastT = t; placeTiles(); return;
+  }
+  step(Math.min(0.1, Math.max(0, t - lastT))); lastT = t;
+  placeTiles();
+});
+
+const STATE = (u) => (u < LOAD ? "Loading Core" : u < LOAD + SCAN ? "Scanning Core" : "Core Logged");
+let lastCatK = null, lastCatStatus = "";
+L.every(250, (t) => {
+  const s = t, u = cyc(s), k = coreAt(s), C = core(k), sc = scanOf(u), U = unitAt(C, sc * DEPTH);
+  L.set(stateTxt, STATE(u));
+  L.set(subTxt, `Drema IV  ·  ${C.site}  ·  Core ${C.id}  ·  ${C.units.length} Units to ${DEPTH} m`);
+  // composition values: the same eased numbers as the bars
+  mins.forEach((m) => L.set(m.val, m.v.toFixed(1) + "%"));
+  L.set(unitCap, `Unit U${U.i + 1}  ·  ${U.name}`);
+  // ages: swapped with a fade when the unit changes; errors shrink as counts build
+  const key = C.k + ":" + U.i;
+  const writeAges = () => {
+    const D = dating(U), el = t - ageT0, conv = 1 + 5 * Math.exp(-el / 2.2);
+    D.rows.forEach((r, i) => {
+      const [ra, ag, er] = arows[i];
+      if (!r.ok) { L.set(ra, "—"); L.set(ag, "Below Range"); L.set(er, ""); ag.style.color = "var(--tan)"; return; }
+      L.set(ra, fmtRatio(r.ratio)); L.set(ag, fmtAge(r.age)); L.set(er, fmtErr(r.err * conv));
+      ag.style.color = r.disc ? "var(--orange)" : "var(--white)";
+    });
+    L.set(bestConc, `${D.conc} of ${D.avail} Concordant`);
+    L.set(bestAge, fmtAge(D.best)); L.set(bestErr, fmtErr(D.err * conv));
+    L.set(ivVal, `${U.top.toFixed(1)} – ${U.bot.toFixed(1)} m`);
+    L.set(orVal, U.L.sed ? `Sedimentary  ·  ${(1 / U.rate).toFixed(1)} m per Myr` : U.L.origin);
+  };
+  if (key !== ageKey) {
+    const first = ageKey === null;
+    ageKey = key; ageT0 = t;
+    if (first) { ageShown = key; writeAges(); }
+    else {
+      ageShown = null;
+      ageCells.forEach((e) => e.classList.add("out"));
+      setTimeout(() => { ageShown = key; writeAges(); ageCells.forEach((e) => e.classList.remove("out")); }, 450);
+    }
+  } else if (ageShown === key) writeAges();
+  // seismic: each station's level, and whether a tremor is passing
+  const list = near(s);
+  let peak = 0;
+  STATIONS.forEach((st, i) => { const v = level(i, s, list); peak = Math.max(peak, v); L.set(st.num, v < 10 ? v.toFixed(2) : v.toFixed(1)); });
+  const shaking = peak > BGV * 1.6;
+  L.set(quakePill, shaking ? "Tremor in Progress" : "Background Level");
+  quakePill.style.background = col(shaking ? "orange" : "sand");
+  showTremors(s, loggedN >= 0);
+  // the catalog: rows move up a place when a new core is loaded
+  catLogged = u >= LOAD + SCAN;
+  const status = catStatus(k, k, u)[0] + catLogged;
+  if (k !== lastCatK) {
+    const first = lastCatK === null;
+    lastCatK = k; lastCatStatus = status;
+    if (first) showCatalog(k, u);
+    else {
+      crows.flat().forEach((e) => e.classList.add("out"));
+      setTimeout(() => { showCatalog(k, cyc(L.t)); crows.flat().forEach((e) => e.classList.remove("out")); }, 450);
+    }
+  } else if (status !== lastCatStatus) { lastCatStatus = status; showCatalog(k, u); }
+}, 0);
+});
+</script></body></html>

@@ -1,0 +1,587 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Neutral Zone</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .ml .t { text-shadow: 0 0 6px #000, 0 0 3px #000, 0 0 2px #000; }
+  .ring { border-radius: 50%; border: 2px solid rgba(143,211,255,.38); }
+  .sweep { border-radius: 50%; background: conic-gradient(from 0deg, rgba(143,211,255,0) 0deg, rgba(143,211,255,0) 290deg, rgba(143,211,255,.22) 360deg); }
+  .pulse { border-radius: 50%; border: 4px solid var(--butter); }
+  .glint { border-radius: 50%; background: radial-gradient(closest-side, #fff 0%, rgba(143,211,255,.9) 35%, rgba(92,157,255,0)); }
+  .blob { border-radius: 14px; background: radial-gradient(closest-side, #fff 0%, rgba(143,211,255,.85) 40%, rgba(92,157,255,0)); }
+  .cring { border-radius: 50%; border: 4px solid var(--mars); }
+  .ccore { border-radius: 50%; background: radial-gradient(closest-side, #ffd0c4 0%, var(--mars) 45%, rgba(255,90,60,0)); }
+  .bear { transform-origin: 0 50%; background: linear-gradient(to right, rgba(255,90,60,.0), rgba(255,90,60,.75) 30%, rgba(255,90,60,.9)); }
+  .seg { transform-origin: 0 50%; background: var(--mars); border-radius: 4px; }
+  .flux { transform-origin: 50% 100%; transition: transform 1.4s ease, background-color 1s ease; }
+  .pill { transition: background-color 1.2s ease; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame, mirrored: sidebar on the right, title at top left ----------------
+const BAR = 64, TS = BAR / (L.BASELINE - L.CAP_TOP);
+L.box({ x: 40, y: 40, w: 92, h: BAR, c: "sky", r: "l" });
+const titleEl = L.text({ x: 132 + L.GAP, cap: 40, s: TS, c: "sky", txt: "Romulan Neutral Zone  •  Border Patrol" });
+const afterTitle = 132 + L.GAP + titleEl.offsetWidth + L.GAP;          // the page's own width, not the canvas's
+L.rect({ x: afterTitle, y: 40, w: 320, h: BAR, c: "olive" });
+L.rect({ x: afterTitle + 320 + L.GAP, y: 40, w: 2600 - L.GAP - (afterTitle + 320 + L.GAP), h: BAR, c: "sky" });
+L.elbow({ corner: "tr", x: 2600, y: 40, w: 1216, h: 250, bw: 240, bh: BAR, R: 150, r: 60, c: "sky" });
+[[298, 140, "ice", "NZ 01"], [446, 70, "olive", "Grid"], [524, 420, "sky", "Outposts"], [952, 70, "sand", "Algeron"],
+ [1030, 300, "ice", "Patrol"], [1338, 70, "olive", "Tachyon"], [1416, 216, "sky", "Sensors"]]
+  .forEach(([y, h, c, label]) => L.box({ x: 3576, y, w: 240, h, c, label }));
+L.elbow({ corner: "br", x: 2600, y: 1640, w: 1216, h: 480, bw: 240, bh: BAR, R: 150, r: 60, c: "olive" });
+L.text({ x: 3794, base: 1712, s: 40, c: "#000", txt: "Border", align: "r", on: true });
+L.box({ x: 40, y: 2056, w: 92, h: BAR, c: "olive", r: "l" });
+[[132 + L.GAP, 700, "ice"], [132 + L.GAP + 700 + L.GAP, 900, "sand"]].forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
+L.rect({ x: 132 + 3 * L.GAP + 1600, y: 2056, w: 2600 - L.GAP - (132 + 3 * L.GAP + 1600), h: BAR, c: "olive" });
+
+const header = (x, y, w, label, c1, c2, h = 56, fs = 32) => {
+  const lw = Math.round((L.textWidth(label, fs) + 64) / 10) * 10;
+  L.box({ x, y, w: lw, h, c: c1, label, fs, r: "l" });
+  L.rect({ x: x + lw + L.GAP, y, w: w - lw - L.GAP, h, c: c2 });
+};
+const fill = (x, y, w, h, c, origin = "0 0", cls = "") => {
+  const f = L.layer({ x, y, w, h, cls });
+  f.style.background = c.startsWith("#") ? c : `var(--${c})`; f.style.transformOrigin = origin;
+  return f;
+};
+const div = (parent, cls, css) => L.el("div", cls, parent, Object.assign({ position: "absolute" }, css));
+const put = (e, txt) => { if (e.textContent !== txt) e.textContent = txt; };   // a readout repaints only when it changes
+const css = (e, k, v) => { if (e.style[k] !== v) e.style[k] = v; };
+const later = (ms, f, jitter) => L.every(ms, (t) => { if (t > 1) f(t); }, jitter);
+const fmt = (n) => n.toLocaleString("en");
+const mmss = (s) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+const DARK = "#1a2030";
+const seeded = (s) => () => { s = (s + 0x6d2b79f5) | 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+
+// columns: the map 40–2200; the right column 2280–3520. The bottom strip: log 40–1340, treaty 1400–2200, sensors 2280–3520
+const MX = 40, MY = 360, MW = 2160, MH = 1184, RX = 2280, RR = 3520;
+
+// ---------------- status line ----------------
+const STATES = ["Border Secure", "Contact in Zone"];
+const stateTxt = L.text({ x: 40, cap: 150, s: 100, c: "ice", txt: STATES[0] });
+const subX = 40 + Math.max(...STATES.map((s) => L.textWidth(s, 100))) + 40;
+const stateSub = L.text({ x: subX, base: 222, s: 38, c: "sky", txt: "" });
+const pill = L.box({ x: 3120, y: 150, w: 400, h: 72, c: "sand", label: "Treaty In Force", r: "lr", fs: 36, cls: "pill" });
+pill.style.willChange = "opacity";
+L.tick((t) => { pill.style.opacity = (0.82 + 0.18 * Math.sin(t * 1.1)).toFixed(3); });
+let stardate = 45852.4;
+const showSub = () => put(stateSub, `U.S.S. Enterprise  ·  NCC-1701-D  ·  Neutral Zone patrol  ·  Sector 3-Delta  ·  Stardate ${stardate.toFixed(1)}`);
+showSub();
+
+// ---------------- the strategic map: drawn once ----------------
+header(MX, 280, MW, "Strategic Display  ·  Sectors 3-Delta to 3-Kappa", "sky", "blue");
+L.rect({ x: MX, y: MY, w: MW, h: MH, c: "#000206", panel: true });
+// the zone: a band 340 wide, curving gently down the map
+const ZW = 340;
+const zc = (y) => 1150 + 46 * Math.sin((y / MH) * Math.PI * 1.25 + 0.4) - 0.05 * y;
+const zl = (y) => zc(y) - ZW / 2, zr = (y) => zc(y) + ZW / 2;
+const edge = (f, y0, y1, n = 48) => Array.from({ length: n + 1 }, (_, i) => { const y = y0 + ((y1 - y0) * i) / n; return `${f(y).toFixed(1)},${y.toFixed(1)}`; });
+const map = L.svg("g", { class: "boot", transform: `translate(${MX},${MY})` });
+const defs = L.svg("defs", {}, map);
+const grad = (id, attrs, stops, tag = "linearGradient") => {
+  const g = L.svg(tag, Object.assign({ id }, attrs), defs);
+  stops.forEach(([o, c, op]) => L.svg("stop", { offset: o, "stop-color": c, "stop-opacity": op }, g));
+};
+grad("nzFed", { gradientUnits: "userSpaceOnUse", x1: 0, y1: 0, x2: 1100, y2: 0 }, [[0, "#3a6fff", 0.03], [0.6, "#3a6fff", 0.09], [1, "#5c9dff", 0.26]]);
+grad("nzRom", { gradientUnits: "userSpaceOnUse", x1: 1150, y1: 0, x2: MW, y2: 0 }, [[0, "#a99a3a", 0.30], [0.4, "#a99a3a", 0.11], [1, "#a99a3a", 0.04]]);
+L.svg("clipPath", { id: "nzClip" }, defs).appendChild(L.svg("rect", { x: 0, y: 0, width: MW, height: MH }, defs));
+const soft = L.svg("filter", { id: "nzSoft", x: "-10%", y: "-10%", width: "120%", height: "120%" }, defs);
+L.svg("feGaussianBlur", { stdDeviation: 14 }, soft);
+const glow = L.svg("filter", { id: "nzGlow", x: "-10%", y: "-10%", width: "120%", height: "120%" }, defs);
+L.svg("feGaussianBlur", { stdDeviation: 7 }, glow);
+const hatch = L.svg("pattern", { id: "nzHatch", width: 28, height: 28, patternUnits: "userSpaceOnUse", patternTransform: "rotate(-35)" }, defs);
+L.svg("rect", { x: 0, y: 0, width: 5, height: 28, fill: "#bdb497", opacity: 0.16 }, hatch);
+const inner = L.svg("g", { "clip-path": "url(#nzClip)" }, map);
+// the two territories, soft-edged where they meet the zone
+L.svg("path", { d: `M-60,-60 L${edge(zl, -60, MH + 60).join(" L")} L-60,${MH + 60} Z`, fill: "url(#nzFed)", filter: "url(#nzSoft)" }, inner);
+L.svg("path", { d: `M${MW + 60},-60 L${edge(zr, -60, MH + 60).join(" L")} L${MW + 60},${MH + 60} Z`, fill: "url(#nzRom)", filter: "url(#nzSoft)" }, inner);
+// the sector grid
+let gd = "";
+for (let x = 240; x < MW; x += 240) gd += `M${x},0V${MH}`;
+for (let y = 237; y < MH; y += 237) gd += `M0,${y}H${MW}`;
+L.svg("path", { d: gd, stroke: "#1d3cc4", "stroke-width": 2, "stroke-dasharray": "3 9", fill: "none", opacity: 0.8 }, inner);
+// stars
+{
+  const rnd = seeded(4471);
+  const cols = ["#8fd3ff", "#5c7dff", "#c9d6ff", "#ffffff", "#bdb497"];
+  for (let k = 0; k < 340; k++) L.svg("circle", { cx: (rnd() * MW).toFixed(1), cy: (rnd() * MH).toFixed(1), r: (0.9 + rnd() ** 3 * 2.2).toFixed(2),
+    fill: cols[Math.floor(rnd() * cols.length)], opacity: (0.3 + rnd() * 0.55).toFixed(2) }, inner);
+}
+// the zone itself: hatched, between two glowing borders
+const band = `M${edge(zl, -60, MH + 60).join(" L")} L${edge(zr, MH + 60, -60).join(" L")} Z`;
+L.svg("path", { d: band, fill: "#bdb497", opacity: 0.05 }, inner);
+L.svg("path", { d: band, fill: "url(#nzHatch)" }, inner);
+[[zl, "#5c9dff"], [zr, "#a99a3a"]].forEach(([f, c]) => {
+  const d = `M${edge(f, -60, MH + 60).join(" L")}`;
+  L.svg("path", { d, stroke: c, "stroke-width": 12, fill: "none", opacity: 0.45, filter: "url(#nzGlow)" }, inner);
+  L.svg("path", { d, stroke: c, "stroke-width": 3, fill: "none" }, inner);
+});
+
+// ---------------- map labels: layers, which step back when a ship or contact passes over them ----------------
+const mlabs = [];
+const mlab = (x, base, txt, c, s = 36, align = "l") => {     // map coordinates
+  const w = Math.ceil(L.textWidth(txt, s)) + 8, X = MX + x, B = MY + base;
+  const left = align === "c" ? X - w / 2 : align === "r" ? X - w : X;
+  const e = L.layer({ x: left, y: B - 0.83 * s - 4, w, h: s + 8, cls: "ml" });
+  L.text({ x: w / 2, y: 4, s, c, txt, align: "c", w }, e);
+  mlabs.push({ e, x: left, y: B - 0.72 * s - 2, w, h: 0.72 * s + 4, op: 1 });
+  return e;
+};
+mlab(24, MH - 28, "United Federation of Planets", "sky", 40);
+mlab(MW - 24, MH - 28, "Romulan Star Empire", "olive", 40, "r");
+mlab(zc(64), 64, "Neutral Zone", "sand", 36, "c");
+mlab(zc(MH - 28), MH - 28, "Neutral Zone", "sand", 36, "c");
+
+// how far the outposts' sensors reach into Romulan space
+{
+  const lim = (y) => zr(y) + 290;
+  L.svg("path", { d: `M${edge(lim, -60, MH + 60).join(" L")}`, stroke: "var(--olive)", "stroke-width": 3, "stroke-dasharray": "4 14", fill: "none", opacity: 0.9 }, inner);
+  mlab(lim(64) + 24, 64, "Sensor Limit", "olive", 36);
+}
+// places: starbases, worlds, the way to Romulus
+const PLACES = [
+  { x: 230, y: 250, name: "Starbase 234", sub: "Sector 3-Beta", c: "ice", kind: "base" },
+  { x: 300, y: 880, name: "Starbase 39-Sierra", sub: "Sector 3-Gamma", c: "ice", kind: "base" },
+  { x: 150, y: 565, name: "Galorndon Core", sub: "Class M  ·  Uninhabited", c: "sky", kind: "world" },
+  { x: 1760, y: 250, name: "Nelvana III", sub: "Romulan  ·  Restricted", c: "olive", kind: "world" },
+  { x: 1660, y: 900, name: "Warbird  ·  Last Seen", sub: "D'deridex class  ·  45790", c: "olive", kind: "ghost" },
+];
+PLACES.forEach((p) => {
+  if (p.kind === "base") {
+    L.svg("circle", { cx: p.x, cy: p.y, r: 22, fill: "none", stroke: `var(--${p.c})`, "stroke-width": 4 }, map);
+    L.svg("circle", { cx: p.x, cy: p.y, r: 9, fill: `var(--${p.c})` }, map);
+  } else if (p.kind === "world") {
+    L.svg("circle", { cx: p.x, cy: p.y, r: 16, fill: `var(--${p.c})` }, map);
+    L.svg("circle", { cx: p.x, cy: p.y, r: 28, fill: "none", stroke: `var(--${p.c})`, "stroke-width": 2, opacity: 0.6 }, map);
+  } else {
+    L.svg("path", { d: `M${p.x},${p.y - 18} L${p.x + 18},${p.y + 14} L${p.x - 18},${p.y + 14} Z`, fill: "none", stroke: `var(--${p.c})`, "stroke-width": 3, "stroke-dasharray": "6 5" }, map);
+  }
+  mlab(p.x + 46, p.y - 4, p.name, p.kind === "base" ? "white" : p.c, 36);
+  mlab(p.x + 46, p.y + 40, p.sub, p.kind === "base" ? "sky" : p.c, 36);
+});
+{ // to Romulus, off the edge of the map
+  const y = 560, x = MW - 30;
+  L.svg("path", { d: `M${x},${y} L${x - 26},${y - 18} L${x - 26},${y + 18} Z`, fill: "var(--olive)" }, map);
+  L.svg("path", { d: `M${x - 26},${y} H${x - 120}`, stroke: "var(--olive)", "stroke-width": 3, "stroke-dasharray": "8 8" }, map);
+  mlab(x, y - 34, "Romulus  ·  Remus", "olive", 36, "r");
+  mlab(x, y + 64, "4.8 light-years", "olive", 36, "r");
+}
+
+// ---------------- the outposts: tachyon emitters on the Federation border ----------------
+const OUT = Array.from({ length: 8 }, (_, i) => {
+  const y = 128 + i * 134;
+  return { i, n: i + 1, x: zl(y), y };
+});
+let beams = "";
+OUT.forEach((o, i) => { if (i) beams += `M${OUT[i - 1].x.toFixed(1)},${OUT[i - 1].y}L${o.x.toFixed(1)},${o.y}`; });
+L.svg("path", { d: beams, stroke: "#8fd3ff", "stroke-width": 10, fill: "none", opacity: 0.25, filter: "url(#nzGlow)" }, map);
+L.svg("path", { d: beams, stroke: "#8fd3ff", "stroke-width": 3, fill: "none", opacity: 0.85 }, map);
+OUT.forEach((o) => {
+  L.svg("rect", { x: o.x - 13, y: o.y - 13, width: 26, height: 26, fill: "var(--ice)", transform: `rotate(45 ${o.x} ${o.y})` }, map);
+  mlab(o.x + 34, o.y + 13, `Outpost ${o.n}`, "ice", 36);
+  o.pulse = L.layer({ x: MX + o.x - 30, y: MY + o.y - 30, w: 60, h: 60, cls: "pulse" });
+  o.pulse.style.opacity = 0; o.pt = -99;
+});
+// segment overlays (lit while a contact is near), and the glint that runs along the grid now and then
+const SEGS = OUT.slice(1).map((o, i) => {
+  const a = OUT[i], dx = o.x - a.x, dy = o.y - a.y, len = Math.hypot(dx, dy);
+  const e = L.layer({ x: 0, y: 0, w: len, h: 7, cls: "seg" });
+  e.style.transform = `translate3d(${MX + a.x}px,${MY + a.y - 3.5}px,0) rotate(${Math.atan2(dy, dx).toFixed(4)}rad)`;
+  e.style.opacity = 0;
+  return { e, a, b: o };
+});
+const glint = L.layer({ x: 0, y: 0, w: 56, h: 56, cls: "glint" });
+glint.style.opacity = 0;
+const gridAt = (s) => {                                   // a point along the grid, s from 0 (Outpost 1) to 7 (Outpost 8)
+  const k = L.clamp(Math.floor(s), 0, 6), f = L.clamp(s - k, -0.5, 1.5);
+  return [L.mix(OUT[k].x, OUT[k + 1].x, f), L.mix(OUT[k].y, OUT[k + 1].y, f)];
+};
+
+// ---------------- the Enterprise's patrol route ----------------
+const WP = [];
+[190, 450, 710, 960].forEach((y, i) => WP.push([zl(y) - 200 - (i % 2) * 24, y]));
+WP.push([zl(1060) - 300, 1075]);
+[960, 700, 440, 190].forEach((y, i) => WP.push([zl(y) - 420 + (i % 2) * 24, y]));
+WP.push([zl(120) - 310, 120]);
+const route = [];                                        // closed Catmull-Rom, resampled to even steps
+{
+  const raw = [];
+  for (let i = 0; i < WP.length; i++) {
+    const p0 = WP[(i - 1 + WP.length) % WP.length], p1 = WP[i], p2 = WP[(i + 1) % WP.length], p3 = WP[(i + 2) % WP.length];
+    for (let k = 0; k < 60; k++) {
+      const u = k / 60, u2 = u * u, u3 = u2 * u;
+      const f = (a, b, c, d) => 0.5 * (2 * b + (-a + c) * u + (2 * a - 5 * b + 4 * c - d) * u2 + (-a + 3 * b - 3 * c + d) * u3);
+      raw.push([f(p0[0], p1[0], p2[0], p3[0]), f(p0[1], p1[1], p2[1], p3[1])]);
+    }
+  }
+  raw.push(raw[0]);
+  const cum = [0];
+  for (let i = 1; i < raw.length; i++) cum.push(cum[i - 1] + Math.hypot(raw[i][0] - raw[i - 1][0], raw[i][1] - raw[i - 1][1]));
+  const total = cum[cum.length - 1], N = 2400;
+  let j = 0;
+  for (let k = 0; k < N; k++) {
+    const s = (k / N) * total;
+    while (cum[j + 1] < s) j++;
+    const f = (s - cum[j]) / (cum[j + 1] - cum[j]);
+    route.push([L.mix(raw[j][0], raw[j + 1][0], f), L.mix(raw[j][1], raw[j + 1][1], f)]);
+  }
+  route.total = total;
+}
+L.svg("path", { d: "M" + route.filter((_, k) => k % 6 === 0).map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" L") + " Z",
+  stroke: "var(--sky)", "stroke-width": 3, "stroke-dasharray": "16 14", fill: "none", opacity: 0.75 }, map);
+WP.forEach(([x, y], i) => { if (i % 2 === 0) L.svg("circle", { cx: x, cy: y, r: 6, fill: "var(--sky)", opacity: 0.8 }, map); });
+
+// the ship: its sensor ring, a slow sweep, the Starfleet delta, its name
+const RING = 190;
+const clip = L.el("div", "lc", L.stage, { left: MX + "px", top: MY + "px", width: MW + "px", height: MH + "px", overflow: "hidden" });
+const ring = L.layer({ x: 0, y: 0, w: 2 * RING, h: 2 * RING, cls: "ring" }, clip);
+const sweep = L.layer({ x: 0, y: 0, w: 2 * RING, h: 2 * RING, cls: "sweep" }, clip);
+const bear = L.layer({ x: 0, y: 0, w: 1000, h: 3, cls: "bear" }, clip);
+bear.style.opacity = 0;
+const ship = L.layer({ x: 0, y: 0, w: 52, h: 52 });
+{
+  const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  s.setAttribute("viewBox", "0 0 52 52"); s.setAttribute("width", 52); s.setAttribute("height", 52);
+  L.svg("path", { d: "M26,3 L45,47 L26,37 L7,47 Z", fill: "var(--white)", stroke: "#000", "stroke-width": 2 }, s);
+  ship.appendChild(s);
+}
+const SLW = 330;
+// two names: left of the ship heading south, right of it heading north (so it never crosses the places
+// to the west of the route); the one in use fades in as the ship comes round a turn
+const shipLabs = ["right", "left"].map((ta) => {
+  const e = L.layer({ x: 0, y: 0, w: SLW, h: 92, cls: "ml" });
+  L.text({ x: 0, cap: 8, s: 36, c: "white", txt: "U.S.S. Enterprise" }, e);
+  L.text({ x: 0, cap: 56, s: 36, c: "sky", txt: "Patrol  ·  Warp 2" }, e);
+  // (align "r" inside a layer measures from the stage: align by the layer's own width instead)
+  [...e.children].forEach((t) => { t.style.width = SLW + "px"; t.style.textAlign = ta; });
+  return { e, op: ta === "right" ? 1 : 0, sub: e.children[1] };
+});
+const shipSub = { set: (txt, c) => shipLabs.forEach((l) => { put(l.sub, txt); css(l.sub, "color", `var(--${c})`); }) };
+const SPEED = 7.5, S0 = Math.random() * route.total;
+const shipAt = (t) => {
+  const u = (((S0 + SPEED * t) / route.total) % 1) * route.length;
+  const k = Math.floor(u), f = u - k, a = route[k % route.length], b = route[(k + 1) % route.length];
+  const p = [L.mix(a[0], b[0], f), L.mix(a[1], b[1], f)];
+  const q = route[(k + 24) % route.length], r = route[(k - 24 + route.length) % route.length];
+  return { x: p[0], y: p[1], h: Math.atan2(q[1] - r[1], q[0] - r[0]) };
+};
+
+// ---------------- the contact: a possible cloaked vessel ----------------
+const cRing = L.layer({ x: 0, y: 0, w: 120, h: 120, cls: "cring" }, clip);
+const cCore = L.layer({ x: 0, y: 0, w: 44, h: 44, cls: "ccore" }, clip);
+const CLW = 440;
+const cLab = L.layer({ x: 0, y: 0, w: CLW, h: 92, cls: "ml" });
+const cName = L.text({ x: 0, cap: 8, s: 36, c: "mars", txt: "" }, cLab);
+const cSub = L.text({ x: 0, cap: 56, s: 36, c: "sand", txt: "" }, cLab);
+[cRing, cCore, cLab].forEach((e) => (e.style.opacity = 0));
+
+// ---------------- tachyon detection grid ----------------
+header(RX, 280, RR - RX, "Tachyon Detection Grid", "olive", "sand");
+L.text({ x: RX, base: 400, s: 36, c: "sand", txt: "Emitter Array  ·  Outposts 1 – 8" });
+const cycleTxt = L.text({ x: RR, base: 400, s: 36, c: "sand", txt: "Scan Cycle  ·  16 s", align: "r" });
+const NY = 482, NR = 24, NSP = (RR - RX - 2 * NR) / 7;
+const nodeX = (i) => RX + NR + i * NSP;
+const grid = L.svg("g", { class: "boot" });
+L.svg("path", { d: `M${nodeX(0)},${NY} H${nodeX(7)}`, stroke: "#8fd3ff", "stroke-width": 14, opacity: 0.22, filter: "url(#nzGlow)" }, grid);
+L.svg("path", { d: `M${nodeX(0)},${NY} H${nodeX(7)}`, stroke: "#8fd3ff", "stroke-width": 4 }, grid);
+const nodes = OUT.map((o, i) => {
+  L.svg("circle", { cx: nodeX(i), cy: NY, r: NR + 10, fill: "none", stroke: "var(--sky)", "stroke-width": 2, opacity: 0.6 }, grid);
+  const c = L.svg("circle", { cx: nodeX(i), cy: NY, r: NR, fill: "var(--ice)" }, grid);
+  L.text({ x: nodeX(i), base: 572, s: 36, c: "ice", txt: String(i + 1).padStart(2, "0"), align: "c", w: 80 });
+  return c;
+});
+const pSegs = Array.from({ length: 7 }, (_, i) => {
+  const e = fill(nodeX(i) + NR + 6, NY - 4, NSP - 2 * NR - 12, 8, "mars");
+  e.style.opacity = 0; e.style.borderRadius = "4px";
+  return e;
+});
+const blob = L.layer({ x: 0, y: NY - 16, w: 90, h: 32, cls: "blob" });
+blob.style.opacity = 0;
+// tachyon flux along each segment: five bars apiece
+const FB = 610, FH = 170, BWD = 16, BG = 9;
+L.svg("path", { d: `M${RX},${FB + FH + 0.5} H${RR}`, stroke: "#4e5d6c", "stroke-width": 2 }, grid);
+const flux = [];
+for (let i = 0; i < 7; i++) {
+  const cx = (nodeX(i) + nodeX(i + 1)) / 2;
+  for (let k = 0; k < 5; k++) {
+    const x = cx - (5 * BWD + 4 * BG) / 2 + k * (BWD + BG);
+    L.svg("rect", { x, y: FB, width: BWD, height: FH, fill: DARK }, grid);
+    const e = fill(x, FB, BWD, FH, "sky", "50% 100%", "flux");
+    const v = L.rand(0.12, 0.34);
+    e.style.transform = `scaleY(${v.toFixed(3)})`;
+    flux.push({ e, seg: i, v });
+  }
+}
+const GRID_READ = [["Grid Coherence", RX, RX + 580], ["Emitters Online", RX + 640, RR], ["Tachyon Count", RX, RX + 580], ["Anomalies", RX + 640, RR]];
+const gridVals = GRID_READ.map(([label, x, xr], i) => {
+  const base = 862 + Math.floor(i / 2) * 56;
+  L.text({ x, base, s: 36, c: "sand", txt: label });
+  return L.text({ x: xr, base, s: 36, c: "white", txt: "", align: "r" });
+});
+
+// ---------------- outpost status ----------------
+header(RX, 1000, RR - RX, "Outpost Status", "sky", "ice");
+const OC = { pow: 2540, powW: 300, pct: 2990, last: 3260 };
+L.text({ x: RX, base: 1112, s: 36, c: "sky", txt: "Outpost" });
+L.text({ x: OC.pow, base: 1112, s: 36, c: "sky", txt: "Emitter Power" });
+L.text({ x: OC.last, base: 1112, s: 36, c: "sky", txt: "Last Contact", align: "r" });
+L.text({ x: RR, base: 1112, s: 36, c: "sky", txt: "Status", align: "r" });
+OUT.forEach((o, i) => {
+  const base = 1166 + i * 54;
+  o.box = L.box({ x: RX, y: base - 29, w: 200, h: 40, c: "ice", label: `Outpost ${o.n}`, fs: 30, r: "l", cls: "pill" });
+  L.rect({ x: OC.pow, y: base - 26, w: OC.powW, h: 26, c: DARK });
+  o.bar = fill(OC.pow, base - 26, OC.powW, 26, "sky");
+  o.pct = L.text({ x: OC.pct, base, s: 36, c: "white", txt: "", align: "r" });
+  o.lastE = L.text({ x: OC.last, base, s: 36, c: "white", txt: "", align: "r" });
+  o.stE = L.text({ x: RR, base, s: 36, c: "sand", txt: "", align: "r" });
+  o.pow = o.goal = L.rand(0.93, 0.985); o.drawn = false;
+  o.last = -L.rand(5, 150);                              // seconds since its last check-in, at the start
+  o.status = "Nominal";
+});
+const STC = { Nominal: "sand", "Checking In": "butter", Tracking: "mars", Alerted: "butter" };
+const showOutpost = (o) => {
+  put(o.stE, o.status);
+  css(o.stE, "color", `var(--${STC[o.status]})`);
+  css(o.box, "background", o.status === "Tracking" ? "var(--mars)" : o.status === "Nominal" ? "var(--ice)" : "var(--butter)");
+};
+OUT.forEach(showOutpost);
+L.tick(() => OUT.forEach((o) => {
+  const dv = o.goal - o.pow;
+  if (Math.abs(dv) < 0.0005 && o.drawn) return;
+  o.pow += dv * 0.05; o.drawn = true;
+  o.bar.style.transform = `scaleX(${o.pow.toFixed(4)})`;
+}));
+
+// ---------------- patrol log ----------------
+header(40, 1620, 1300, "Patrol Log", "ice", "sky", 48, 28);
+const logRows = Array.from({ length: 6 }, (_, i) => {
+  const base = 1734 + i * 54;
+  return { sd: L.text({ x: 40, base, s: 36, c: "sky", txt: "" }), what: L.text({ x: 220, base, s: 36, c: "white", txt: "" }),
+           who: L.text({ x: 1340, base, s: 36, c: "sand", txt: "", align: "r" }) };
+});
+const logged = [];
+const log = (what, who, c = "white") => {
+  stardate += 0.1; showSub();
+  logged.push([stardate.toFixed(1), what, who, c]);
+  if (logged.length > 6) logged.shift();
+  logRows.forEach((r, i) => {
+    const e = logged[i] || ["", "", "", "white"];
+    put(r.sd, e[0]); put(r.what, e[1]); put(r.who, e[2]); css(r.what, "color", `var(--${e[3]})`);
+  });
+};
+const ROUTINE = [
+  ["Long range scan complete  ·  Sector 3-Delta", "Science"],
+  ["Sensor sweep of the zone  ·  no vessels detected", "Science"],
+  ["Subspace traffic intercepted  ·  Romulan, encrypted", "Communications"],
+  ["Patrol schedule confirmed  ·  Starbase 234", "Starbase 234"],
+  ["Ion storm  ·  Romulan side, bearing 090", "Science"],
+  ["Warp signature  ·  freighter, Federation registry", "Ops"],
+  ["Course correction  ·  next waypoint", "Conn"],
+  ["Tachyon grid recalibrated  ·  segments 2 – 5", "Grid Control"],
+  ["Starbase 39-Sierra  ·  status report received", "Communications"],
+  ["Shuttle traffic  ·  Galorndon Core survey team", "Ops"],
+];
+let routineI = L.irand(0, ROUTINE.length - 1);
+const routine = () => { const [w, who] = ROUTINE[routineI++ % ROUTINE.length]; log(w, who); };
+for (let i = 0; i < 4; i++) routine();
+log("Outpost 4 check-in  ·  all systems nominal", "Outpost 4");
+routine();
+
+// ---------------- treaty ----------------
+header(1400, 1620, 800, "Treaty of Algeron", "olive", "sand", 48, 28);
+[["Signed", "Algeron  ·  2311"], ["Parties", "Federation  ·  Romulan Star Empire"], ["Neutral Zone", "Inviolate"],
+ ["Unannounced Entry", "Act of War"], ["Cloaking Devices", "Prohibited to Starfleet"], ["In Force", "57 Years"]]
+  .forEach(([label, v], i) => {
+    const base = 1734 + i * 54;
+    L.text({ x: 1400, base, s: 36, c: "sand", txt: label });
+    L.text({ x: 2200, base, s: 36, c: i === 3 ? "butter" : "white", txt: v, align: "r" });
+  });
+
+// ---------------- sensors ----------------
+header(RX, 1620, RR - RX, "Sensor Readings", "sky", "olive", 48, 28);
+const SB = { x: 2700, w: 520 };
+const SENS = [
+  { name: "Sensor Resolution", c: "sky", v: 0.968, f: (v) => (v * 100).toFixed(1) + "%" },
+  { name: "Long Range Scan", c: "sky", v: 0.93, f: (v) => (v * 20).toFixed(1) + " ly" },
+  { name: "Subspace Interference", c: "sand", v: 0.12, f: (v) => (v * 2.6).toFixed(2) + " mc" },
+  { name: "Tachyon Count", c: "sand", v: 0.22, f: (v) => fmt(Math.round(v * 5200)) },
+  { name: "Warp Signatures", c: "sky", v: 0.2, f: (v) => String(Math.round(v * 10)) },
+  { name: "Cloak Residue", c: "olive", v: 0.03, f: (v) => (v < 0.08 ? "None" : v < 0.4 ? "Faint" : "Trace") },
+].map((s, i) => {
+  const base = 1734 + i * 54;
+  L.text({ x: RX, base, s: 36, c: "sand", txt: s.name });
+  L.rect({ x: SB.x, y: base - 26, w: SB.w, h: 26, c: DARK });
+  s.bar = fill(SB.x, base - 26, SB.w, 26, s.c);
+  s.val = L.text({ x: RR, base, s: 36, c: "white", txt: "", align: "r" });
+  s.u = s.v; s.goal = s.v; s.base = s.v; s.drawn = false;
+  return s;
+});
+L.tick(() => SENS.forEach((s) => {
+  const dv = s.goal - s.u;
+  if (Math.abs(dv) < 0.0005 && s.drawn) return;
+  s.u += dv * 0.03; s.drawn = true;
+  s.bar.style.transform = `scaleX(${L.clamp(s.u, 0.01, 1).toFixed(4)})`;
+}));
+
+// ---------------- motion ----------------
+let contact = null;                                      // the contact being tracked, if any
+let nextContact = 12, contactN = L.irand(20, 60);
+const PULSE = 16, PDUR = 4.2;
+let pulse = { t0: 3, target: -1, hit: false };
+const EVENTS = [
+  { res: "Contact lost  ·  tachyon residue dissipating", lab: "Contact Lost", dx: 0.4, dy: -4 },
+  { res: "Dismissed  ·  subspace echo off the grid", lab: "Dismissed  ·  Sensor Echo", dx: 0, dy: 3 },
+  { res: "Contact lost  ·  last heading 080, into Romulan space", lab: "Contact Lost  ·  Heading 080", dx: 5, dy: -1 },
+  { res: "Dismissed  ·  ion storm particle stream", lab: "Dismissed  ·  Particle Stream", dx: 2, dy: 2.5 },
+];
+let evI = L.irand(0, EVENTS.length - 1);
+const hit = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+let settled = false;
+
+const startContact = (k, t) => {
+  const ev = EVENTS[evI++ % EVENTS.length];
+  const y = L.mix(OUT[k].y, OUT[k + 1].y, L.rand(0.35, 0.65));
+  contact = { k, t0: t, ev, x0: zc(y) + 70, y0: y, x: 0, y: 0, phase: 0, id: `NZ-${4400 + contactN++}` };
+  put(cName, `Contact ${contact.id}`);
+  put(cSub, "Possible Cloaked Vessel");
+  css(cSub, "color", "var(--sand)");
+  const near = Math.abs(OUT[k].y - y) < Math.abs(OUT[k + 1].y - y) ? OUT[k] : OUT[k + 1];
+  contact.out = near; near.status = "Tracking"; showOutpost(near);
+  OUT.filter((o) => o !== near && Math.abs(o.i - near.i) === 1).forEach((o) => { o.status = "Alerted"; showOutpost(o); });
+  put(stateTxt, STATES[1]); css(stateTxt, "color", "var(--mars)");
+  pill.textContent = "Tracking Contact"; pill.style.background = "var(--mars)";
+  shipSub.set("Tracking  ·  Warp 2", "mars");
+  log(`Tachyon grid anomaly  ·  segment ${k + 1} – ${k + 2}`, "Grid Control", "mars");
+  log(`Possible cloaked vessel  ·  contact ${contact.id}`, `Outpost ${near.n}`, "mars");
+  SENS[2].goal = 0.34; SENS[3].goal = 0.71; SENS[5].goal = 0.45; SENS[0].goal = 0.91;
+  flux.forEach((b) => { if (b.seg === k) { b.e.style.background = "var(--mars)"; b.v = L.rand(0.6, 0.95); b.e.style.transform = `scaleY(${b.v.toFixed(3)})`; } });
+  showGrid();
+};
+const endContact = () => {
+  const c = contact;
+  log(c.ev.res[0].toUpperCase() + c.ev.res.slice(1), `Contact ${c.id}`, "sand");
+  put(cSub, c.ev.lab); css(cSub, "color", "var(--butter)");
+  OUT.forEach((o) => { if (o.status !== "Nominal") { o.status = "Nominal"; showOutpost(o); } });
+  put(stateTxt, STATES[0]); css(stateTxt, "color", "var(--ice)");
+  pill.textContent = "Treaty In Force"; pill.style.background = "var(--sand)";
+  shipSub.set("Patrol  ·  Warp 2", "sky");
+  SENS.forEach((s) => (s.goal = s.base));
+  flux.forEach((b) => { if (b.seg === c.k) { b.e.style.background = "var(--sky)"; b.v = L.rand(0.12, 0.34); b.e.style.transform = `scaleY(${b.v.toFixed(3)})`; } });
+  showGrid();
+};
+
+L.tick((t) => {
+  // the ship
+  const s = shipAt(t), sx = MX + s.x, sy = MY + s.y;
+  L.move(ship, sx - 26, sy - 26, (s.h * 180) / Math.PI + 90);
+  L.move(ring, s.x - RING, s.y - RING);
+  L.move(sweep, s.x - RING, s.y - RING, (t * 30) % 360);
+  const south = Math.sin(s.h) > 0, ly = sy - 46;
+  const lx = south ? sx - 46 - SLW : sx + 46;
+  shipLabs.forEach((l, i) => {
+    L.move(l.e, i ? sx + 46 : sx - 46 - SLW, ly);
+    const goal = (i === 0) === south ? 1 : 0;
+    if (Math.abs(goal - l.op) > 0.004 || !settled) { l.op = settled ? l.op + (goal - l.op) * 0.08 : goal; l.e.style.opacity = l.op.toFixed(3); }
+  });
+
+  // the pulse along the grid
+  if (t - pulse.t0 > PULSE) pulse = { t0: pulse.t0 + PULSE, target: -1, hit: false };
+  if (pulse.target < 0 && !contact && t >= nextContact && t - pulse.t0 < 0.1) pulse.target = L.irand(1, 5);
+  const u = (t - pulse.t0) / PDUR;
+  if (u >= 0 && u <= 1) {
+    const ps = -0.35 + 7.7 * u, [gx, gy] = gridAt(ps);
+    const op = L.clamp(Math.min(ps + 0.35, 7.35 - ps) / 0.35).toFixed(3);
+    L.move(glint, MX + gx - 28, MY + gy - 28); glint.style.opacity = op;
+    L.move(blob, nodeX(0) + ps * NSP - 45, 0); blob.style.opacity = op;
+    if (pulse.target >= 0 && !pulse.hit && ps > pulse.target + 0.5) { pulse.hit = true; startContact(pulse.target, t); }
+    glint.shown = true;
+  } else if (glint.shown) { glint.style.opacity = 0; blob.style.opacity = 0; glint.shown = false; }
+
+  // the contact: appears, is tracked, then lost or dismissed
+  let cr = null;
+  if (contact) {
+    const c = contact, a = t - c.t0;
+    c.x = c.x0 + c.ev.dx * a; c.y = c.y0 + c.ev.dy * a;
+    const X = MX + c.x, Y = MY + c.y;
+    const vis = a < 1.5 ? a / 1.5 : a > 30 ? L.clamp(1 - (a - 30) / 3) : 1;
+    if (c.phase === 0 && a > 27) { c.phase = 1; endContact(); }
+    const sc = 2.0 - 1.0 * L.ease(L.clamp(a / 12));       // the uncertainty closes in as the grid triangulates
+    L.move(cRing, c.x - 60, c.y - 60, 0, sc);
+    cRing.style.opacity = (vis * (0.55 + 0.35 * Math.sin(a * 2.2))).toFixed(3);
+    L.move(cCore, c.x - 22, c.y - 22);
+    cCore.style.opacity = (vis * (0.75 + 0.25 * Math.sin(a * 3.1))).toFixed(3);
+    const lx2 = X + 60 * sc + 28;                        // clear of the ring as it closes
+    L.move(cLab, lx2, Y - 46);
+    cLab.style.opacity = vis.toFixed(3);
+    cr = { x: lx2, y: Y - 46, w: CLW, h: 92 };
+    const dx = X - sx, dy = Y - sy;
+    bear.style.transform = `translate3d(${s.x}px,${s.y - 1.5}px,0) rotate(${Math.atan2(dy, dx).toFixed(4)}rad) scaleX(${(Math.hypot(dx, dy) / 1000).toFixed(4)})`;
+    bear.style.opacity = (vis * (c.phase ? 0.4 : 0.9)).toFixed(3);
+    const seg = SEGS[c.k], segOp = (vis * (0.75 + 0.25 * Math.sin(a * 2.2))).toFixed(3);
+    seg.e.style.opacity = segOp; pSegs[c.k].style.opacity = segOp;
+    if (a > 33) {
+      [cRing, cCore, cLab, bear, seg.e, pSegs[c.k]].forEach((e) => (e.style.opacity = 0));
+      contact = null; nextContact = t + L.rand(60, 90); showGrid();
+    }
+  }
+
+  // outposts pulse when they check in
+  for (const o of OUT) {
+    const a = t - o.pt;
+    if (a < 0 || a > 2.2) { if (o.pulsing) { o.pulse.style.opacity = 0; o.pulsing = false; } continue; }
+    o.pulsing = true;
+    L.move(o.pulse, 0, 0, 0, 1 + a * 1.1);
+    o.pulse.style.opacity = (0.9 * (1 - a / 2.2)).toFixed(3);
+  }
+
+  // map labels step back under the ship's name, the ship, or the contact's name
+  const sr = { x: lx, y: ly + 4, w: SLW, h: 84 }, shr = { x: sx - 30, y: sy - 30, w: 60, h: 60 };
+  for (const g of mlabs) {
+    const under = hit(g, sr) || hit(g, shr) || (cr && hit(g, cr));
+    const goal = under ? 0 : 1;
+    if (Math.abs(goal - g.op) > 0.004 || !settled) { g.op = settled ? g.op + (goal - g.op) * 0.12 : goal; g.e.style.opacity = g.op.toFixed(3); }
+  }
+  settled = true;
+});
+
+// check-ins: each outpost reports on its own cycle of about two minutes
+L.every(1000, (t) => {
+  for (const o of OUT) {
+    const since = t - o.last;
+    if (since > 120 + o.i * 7) {
+      o.last = t; o.pt = t; o.goal = L.rand(0.93, 0.985);
+      if (o.status === "Nominal") { o.status = "Checking In"; showOutpost(o); }
+      nodes[o.i].setAttribute("fill", "var(--butter)");
+      if (Math.random() < 0.35) log(`Outpost ${o.n} check-in  ·  all systems nominal`, `Outpost ${o.n}`);
+    } else if (since > 3 && o.status === "Checking In") { o.status = "Nominal"; showOutpost(o); nodes[o.i].setAttribute("fill", "var(--ice)"); }
+    put(o.lastE, mmss(Math.max(0, t - o.last)));
+    put(o.pct, (o.goal * 100).toFixed(1) + "%");
+  }
+}, 0);
+
+// the grid's readouts
+let coherence = 99.4;
+const showGrid = () => {
+  put(gridVals[0], coherence.toFixed(1) + "%");
+  put(gridVals[1], "8 of 8");
+  put(gridVals[2], fmt(Math.round(SENS[3].goal * 5200)));
+  put(gridVals[3], contact && contact.phase === 0 ? `1  ·  Segment ${contact.k + 1} – ${contact.k + 2}` : "None");
+  css(gridVals[3], "color", contact && contact.phase === 0 ? "var(--mars)" : "var(--white)");
+};
+showGrid();
+later(5000, () => { coherence = L.clamp(coherence + L.rand(-0.15, 0.15), 98.9, 99.8); SENS.forEach((s) => { if (!contact) s.goal = L.clamp(s.base + L.rand(-0.02, 0.02), 0.01, 1); }); showGrid(); }, 0.3);
+// the flux bars breathe; the segment with a contact runs high
+later(700, () => {
+  for (let n = 0; n < 4; n++) {
+    const b = L.pick(flux), hot = contact && contact.phase === 0 && b.seg === contact.k;
+    b.v = hot ? L.rand(0.6, 0.95) : L.rand(0.1, 0.36);
+    b.e.style.transform = `scaleY(${b.v.toFixed(3)})`;
+  }
+}, 0.3);
+L.every(500, () => SENS.forEach((s) => put(s.val, s.f(s.u))), 0);
+later(11000, () => { if (!contact) routine(); }, 0.35);
+});
+</script></body></html>

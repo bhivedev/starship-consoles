@@ -1,0 +1,442 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Main Deflector</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .clip { position: absolute; overflow: hidden; }
+  .lay svg { position: absolute; left: 0; top: 0; overflow: visible; }
+  .pt { border-radius: 3px; background: linear-gradient(90deg, rgba(143,211,255,1), rgba(143,211,255,.55) 45%, rgba(143,211,255,0)); }
+  .pt.big { border-radius: 50%; background: var(--peach); box-shadow: 0 0 0 6px rgba(255,156,26,.3); }
+  .dglow { border-radius: 50%; background: radial-gradient(closest-side, rgba(255,190,110,.9), rgba(255,140,26,.4) 50%, rgba(255,140,26,0)); }
+  .cglow { border-radius: 50%; background: radial-gradient(closest-side, rgba(255,214,150,.95), rgba(255,156,26,.45) 45%, rgba(255,156,26,0)); }
+  .pill { transition: background-color 1.2s ease; }
+  .msg { transition: color 1.2s ease; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: sidebar left, title top right ----------------
+const BAR = 64;
+L.title({ x: 3700, y: 40, h: BAR, c: "ice", txt: "Main Deflector  •  Navigational Control" });
+// (L.title measures with a canvas, which sets this line ~11px wider than the page draws it; use the page's own width)
+const titleLeft = 3700 - document.querySelector("[data-title]").offsetWidth;
+L.box({ x: 3724, y: 40, w: 92, h: BAR, c: "orange", r: "r" });
+L.elbow({ corner: "tl", x: 40, y: 40, w: 1360, h: 250, bw: 240, bh: BAR, R: 150, r: 60, c: "sky" });
+L.rect({ x: 1400 + L.GAP, y: 40, w: 300, h: BAR, c: "orange" });
+L.rect({ x: 1724 + L.GAP, y: 40, w: titleLeft - L.GAP - (1724 + L.GAP), h: BAR, c: "sky" });
+[[298, 140, "ice", "NAV 02"], [446, 70, "orange", "Dish"], [524, 420, "sky", "Deflector"], [952, 70, "ice", "Field"],
+ [1030, 300, "blue", "Graviton"], [1338, 70, "orange", "Coils"], [1416, 216, "sky", "Sweep"]]
+  .forEach(([y, h, c, label]) => L.box({ x: 40, y, w: 240, h, c, label }));
+L.elbow({ corner: "bl", x: 40, y: 1640, w: 1500, h: 480, bw: 240, bh: BAR, R: 150, r: 60, c: "blue" });
+L.text({ x: 258, base: 1712, s: 40, c: "#000", txt: "Deflection", align: "r", on: true });
+[[1540 + L.GAP, 600, "orange"], [2164 + L.GAP, 900, "ice"], [3088 + L.GAP, 3700 - (3088 + L.GAP), "sky"]]
+  .forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
+L.box({ x: 3724, y: 2056, w: 92, h: BAR, c: "orange", r: "r" });
+
+const header = (x, y, w, label, c1, c2, h = 56, fs = 32) => {
+  const lw = Math.round((L.textWidth(label, fs) + 64) / 10) * 10;
+  L.box({ x, y, w: lw, h, c: c1, label, fs, r: "l" });
+  L.rect({ x: x + lw + L.GAP, y, w: w - lw - L.GAP, h, c: c2 });
+};
+const small = (x, y, w, label, c1, c2) => header(x, y, w, label, c1, c2, 48, 28);
+const fill = (x, y, w, h, c, origin = "0 0", parent) => {
+  const f = L.layer({ x, y, w, h }, parent);
+  f.style.background = c.startsWith("#") ? c : `var(--${c})`; f.style.transformOrigin = origin;
+  return f;
+};
+const svgIn = (e, x0, y0, w, h) => {                       // an SVG filling a layer, drawn in stage coordinates
+  const s = L.svg("svg", { width: w, height: h, viewBox: `${x0} ${y0} ${w} ${h}` }, e);
+  return s;
+};
+// write only what changed: an unchanged reading costs nothing
+const put = (e, txt) => { if (e.textContent !== txt) e.textContent = txt; };
+const css = (e, k, v) => { if (e.style[k] !== v) e.style[k] = v; };
+const fmt = (v, d = 0) => v.toLocaleString("en", { minimumFractionDigits: d, maximumFractionDigits: d });
+
+// Columns: left 330–2280 (the field; below it density 330–1380 and modulation 1440–2280);
+// right 2340–3816 (the dish, the generators; below them the debris log).
+const LX = 330, LR = 2280, RX = 2340, RR = 3816, MX = 1440, DR = 1380;
+const WARP = 2, LSPS = 10;                                 // warp 2: ten light-seconds of course every second
+
+// ---------------- the medium ahead: interstellar gas, now and then a nebula's fringe ----------------
+// Position along the course in light-seconds. A slow, quiet background near 0.2–0.9 particles per cm³,
+// and every 90–130 s a denser patch, 10–50 per cm³, which the deflector has to widen for.
+const patches = [];
+let P = 0, lastC = 270 + L.rand(0, 50);
+patches.push({ c: lastC, peak: L.rand(18, 40), w: L.rand(48, 62) });
+const ph = [L.rand(0, 6), L.rand(0, 6), L.rand(0, 6)];
+const dens = (p) => {
+  let d = 0.45 * Math.exp(0.35 * Math.sin(p / 37 + ph[0]) + 0.25 * Math.sin(p / 91 + ph[1]) + 0.15 * Math.sin(p / 13 + ph[2]));
+  for (const q of patches) { const z = (p - q.c) / q.w; if (Math.abs(z) < 4) d += q.peak * Math.exp(-z * z); }
+  return d;
+};
+const keepPatches = () => {
+  while (lastC < P + 700) { lastC += L.rand(900, 1300); patches.push({ c: lastC, peak: L.rand(10, 50), w: L.rand(40, 65) }); }
+  while (patches.length && patches[0].c < P - 400) patches.shift();
+};
+const gOf = (d) => L.clamp(Math.log10(d / 1.5) / 1.3);     // 0 in clear space, 1 at about 30 per cm³
+const DENSE = 5;                                            // per cm³: above this the deflector retunes
+
+// ---------------- status line ----------------
+const stateTxt = L.text({ x: LX, cap: 150, s: 100, c: "ice", txt: "Path Clear" });
+const stateSub = L.text({ x: RX, base: 222, s: 38, c: "peach", txt: "" });
+const pill = L.box({ x: 3416, y: 150, w: 400, h: 72, c: "sky", label: "Field Nominal", r: "lr", fs: 36, cls: "pill" });
+
+// ---------------- the deflection field: a lateral projection, the ship's bow at the left ----------------
+header(LX, 280, LR - LX, "Deflection Field  ·  Lateral Projection", "orange", "peach");
+const PX = LX, PY = 360, PW = LR - LX, PH = 1200, CY = PY + PH / 2, DX = 960;
+const KM = 4;                                               // km per design pixel: the grid is 400 km
+L.rect({ x: PX, y: PY, w: PW, h: PH, c: "#040a20", panel: true });
+{
+  const g = L.svg("g", { class: "boot" });
+  for (let x = DX - 600; x < PX + PW; x += 100) L.svg("rect", { x: x - 1, y: PY, width: 2, height: PH, fill: "#0b1638" }, g);
+  for (let y = CY - 500; y <= CY + 500; y += 100) L.svg("rect", { x: PX, y: y - 1, width: PW, height: 2, fill: "#0b1638" }, g);
+  L.svg("line", { x1: DX, y1: CY, x2: PX + PW, y2: CY, stroke: "#2c57ec", "stroke-width": 3, "stroke-dasharray": "18 12" }, g);
+}
+
+// The field is the flow of the oncoming medium past six sources of deflection on the beam's axis —
+// a Rankine body, drawn out ahead into a paraboloid. Particles follow that flow exactly, so they
+// never cross the field's edge. Lengths are in "field units"; on screen x = DX + kx·u, y = CY + ky·v.
+const NS = 6, SPAN = 500, HALF = 300, SRC = Array.from({ length: NS }, (_, i) => (SPAN * i) / (NS - 1));
+const S = HALF / (NS * Math.PI);
+const flow = (u, v) => {                                    // velocity for a unit oncoming stream
+  let a = -1, b = 0;
+  for (const ui of SRC) { const du = u - ui, r2 = Math.max(1, du * du + v * v); a += (S * du) / r2; b += (S * v) / r2; }
+  return [a, b];
+};
+let NOSE; { let a = SPAN + 0.1, b = SPAN + 3000; for (let i = 0; i < 60; i++) { const m = (a + b) / 2; if (flow(m, 0)[0] > 0) a = m; else b = m; } NOSE = a; }
+const EDGE = [];                                            // the field's upper edge, nose to tail
+{
+  let u = NOSE - 0.5, v = 0.5, k = 0;
+  EDGE.push([NOSE, 0]);
+  while (u > (PX - DX - 120) / 0.5) {                        // far enough for the smallest shell
+    const [a, b] = flow(u, v), sp = Math.hypot(a, b);
+    u += (a / sp) * 2; v += (b / sp) * 2;
+    if (++k % 3 === 0) EDGE.push([u, v]);
+  }
+}
+const halfAt = (u) => { for (const [eu, ev] of EDGE) if (eu <= u) return ev; return EDGE[EDGE.length - 1][1]; };
+const edgePath = (s, u0) => {                               // the edge scaled by s about the dish, closed by the tail
+  const pts = EDGE.filter(([u]) => u * s >= u0).map(([u, v]) => [DX + u * s, v * s]);
+  const up = pts.map(([x, v]) => `${x.toFixed(1)},${(CY - v).toFixed(1)}`);
+  const dn = pts.map(([x, v]) => `${x.toFixed(1)},${(CY + v).toFixed(1)}`);
+  return { open: "M" + up.slice().reverse().join(" L") + " L" + dn.slice(1).join(" L"), pts };
+};
+const clip = L.el("div", "clip boot", L.stage, { left: PX + "px", top: PY + "px", width: PW + "px", height: PH + "px" });
+const fieldLayers = [];
+{
+  // the field itself: a soft amber body and its edge
+  const e = L.layer({ x: 0, y: 0, w: PW, h: PH, cls: "lay" }, clip);
+  const s = svgIn(e, PX, PY, PW, PH);
+  const defs = L.svg("defs", {}, s);
+  const rg = L.svg("radialGradient", { id: "fg", gradientUnits: "userSpaceOnUse", cx: DX, cy: CY, r: 760 }, defs);
+  L.svg("stop", { offset: "0", "stop-color": "#ff9c1a", "stop-opacity": 0.30 }, rg);
+  L.svg("stop", { offset: "0.55", "stop-color": "#ff9c1a", "stop-opacity": 0.13 }, rg);
+  L.svg("stop", { offset: "1", "stop-color": "#ff9c1a", "stop-opacity": 0.05 }, rg);
+  const p = edgePath(1, PX - DX - 120);
+  L.svg("path", { d: p.open + " Z", fill: "url(#fg)" }, s);
+  L.svg("path", { d: p.open, fill: "none", stroke: "var(--orange)", "stroke-width": 5, "stroke-linejoin": "round" }, s);
+  e.style.transformOrigin = `${DX - PX}px ${CY - PY}px`;
+  fieldLayers.push({ e, j: 3, op: "" });
+  // three inner shells, each its own small layer: the deflector's pulse runs out through them
+  [0.5, 0.67, 0.84].forEach((k, j) => {
+    const q = edgePath(k, PX - DX - 120);
+    const top = Math.ceil(Math.max(...q.pts.map(([, v]) => v))) + 8;
+    const x0 = PX, x1 = Math.ceil(DX + NOSE * k + 8);
+    const le = L.layer({ x: 0, y: CY - top - PY, w: x1 - x0, h: 2 * top, cls: "lay" }, clip);
+    const ls = svgIn(le, x0, CY - top, x1 - x0, 2 * top);
+    L.svg("path", { d: q.open, fill: "none", stroke: "var(--peach)", "stroke-width": 3, "stroke-dasharray": j === 1 ? "none" : "22 12" }, ls);
+    le.style.transformOrigin = `${DX - x0}px ${top}px`;
+    fieldLayers.push({ e: le, j, op: "" });
+  });
+}
+
+// the particles: a pool of small layers, moving on the flow
+const NP = 64;
+const parts = Array.from({ length: NP }, (_, i) => {
+  const big = i === 0;
+  const len = big ? 22 : L.pick([22, 28, 34, 40]), th = big ? 22 : L.pick([5, 5, 6]);   // a streak, its head leading
+  const e = L.layer({ x: 0, y: 0, w: len, h: th, cls: "pt" + (big ? " big" : "") }, clip);
+  e.style.opacity = 0; e.style.transformOrigin = `0 ${th / 2}px`;
+  return { e, len, th, big, on: false, u: 0, v: 0, op: "0", tr: "", logged: false };
+});
+
+// the bow of the engineering hull and the dish, edge on: plain blocks
+{
+  const x0 = PX, y0 = CY - 190, w = DX + 40 - PX, h = 380;
+  const e = L.layer({ x: 0, y: y0 - PY, w, h, cls: "lay" }, clip);
+  const s = svgIn(e, x0, y0, w, h);
+  L.svg("path", { d: `M${PX},${CY - 150} H${DX - 150} A70,70 0 0 1 ${DX - 80},${CY - 80} V${CY + 80} A70,70 0 0 1 ${DX - 150},${CY + 150} H${PX} Z`, fill: "#1b2e63" }, s);
+  L.svg("rect", { x: PX, y: CY - 150, width: DX - 260 - PX, height: 30, fill: "#26407a" }, s);
+  L.svg("rect", { x: PX, y: CY + 120, width: DX - 260 - PX, height: 30, fill: "#26407a" }, s);
+  for (let k = 0; k < 7; k++) L.svg("rect", { x: PX + 40 + k * 76, y: CY - 70, width: 44, height: 12, rx: 6, fill: "#3a5cae" }, s);
+  for (let k = 0; k < 7; k++) L.svg("rect", { x: PX + 40 + k * 76, y: CY + 58, width: 44, height: 12, rx: 6, fill: "#3a5cae" }, s);
+  L.svg("rect", { x: DX - 112, y: CY - 176, width: 52, height: 352, rx: 22, fill: "#2a4a8c" }, s);       // the dish's collar
+  L.svg("path", { d: `M${DX},${CY - 156} Q${DX - 92},${CY} ${DX},${CY + 156} Z`, fill: "rgba(255,156,26,.32)" }, s);   // the bowl
+  L.svg("path", { d: `M${DX},${CY - 156} Q${DX - 92},${CY} ${DX},${CY + 156} L${DX - 30},${CY + 156} Q${DX - 122},${CY} ${DX - 30},${CY - 156} Z`, fill: "var(--orange)" }, s);
+  L.svg("circle", { cx: DX - 22, cy: CY, r: 15, fill: "#ffe2b8" }, s);
+}
+const dishGlow = L.layer({ x: DX - 40 - PX - 170, y: CY - PY - 210, w: 340, h: 420, cls: "dglow" }, clip);
+
+// corner readouts
+L.text({ x: PX + 40, base: PY + 72, s: 36, c: "sky", txt: "Lateral projection  ·  Course 047 mark 12" });
+L.text({ x: PX + PW - 40, base: PY + 72, s: 36, c: "sky", txt: "Grid interval 400 km", align: "r" });
+L.text({ x: PX + 40, base: PY + PH - 98, s: 36, c: "sky", txt: "Medium Density" });
+const densTxt = L.text({ x: PX + 40, base: PY + PH - 40, s: 52, c: "white", txt: "" });
+L.text({ x: PX + PW - 40, base: PY + PH - 98, s: 36, c: "sky", txt: "Mass Swept Aside", align: "r" });
+const massTxt = L.text({ x: PX + PW - 40, base: PY + PH - 40, s: 52, c: "white", txt: "", align: "r" });
+
+// ---------------- the dish, front on ----------------
+header(RX, 280, RR - RX, "Main Deflector Dish", "sky", "ice");
+const QX = RX, QY = 360, QS = 600, QC = [QX + QS / 2, QY + QS / 2];
+L.rect({ x: QX, y: QY, w: QS, h: QS, c: "#040a20" });
+const RINGS = [[78, 106, 12], [116, 146, 18], [156, 186, 24], [196, 226, 30], [236, 262, 36]];
+const ringPath = (r1, r2, n) => { let d = ""; for (let k = 0; k < n; k++) { const a = (360 / n) * k; d += L.arc(QC[0], QC[1], r1, r2, a + 1.4, a + 360 / n - 1.4); } return d; };
+{
+  const g = L.svg("g", { class: "boot" });
+  L.svg("circle", { cx: QC[0], cy: QC[1], r: 280, fill: "none", stroke: "#1f3fd6", "stroke-width": 12 }, g);
+  L.svg("rect", { x: QC[0] - 1, y: QY + 12, width: 2, height: QS - 24, fill: "#13224c" }, g);
+  L.svg("rect", { x: QX + 12, y: QC[1] - 1, width: QS - 24, height: 2, fill: "#13224c" }, g);
+  for (const [r1, r2, n] of RINGS) L.svg("path", { d: ringPath(r1, r2, n), fill: "#33210f" }, g);
+  L.svg("circle", { cx: QC[0], cy: QC[1], r: 60, fill: "#8a4c10" }, g);
+}
+const ringLayers = RINGS.map(([r1, r2, n]) => {             // the amber pulse, ring by ring, outward
+  const e = L.layer({ x: QC[0] - r2 - 2, y: QC[1] - r2 - 2, w: 2 * r2 + 4, h: 2 * r2 + 4, cls: "lay" });
+  const s = svgIn(e, QC[0] - r2 - 2, QC[1] - r2 - 2, 2 * r2 + 4, 2 * r2 + 4);
+  L.svg("path", { d: ringPath(r1, r2, n), fill: "var(--orange)" }, s);
+  e.style.opacity = 0;
+  return { e, op: "" };
+});
+const coreGlow = L.layer({ x: QC[0] - 84, y: QC[1] - 84, w: 168, h: 168, cls: "cglow" });
+// its readings
+const RDX = 3000, RDB = (i) => 432 + i * 84;
+const READ = ["Power Output", "Field Strength", "Field Range", "Cone Half-Angle", "Dish Temperature", "Dish Alignment", "Course Ahead"]
+  .map((name, i) => {
+    L.text({ x: RDX, base: RDB(i), s: 40, c: "sky", txt: name });
+    return L.text({ x: RR, base: RDB(i), s: 52, c: "white", txt: "", align: "r" });
+  });
+
+// ---------------- graviton polarity source generators ----------------
+header(RX, 1000, RR - RX, "Graviton Polarity Source", "orange", "peach");
+const GBX = 2640, GBR = 3560, GMAX = 128;
+[["Generator", RX, "l"], ["Load  ·  128 MW Rated", GBX, "l"], ["Output", RR, "r"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: 1120, s: 36, c: "sky", txt, align }));
+const gens = [0, 1, 2, 3].map((i) => {
+  const base = 1180 + i * 60;
+  L.text({ x: RX, base, s: 40, c: "ice", txt: `Generator ${i + 1}` });
+  L.rect({ x: GBX, y: base - 26, w: GBR - GBX, h: 26, c: "#0f1a3c" });
+  const bar = fill(GBX, base - 26, GBR - GBX, 26, i % 2 ? "peach" : "orange");
+  return { bar, val: L.text({ x: RR, base, s: 40, c: "white", txt: "", align: "r" }), v: 90, j: L.rand(-1, 1), tr: "" };
+});
+L.text({ x: RX, base: 1440, s: 40, c: "ice", txt: "Subspace Field Coils" });
+const NCOIL = 8, CG = 12, CW = (GBR - GBX - (NCOIL - 1) * CG) / NCOIL;
+const coils = Array.from({ length: NCOIL }, (_, k) => {
+  const x = GBX + k * (CW + CG);
+  L.rect({ x, y: 1400, w: CW, h: 40, rx: 6, c: "#0f1a3c" });
+  const e = L.layer({ x, y: 1400, w: CW, h: 40 });
+  e.style.borderRadius = "6px"; e.style.background = "linear-gradient(var(--ice), var(--sky))"; e.style.opacity = 0;
+  return { e, op: "" };
+});
+const coilTxt = L.text({ x: RR, base: 1440, s: 40, c: "white", txt: "8 of 8 Online", align: "r" });
+L.text({ x: RX, base: 1520, s: 40, c: "ice", txt: "Phase Coherence" });
+const cohTxt = L.text({ x: RR, base: 1520, s: 52, c: "white", txt: "", align: "r" });
+
+// ---------------- particle density ahead ----------------
+small(LX, 1620, DR - LX, "Particle Density Ahead  ·  per cm³", "sky", "ice");
+const BX0 = 420, BX1 = DR, BY0 = 1950, BY1 = 1700, NB = 24, BG = 8, BW = (BX1 - BX0 - (NB - 1) * BG) / NB, AHEAD = 400;
+const dy = (d) => BY0 - L.clamp((Math.log10(d) + 1) / 3) * (BY0 - BY1);
+{
+  const g = L.svg("g", { class: "boot" });
+  for (let k = 0; k <= 3; k++) L.svg("rect", { x: BX0, y: dy(Math.pow(10, k - 1)) - 1, width: BX1 - BX0, height: 2, fill: k ? "#13224c" : "#2c57ec" }, g);
+  L.svg("line", { x1: BX0, y1: dy(DENSE), x2: BX1, y2: dy(DENSE), stroke: "var(--orange)", "stroke-width": 3, "stroke-dasharray": "14 10", opacity: 0.8 }, g);
+}
+[[0.1, "0.1"], [1, "1"], [10, "10"], [100, "100"]].forEach(([d, s]) => L.text({ x: BX0 - 20, base: dy(d) + 11, s: 30, c: "sky", txt: s, align: "r", legend: true }));
+[["Now", BX0, "l"], ["10 s", BX0 + (BX1 - BX0) / 4, "c"], ["20 s", BX0 + (BX1 - BX0) / 2, "c"], ["30 s", BX0 + (3 * (BX1 - BX0)) / 4, "c"], ["40 s", BX1, "r"]]
+  .forEach(([s, x, align]) => L.text({ x, base: 2004, s: 30, c: "sky", txt: s, align, w: 120, legend: true }));
+const bars = Array.from({ length: NB }, (_, i) => {
+  const x = BX0 + i * (BW + BG);
+  const e = fill(x, BY1, BW, BY0 - BY1, "sky", "50% 100%");
+  return { e, tr: "", c: "" };
+});
+
+// ---------------- deflector modulation ----------------
+small(MX, 1620, LR - MX, "Deflector Modulation", "orange", "peach");
+L.text({ x: MX, base: 1734, s: 40, c: "sky", txt: "Graviton Frequency" });
+const freqTxt = L.text({ x: LR, base: 1734, s: 44, c: "white", txt: "", align: "r" });
+const WY = 1762, WH = 84, WL = 96;
+L.rect({ x: MX, y: WY, w: LR - MX, h: WH, c: "#040a20" });
+const wclip = L.el("div", "clip boot", L.stage, { left: MX + "px", top: WY + "px", width: LR - MX + "px", height: WH + "px" });
+const wave = L.layer({ x: 0, y: 0, w: LR - MX + 3 * WL, h: WH, cls: "lay" }, wclip);
+{
+  const w = LR - MX + 3 * WL, s = L.svg("svg", { width: w, height: WH, viewBox: `0 0 ${w} ${WH}` }, wave);
+  const pts = (A, n, ph0) => Array.from({ length: w / 2 + 1 }, (_, i) => `${i * 2},${(WH / 2 + A * Math.sin((2 * Math.PI * n * i * 2) / WL + ph0)).toFixed(1)}`).join(" ");
+  L.svg("polyline", { points: pts(13, 2, 1), fill: "none", stroke: "var(--orange)", "stroke-width": 3, opacity: 0.75 }, s);
+  L.svg("polyline", { points: pts(28, 1, 0), fill: "none", stroke: "var(--ice)", "stroke-width": 4 }, s);
+}
+wave.style.transformOrigin = "0 0";
+L.text({ x: MX, base: 1896, s: 40, c: "sky", txt: "Phase Variance" });
+const phaseTxt = L.text({ x: LR, base: 1896, s: 44, c: "white", txt: "", align: "r" });
+L.text({ x: MX, base: 1950, s: 40, c: "sky", txt: "Harmonic Lock" });
+const lockTxt = L.text({ x: LR, base: 1950, s: 44, c: "white", txt: "", align: "r" });
+const msgTxt = L.text({ x: MX, base: 2004, s: 36, c: "sky", txt: "", cls: "msg" });
+
+// ---------------- debris encountered ----------------
+small(RX, 1620, RR - RX, "Debris Encountered", "sky", "ice");
+const LGO = 2540, LGM = 3240, LGR = 3520;
+[["Stardate", RX, "l"], ["Object", LGO, "l"], ["Mass", LGM, "r"], ["Range", LGR, "r"], ["Disposition", RR, "r"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: 1734, s: 36, c: "sky", txt, align }));
+const logRows = Array.from({ length: 5 }, (_, i) => {
+  const base = 1788 + i * 54;
+  return { sd: L.text({ x: RX, base, s: 36, c: "orange", txt: "" }), ob: L.text({ x: LGO, base, s: 36, c: "peach", txt: "" }),
+           m: L.text({ x: LGM, base, s: 36, c: "white", txt: "", align: "r" }), r: L.text({ x: LGR, base, s: 36, c: "white", txt: "", align: "r" }),
+           d: L.text({ x: RR, base, s: 36, c: "sky", txt: "", align: "r" }) };
+});
+const OBJECTS = [
+  ["Micrometeoroid", () => L.rand(0.05, 2.4).toFixed(2) + " g"],
+  ["Ice fragment", () => L.rand(0.2, 9).toFixed(1) + " g"],
+  ["Silicate dust cluster", () => L.irand(3, 90) + " mg"],
+  ["Carbonaceous grains", () => L.irand(2, 60) + " mg"],
+  ["Nickel-iron fragment", () => L.rand(0.1, 3.5).toFixed(2) + " kg"],
+  ["Ionized gas pocket", () => L.irand(4, 40) + " mg"],
+];
+let stardate = 47634.4, logged = [];
+const showLog = () => logRows.forEach((r, i) => {
+  const e = logged[logged.length - 1 - i];                     // the newest at the top
+  put(r.sd, e ? e[0] : ""); put(r.ob, e ? e[1] : ""); put(r.m, e ? e[2] : ""); put(r.r, e ? e[3] : ""); put(r.d, e ? e[4] : "");
+});
+const logDebris = (rangeKm, dense) => {
+  stardate += 0.1;
+  const [name, mass] = dense && Math.random() < 0.6 ? L.pick(OBJECTS.slice(2, 4)) : L.pick(OBJECTS);
+  logged.push([stardate.toFixed(1), name, mass(), fmt(Math.round(rangeKm / 10) * 10) + " km", dense ? "Swept aside" : "Deflected"]);
+  if (logged.length > 5) logged.shift();
+  showLog();
+};
+stardate -= 0.5;
+for (let i = 0; i < 5; i++) logDebris(L.rand(1500, 2080), false);
+
+// ---------------- the state of things ----------------
+let kx = 1, ky = 1, gS = 0, freq = 21.346, freqGoal = 21.346, wph = 0, tPrev = null, nextBig = 6;
+const U = 150;                                               // the medium's speed across the diagram, px/s
+
+const place = (p) => {
+  const x = DX + kx * p.u, y = CY + ky * p.v;
+  let tr;
+  if (p.big) tr = `translate3d(${(x - PX - 11).toFixed(1)}px,${(y - PY - 11).toFixed(1)}px,0)`;
+  else {                                                      // the streak points back along its path
+    const [a, b] = flow(p.u, p.v), ang = Math.atan2(-b * ky, -a * kx) * 180 / Math.PI;
+    tr = `translate3d(${(x - PX).toFixed(1)}px,${(y - PY - p.th / 2).toFixed(1)}px,0) rotate(${ang.toFixed(1)}deg)`;
+  }
+  if (tr !== p.tr) { p.e.style.transform = tr; p.tr = tr; }
+  // in from the right, out at the left, and out before reaching the panel's corner readings
+  const op = (Math.round(L.clamp((PX + PW + 10 - x) / 130) * L.clamp((x - PX) / 160) * L.clamp((462 - Math.abs(y - CY)) / 60) * 20) / 20).toFixed(2);
+  if (op !== p.op) { p.e.style.opacity = op; p.op = op; }
+  return [x, y];
+};
+const spawn = (big) => {
+  const p = parts.find((q) => !q.on && q.big === big);
+  if (!p) return;
+  let y; do y = L.rand(-430, 430); while (Math.abs(y) < (big ? 60 : 24));
+  if (big) y = (Math.random() < 0.5 ? -1 : 1) * L.rand(60, 160);   // the debris worth logging comes at the dish
+  p.u = (PX + PW + 10 - DX) / kx; p.v = y / ky; p.on = true; p.logged = false;
+};
+const step = (dt, t) => {
+  for (const p of parts) {
+    if (!p.on) continue;
+    const n = 3, h = (dt * U) / kx / n;                       // the screen speed stays the same as the field widens
+    for (let k = 0; k < n; k++) {                              // midpoint steps along the flow
+      const [a, b] = flow(p.u, p.v), [a2, b2] = flow(p.u + (a * h) / 2, p.v + (b * h) / 2);
+      p.u += a2 * h; p.v += b2 * h;
+    }
+    if (p.big && !p.logged && p.u < NOSE * 0.8) { p.logged = true; logDebris(NOSE * kx * KM * L.rand(0.92, 0.99), gS > 0.3); }
+    const x = DX + kx * p.u, y = CY + ky * p.v;
+    if (x < PX - 30 || Math.abs(y - CY) > 470) { p.on = false; p.op = "0"; p.e.style.opacity = 0; p.tr = ""; }
+  }
+};
+let acc = 0;
+const feed = (dt, t) => {
+  acc += dt * (2.8 + 2.2 * gS);
+  while (acc >= 1) { acc -= 1; spawn(false); }
+  if (t > nextBig) { spawn(true); nextBig = t + L.rand(15, 24); }
+};
+// fill the stream before the first frame, so the screen does not start empty
+for (let k = 0; k < 15 * 20; k++) { feed(1 / 20, -1); step(1 / 20, -1); }
+parts.forEach((p) => p.on && place(p));
+
+L.tick((t) => {
+  const dt = tPrev === null ? 0 : Math.min(0.1, t - tPrev); tPrev = t;
+  P += LSPS * dt; keepPatches();
+  // the field answers the medium it is in, smoothly
+  gS += (gOf(dens(P)) - gS) * Math.min(1, dt / 2.5);
+  kx = 1 + 0.06 * gS; ky = 1 + 0.24 * gS;
+  const tr = `scale(${kx.toFixed(4)},${ky.toFixed(4)})`;
+  for (const f of fieldLayers) {
+    if (f.tr !== tr) { f.e.style.transform = tr; f.tr = tr; }
+    const w = 0.5 + 0.5 * Math.sin(t * 1.2 - f.j * 0.9);
+    const op = (f.j === 3 ? 0.82 + 0.18 * w : 0.25 + 0.55 * w).toFixed(2);
+    if (op !== f.op) { f.e.style.opacity = op; f.op = op; }
+  }
+  feed(dt, t); step(dt, t);
+  for (const p of parts) if (p.on) place(p);
+  css(dishGlow, "opacity", (0.6 + 0.12 * Math.sin(t * 1.2) + 0.25 * gS).toFixed(2));
+  // the dish front on: the same pulse, ring by ring from the emitter outward
+  ringLayers.forEach((r, i) => {
+    const w = Math.max(0, Math.cos(t * 1.2 - i * 0.55)), op = (0.08 + 0.82 * w * w + 0.1 * gS).toFixed(2);
+    if (op !== r.op) { r.e.style.opacity = op; r.op = op; }
+  });
+  css(coreGlow, "opacity", (0.7 + 0.2 * Math.sin(t * 1.2 + 0.6) + 0.1 * gS).toFixed(2));
+  // the density ahead, sampled as the ship runs into it
+  bars.forEach((b, i) => {
+    const d = dens(P + ((i + 0.5) * AHEAD) / NB);
+    const tr = `scaleY(${Math.max(0.03, (BY0 - dy(d)) / (BY0 - BY1)).toFixed(3)})`;
+    if (tr !== b.tr) { b.e.style.transform = tr; b.tr = tr; }
+    const c = d >= DENSE ? "var(--orange)" : "var(--sky)";
+    if (c !== b.c) { b.e.style.background = c; b.c = c; }
+  });
+  // the graviton frequency is retuned ahead of a dense patch
+  let ahead = 0; for (let s = 0; s <= 60; s += 6) ahead = Math.max(ahead, dens(P + s));
+  freqGoal = 21.346 + 0.87 * gOf(ahead);
+  freq += (freqGoal - freq) * Math.min(1, dt / 3);
+  wph = (wph + dt * WL / 1.3) % WL;
+  const sc = 21.346 / freq;
+  css(wave, "transform", `translate3d(${(-wph * sc).toFixed(1)}px,0,0) scaleX(${sc.toFixed(4)})`);
+  gens.forEach((g, i) => {
+    g.v = (86 + 30 * gS) * (1 + 0.006 * Math.sin(t * 0.31 + i * 1.7) + 0.003 * g.j);
+    const tr = `scaleX(${(g.v / GMAX).toFixed(4)})`;
+    if (tr !== g.tr) { g.bar.style.transform = tr; g.tr = tr; }
+  });
+  coils.forEach((c, k) => {
+    const op = (0.45 + 0.4 * (0.5 + 0.5 * Math.sin(t * 1.6 - k * 0.6)) + 0.15 * gS).toFixed(2);
+    if (op !== c.op) { c.e.style.opacity = op; c.op = op; }
+  });
+});
+L.every(250, (t) => {
+  const d = dens(P), dense = d >= DENSE, total = gens.reduce((a, g) => a + g.v, 0);
+  let first = -1; for (let s = 0; s <= AHEAD; s += 5) if (dens(P + s) >= DENSE) { first = s; break; }
+  const retune = Math.abs(freq - freqGoal) > 0.03;
+  put(stateTxt, dense ? "Dense Medium" : "Path Clear");
+  css(stateTxt, "color", dense ? "var(--orange)" : "var(--ice)");
+  put(stateSub, `Warp ${WARP}  ·  Course 047 mark 12  ·  Medium ${d.toFixed(d < 10 ? 2 : 1)} per cm³`);
+  put(pill, gS > 0.12 ? "Field Widened" : "Field Nominal");
+  css(pill, "backgroundColor", gS > 0.12 ? "var(--orange)" : "var(--sky)");
+  put(densTxt, `${d.toFixed(d < 10 ? 2 : 1)} per cm³`);
+  put(massTxt, `${fmt(d * 14.2 * kx * ky, 1)} kg/s`);
+  const angle = (Math.atan2(halfAt(0) * ky, NOSE * kx) * 180) / Math.PI;
+  [`${fmt(total, 1)} MW`, `${fmt(total * 1.07, 0)} millicochranes`, `${fmt(Math.round(NOSE * kx * KM), 0)} km`,
+   `${angle.toFixed(1)}°`, `${(318.2 + 24 * gS + 0.4 * Math.sin(t * 0.13)).toFixed(1)} K`,
+   `On Axis  ·  ${(0.002 + 0.0015 * Math.abs(Math.sin(t * 0.21))).toFixed(4)}°`,
+   dense ? "Within dense medium" : first >= 0 ? `Dense medium in ${Math.max(1, Math.round(first / LSPS))} s` : "Clear"]
+    .forEach((s, i) => put(READ[i], s));
+  css(READ[6], "color", dense || first >= 0 ? "var(--orange)" : "var(--white)");
+  gens.forEach((g) => put(g.val, `${fmt(g.v, 1)} MW`));
+  put(cohTxt, `${(99.984 - 0.03 * gS - (retune ? 0.012 : 0)).toFixed(3)}%`);
+  put(freqTxt, `${freq.toFixed(3)} GHz`);
+  put(phaseTxt, `${(0.0011 + (retune ? 0.0034 : 0) + 0.0002 * Math.sin(t * 0.4)).toFixed(4)} rad`);
+  put(lockTxt, retune ? "Adjusting" : "Locked");
+  css(lockTxt, "color", retune ? "var(--orange)" : "var(--white)");
+  put(msgTxt, !retune ? "Modulation steady  ·  Harmonics locked" : freqGoal > freq ? "Retuning to compensate for dense interstellar medium" : "Medium thinning  ·  Restoring standard modulation");
+  css(msgTxt, "color", retune ? "var(--orange)" : "var(--sky)");
+}, 0);
+L.every(4000, () => gens.forEach((g) => (g.j = L.clamp(g.j + L.rand(-0.5, 0.5), -1, 1))), 0.3);
+});
+</script></body></html>

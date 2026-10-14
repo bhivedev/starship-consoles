@@ -1,0 +1,413 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Impulse Engines</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* swapped text dips and comes back; colors change slowly; .boot (the start-up cascade) always wins */
+  .sw { transition: opacity .45s ease, background-color 1.2s ease, color 1.2s ease; }
+  .out:not(.boot) { opacity: .2; }
+  .pipe { position: absolute; overflow: hidden; }
+  .coil { position: absolute; border-radius: 22px; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: mirrored, sidebar on the right ----------------
+L.frame({ type: "B", title: "Impulse Engines  •  Propulsion", c: "orange", c2: "sunset", accent: "peach", foot: "Impulse",
+  side: [[140, "peach", "Imp 01"], [70, "sunset", "2209"], [420, "orange", "Reactors"], [70, "tan", "04"], [300, "peach", "Drive"],
+         [70, "sunset", "B2"], [216, "orange", "Deuterium"]] });
+
+const TRACK = "#2c1c0c", DIM = "#3a2410", WIN = "#1b1007";
+const cls = (e, ...c) => (e.classList.add(...c), e);
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const op = (e, v) => { v = v.toFixed(2); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const bg = (e, c) => { if (e._bg !== c) { e._bg = c; e.style.background = c.startsWith("#") ? c : `var(--${c})`; } };
+const fg = (e, c) => { if (e._fg !== c) { e._fg = c; e.style.color = c.startsWith("#") ? c : `var(--${c})`; } };
+const fill = (x, y, w, h, c, origin = "0 0", parent) => {
+  const f = L.layer({ x, y, w, h, cls: "boot" }, parent);
+  f.style.background = c.startsWith("#") ? c : `var(--${c})`; f.style.transformOrigin = origin;
+  return f;
+};
+const D2 = (n) => String(n).padStart(2, "0");
+const fmt = (n) => Math.round(n).toLocaleString("en");
+const sgn = (v, n = 2) => (v < -0.5 * 10 ** -n ? "−" : "+") + Math.abs(v).toFixed(n);
+const swap = (els, f) => { els.forEach((e) => e.classList.add("out")); setTimeout(() => { f(); els.forEach((e) => e.classList.remove("out")); }, 460); };
+
+// Columns: the engine diagram 40–2600 (five stages, 24 apart), the drive 2660–3520.
+const DX0 = 40, DX1 = 2600, RX = 2660, RR = 3520;
+const STAGES = [[40, 400], [424, 1040], [1064, 1416], [1440, 2120], [2144, 2600]];
+const ROW0 = 428, ROW1 = 1148, PITCH = 88;
+const base0 = (i) => ROW0 + i * PITCH + 52.5, base1 = (i) => ROW1 + i * PITCH + 52.5;
+const STRIP = (i) => 1734 + i * 54;
+const CY = 955;                                              // the engine's axis
+
+// ---------------- the voyage: orders from the conn ----------------
+const FULL = 74948.1;                                        // km/s: a quarter of light speed
+const ORDERS = [[0.25, "One-Quarter Impulse", "1/4"], [0.5, "Half Impulse", "1/2"], [0.75, "Three-Quarter Impulse", "3/4"], [1, "Full Impulse", "Full"]];
+let ord = 1, fA = 0.5, fB = 0.5, mvT0 = -99, mvD = 1, f = 0.5, accel = 0, nextOrder = 9;
+
+// ---------------- status line ----------------
+const state = cls(L.text({ x: DX0, cap: 150, s: 100, c: "orange", txt: ORDERS[ord][1] }), "sw");
+const stateSub = L.text({ x: 0, base: 222, s: 38, c: "peach", txt: "" });
+const placeSub = () => { stateSub.style.left = DX0 + state.offsetWidth + 48 + "px"; };
+placeSub();
+const pill = cls(L.box({ x: RR - 400, y: 150, w: 400, h: 72, c: "peach", label: "Impulse Online", r: "lr", fs: 36 }), "sw");
+
+// ---------------- the engine diagram ----------------
+L.header({ x: DX0, y: 280, w: DX1 - DX0, label: "Impulse Propulsion System", c1: "orange", c2: "peach" });
+L.text({ x: DX0, base: 400, s: 36, c: "orange", txt: "Saucer Module Main Impulse Engine  ·  Fusion Reactors 1 – 4  ·  Slush Deuterium Fuel" });
+const STAGE_LABELS = [["Deuterium", "peach"], ["Fusion Reaction Chambers", "orange"], ["Accelerator / Generator", "tan"], ["Driver Coil Assembly", "orange"], ["Vectored Exhaust", "sunset"]];
+STAGES.forEach(([x0, x1], i) => L.box({ x: x0, y: ROW0, w: x1 - x0, h: 64, c: STAGE_LABELS[i][1], label: STAGE_LABELS[i][0], fs: 32, r: i === 0 ? "l" : null }));
+
+// a pipe with fuel or plasma flowing in it: a dark track, a striped layer slid inside (seamless: it moves one period and wraps)
+const pipes = [];
+const pipe = (x, y, w, h, c, dir, kind, P, D) => {
+  L.rect({ x, y, w, h, c: TRACK, free: true });
+  const box = L.el("div", "pipe boot", L.stage, { left: x + "px", top: y + "px", width: w + "px", height: h + "px" });
+  const vert = dir === "up" || dir === "down";
+  const s = L.layer({ x: 0, y: 0, w: vert ? w : w + P, h: vert ? h + P : h }, box);
+  const col = `var(--${c})`;
+  s.style.background = `repeating-linear-gradient(${vert ? 180 : 90}deg, ${col} 0px, ${col} ${D}px, transparent ${D}px, transparent ${P}px)`;
+  pipes.push({ s, dir, kind, P });
+};
+
+// deuterium: ten tank cells, lit from the bottom
+const TK = { x: 40, w: 360, y0: 540, h: 76, n: 10 };
+const tankCells = Array.from({ length: TK.n }, (_, k) => {
+  const y = TK.y0 + (TK.n - 1 - k) * (TK.h + 8);
+  L.rect({ x: TK.x, y, w: TK.w, h: TK.h, c: TRACK, free: true });
+  return fill(TK.x, y, TK.w, TK.h, k < 2 ? "sunset" : "peach", "50% 100%");
+});
+const TANK_TOP = TK.y0, TANK_BOT = TK.y0 + TK.n * (TK.h + 8) - 8;
+
+// the four reaction chambers
+const CH = [631, 847, 1063, 1279];
+const CHX0 = 560, CHX1 = 900, CUT = 28;
+const oct = (x0, y0, x1, y1, k) => `M${x0 + k},${y0} H${x1 - k} L${x1},${y0 + k} V${y1 - k} L${x1 - k},${y1} H${x0 + k} L${x0},${y1 - k} V${y0 + k} Z`;
+pipe(400, CH[3] - 7, CHX0 - 400, 14, "peach", "right", "fuel", 64, 30);            // the feed, straight into chamber 4
+pipe(470, CH[0] - 7, 14, CH[3] - 7 - (CH[0] - 7), "peach", "up", "fuel", 64, 30);   // the injector manifold
+for (let i = 0; i < 3; i++) pipe(484, CH[i] - 7, CHX0 - 484, 14, "peach", "right", "fuel", 64, 30);
+for (let i = 0; i < 4; i++) pipe(CHX1, CH[i] - 10, 980 - CHX1, 20, "butter", "right", "plasma", 80, 44);
+pipe(980, CH[0] - 10, 20, CY - 14 - (CH[0] - 10), "butter", "down", "plasma", 80, 44);
+pipe(980, CY + 14, 20, CH[3] + 10 - (CY + 14), "butter", "up", "plasma", 80, 44);
+const chambers = CH.map((cy, i) => {
+  L.svg("path", { d: oct(CHX0, cy - 80, CHX1, cy + 80, CUT), fill: "var(--orange)", class: "boot" });
+  L.svg("path", { d: oct(CHX0 + 70, cy - 62, CHX1 - 18, cy + 62, 18), fill: WIN, class: "boot" });
+  L.text({ x: CHX0 + 35, base: cy + 14.4, s: 40, c: "#000", txt: String(i + 1), align: "c", w: 70, on: true });
+  const core = L.layer({ x: CHX0 + 70, y: cy - 62, w: CHX1 - 18 - (CHX0 + 70), h: 124 });
+  core.style.clipPath = `polygon(18px 0, calc(100% - 18px) 0, 100% 18px, 100% calc(100% - 18px), calc(100% - 18px) 100%, 18px 100%, 0 calc(100% - 18px), 0 18px)`;
+  core.style.background = "radial-gradient(ellipse 62% 70% at 50% 50%, #fff4dc 0%, var(--butter) 20%, var(--orange) 50%, rgba(226,99,27,0.45) 78%, rgba(226,99,27,0.12) 100%)";
+  return { core, load: 0.08, goal: 0.08, on: false, status: "Standby", seed: i * 1.7 };
+});
+
+// the main plasma conduit: through the generator and the driver coils to the exhaust
+pipe(1000, CY - 14, 2180 - 1000, 28, "butter", "right", "plasma", 80, 44);
+
+// accelerator / generator: a shell, and electrode plates either side of the channel, lit outward with output
+L.svg("path", { d: `M1132,655 H1348 A32,32 0 0 1 1380,687 V1223 A32,32 0 0 1 1348,1255 H1132 A32,32 0 0 1 1100,1223 V687 A32,32 0 0 1 1132,655 Z`, fill: "var(--tan)", class: "boot" });
+L.svg("path", { d: `M1124,679 H1356 V1231 H1124 Z`, fill: WIN, class: "boot" });
+// the conduit runs over the shell: redraw it on top of the window so it reads as passing through
+const plates = [];
+for (let k = 0; k < 4; k++) for (const side of [-1, 1]) {
+  const y = side < 0 ? CY - 14 - 24 - 28 - k * 52 : CY + 14 + 24 + k * 52;
+  L.el("div", "boot", L.stage, { position: "absolute", left: "1140px", top: y + "px", width: "200px", height: "28px", background: DIM });
+  plates.push({ k, e: fill(1140, y, 200, 28, k < 2 ? "butter" : k === 2 ? "orange" : "sunset") });
+}
+
+// the driver coils: eight rings round the conduit, a field wave running through them
+const coils = Array.from({ length: 8 }, (_, i) => {
+  const x = 1464 + i * 84, h = 520 + i * 32, y = CY - h / 2;
+  L.el("div", "coil boot", L.stage, { left: x + "px", top: y + "px", width: "44px", height: h + "px", background: DIM });
+  const lit = L.layer({ x, y, w: 44, h, cls: "coil" });
+  lit.style.background = "linear-gradient(var(--orange), var(--butter) 50%, var(--orange))";
+  return lit;
+});
+
+// the vectored exhaust director: a flared nozzle with turning vanes, and the thrust plume beyond it
+const NZ0 = 2160, NZ1 = 2340;
+L.svg("path", { d: `M${NZ0},${CY - 120} L${NZ1},${CY - 220} V${CY + 220} L${NZ0},${CY + 120} Z`, fill: "var(--sunset)", class: "boot" });
+L.svg("path", { d: `M${NZ0 + 20},${CY - 100} L${NZ1 - 18},${CY - 192} V${CY + 192} L${NZ0 + 20},${CY + 100} Z`, fill: WIN, class: "boot" });
+const vanes = [-110, -55, 0, 55, 110].map((dy) => {
+  const v = fill(2232, CY + dy - 7, 88, 14, dy === 0 ? "butter" : "peach", "50% 50%");
+  v.style.borderRadius = "7px";
+  return v;
+});
+const plume = L.layer({ x: 2370, y: CY - 160, w: 230, h: 320, cls: "boot" });
+plume.style.transformOrigin = "-30px 160px";
+const chevrons = [0, 1, 2].map(() => {
+  const c = L.layer({ x: 0, y: 0, w: 60, h: 320 }, plume);
+  c.innerHTML = `<svg width="60" height="320" style="position:absolute;left:0;top:0"><path d="M6,40 L50,160 L6,280" fill="none" stroke="var(--butter)" stroke-width="16" stroke-linejoin="miter"/></svg>`;
+  return c;
+});
+
+// readings under each stage: a caption, then the value
+const reading = (x, label, align = "l", c = "orange") => {
+  L.text({ x, base: base1(3), s: 36, c, txt: label, align });
+  return L.text({ x, base: base1(4), s: 52, c: "white", txt: "", align });
+};
+const rFuel = reading(STAGES[0][0], "Fuel Flow");
+const rOut = reading(STAGES[1][0], "Combined Output");
+const rLit = reading(STAGES[1][0] + 340, "Chambers Lit", "l", "peach");
+const rGen = reading(STAGES[2][0], "Generator Output");
+const rField = reading(STAGES[3][0], "Field Strength");
+const rCycle = reading(STAGES[3][0] + 340, "Coil Cycle", "l", "peach");
+const rTemp = reading(STAGES[4][0], "Exhaust Temperature");
+const rVec = reading(STAGES[4][0] + 340, "Vector", "l", "peach");
+
+// ---------------- impulse drive ----------------
+L.header({ x: RX, y: 280, w: RR - RX, label: "Impulse Drive", c1: "sunset", c2: "orange" });
+L.text({ x: RX, base: 400, s: 36, c: "orange", txt: "Impulse Fraction  ·  Ordered by the Conn" });
+const BTN = ["Standby", "1/4", "1/2", "3/4", "Full"];
+const BW = (RR - RX - 4 * 8) / 5;
+const buttons = BTN.map((label, i) => cls(L.box({ x: RX + i * (BW + 8), y: ROW0, w: BW, h: 64, c: DIM, label, fs: 32,
+  r: i === 0 ? "l" : i === 4 ? "r" : null }), "sw"));
+const showButtons = () => buttons.forEach((b, i) => {
+  const k = i - 1;                                           // the order this button stands for
+  const lit = k === ord, below = k >= 0 && k < ord;
+  bg(b, lit ? "orange" : below ? "peach" : DIM); fg(b, lit || below ? "#000" : "tan");
+});
+const BX = 300, BRW = 250;
+const gaugeRow = (x, r, base, name, c, s = 40, vs = 52, h = 26, bx = BX, brw = BRW) => {
+  L.text({ x, base, s, c: "peach", txt: name });
+  L.rect({ x: x + bx, y: base - h, w: r - brw - (x + bx), h, c: TRACK });
+  return { bar: fill(x + bx, base - h, r - brw - (x + bx), h, c), v: L.text({ x: r, base, s: vs, c: "white", txt: "", align: "r" }), u: -1 };
+};
+const showBar = (g, k) => { k = L.clamp(k); if (Math.abs(k - g.u) > 0.0005) { g.u = k; tf(g.bar, `scaleX(${k.toFixed(4)})`); } };
+const drive = [["Velocity", "orange"], ["Light Speed", "peach"], ["Thrust", "orange"], ["Acceleration", "butter"], ["Time Dilation", "peach"]]
+  .map(([n, c], i) => gaugeRow(RX, RR, base0(i + 1), n, c));
+
+// ---------------- thrust vector ----------------
+L.header({ x: RX, y: 1000, w: RR - RX, label: "Thrust Vector", c1: "orange", c2: "sunset" });
+L.text({ x: RX, base: 1120, s: 36, c: "orange", txt: "Exhaust Director  ·  Pitch and Yaw  ·  Two Degrees Full Scale" });
+const SC = { x: RX, y: ROW1, s: 404 }, SCX = SC.x + SC.s / 2, SCY = SC.y + SC.s / 2, SR = 180;
+L.rect({ x: SC.x, y: SC.y, w: SC.s, h: SC.s, c: WIN, panel: true });
+for (const r of [60, 120, 180]) L.svg("circle", { cx: SCX, cy: SCY, r, fill: "none", stroke: r === 180 ? "var(--sunset)" : "#5a3816", "stroke-width": r === 180 ? 6 : 3, class: "boot" });
+L.rect({ x: SC.x + 12, y: SCY - 1.5, w: SC.s - 24, h: 3, c: "#5a3816", free: true });
+L.rect({ x: SCX - 1.5, y: SC.y + 12, w: 3, h: SC.s - 24, c: "#5a3816", free: true });
+const cmdRing = L.layer({ x: SCX - 26, y: SCY - 26, w: 52, h: 52, cls: "boot" });
+cmdRing.style.border = "5px solid var(--peach)"; cmdRing.style.borderRadius = "50%";
+const dot = L.layer({ x: SCX - 16, y: SCY - 16, w: 32, h: 32, cls: "boot" });
+dot.style.background = "var(--butter)"; dot.style.borderRadius = "50%";
+const VX = SC.x + SC.s + 56;
+const vecRow = (lb, vb, label) => ({
+  l: L.text({ x: VX, base: lb, s: 36, c: "orange", txt: label }),
+  c: L.text({ x: RR, base: lb, s: 36, c: "peach", txt: "", align: "r" }),
+  v: L.text({ x: VX, base: vb, s: 100, c: "white", txt: "" }),
+});
+const vPitch = vecRow(base1(0), base1(1) + 12, "Pitch");
+const vYaw = vecRow(base1(2), base1(3) + 12, "Yaw");
+const vNote = L.text({ x: VX, base: base1(4), s: 36, c: "peach", txt: "" });
+
+// ---------------- fusion reaction chambers ----------------
+L.header({ x: DX0, y: 1620, w: STAGES[2][1] - DX0, label: "Fusion Reaction Chambers", c1: "orange", c2: "peach", h: 48 });
+const TC = { name: 40, bar0: 260, bar1: 640, out: 800, temp: 980, fuel: 1170, st: 1236, stw: 180 };
+[["Chamber", TC.name, "l"], ["Load", TC.bar0, "l"], ["Output", TC.out, "r"], ["Core Temp", TC.temp, "r"], ["Fuel Flow", TC.fuel, "r"], ["Status", TC.st + TC.stw / 2, "c"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: STRIP(0), s: 36, c: "orange", txt, align, w: TC.stw }));
+const crow = (i, name, c) => {
+  const base = STRIP(i);
+  L.text({ x: TC.name, base, s: 36, c: "peach", txt: name });
+  L.rect({ x: TC.bar0, y: base - 22, w: TC.bar1 - TC.bar0, h: 22, c: TRACK });
+  return { bar: fill(TC.bar0, base - 22, TC.bar1 - TC.bar0, 22, c), u: -1,
+    out: L.text({ x: TC.out, base, s: 36, c: "white", txt: "", align: "r" }),
+    temp: L.text({ x: TC.temp, base, s: 36, c: "white", txt: "", align: "r" }),
+    fuel: L.text({ x: TC.fuel, base, s: 36, c: "white", txt: "", align: "r" }),
+    st: cls(L.box({ x: TC.st, y: base - 38, w: TC.stw, h: 44, c: "orange", label: "", fs: 28, r: "r" }), "sw") };
+};
+const crows = [1, 2, 3, 4].map((n) => crow(n, `Reactor ${n}`, n % 2 ? "orange" : "peach"));
+const ctot = crow(5, "Combined", "butter");
+
+// ---------------- impulse log ----------------
+const LG = STAGES[3][0];
+L.header({ x: LG, y: 1620, w: DX1 - LG, label: "Impulse Log", c1: "peach", c2: "orange", h: 48 });
+const LOGT = LG + 150;
+const logRows = Array.from({ length: 6 }, (_, i) => ({
+  tm: L.text({ x: LG, base: STRIP(i), s: 36, c: "orange", txt: "" }),
+  tx: L.text({ x: LOGT, base: STRIP(i), s: 36, c: "peach", txt: "" }),
+  v: L.text({ x: DX1, base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }) }));
+const logged = [];
+const clockAt = (ago = 0) => { const d = new Date(Date.now() - ago * 1000); return `${D2(d.getHours())}:${D2(d.getMinutes())}:${D2(d.getSeconds())}`; };
+const logLine = (txt, v, ago = 0) => {
+  logged.push([clockAt(ago), txt, v]); if (logged.length > logRows.length) logged.shift();
+  logRows.forEach((r, i) => { const e = logged[i] || ["", "", ""]; L.set(r.tm, e[0]); L.set(r.tx, e[1]); L.set(r.v, e[2]); });
+};
+
+// ---------------- deuterium supply ----------------
+L.header({ x: RX, y: 1620, w: RR - RX, label: "Deuterium Supply", c1: "peach", c2: "sunset", h: 48 });
+const fuel = [["Tank Level", "peach"], ["Flow to Injectors", "orange"], ["Injector Pressure", "peach"], ["Slush Temperature", "tan"], ["Cryopump Load", "orange"], ["Endurance", "sunset"]]
+  .map(([n, c], i) => gaugeRow(RX, RR, STRIP(i), n, c, 36, 36, 22, 300, 200));
+
+// ---------------- the engine model ----------------
+let level = 86.42;                                           // percent of the tank
+const online = (o) => (o >= 3 ? 4 : o >= 1 ? 3 : 2);         // chambers lit for an order
+let pitch = 0.4, yaw = -0.3, pA = 0.4, yA = -0.3, pB = 0.4, yB = -0.3, vecT0 = -99, nextVec = 22;
+const lightChambers = (n, quiet) => chambers.forEach((c, i) => {
+  const want = i < n;
+  if (want === c.on) return;
+  c.on = want;
+  if (want) {
+    c.status = "Igniting"; c.ignT = L.t;
+    if (!quiet) logLine(`Reactor ${i + 1} ignited`, "Igniting");
+  } else {
+    c.status = "Throttling";
+    if (!quiet) logLine(`Reactor ${i + 1} to standby`, "Standby");
+  }
+});
+lightChambers(online(ord), true);
+chambers.forEach((c) => { if (c.on) { c.status = "Online"; c.load = (0.22 + 0.7 * fB) * 4 / online(ord); } });
+
+const order = (t) => {
+  let o; do o = L.irand(0, 3); while (o === ord);
+  fA = f; fB = ORDERS[o][0]; ord = o; mvT0 = t; mvD = 14 + 22 * Math.abs(fB - fA);
+  const up = fB > fA;
+  logLine(`Conn orders ${ORDERS[o][1].toLowerCase()}`, `${fmt(fB * FULL)} km/s`);
+  swap([state, stateSub], () => { L.set(state, ORDERS[o][1]); fg(state, "butter"); placeSub(); });
+  swap([pill], () => { L.set(pill, up ? "Accelerating" : "Decelerating"); bg(pill, "butter"); });
+  showButtons();
+  lightChambers(online(o));
+};
+const arrive = () => {
+  swap([state], () => fg(state, "orange"));
+  swap([pill], () => { L.set(pill, "Impulse Online"); bg(pill, "peach"); });
+  logLine(`${ORDERS[ord][1]} attained`, `${(ORDERS[ord][0] * 0.25).toFixed(4)} c`);
+};
+showButtons();
+
+// the log, as the watch found it
+[["Impulse engines brought on line", "Nominal", 1820], ["Departed Starbase 74 at one-quarter impulse", "18,737 km/s", 1610],
+ ["Exhaust director trimmed", "+0.40°  −0.30°", 1240], ["Conn orders half impulse", "37,474 km/s", 905],
+ ["Half impulse attained", "0.1250 c", 870], ["Deuterium injector 3 cycled", "Nominal", 330]]
+  .forEach(([txt, v, ago]) => logLine(txt, v, ago));
+const ROUTINE = [["Deuterium injector 2 cycled", "Nominal"], ["Magnetic constrictors balanced", "Nominal"], ["Driver coil 5 field verified", "Nominal"],
+  ["Plasma conduit pressure checked", "Nominal"], ["Fusion igniter test complete", "Passed"], ["Coolant loop 2 balanced", "Nominal"],
+  ["Cryopump 1 to standby, pump 2 running", "Swapped"], ["Generator output to EPS grid", "Nominal"]];
+let routineDeck = [], nextRoutine = 40;
+
+// ---------------- the clock ----------------
+let tPrev = null, fuelPh = 0, plasmaPh = 0, wavePh = 0, plumePh = 0, fPrev = f;
+L.tick((t) => {
+  const dt = tPrev === null ? 0 : Math.min(0.1, t - tPrev); tPrev = t;
+  if (t >= nextOrder && t - mvT0 > mvD) { order(t); nextOrder = t + mvD + L.rand(40, 65); }
+  // velocity eases to the order
+  const u = L.clamp((t - mvT0) / mvD);
+  if (mvT0 > 0 && u >= 1 && !arrived) { arrived = true; arrive(); }
+  if (u < 1) arrived = false;
+  f = L.mix(fA, fB, L.ease(u));
+  accel = dt > 0 ? (f - fPrev) / dt : 0; fPrev = f;          // fraction of full impulse per second
+  const aN = L.clamp(Math.abs(accel) * 18);
+  const up = L.clamp((t - 0.9) / 0.9);                       // the glows come up after the start-up cascade                  // how hard the engine is pushing
+  // the chambers share the demand
+  const n = chambers.filter((c) => c.on).length;
+  const demand = 0.22 + 0.7 * fB + 0.12 * aN;
+  chambers.forEach((c, i) => {
+    c.goal = c.on ? L.clamp(demand * 4 / n + 0.012 * Math.sin(t * 0.07 + c.seed), 0, 0.985) : 0.08;
+    c.load += (c.goal - c.load) * Math.min(1, dt * 0.35);
+    if (c.status === "Igniting" && t - c.ignT > 5) c.status = "Online";
+    if (c.status === "Throttling" && c.load < 0.12) c.status = "Standby";
+    op(c.core, up * L.clamp(0.12 + 0.88 * c.load + 0.04 * Math.sin(t * 1.1 + c.seed)));
+  });
+  const comb = chambers.reduce((a, c) => a + c.load, 0) / 4;
+  // flow in the pipes
+  fuelPh += dt * (14 + 90 * comb); plasmaPh += dt * (24 + 150 * comb);
+  for (const p of pipes) {
+    const off = ((p.kind === "fuel" ? fuelPh : plasmaPh) % p.P);
+    const v = p.dir === "right" ? `translate3d(${(off - p.P).toFixed(1)}px,0,0)` : p.dir === "down" ? `translate3d(0,${(off - p.P).toFixed(1)}px,0)`
+            : `translate3d(0,${(-off).toFixed(1)}px,0)`;
+    tf(p.s, v);
+  }
+  // the generator's plates light outward with output
+  plates.forEach((p) => op(p.e, up * L.clamp(comb * 4.2 - p.k * 0.9) * (0.85 + 0.15 * Math.sin(t * 1.3 + p.k))));
+  // the driver coil wave
+  wavePh += dt * (0.3 + 0.6 * f);
+  coils.forEach((c, i) => {
+    const w = 0.5 + 0.5 * Math.cos(2 * Math.PI * (wavePh - i / 8));
+    op(c, up * (0.18 + (0.25 + 0.55 * f) * w * w));
+  });
+  // the plume, and the vanes turned with the vector
+  const vu = L.ease(L.clamp((t - vecT0) / 7));
+  pitch = L.mix(pA, pB, vu); yaw = L.mix(yA, yB, vu);
+  if (t >= nextVec && vu >= 1) {
+    pA = pitch; yA = yaw; pB = L.rand(-1.5, 1.5); yB = L.rand(-1.5, 1.5); vecT0 = t; nextVec = t + L.rand(32, 48);
+    logLine("Exhaust director trimmed", `${sgn(pB)}°  ${sgn(yB)}°`);
+  }
+  vanes.forEach((v) => tf(v, `rotate(${(-pitch * 5).toFixed(2)}deg)`));
+  tf(plume, `rotate(${(-pitch * 4).toFixed(2)}deg)`);
+  plumePh += dt * (0.25 + 0.45 * f);
+  const inten = 0.2 + 0.8 * (0.15 + 0.85 * f);
+  chevrons.forEach((c, k) => {
+    const p = (plumePh + k / 3) % 1;
+    tf(c, `translate3d(${(p * 170).toFixed(1)}px,0,0)`);
+    op(c, up * Math.sin(Math.PI * p) * inten);
+  });
+  tf(dot, `translate3d(${(yaw / 2 * SR).toFixed(1)}px,${(-pitch / 2 * SR).toFixed(1)}px,0)`);
+  tf(cmdRing, `translate3d(${(yB / 2 * SR).toFixed(1)}px,${(-pB / 2 * SR).toFixed(1)}px,0)`);
+  // routine entries in the log, now and then
+  if (t >= nextRoutine) {
+    if (!routineDeck.length) routineDeck = ROUTINE.slice().sort(() => Math.random() - 0.5);
+    logLine(...routineDeck.pop()); nextRoutine = t + L.rand(45, 70);
+  }
+  model.comb = comb; model.aN = aN;
+});
+let arrived = true;
+const model = { comb: 0.5, aN: 0 };
+
+// readings, a few times a second
+L.every(250, (t) => {
+  const comb = model.comb, beta = 0.25 * f, gam = 1 / Math.sqrt(1 - beta * beta);
+  const flows = chambers.map((c) => (c.on || c.load > 0.12 ? 0.94 * c.load : 0.02));
+  const flow = flows.reduce((a, b) => a + b, 0);
+  // drive
+  showBar(drive[0], f); L.set(drive[0].v, `${fmt(f * FULL)} km/s`);
+  showBar(drive[1], f); L.set(drive[1].v, `${beta.toFixed(4)} c`);
+  const thrust = L.clamp(0.1 + 0.8 * fB + 0.1 * model.aN);
+  showBar(drive[2], thrust); L.set(drive[2].v, `${(thrust * 100).toFixed(1)}%`);
+  const acc = Math.abs(accel) * FULL;
+  showBar(drive[3], acc / 4000); L.set(drive[3].v, `${fmt(acc)} km/s²`);
+  showBar(drive[4], (gam - 1) / 0.0328); L.set(drive[4].v, gam.toFixed(4));
+  // stages
+  L.set(rFuel, `${flow.toFixed(2)} kg/s`);
+  L.set(rOut, `${(comb * 100).toFixed(1)}%`);
+  L.set(rLit, `${chambers.filter((c) => c.on).length} of 4`);
+  L.set(rGen, `${(2.14 * comb).toFixed(2)} TW`);
+  L.set(rField, `${(22 + 68 * f).toFixed(1)} mc`);
+  L.set(rCycle, `${(0.3 + 0.6 * f).toFixed(2)} Hz`);
+  L.set(rTemp, `${fmt(Math.round((3800 + 5200 * comb) / 10) * 10)} K`);
+  L.set(rVec, `${Math.hypot(pitch, yaw).toFixed(2)}°`);
+  // chambers
+  chambers.forEach((c, i) => {
+    const r = crows[i];
+    showBar(r, c.load);
+    L.set(r.out, `${(c.load * 100).toFixed(1)}%`);
+    L.set(r.temp, `${(58 + 112 * c.load).toFixed(1)} MK`);
+    L.set(r.fuel, `${flows[i].toFixed(2)} kg/s`);
+    if (r.st.textContent !== c.status) { L.set(r.st, c.status); bg(r.st, c.status === "Online" ? "orange" : c.status === "Standby" ? "tan" : "butter"); }
+  });
+  showBar(ctot, comb);
+  L.set(ctot.out, `${(comb * 100).toFixed(1)}%`);
+  L.set(ctot.temp, `${(58 + 112 * comb).toFixed(1)} MK`);
+  L.set(ctot.fuel, `${flow.toFixed(2)} kg/s`);
+  L.set(ctot.st, `${chambers.filter((c) => c.status === "Online").length} Online`); bg(ctot.st, "peach");
+  // vector
+  L.set(vPitch.v, `${sgn(pitch)}°`); L.set(vYaw.v, `${sgn(yaw)}°`);
+  L.set(vPitch.c, `Commanded  ${sgn(pB)}°`); L.set(vYaw.c, `Commanded  ${sgn(yB)}°`);
+  L.set(vNote, Math.hypot(pB - pitch, yB - yaw) > 0.02 ? "Director Slewing  ·  Dampers Active" : "Director Holding  ·  Locked to Helm");
+  // deuterium
+  level = Math.max(0, level - flow * 0.25 * 0.00002);
+  showBar(fuel[0], level / 100); L.set(fuel[0].v, `${level.toFixed(2)}%`);
+  showBar(fuel[1], flow / 4); L.set(fuel[1].v, `${flow.toFixed(2)} kg/s`);
+  const press = 380 + 60 * comb; showBar(fuel[2], press / 500); L.set(fuel[2].v, `${press.toFixed(0)} kPa`);
+  showBar(fuel[3], 0.62); L.set(fuel[3].v, "18.7 K");
+  const pump = 0.3 + 0.55 * comb; showBar(fuel[4], pump); L.set(fuel[4].v, `${(pump * 100).toFixed(1)}%`);
+  const hrs = (level / 100) * 9.2e5 / Math.max(0.1, flow) / 3600;
+  showBar(fuel[5], hrs / 240); L.set(fuel[5].v, `${Math.floor(hrs)} h ${D2(Math.floor((hrs % 1) * 60))} m`);
+}, 0);
+L.every(1000, (t) => {
+  const u = L.clamp((t - mvT0) / mvD);
+  L.set(stateSub, u < 1 ? `${fB > fA ? "Accelerating" : "Decelerating"} to ${fmt(fB * FULL)} km/s  ·  Main Impulse Engine  ·  Answering the Conn`
+                        : `Holding ${fmt(f * FULL)} km/s  ·  Main Impulse Engine  ·  Answering the Conn`);
+  // the tank: lit cells, the top one in part
+  const cells = (level / 100) * TK.n;
+  tankCells.forEach((c, k) => tf(c, `scaleY(${L.clamp(cells - k).toFixed(4)})`));
+}, 0);
+});
+</script></body></html>

@@ -1,0 +1,434 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Crew Locator</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* readings that are swapped fade out and back; colors change slowly; .boot (the start-up cascade) always wins */
+  .sw { transition: opacity .5s ease, color .9s ease; }
+  .out:not(.boot) { opacity: .2; }
+  .fade { transition: opacity .9s ease; }
+  .bar { transition: transform .25s linear; }
+  .cell { transition: fill 1.6s ease; }
+  .ring { border: 5px solid var(--orange); border-radius: 10px; }
+  .ring.from { border-color: var(--white); border-width: 4px; }
+  .sweep { background: linear-gradient(to bottom, rgba(92,157,255,0) 0%, rgba(92,157,255,.10) 60%, rgba(143,211,255,.34) 96%, #d8efff 96.5%); }
+  .dot { border-radius: 50%; background: var(--white); }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: wide, no sidebars — the search is the screen ----------------
+L.frame({ type: "D", title: "Crew Locator  •  Internal Sensors", c: "sky", c2: "orange", accent: "ice" });
+
+const LX = 40, LR = 1000, MX = 1064, MR = 2792, RX = 2856, RR = 3816;    // three columns, 64 apart
+const ROW0 = 428, PITCH = 88;
+const rowBase = (y0, i) => y0 + i * PITCH + 52.5;
+const TRACK = "#0e1a2e";
+const col = (c) => (c.startsWith("#") ? c : `var(--${c})`);
+const fill = (x, y, w, h, c, parent, origin = "0 0") => {
+  const f = L.layer({ x, y, w, h }, parent);
+  f.style.background = col(c); f.style.transformOrigin = origin;
+  return f;
+};
+const color = (e, c) => { const v = col(c); if (e._c !== v) { e._c = v; e.style.color = v; } };
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const op = (e, v) => { v = (+v).toFixed(3); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const sw = (e) => (e.classList.add("sw"), e);
+const pad = (n, k = 2) => String(n).padStart(k, "0");
+const hms = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+
+// ---------------- the ship's decks: which sections exist on each, and which part of the ship ----------------
+// (data only — nothing is drawn in the ship's shape; a deck is a row, a section a cell)
+// [first section, last section, part] per deck (sections counted from the bow, 0-based); part 0 saucer, 1 stardrive
+const HULL = [null,
+  [[9, 13, 0]], [[7, 15, 0]], [[5, 17, 0]], [[4, 18, 0]], [[3, 19, 0]], [[2, 20, 0]], [[1, 21, 0]],
+  [[0, 22, 0], [24, 28, 1]], [[0, 22, 0], [24, 28, 1]], [[0, 22, 0], [24, 28, 1]], [[1, 21, 0], [23, 28, 1]],
+  [[2, 20, 0], [22, 28, 1]], [[3, 19, 0], [21, 28, 1]], [[5, 18, 0], [20, 29, 1]], [[7, 17, 0], [19, 29, 1]],
+  [[9, 16, 0], [18, 30, 1]], [[15, 31, 1]], [[14, 32, 1]], [[13, 33, 1]], [[12, 34, 1]],
+  ...Array.from({ length: 16 }, () => [[11, 35, 1]]),
+  [[12, 35, 1]], [[13, 34, 1]], [[14, 33, 1]], [[16, 32, 1]], [[18, 30, 1]], [[21, 27, 1]]];
+const partAt = (d, s) => { for (const [a, b, p] of HULL[d]) if (s >= a && s <= b) return p; return -1; };
+
+// places: [name, deck, section (0-based), how the computer says it]
+const PLACES = {
+  bridge: ["Main Bridge", 1, 10, "on the Main Bridge"], ready: ["Ready Room", 1, 12, "in the Ready Room"],
+  obs: ["Observation Lounge", 1, 13, "in the Observation Lounge"], carto: ["Stellar Cartography", 4, 14, "in Stellar Cartography"],
+  lab2: ["Science Lab 2", 5, 6, "in Science Lab 2"], tr3: ["Transporter Room 3", 6, 15, "in Transporter Room 3"],
+  counsel: ["Counselor's Office", 8, 8, "in the Counselor's Office"], secoff: ["Security Office", 8, 25, "in the Security Office"],
+  battle: ["Battle Bridge", 8, 27, "on the Battle Bridge"], capq: ["Captain's Quarters", 9, 6, "in the Captain's Quarters"],
+  dataq: ["Data's Quarters", 9, 17, "in his quarters"], ten: ["Ten Forward", 10, 0, "in Ten Forward"],
+  barber: ["Barber Shop", 10, 4, "in the Barber Shop"], holo3: ["Holodeck 3", 11, 14, "in Holodeck 3"],
+  arbor: ["Arboretum", 11, 4, "in the Arboretum"], sickbay: ["Sickbay", 12, 9, "in Sickbay"],
+  gym: ["Gymnasium", 12, 16, "in the Gymnasium"], shuttle: ["Shuttlebay 2", 13, 26, "in Shuttlebay 2"],
+  quarters: ["Crew Quarters", 15, 10, "in Crew Quarters"], school: ["Schoolrooms", 18, 18, "in the Schoolrooms"],
+  core: ["Computer Core", 21, 17, "in the Computer Core"], cargo: ["Cargo Bay 4", 22, 28, "in Cargo Bay 4"],
+  hydro: ["Hydroponics", 24, 20, "in Hydroponics"], torpedo: ["Torpedo Bay", 25, 12, "in the Torpedo Bay"],
+  deflect: ["Deflector Control", 30, 12, "in Deflector Control"], fab: ["Fabrication Shop", 34, 26, "in the Fabrication Shop"],
+  eng: ["Main Engineering", 36, 22, "in Main Engineering"], cheng: ["Chief Engineer's Office", 36, 24, "in the Chief Engineer's Office"],
+};
+for (const k in PLACES) if (partAt(PLACES[k][1], PLACES[k][2]) < 0) console.error("place off the hull", k);
+
+// the crew: [spoken, short, post, bio-sign, places]
+const CREW = [
+  ["Captain Picard", "Capt. Picard", "Commanding Officer", "Human", ["ready", "bridge", "capq", "obs"]],
+  ["Commander Riker", "Cmdr. Riker", "First Officer", "Human", ["bridge", "ten", "holo3", "obs"]],
+  ["Commander Data", "Lt. Cmdr. Data", "Second Officer", "Android", ["bridge", "lab2", "dataq", "core"]],
+  ["Commander La Forge", "Lt. Cmdr. La Forge", "Chief Engineer", "Human", ["eng", "cheng", "deflect"]],
+  ["Lieutenant Worf", "Lt. Worf", "Chief of Security", "Klingon", ["secoff", "bridge", "holo3", "torpedo"]],
+  ["Doctor Crusher", "Dr. Crusher", "Chief Medical Officer", "Human", ["sickbay", "lab2", "ten"]],
+  ["Counselor Troi", "Counselor Troi", "Ship's Counselor", "Betazoid", ["counsel", "ten", "bridge"]],
+  ["Lieutenant Barclay", "Lt. Barclay", "Engineering", "Human", ["holo3", "eng", "fab"]],
+  ["Chief O'Brien", "Chief O'Brien", "Transporter Chief", "Human", ["tr3", "shuttle", "ten"]],
+  ["Ensign Ro", "Ens. Ro", "Flight Control", "Bajoran", ["bridge", "ten", "quarters"]],
+  ["Commander Daren", "Lt. Cmdr. Daren", "Stellar Sciences", "Human", ["carto", "lab2"]],
+  ["Ensign Sito", "Ens. Sito", "Security", "Bajoran", ["secoff", "gym", "battle"]],
+  ["Ensign Lavelle", "Ens. Lavelle", "Flight Control", "Human", ["ten", "bridge", "quarters"]],
+  ["Ensign Taurik", "Ens. Taurik", "Engineering", "Vulcan", ["eng", "fab", "core"]],
+  ["Ensign Gomez", "Ens. Gomez", "Engineering", "Human", ["eng", "shuttle", "cargo"]],
+  ["Doctor Selar", "Dr. Selar", "Medical", "Vulcan", ["sickbay", "lab2"]],
+  ["Nurse Ogawa", "Nurse Ogawa", "Medical", "Human", ["sickbay", "hydro"]],
+  ["Keiko O'Brien", "Keiko O'Brien", "Botany", "Human", ["arbor", "hydro", "school"]],
+  ["Guinan", "Guinan", "Ten Forward", "El-Aurian", ["ten", "arbor"]],
+  ["Mr. Mot", "Mot", "Barber", "Bolian", ["barber", "ten"]],
+  ["Ben", "Ben", "Ten Forward", "Human", ["ten", "quarters"]],
+].map(([spoken, short, post, bio, places], i) => ({ i, spoken, short, post, bio, places, at: places[0], badge: "" }));
+{ const used = new Set(); for (const p of CREW) { let b; do b = L.irand(1020, 9890); while (used.has(b)); used.add(b); p.badge = String(b); } }
+CREW.forEach((p) => (p.at = L.pick(p.places)));
+const ASKERS = [0, 1, 2, 3, 4, 5, 6, 8];                   // the people who usually ask
+const D2 = (n) => pad(n);
+const secOf = (s) => pad(s + 1);
+
+// ---------------- status line ----------------
+const stateTxt = L.text({ x: LX, cap: 150, s: 100, c: "ice", txt: "" });
+const stateSub = sw(L.text({ x: MX, base: 222, s: 38, c: "orange", txt: "" }));    // the query, then the reply
+L.box({ x: RR - 400, y: 150, w: 400, h: 72, c: "orange", label: "Badge Network Online", r: "lr", fs: 36 });
+
+// ---------------- the query (top left) ----------------
+L.header({ x: LX, y: 280, w: LR - LX, label: "Locate Query", c1: "sky", c2: "ice" });
+L.text({ x: LX, base: 400, s: 36, c: "ice", txt: "Voice" });
+const qNo = L.text({ x: LR, base: 400, s: 36, c: "ice", txt: "", align: "r" });
+const QT = ["Requested By", "From", "Subject", "Comm Badge", "Position Fix", "Bio-Sign", "Search Time", "Status"].map((label, i) => {
+  const base = rowBase(ROW0, i);
+  L.box({ x: LX, y: ROW0 + i * PITCH, w: 220, h: 64, c: ["sky", "ice", "orange"][i % 3], label, fs: 32, r: "l" });
+  return { v: sw(L.text({ x: LX + 244, base, s: 52, c: "white", txt: "" })), c: sw(L.text({ x: LR, base, s: 36, c: "sky", txt: "", align: "r" })) };
+});
+const setQ = (i, v, c, vc = "white") => { L.set(QT[i].v, v); L.set(QT[i].c, c); color(QT[i].v, vc); };
+
+// ---------------- the sensor fix (middle left): three nodes nearest the badge ----------------
+const FH = 1180;
+L.header({ x: LX, y: FH, w: LR - LX, label: "Sensor Fix", c1: "orange", c2: "sky" });
+L.text({ x: LX, base: FH + 120, s: 36, c: "ice", txt: "Node" });
+L.text({ x: LX + 244, base: FH + 120, s: 36, c: "ice", txt: "Badge Carrier" });
+L.text({ x: LR, base: FH + 120, s: 36, c: "ice", txt: "Signal", align: "r" });
+const NB0 = LX + 244, NBW = LR - 150 - NB0;
+const NODES = [0, 1, 2].map((i) => {
+  const y = FH + 148 + i * PITCH, base = rowBase(FH + 148, i), c = ["sky", "ice", "orange"][i];
+  const box = L.box({ x: LX, y, w: 220, h: 64, c, label: "Node", fs: 32, r: "l" });
+  L.rect({ x: NB0, y: base - 26, w: NBW, h: 26, c: TRACK });
+  const f = fill(NB0, base - 26, NBW, 26, c); f.classList.add("bar"); f.style.transform = "scaleX(0)";
+  return { box, f, v: L.text({ x: LR, base, s: 52, c: "white", txt: "", align: "r" }), to: 0, shown: -1 };
+});
+
+// ---------------- recent requests (bottom left) ----------------
+L.header({ x: LX, y: 1620, w: LR - LX, label: "Recent Requests", c1: "sky", c2: "orange", h: 48 });
+const RQ = { by: LX + 180, sub: LX + 520 };
+[["Time", LX], ["Requested By", RQ.by], ["Subject", RQ.sub], ["Deck", LR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: 1734, s: 36, c: "ice", txt, align }));
+const logRows = Array.from({ length: 4 }, (_, i) => {
+  const base = 1788 + i * 54;
+  return { tm: L.text({ x: LX, base, s: 36, c: "sky", txt: "" }), by: L.text({ x: RQ.by, base, s: 36, c: "ice", txt: "" }),
+    sub: L.text({ x: RQ.sub, base, s: 36, c: "ice", txt: "" }), d: L.text({ x: LR, base, s: 36, c: "ice", txt: "", align: "r" }) };
+});
+const logged = [];
+const log = (tm, by, sub, deck) => {
+  logged.push([tm, by, sub, deck]); if (logged.length > 4) logged.shift();
+  logRows.forEach((r, i) => {
+    const e = logged[i] || ["", "", "", ""], last = i === logged.length - 1;
+    L.set(r.tm, e[0]); L.set(r.by, e[1]); L.set(r.sub, e[2]); L.set(r.d, e[3] ? D2(e[3]) : "");
+    color(r.sub, last ? "white" : "ice"); color(r.d, last ? "orange" : "ice");
+  });
+};
+
+// ---------------- the search (centre): which deck → which section → where in it ----------------
+// Left of the centre, every deck as a row, its bar the crew aboard it: the sweep runs down them and the
+// deck that answers lights. Right, that deck's sections fore to aft, and below them the sensor fix:
+// the three nodes' ranges closing on the badge in its section.
+const NS = 36, ND = 42;
+const DX = MX, DR = 1600, SX = 1664, SR = MR;                  // ladder · sections, 64 apart
+L.header({ x: DX, y: 280, w: SR - DX, label: "Internal Sensor Sweep  ·  42 Decks", c1: "orange", c2: "sky" });
+
+// the ladder: 42 rows
+const LY0 = 432, LP = 36, LH = 28, BX = DX + 72, BW = DR - BX;
+const ly = (d) => LY0 + (d - 1) * LP;
+L.text({ x: DX, base: 400, s: 36, c: "ice", txt: "Deck" });
+L.text({ x: DR, base: 400, s: 36, c: "ice", txt: "Crew Aboard", align: "r" });
+const crowd = Array.from({ length: ND + 1 }, (_, d) => d ? L.irand(8, 30) : 0);       // badges with no name on this screen
+for (const k in PLACES) crowd[PLACES[k][1]] += L.irand(4, 12);                          // decks with somewhere to be are busier
+const CMAX = Math.max(...crowd) + 6;
+const DECKS = [0];
+for (let d = 1; d <= ND; d++) {
+  const y = ly(d);
+  const lab = sw(L.text({ x: DX, base: y + LH - 3, s: 30, c: d % 5 ? "slate" : "sky", txt: D2(d), legend: true }));
+  L.rect({ x: BX, y, w: BW, h: LH, c: TRACK });
+  const f = fill(BX, y, BW, LH, "blue");
+  f.classList.add("bar", "cell");
+  DECKS.push({ lab, f, c: d % 5 ? "slate" : "sky", n: crowd[d], shown: -1 });
+}
+const showDeck = (d) => { const k = DECKS[d]; const v = (k.n / CMAX).toFixed(3); if (k.shown !== v) { k.shown = v; k.f.style.transform = `scaleX(${v})`; } };
+for (let d = 1; d <= ND; d++) showDeck(d);
+// people come and go between decks: a bar drifts a little now and then
+L.every(2200, () => { const d = L.irand(1, ND); DECKS[d].n = L.clamp(DECKS[d].n + L.pick([-1, 1]) * L.irand(1, 3), 4, CMAX - 2); showDeck(d); }, 0.4);
+const ladderClip = L.layer({ x: BX, y: LY0, w: BW, h: ly(ND) + LH - LY0 }); ladderClip.style.overflow = "hidden";
+const SWH = 132;
+const sweep = L.layer({ x: 0, y: 0, w: BW, h: SWH, cls: "sweep" }, ladderClip); sweep.style.opacity = 0;
+const deckRing = L.layer({ x: 0, y: 0, w: BW + 20, h: LH + 18, cls: "ring fade" }); deckRing.style.opacity = 0;
+const fromDeck = L.layer({ x: 0, y: 0, w: BW + 12, h: LH + 10, cls: "ring from fade" }); fromDeck.style.opacity = 0;
+
+// the found deck's sections, fore to aft
+const SY = 432, SH = 96, SG = 4, SW = (SR - SX - (NS - 1) * SG) / NS;
+const sxAt = (s) => SX + s * (SW + SG);
+const deckName = sw(L.text({ x: SX, base: 400, s: 36, c: "orange", txt: "" }));
+L.text({ x: SR, base: 400, s: 36, c: "ice", txt: "Sections  ·  Fore to Aft", align: "r" });
+const SECS = Array.from({ length: NS }, (_, i) => {
+  const e = L.svg("rect", { x: sxAt(i), y: SY, width: SW, height: SH, class: "cell" });
+  e.style.fill = TRACK;
+  return e;
+});
+// (align "c": x is the centre)
+for (const i of [0, 4, 9, 14, 19, 24, 29, 35]) L.text({ x: sxAt(i) + SW / 2, base: SY + SH + 52, s: 30, c: "sky", txt: secOf(i), align: "c", w: 80, legend: true });
+const secRing = L.layer({ x: 0, y: 0, w: SW + 20, h: SH + 20, cls: "ring fade" }); secRing.style.opacity = 0;
+const fromSec = L.layer({ x: 0, y: 0, w: SW + 12, h: SH + 12, cls: "ring from fade" }); fromSec.style.opacity = 0;
+const secTone = (d, s, sub, from) => {                         // sections the deck has, the one found, the requester's
+  SECS.forEach((e, i) => { const c = partAt(d, i) < 0 ? TRACK : i === s ? "var(--orange)" : "#2a5fbb"; if (e._c !== c) { e._c = c; e.style.fill = c; } });
+};
+
+// the sensor fix: five sections round the badge, three nodes, their ranges closing in
+const FX = SX, FY = 640, FW = SR - SX, FHH = 760;
+L.rect({ x: FX, y: FY, w: FW, h: FHH, c: "#081022", panel: true });
+const BK = 5, BG = 16, BIX = FX + 32, BIW = (FW - 64 - (BK - 1) * BG) / BK, BY = FY + 96, BH = 440;
+L.text({ x: BIX, base: FY + 66, s: 36, c: "ice", txt: "Section" });
+const fixBlocks = Array.from({ length: BK }, (_, i) => {
+  const x = BIX + i * (BIW + BG);
+  const e = L.svg("rect", { x, y: BY, width: BIW, height: BH, class: "cell" });
+  e.style.fill = "#0e1a2e";
+  const lab = sw(L.text({ x: x + BIW / 2, base: BY + BH + 64, s: 52, c: "sky", txt: "", align: "c", w: BIW }));
+  return { e, x, lab };
+});
+const fixLayer = L.layer({ x: BIX, y: BY, w: FW - 64, h: BH }); fixLayer.style.overflow = "hidden";
+const fsvg = L.svg("svg", { width: FW - 64, height: BH, viewBox: `0 0 ${FW - 64} ${BH}` }, fixLayer);
+const NODE_C = ["sky", "ice", "orange"];
+const rings = NODE_C.map((c) => L.svg("circle", { cx: 0, cy: 0, r: 0, fill: "none", stroke: `var(--${c})`, "stroke-width": 4, opacity: 0 }, fsvg));
+const nodeDots = NODE_C.map((c) => L.svg("rect", { x: 0, y: 0, width: 22, height: 22, fill: `var(--${c})`, opacity: 0 }, fsvg));
+const badge = L.layer({ x: 0, y: 0, w: 26, h: 26, cls: "dot" }, fixLayer); badge.style.opacity = 0;
+const fixPlace = sw(L.text({ x: BIX, base: FY + FHH - 40, s: 52, c: "white", txt: "" }));
+const fixErr = sw(L.text({ x: FX + FW - 32, base: FY + FHH - 40, s: 52, c: "orange", txt: "", align: "r" }));
+let fix = null;                                               // where the badge and nodes sit, for this query
+const placeFix = (d, s) => {
+  const s0 = L.clamp(s - 2, 0, NS - BK);
+  fixBlocks.forEach((b, i) => { const k = s0 + i; L.set(b.lab, secOf(k)); color(b.lab, k === s ? "orange" : "sky");
+    const c = partAt(d, k) < 0 ? "#070d1c" : k === s ? "#3a2a12" : "#0e1a2e"; if (b.e._c !== c) { b.e._c = c; b.e.style.fill = c; } });
+  const bi = s - s0, bx = bi * (BIW + BG) + L.rand(0.3, 0.7) * BIW, by = L.rand(0.3, 0.7) * BH;
+  const W = FW - 64;
+  const nodes = [[L.rand(0.04, 0.2) * W, L.rand(0.08, 0.3) * BH], [L.rand(0.8, 0.96) * W, L.rand(0.1, 0.35) * BH], [L.rand(0.3, 0.7) * W, L.rand(0.85, 0.95) * BH]];
+  fix = { bx, by, nodes, r: nodes.map(([x, y]) => Math.hypot(x - bx, y - by)) };
+  nodes.forEach(([x, y], i) => { nodeDots[i].setAttribute("x", (x - 11).toFixed(1)); nodeDots[i].setAttribute("y", (y - 11).toFixed(1));
+    rings[i].setAttribute("cx", x.toFixed(1)); rings[i].setAttribute("cy", y.toFixed(1)); });
+  L.move(badge, bx - 13, by - 13);
+};
+const fixShow = (on) => { nodeDots.forEach((e) => e.setAttribute("opacity", on ? 1 : 0)); };
+// when a result clears, nothing stays lit: the strip and the fix keep the deck's shape, in plain blue
+let shownDeck = 1;
+const unlight = () => {
+  secTone(shownDeck, -1);
+  fixBlocks.forEach((b) => { if (b.e._c === "#3a2a12") { b.e._c = "#0e1a2e"; b.e.style.fill = "#0e1a2e"; } color(b.lab, "sky"); });
+};
+
+// the result card
+const CARD = { x: SX, y: 1464, w: SR - SX, h: 472 };
+L.rect({ ...CARD, c: "#081022", panel: true });
+const KX = CARD.x + 32, KR = CARD.x + CARD.w - 32, KN = KR - 330;
+L.box({ x: CARD.x, y: CARD.y, w: CARD.w, h: 48, c: "orange", label: "Located", fs: 30 });
+const kName = sw(L.text({ x: KX, base: CARD.y + 128, s: 52, c: "white", txt: "" }));
+const kPost = sw(L.text({ x: KX, base: CARD.y + 182, s: 36, c: "sky", txt: "" }));
+const kPlace = sw(L.text({ x: KX, base: CARD.y + 290, s: 52, c: "white", txt: "" }));
+const kPart = sw(L.text({ x: KX, base: CARD.y + 344, s: 36, c: "sky", txt: "" }));
+const kBio = sw(L.text({ x: KX, base: CARD.y + 398, s: 36, c: "sky", txt: "" }));
+const kDeck = sw(L.text({ x: KN - 60, base: CARD.y + 330, s: 200, c: "orange", txt: "", align: "r" }));
+const kSec = sw(L.text({ x: KR, base: CARD.y + 330, s: 200, c: "orange", txt: "", align: "r" }));
+L.text({ x: KN - 60, base: CARD.y + 400, s: 40, c: "ice", txt: "Deck", align: "r" });
+L.text({ x: KR, base: CARD.y + 400, s: 40, c: "ice", txt: "Section", align: "r" });
+
+// ---------------- comm badge registry (right) ----------------
+L.header({ x: RX, y: 280, w: RR - RX, label: "Comm Badge Registry", c1: "ice", c2: "orange" });
+const RG = { name: RX + 124, place: RX + 470, deck: RR - 130 };
+[["Badge", RX], ["Crew", RG.name], ["Location", RG.place], ["Deck", RG.deck, "r"], ["Sec", RR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: 400, s: 36, c: "ice", txt, align }));
+const regBand = fill(RX - 16, 0, RR - RX + 32, 48, "orange"); regBand.style.opacity = 0; regBand.classList.add("fade");
+const REG = CREW.map((p, i) => {
+  const base = 460 + i * 54;
+  return { base, badge: L.text({ x: RX, base, s: 36, c: "sky", txt: p.badge }), name: sw(L.text({ x: RG.name, base, s: 36, c: "white", txt: p.short })),
+    place: sw(L.text({ x: RG.place, base, s: 36, c: "ice", txt: "" })), deck: sw(L.text({ x: RG.deck, base, s: 36, c: "white", txt: "", align: "r" })),
+    sec: sw(L.text({ x: RR, base, s: 36, c: "white", txt: "", align: "r" })) };
+});
+const showReg = (p) => { const r = REG[p.i], [name, d, s] = PLACES[p.at]; L.set(r.place, name); L.set(r.deck, D2(d)); L.set(r.sec, secOf(s)); };
+CREW.forEach(showReg);
+
+// ---------------- internal sensors (bottom right) ----------------
+L.header({ x: RX, y: 1620, w: RR - RX, label: "Internal Sensors", c1: "orange", c2: "ice", h: 48 });
+const SC = [[RX, RX + 432], [RX + 528, RR]];
+const reading = (k, r, label, c = "sky") => {
+  const base = 1734 + r * 108;
+  L.text({ x: SC[k][0], base, s: 40, c, txt: label });
+  return L.text({ x: SC[k][1], base, s: 52, c: "white", txt: "", align: "r" });
+};
+const sAboard = reading(0, 0, "Life Signs"), sBadges = reading(1, 0, "Badges Active", "ice");
+const sNodes = reading(0, 1, "Sensor Nodes", "ice"), sSweep = reading(1, 1, "Sweep Cycle");
+const sToday = reading(0, 2, "Requests Today"), sMean = reading(1, 2, "Mean Reply", "ice");
+L.set(sAboard, "1,014"); L.set(sBadges, "1,002"); L.set(sNodes, "4,620"); L.set(sSweep, "1.5 s");
+
+// ---------------- the query cycle ----------------
+// listen 0.4–2.6 s → locate (sweep) 2.8–5.8 → located, held → clear 20 → next at 22
+const LISTEN = 0.4, LOCATE = 2.8, SWEEP = 3.0, FOUND = LOCATE + SWEEP + 0.2, CLEAR = 20, CYCLE = 22, CROSS = 1.6;
+let c0 = -1e9, Q = null, qn = L.irand(4400, 4700), today = L.irand(180, 240), replies = [];
+const say = (q) => q.words.slice(0, q.said).join(" ");
+const card = [kName, kPost, kDeck, kSec, kPlace, kPart, kBio, deckName, fixPlace, fixErr, ...fixBlocks.map((b) => b.lab)];
+const dyn = [...QT.flatMap((r) => [r.v, r.c]), ...card, stateSub];
+let lastSub = -1;
+const begin = (t) => {
+  let sub, by;
+  do sub = L.pick(CREW); while (sub.i === lastSub);
+  do by = CREW[L.pick(ASKERS)]; while (by === sub);
+  lastSub = sub.i;
+  if (Math.random() < 0.5) sub.at = L.pick(sub.places);            // people move about between queries
+  showReg(sub);
+  const ask = Math.random() < 0.7 ? `Computer, locate ${sub.spoken}.` : `Computer, where is ${sub.spoken}?`;
+  Q = { sub, by, words: ask.split(" "), said: 0, ms: L.rand(0.6, 1.1), stage: 0, nodes: null };
+  c0 = t; qn++;
+  dyn.forEach((e) => { if (!card.includes(e)) e.classList.remove("out"); });   // the card keeps the last result, dimmed, until the next
+  L.set(qNo, `Query ${qn}`);
+  const [fp, fd, fs] = PLACES[by.at];
+  setQ(0, by.short, by.post); setQ(1, fp, `Deck ${D2(fd)}  ·  Section ${secOf(fs)}`);
+  setQ(2, sub.short, sub.post);
+  for (let i = 3; i < 7; i++) setQ(i, "Awaiting", "", "slate");
+  setQ(7, "Listening", "Voice Pattern", "white");
+  L.set(stateSub, "");
+  NODES.forEach((n) => (n.to = 0));
+  // the requester's deck, outlined from the start
+  L.move(fromDeck, BX - 6, ly(fd) - 5); fromDeck.style.opacity = 0.9;
+  REG.forEach((r) => color(r.name, "white"));
+};
+const fillCard = (p) => {
+  const [name, d, s] = PLACES[p.at];
+  L.set(kName, p.short); L.set(kPost, p.post); L.set(kDeck, D2(d)); L.set(kSec, secOf(s));
+  L.set(kPlace, name); L.set(kPart, `${partAt(d, s) ? "Stardrive" : "Saucer"} Section  ·  ${s < 12 ? "Forward" : s < 24 ? "Midships" : "Aft"}`);
+  L.set(kBio, p.bio === "Android" ? "Positronic Signature" : `${p.bio} Life Sign`);
+  L.set(deckName, `Deck ${D2(d)}`);
+  shownDeck = d; secTone(d, s);
+  placeFix(d, s);
+  L.set(fixPlace, name);
+};
+const located = (t) => {
+  const p = Q.sub, [name, d, s, phrase] = PLACES[p.at];
+  L.set(stateSub, `${p.spoken} is ${phrase}  ·  Deck ${d}, Section ${s + 1}`);
+  card.forEach((e) => e.classList.remove("out"));
+  fillCard(p);
+  fixShow(true);
+  setQ(5, p.bio, p.bio === "Android" ? "No Life Sign  ·  Expected" : "Confirmed");
+  setQ(6, `${Q.ms.toFixed(2)} s`, "42 Decks Swept");
+  setQ(7, "Located", `Deck ${D2(d)}  ·  Section ${secOf(s)}`, "orange");
+  replies.push(Q.ms); if (replies.length > 20) replies.shift();
+  today++;
+  L.set(sToday, String(today)); L.set(sMean, `${(replies.reduce((a, b) => a + b, 0) / replies.length).toFixed(2)} s`);
+  log(hms(new Date()), Q.by.short, p.short, d);
+  // the deck lights, the section lights; the requester's section is outlined if it is on the same deck
+  const k = DECKS[d]; k.f.style.background = "var(--orange)"; color(k.lab, "orange");
+  L.move(deckRing, BX - 10, ly(d) - 9); deckRing.style.opacity = 1;
+  L.move(secRing, sxAt(s) - 10, SY - 10); secRing.style.opacity = 1;
+  const [, fd, fs] = PLACES[Q.by.at];
+  if (fd === d && fs !== s) { L.move(fromSec, sxAt(fs) - 6, SY - 6); fromSec.style.opacity = 0.9; }
+  L.move(regBand, 0, REG[p.i].base - 39); regBand.style.opacity = 0.22;
+  color(REG[p.i].name, "orange");
+};
+const clear = () => {
+  dyn.forEach((e) => e.classList.add("out"));
+  const [, d] = PLACES[Q.sub.at], k = DECKS[d];
+  k.f.style.background = col("blue"); color(k.lab, k.c);
+  [deckRing, secRing, fromSec, fromDeck, regBand].forEach((e) => (e.style.opacity = 0));
+  rings.forEach((e) => { e.setAttribute("opacity", 0); e._a = -1; }); fixShow(false); badge.style.opacity = 0; unlight();
+  NODES.forEach((n) => (n.to = 0));
+  color(REG[Q.sub.i].name, "white");
+};
+
+L.tick((t) => {
+  if (t - c0 >= CYCLE) begin(t);
+  const u = t - c0, q = Q;
+  // the sweep: a band down all 42 decks while the badge is sought
+  const k = (u - LOCATE) / SWEEP, LHT = ly(ND) + LH - LY0;
+  op(sweep, k <= 0 || k >= 1 ? 0 : Math.min(1, k * 8, (1 - k) * 8));
+  if (k > 0 && k < 1) tf(sweep, `translate3d(0,${(-SWH + k * (LHT + SWH)).toFixed(1)}px,0)`);
+  if (u >= FOUND && q.stage === 1) { q.stage = 2; located(t); }
+  if (u >= CLEAR && q.stage === 2) { q.stage = 3; clear(); }
+  // the three ranges close on the badge, one after another, then hold; the badge appears where they meet
+  if (fix && q.stage === 2) {
+    rings.forEach((e, i) => {
+      const a = L.ease(L.clamp((u - FOUND - 0.25 * i) / CROSS));
+      if (e._a === a) return; e._a = a;
+      e.setAttribute("r", (fix.r[i] * (1 + 1.6 * (1 - a))).toFixed(1));
+      e.setAttribute("opacity", (0.35 + 0.55 * a).toFixed(3));
+    });
+    const b = L.clamp((u - FOUND - CROSS - 0.5) / 0.6);
+    op(badge, b < 1 ? b : 0.8 + 0.2 * Math.cos((u - FOUND) * 1.6));
+  }
+});
+
+// readings, a few times a second
+L.every(250, (t) => {
+  const q = Q; if (!q) return;
+  const u = t - c0, [, d] = PLACES[q.sub.at];
+  // the words of the query, as heard
+  const said = u < LISTEN ? 0 : Math.min(q.words.length, 1 + Math.floor((u - LISTEN) / 0.32));
+  if (said !== q.said && u < FOUND) { q.said = said; L.set(stateSub, `“${say(q)}${said === q.words.length ? "”" : ""}`); }
+  L.set(stateTxt, u < LOCATE ? "Listening" : u < FOUND ? "Locating" : "Located");
+  if (u >= LOCATE && q.stage === 0) {
+    q.stage = 1;
+    setQ(3, q.sub.badge, "Carrier Acquired"); setQ(4, "Triangulating", "3 Sensor Nodes", "white"); setQ(7, "Locating", "Internal Sensors", "white");
+    // the three nodes nearest the badge: its own deck, and the decks either side
+    const dn = d === 1 ? [1, 1, 2] : d === ND ? [ND, ND, ND - 1] : [d, d - 1, d + 1];
+    const tag = ["A", "B", "A"];
+    q.nodes = dn.map((x, i) => [`Node ${D2(x)}-${i === 1 && d === 1 ? "B" : tag[i]}`, Math.round(L.rand(...[[95, 99], [86, 93], [80, 88]][i]))]);
+    NODES.forEach((n, i) => { L.set(n.box, q.nodes[i][0]); n.to = q.nodes[i][1]; n.t0 = u; });
+  }
+  if (u >= FOUND && q.stage >= 2) { const e = `± ${(0.2 + q.nodes[2][1] % 3 * 0.1).toFixed(1)} m`; setQ(4, e, "3 Sensor Nodes"); L.set(fixErr, e); }
+  // node bars rise as the fix settles, and drain as the query clears; the number is the bar
+  NODES.forEach((n, i) => {
+    let v = 0;
+    if (q.nodes && u >= LOCATE && u < CLEAR) v = n.to * L.ease(L.clamp((u - LOCATE - 0.3 * i) / 2.4));
+    else if (q.nodes && u >= CLEAR) v = n.to * (1 - L.ease(L.clamp((u - CLEAR) / 1.2)));
+    v = Math.round(v);
+    if (v !== n.shown) { n.shown = v; n.f.style.transform = `scaleX(${(v / 100).toFixed(3)})`; L.set(n.v, v ? `${v}%` : "—"); }
+  });
+}, 0);
+
+// between queries, people go about their day: one crew member moves now and then
+L.every(9000, (t) => {
+  if (!Q) return;
+  const p = L.pick(CREW);
+  if (p === Q.sub || p === Q.by || p.places.length < 2) return;
+  let to; do to = L.pick(p.places); while (to === p.at);
+  p.at = to; showReg(p);
+}, 0.4);
+
+// what the log held before the screen came up: times in order, oldest first
+{
+  const now = Date.now();
+  [205, 151, 98, 46].forEach((ago) => {
+    let sub; do sub = L.pick(CREW); while (sub.i === lastSub);
+    const by = CREW[L.pick(ASKERS.filter((i) => i !== sub.i))];
+    replies.push(L.rand(0.6, 1.1));
+    log(hms(new Date(now - ago * 1000)), by.short, sub.short, PLACES[sub.at][1]);
+    fillCard(sub); lastSub = sub.i;                      // the card and the fix open on the last answer, dimmed
+  });
+  card.forEach((e) => e.classList.add("out")); unlight();
+  L.set(sToday, String(today)); L.set(sMean, `${(replies.reduce((a, b) => a + b, 0) / replies.length).toFixed(2)} s`);
+}
+});
+</script></body></html>

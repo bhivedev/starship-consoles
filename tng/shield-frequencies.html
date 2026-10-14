@@ -1,0 +1,460 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Shield Frequencies</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .clip { position: absolute; overflow: hidden; }
+  .blk { left: 0; top: 0; height: 64px; display: flex; align-items: flex-end; justify-content: flex-end;
+         color: #000; font-size: 32px; line-height: 1; padding: 0 16px 7px 0; white-space: nowrap;
+         transition: background-color .6s ease; }
+  .sw { transition: background-color .6s ease, color .6s ease; }
+  .fd { transition: opacity .4s ease; }
+  .fd.out { opacity: .3; }   /* a row dips while it changes, never goes empty */
+  .hb { transform-origin: 50% 100%; transition: transform 1.6s cubic-bezier(.45, 0, .55, 1); }
+  .lk { transition: opacity 1.2s ease; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: wide, no sidebars ----------------
+L.frame({ type: "D", title: "Shield Frequencies  •  Modulation", c: "sky", c2: "lilac", accent: "ice" });
+
+const X0 = 40, X1 = 3816;
+const TRACK = "#0e1638", PANEL = "#0a0c26", GRID = "#1d2258";
+const col = (c) => (c.startsWith("#") ? c : `var(--${c})`);
+const pad = (n) => String(n).padStart(2, "0");
+const fmt = (n) => Math.round(n).toLocaleString("en");
+const widest = (items, s) => Math.ceil(Math.max(...items.map((t) => L.textWidth(t, s))));
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const op = (e, v) => { v = v.toFixed(3); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const bg = (e, c) => { if (e._bg !== c) { e._bg = c; e.style.background = col(c); } };
+const fg = (e, c) => { if (e._fg !== c) { e._fg = c; e.style.color = col(c); } };
+const fill = (x, y, w, h, c, origin = "0 0", parent) => {
+  const f = L.layer({ x, y, w, h }, parent);
+  f.style.background = col(c); f.style.transformOrigin = origin;
+  return f;
+};
+const clockAt = (dt = 0) => {                              // the Mac's own clock, dt seconds from now
+  const d = new Date(Date.now() + dt * 1000);
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+};
+
+// ---------------- the shield grids and their frequencies ----------------
+const GRIDS = ["Forward", "Aft", "Port", "Starboard", "Dorsal", "Ventral"];
+const GC = ["sky", "lilac", "sky", "lilac", "sky", "lilac"];
+const F0 = 100, F1 = 500;                                  // the rotation band, MHz
+const BANDS = [[100, "ice"], [200, "sky"], [300, "lilac"], [400, "plum"]];
+const bandOf = (f) => BANDS[Math.min(3, Math.floor((f - F0) / 100))][1];
+const IMIN = 4, IMAX = 9, HOLD = 180, REACT = 0.8;         // interval range, lockout hold, seconds to rotate away once adapted
+const P_ADAPT = 0.02;                                      // a slot the Borg model adapts to before it rotates away
+const lockouts = [];                                       // {f, t0, t1, el, grid, ta}
+const locked = (f, t) => lockouts.some((k) => k.t1 > t && Math.abs(k.f - f) < 6);
+const pickF = (avoid, t) => {
+  for (let i = 0; i < 60; i++) {
+    const f = Math.round(L.rand(F0, F1 - 0.1) * 10) / 10;
+    if (Math.abs(f - avoid) >= 40 && !locked(f, t)) return f;
+  }
+  return 250;
+};
+const pickPh = () => 15 * L.irand(0, 23);
+
+// ---------------- status line ----------------
+const stateTxt = L.text({ x: X0, cap: 150, s: 100, c: "lilac", txt: "" });
+const stateSub = L.text({ x: 0, base: 222, s: 38, c: "sky", txt: "" });
+const setState = (word, sub, c) => {
+  L.set(stateTxt, word); fg(stateTxt, c);
+  stateSub.style.left = X0 + L.textWidth(word, 100) + 40 + "px";
+  L.set(stateSub, sub);
+};
+const pill = L.box({ x: X1 - 340, y: 150, w: 340, h: 72, c: "sky", label: "", r: "lr", fs: 36, cls: "sw" });
+L.text({ x: 3164, base: 222, s: 40, c: "sky", txt: "Stardate" });             // on the Grid Modulation column
+const sdVal = L.text({ x: 3164 + L.textWidth("Stardate", 40) + 24, base: 222, s: 52, c: "white", txt: "47634.40" });
+const stardate0 = 47634.4 + Math.random() * 0.05;
+
+// ---------------- frequency rotation schedule (top, wide) ----------------
+const CX0 = 364, CX1 = 3100, PAST = 20, SPAN = 70, PPS = (CX1 - CX0) / SPAN, NOWX = CX0 + PAST * PPS;
+const ROW0 = 428, PITCH = 88, RH = 64, CAP = 400, BGAPX = 6;
+const rowY = (i) => ROW0 + i * PITCH, rowBase = (i) => rowY(i) + 52.5;
+L.header({ x: X0, y: 280, w: CX1 - X0, label: "Frequency Rotation Schedule", c1: "sky", c2: "lilac" });
+L.text({ x: X0, base: CAP, s: 36, c: "lilac", txt: "Grid" });
+for (let s = -PAST; s <= SPAN - PAST; s += 10) {
+  const x = NOWX + s * PPS, first = s === -PAST, last = s === SPAN - PAST;
+  const txt = s === 0 ? "Now" : last ? `+${s} s` : s > 0 ? `+${s}` : first ? `−${-s} s` : `−${-s}`;
+  L.text({ x, base: CAP, s: 34, c: s === 0 ? "white" : "lilac", txt, align: first ? "l" : last ? "r" : "c", w: 140, legend: true });
+}
+GRIDS.forEach((g, i) => {
+  L.box({ x: X0, y: rowY(i), w: 300, h: RH, c: GC[i], label: g, fs: 32, r: "l" });
+  L.rect({ x: CX0, y: rowY(i), w: CX1 - CX0, h: RH, c: TRACK });
+});
+for (let s = -10; s < SPAN - PAST; s += 10) if (s) L.rect({ x: Math.round(NOWX + s * PPS) - 1, y: ROW0 - 12, w: 2, h: rowY(5) + RH + 12 - (ROW0 - 12), c: GRID, free: true });
+const clip = L.el("div", "clip boot", L.stage, { left: CX0 + "px", top: ROW0 + "px", width: CX1 - CX0 + "px", height: rowY(5) + RH - ROW0 + "px" });
+// the past is dimmed; both ends fade, so nothing is cut by the window's edge
+const dim = L.layer({ x: CX0, y: ROW0, w: NOWX - CX0, h: rowY(5) + RH - ROW0 });
+dim.style.background = "linear-gradient(to right, #000 0, rgba(0,0,0,.5) 150px, rgba(0,0,0,.5) 100%)";
+const fadeR = L.layer({ x: CX1 - 170, y: ROW0, w: 170, h: rowY(5) + RH - ROW0 });
+fadeR.style.background = "linear-gradient(to right, rgba(0,0,0,0), #000)";
+const cursor = fill(NOWX - 2, ROW0 - 12, 4, rowY(5) + RH + 12 - (ROW0 - 12), "white");
+
+// ---------------- grid modulation: what each grid holds now ----------------
+const MX0 = 3164;
+L.header({ x: MX0, y: 280, w: X1 - MX0, label: "Grid Modulation", c1: "lilac", c2: "sky" });
+const HOLDX = X1, PHX = X1 - 200, FQX = PHX - 220;
+[["Frequency", FQX], ["Phase", PHX], ["Hold", HOLDX]].forEach(([txt, x]) => L.text({ x, base: CAP, s: 36, c: "lilac", txt, align: "r" }));
+const modRows = GRIDS.map((_, i) => ({
+  f: L.text({ x: FQX, base: rowBase(i), s: 52, c: "white", txt: "", align: "r", cls: "sw" }),
+  ph: L.text({ x: PHX, base: rowBase(i), s: 40, c: "lilac", txt: "", align: "r" }),
+  hold: L.text({ x: HOLDX, base: rowBase(i), s: 40, c: "sky", txt: "", align: "r" }),
+}));
+
+// ---------------- the middle: spectrum, analysis, counter ----------------
+const MH = 1000, MCAP = 1100, LT = (i) => 1128 + i * 60, LH = 48, LB = (i) => LT(i) + 38, AXB = 1550;
+const P1 = 40, P1R = 1256, P2 = 1320, P2R = 2536, P3 = 2600, P3R = X1;
+
+// frequency spectrum: where in the band each grid sits, its last six, and the locked-out bands
+L.header({ x: P1, y: MH, w: P1R - P1, label: "Frequency Spectrum", c1: "lilac", c2: "sky" });
+const FX0 = CX0, FX1 = P1R, fx = (f) => FX0 + ((f - F0) / (F1 - F0)) * (FX1 - FX0);
+L.text({ x: P1, base: MCAP, s: 36, c: "lilac", txt: "Grid" });
+L.text({ x: FX0, base: MCAP, s: 36, c: "lilac", txt: "Now  ·  Last Six" });
+const lockVal = L.text({ x: P1R, base: MCAP, s: 36, c: "lilac", txt: "", align: "r" });
+GRIDS.forEach((g, i) => {
+  L.text({ x: P1, base: LB(i), s: 36, c: GC[i], txt: g });
+  L.rect({ x: FX0, y: LT(i), w: FX1 - FX0, h: LH, c: TRACK });
+});
+for (let f = 200; f < F1; f += 100) L.rect({ x: Math.round(fx(f)) - 1, y: LT(0), w: 2, h: LT(5) + LH - LT(0), c: GRID, free: true });
+BANDS.forEach(([f, c], k) => {                              // the band key, on the axis
+  const x0 = fx(f) + (k ? 4 : 0), x1 = fx(f + 100) - (k < 3 ? 4 : 0);
+  L.rect({ x: x0, y: LT(5) + LH + 14, w: x1 - x0, h: 12, c, free: true });
+});
+L.text({ x: P1, base: AXB, s: 36, c: "lilac", txt: "Megahertz" });
+for (let f = F0; f <= F1; f += 100) L.text({ x: fx(f), base: AXB, s: 34, c: "lilac", txt: String(f), align: f === F0 ? "l" : f === F1 ? "r" : "c", w: 120, legend: true });
+const lockEls = Array.from({ length: 10 }, () => {
+  const e = fill(0, LT(0) - 8, 1, LT(5) + LH + 8 - (LT(0) - 8), "mars"); e.classList.add("lk"); e.style.opacity = 0;
+  return e;
+});
+const lanes = GRIDS.map((_, i) => ({
+  ticks: Array.from({ length: 6 }, () => { const e = fill(0, LT(i), 4, LH, "lilac"); e.style.opacity = 0; return e; }),
+  mark: fill(0, LT(i), 8, LH, "white"),
+  hist: [], x: null, from: 0, to: 0, t0: -9,
+}));
+
+// adaptation analysis: how far the Borg model has got with each grid's frequency
+L.header({ x: P2, y: MH, w: P2R - P2, label: "Adaptation Analysis", c1: "sky", c2: "lilac" });
+const AVW = Math.ceil(L.textWidth("100%", 40));
+const ABX0 = P2 + widest(GRIDS, 36) + 64, ABX1 = P2R - AVW - 40;
+L.text({ x: P2, base: MCAP, s: 36, c: "lilac", txt: "Grid" });
+L.text({ x: ABX0, base: MCAP, s: 36, c: "lilac", txt: "Borg Model  ·  Frequency in Use" });
+L.text({ x: P2R, base: MCAP, s: 36, c: "lilac", txt: "Analyzed", align: "r" });
+const anaRows = GRIDS.map((g, i) => {
+  L.text({ x: P2, base: LB(i), s: 36, c: GC[i], txt: g });
+  L.rect({ x: ABX0, y: LB(i) - 26, w: ABX1 - ABX0, h: 26, c: TRACK });
+  const bar = fill(ABX0, LB(i) - 26, ABX1 - ABX0, 26, "lilac"); bar.style.transform = "scaleX(0)";
+  return { bar, val: L.text({ x: P2R, base: LB(i), s: 40, c: "white", txt: "", align: "r" }) };
+});
+for (const k of [0.25, 0.5, 0.75]) L.rect({ x: Math.round(ABX0 + k * (ABX1 - ABX0)) - 1, y: LB(0) - 34, w: 2, h: LB(5) + 8 - (LB(0) - 34), c: GRID, free: true });
+L.text({ x: P2, base: AXB, s: 36, c: "lilac", txt: "Mean Interval" });
+const meanInt = L.text({ x: P2 + L.textWidth("Mean Interval", 36) + 24, base: AXB, s: 36, c: "white", txt: "" });
+const MAX_ = Math.round((ABX0 + ABX1) / 2);                 // on the bars' midline
+L.text({ x: MAX_, base: AXB, s: 36, c: "lilac", txt: "Mean Time to Adapt" });
+const meanAda = L.text({ x: MAX_ + L.textWidth("Mean Time to Adapt", 36) + 24, base: AXB, s: 36, c: "white", txt: "" });
+
+// adaptation counter, and the two distributions it comes from
+L.header({ x: P3, y: MH, w: P3R - P3, label: "Adaptation Counter", c1: "lilac", c2: "sky" });
+L.text({ x: P3, base: MCAP, s: 36, c: "lilac", txt: "Borg Adaptation Model  ·  Wolf 359 Tactical Records" });
+L.text({ x: P3, base: LB(0), s: 40, c: "sky", txt: "Adaptations" });
+L.text({ x: P3, base: LB(1), s: 36, c: "lilac", txt: "Frequencies lost to the model" });
+const bigCount = L.text({ x: P3R, base: LB(1), s: 140, c: "butter", txt: "", align: "r", cls: "sw" });
+const CMX = 3060, CMR = 3500;
+L.text({ x: CMX, base: LB(0), s: 36, c: "lilac", txt: "Rotations" });
+const rotVal = L.text({ x: CMR, base: LB(0), s: 40, c: "white", txt: "", align: "r" });
+L.text({ x: CMX, base: LB(1), s: 36, c: "lilac", txt: "Rotated Clear" });
+const clearVal = L.text({ x: CMR, base: LB(1), s: 40, c: "white", txt: "", align: "r" });
+const HY0 = LT(2), HY1 = LT(5) + LH, HTOP = HY0 + 60, NBIN = 20, BINW = (P3R - P3) / NBIN;
+L.rect({ x: P3, y: HY0, w: P3R - P3, h: HY1 - HY0, c: PANEL, panel: true });
+{ // the key, top right inside the panel
+  let x = P3R - 20;
+  [["Time to Adapt", "lilac"], ["Rotation Interval", "sky"]].forEach(([txt, c]) => {
+    L.text({ x, base: HY0 + 46, s: 30, c: "white", txt, align: "r", legend: true });
+    x -= L.textWidth(txt, 30) + 16 + 24;
+    L.rect({ x, y: HY0 + 46 - 24, w: 24, h: 24, c, free: true });
+    x -= 40;
+  });
+  L.text({ x: P3 + 20, base: HY0 + 46, s: 30, c: "lilac", txt: "Last 200 Rotations", legend: true });
+}
+for (let s = 0; s <= NBIN; s += 5) L.text({ x: P3 + s * BINW, base: AXB, s: 34, c: "lilac", txt: s === NBIN ? "20 s" : String(s), align: s === 0 ? "l" : s === NBIN ? "r" : "c", w: 120, legend: true });
+const hBars = Array.from({ length: NBIN }, (_, b) => [0, 1].map((k) => {
+  const e = fill(P3 + b * BINW + 5 + k * (BINW - 10) / 2, HTOP, (BINW - 10) / 2 - 3, HY1 - HTOP, k ? "lilac" : "sky", "50% 100%");
+  e.classList.add("hb"); e.style.transform = "scaleY(0)";
+  return e;
+}));
+
+// ---------------- bottom strip: log, lockouts, settings ----------------
+const BH = 1620, BCAP = 1716, BROW = (i) => 1776 + i * 54, NL = 5;
+const B1 = P1, B1R = P1R, B2 = P2, B2R = P2R, B3 = P3, B3R = P3R;
+L.header({ x: B1, y: BH, w: B1R - B1, label: "Rotation Log", c1: "sky", c2: "lilac", h: 48 });
+const LGX = B1 + Math.ceil(L.textWidth("88:88:88", 36)) + 64, LEX = LGX + widest([...GRIDS, "All"], 36) + 64;
+[["Time", B1], ["Grid", LGX], ["Event", LEX]].forEach(([txt, x]) => L.text({ x, base: BCAP, s: 36, c: "lilac", txt }));
+const logRows = Array.from({ length: NL }, (_, i) => ({
+  tm: L.text({ x: B1, base: BROW(i), s: 36, c: "sky", txt: "", cls: "fd" }),
+  gr: L.text({ x: LGX, base: BROW(i), s: 36, c: "lilac", txt: "", cls: "fd" }),
+  ev: L.text({ x: LEX, base: BROW(i), s: 36, c: "white", txt: "", cls: "fd" }),
+}));
+const logged = [];
+let logReady = false, lastLog = -99;
+const showLog = () => logRows.forEach((r, i) => {
+  const e = logged[logged.length - NL + i];
+  L.set(r.tm, e ? e.tm : ""); L.set(r.gr, e ? e.gr : ""); L.set(r.ev, e ? e.ev : "");
+  fg(r.ev, e && e.adapt ? "mars" : "white");
+});
+const logEvent = (gr, ev, adapt = false, dt = 0) => {
+  logged.push({ tm: clockAt(dt), gr, ev, adapt });
+  if (logged.length > NL) logged.shift();
+  lastLog = L.t;
+  if (!logReady) return;
+  const els = logRows.flatMap((r) => [r.tm, r.gr, r.ev]);
+  els.forEach((e) => e.classList.add("out"));
+  setTimeout(() => { showLog(); els.forEach((e) => e.classList.remove("out")); }, 420);
+};
+
+// the bands the model has adapted to, held out of the pool until they expire
+L.header({ x: B2, y: BH, w: B2R - B2, label: "Locked-Out Bands", c1: "lilac", c2: "sky", h: 48 });
+// band left; grid, adapted in and returns in right-aligned, spread evenly across the panel
+const KW = [L.textWidth("888.8 – 888.8 MHz", 36), widest(GRIDS, 36), L.textWidth("Adapted In", 36), L.textWidth("Returns In", 36)];
+const KG = (B2R - B2 - KW.reduce((a, b) => a + b, 0)) / 3;
+const KC = [B2]; { let x = B2 + KW[0]; for (let j = 1; j < 4; j++) { x += KG + KW[j]; KC.push(Math.round(j === 3 ? B2R : x)); } }
+[["Band", KC[0], "l"], ["Grid", KC[1], "r"], ["Adapted In", KC[2], "r"], ["Returns In", KC[3], "r"]].forEach(([txt, x, align]) => L.text({ x, base: BCAP, s: 36, c: "lilac", txt, align }));
+const lockRows = Array.from({ length: NL }, (_, i) => ({
+  band: L.text({ x: KC[0], base: BROW(i), s: 36, c: "mars", txt: "" }),
+  gr: L.text({ x: KC[1], base: BROW(i), s: 36, c: "lilac", txt: "", align: "r" }),
+  ta: L.text({ x: KC[2], base: BROW(i), s: 36, c: "white", txt: "", align: "r" }),
+  left: L.text({ x: KC[3], base: BROW(i), s: 36, c: "sky", txt: "", align: "r" }),
+}));
+const showLocks = (t) => {
+  const live = lockouts.filter((k) => !k.cleared).sort((a, b) => a.t1 - b.t1).slice(-NL);
+  lockRows.forEach((r, i) => {
+    const k = live[i];
+    if (!k) { L.set(r.band, i === 0 ? "None" : ""); L.set(r.gr, ""); L.set(r.ta, ""); L.set(r.left, ""); return; }
+    const s = Math.max(0, Math.ceil(k.t1 - t));
+    L.set(r.band, `${(k.f - 4).toFixed(1)} – ${(k.f + 4).toFixed(1)} MHz`);
+    L.set(r.gr, k.grid); L.set(r.ta, `${k.ta.toFixed(1)} s`);
+    L.set(r.left, `${Math.floor(s / 60)} m ${pad(s % 60)} s`);
+  });
+};
+
+L.header({ x: B3, y: BH, w: B3R - B3, label: "Modulation Settings", c1: "sky", c2: "lilac", h: 48 });
+const SETTINGS = [["Rotation Mode", "Random", "Each grid independent"], ["Interval", `${IMIN.toFixed(1)} – ${IMAX.toFixed(1)} s`, "0.1 s steps"],
+  ["Band", `${F0} – ${F1} MHz`, "4,000 channels"], ["Lockout Hold", `${HOLD} s`, "± 4 MHz per band"], ["Schedule Block", "", ""]];
+const SKW = widest(SETTINGS.map((r) => r[0]), 36), SNW = widest(SETTINGS.map((r) => r[2]).concat(["Slot 64 of 64"]), 36);
+const SVX = Math.round(B3 + SKW + (B3R - B3 - SKW - SNW - widest(SETTINGS.map((r) => r[1]).concat(["Block 888"]), 36)) / 2);   // values centred in the space between
+[["Setting", B3, "l"], ["Value", SVX, "l"], ["Note", B3R, "r"]].forEach(([txt, x, align]) => L.text({ x, base: BCAP, s: 36, c: "lilac", txt, align }));
+const setVals = SETTINGS.map(([k, v, n], i) => {
+  L.text({ x: B3, base: BROW(i), s: 36, c: "sky", txt: k });
+  const nt = L.text({ x: B3R, base: BROW(i), s: 36, c: "lilac", txt: n, align: "r" });
+  return [L.text({ x: SVX, base: BROW(i), s: 36, c: "white", txt: v }), nt];
+});
+
+// ---------------- the schedule itself ----------------
+// Each grid holds a frequency for a random interval, then rotates. Now and then the model adapts
+// before the interval is up: the grid rotates to an emergency frequency and the band is locked out.
+const SLOTS = 64;
+let rotations = 2150, adaptations = 43;
+const hist = [];                                           // [interval, time to adapt] of the last 200 slots
+const histPush = (iv, ta) => { hist.push([iv, ta]); if (hist.length > 200) hist.shift(); };
+const genSlot = (row, start, t) => {
+  const len = Math.round(L.rand(IMIN, IMAX) * 10) / 10, prevF = row.lastF;
+  const f = pickF(prevF, t);
+  const s = { start, end: start + len, len, f, ph: pickPh(), adaptAt: null };
+  if (start > 0 && len >= 4.8 && Math.random() < P_ADAPT) {
+    s.adaptAt = start + L.rand(2, len - REACT - 1.8);
+    s.ta = s.adaptAt - start;
+  } else s.ta = len / L.rand(0.4, 0.9);
+  row.lastF = f;
+  return s;
+};
+const pool = [];
+const takeEl = (row) => {
+  const e = pool.pop() || L.el("div", "layer blk", clip);
+  e.style.top = rowY(row.i) - ROW0 + "px"; e.style.display = "";
+  return e;
+};
+const freeEl = (e) => { e.style.display = "none"; e._tf = null; pool.push(e); };
+const labelOf = (p) => (p.adapted ? "Adapted" : p.f.toFixed(1));
+const dress = (p) => {                                      // size, colour and label of a block
+  const w = (p.end - p.start) * PPS - BGAPX;
+  p.el.style.width = w.toFixed(1) + "px";
+  bg(p.el, p.adapted ? "mars" : bandOf(p.f));
+  let txt = labelOf(p);
+  if (L.textWidth(txt, 32) + 30 > w) txt = p.f.toFixed(1);
+  L.set(p.el, L.textWidth(txt, 32) + 30 > w ? "" : txt);
+};
+const rows = GRIDS.map((g, i) => ({ i, g, pieces: [], slots: [], lastF: 0, cur: null, prevV: 0 }));
+const addSlot = (row, s, t) => {
+  row.slots.push(s);
+  const p = { slot: s, start: s.start, end: s.end, f: s.f, ph: s.ph, ta: s.ta, adapted: false };
+  p.el = takeEl(row); dress(p);
+  row.pieces.push(p);
+};
+// fill the window, staggered so the grids don't rotate together
+rows.forEach((row) => {
+  let t = -PAST - L.rand(0, IMAX);
+  while (t < SPAN - PAST + 2) { const s = genSlot(row, t, 0); addSlot(row, s, 0); t = s.end; }
+});
+for (let k = 0; k < 200; k++) {                            // the distributions so far
+  const iv = Math.round(L.rand(IMIN, IMAX) * 10) / 10;
+  histPush(iv, Math.random() < P_ADAPT ? L.rand(2, iv - 1) : iv / L.rand(0.4, 0.9));
+}
+// two earlier adaptations are still locked out
+[[-128, 2, 4.6], [-71, 4, 5.9]].forEach(([dt, gi, ta]) => {
+  const f = pickF(0, 0);
+  lockouts.push({ f, t0: dt, t1: dt + HOLD, grid: GRIDS[gi], ta, el: lockEls.find((e) => !lockouts.some((k) => k.el === e)) });
+});
+
+// ---------------- events ----------------
+let alertUntil = -1, alertSub = "", alertGrid = "";
+const DEFAULT_SUB = "Random rotation  ·  six shield grids  ·  adaptation modeled on Wolf 359 records";
+const adapt = (row, s, t) => {
+  s.done = true;
+  const i = row.pieces.findIndex((p) => p.slot === s && !p.adapted);
+  const p = row.pieces[i], cut = s.adaptAt + REACT;
+  p.adapted = true; p.end = cut; dress(p);
+  const f2 = pickF(s.f, t);
+  const q = { slot: s, start: cut, end: s.end, f: f2, ph: pickPh(), ta: (s.end - cut) / L.rand(0.4, 0.9), adapted: false };
+  q.el = takeEl(row); dress(q);
+  row.pieces.splice(i + 1, 0, q);
+  adaptations++;
+  // the band is locked out for a while; anything later in the schedule that falls in it is moved
+  const el = lockEls.find((e) => !lockouts.some((k) => k.el === e && k.t1 > t));
+  for (let k = lockouts.length - 1; k >= 0; k--) if (lockouts[k].el === el) lockouts.splice(k, 1);
+  lockouts.push({ f: s.f, t0: t, t1: t + HOLD, el, grid: row.g, ta: s.ta });
+  rows.forEach((r) => r.pieces.forEach((o) => {
+    if (o.start > t + 1 && !o.adapted && Math.abs(o.f - s.f) < 6) { o.f = pickF(o.f, t); dress(o); }
+  }));
+  alertUntil = t + 6; alertGrid = row.g;
+  alertSub = `${row.g} grid  ·  ${s.f.toFixed(1)} MHz adapted in ${s.ta.toFixed(1)} s  ·  rotating to ${f2.toFixed(1)} MHz`;
+  logEvent(row.g, `${s.f.toFixed(1)} adapted in ${s.ta.toFixed(1)} s  ·  rotated to ${f2.toFixed(1)}`, true);
+};
+const ROUTINE = [
+  ["All", "Harmonic check  ·  System J-25 sensor logs  ·  clear"],
+  ["All", "Adaptation model refreshed  ·  Wolf 359 records"],
+  ["All", "Phase variance verified  ·  six grids"],
+  ["All", "Shield generators synchronized  ·  six of six"],
+  ["All", "Grid overlap check  ·  frequencies separated"],
+  ["All", "Frequency pool reseeded  ·  4,000 channels"],
+];
+let routineDeck = [];
+const routine = (dt = 0) => {
+  if (!routineDeck.length) routineDeck = ROUTINE.slice().sort(() => Math.random() - 0.5);
+  logEvent(...routineDeck.pop(), false, dt);
+};
+// the log so far, oldest first
+routine(-164);
+logEvent(GRIDS[2], `${lockouts[0].f.toFixed(1)} adapted in 4.6 s  ·  rotated to ${pickF(lockouts[0].f, 0).toFixed(1)}`, true, -128);
+routine(-96);
+logEvent(GRIDS[4], `${lockouts[1].f.toFixed(1)} adapted in 5.9 s  ·  rotated to ${pickF(lockouts[1].f, 0).toFixed(1)}`, true, -71);
+routine(-24);
+logReady = true; showLog(); lastLog = -24;
+
+// ---------------- the clock ----------------
+const analysisOf = (row, t) => {
+  const p = row.cur;
+  if (!p) return 0;
+  const v = Math.min(1, (t - p.start) / p.ta);
+  return L.mix(row.prevV, v, L.ease(L.clamp((t - p.start) / 0.6)));
+};
+L.tick((t) => {
+  const t0 = t - PAST;
+  rows.forEach((row, ri) => {
+    // keep the schedule ahead of the window
+    let last = row.slots[row.slots.length - 1];
+    while (last.end < t + SPAN - PAST + 2) { const s = genSlot(row, last.end, t); addSlot(row, s, t); last = s; }
+    // an adaptation, the moment the model completes it
+    for (const s of row.slots) if (s.adaptAt !== null && !s.done && t >= s.adaptAt) adapt(row, s, t);
+    // the blocks slide left
+    for (let k = row.pieces.length - 1; k >= 0; k--) {
+      const p = row.pieces[k], x = (p.start - t0) * PPS;
+      if (x + (p.end - p.start) * PPS < -20) { freeEl(p.el); row.pieces.splice(k, 1); continue; }
+      tf(p.el, `translate3d(${x.toFixed(2)}px,0,0)`);
+    }
+    while (row.slots.length && row.slots[0].end < t0 - 5) row.slots.shift();
+    // a rotation
+    const cur = row.pieces.find((p) => p.start <= t && t < p.end);
+    if (cur && cur !== row.cur) {
+      const prev = row.cur;
+      if (prev) {
+        row.prevV = Math.min(1, (prev.end - prev.start) / prev.ta);
+        rotations++;
+        if (prev.slot !== cur.slot) histPush(prev.slot.len, prev.slot.ta);
+        const ln = lanes[ri];
+        ln.hist.unshift(prev.f); ln.hist.length = Math.min(ln.hist.length, 6);
+        ln.ticks.forEach((e, k) => {
+          if (k < ln.hist.length) { tf(e, `translate3d(${(fx(ln.hist[k]) - 2).toFixed(1)}px,0,0)`); op(e, 0.75 - k * 0.11); }
+        });
+        ln.from = ln.x; ln.to = fx(cur.f); ln.t0 = t;
+      } else { lanes[ri].x = lanes[ri].to = fx(cur.f); lanes[ri].t0 = -9; }
+      row.cur = cur;
+      const m = modRows[ri];
+      L.set(m.f, cur.f.toFixed(1)); L.set(m.ph, `${cur.ph}°`);
+    }
+    // the spectrum marker glides to the new frequency
+    const ln = lanes[ri], k = L.clamp((t - ln.t0) / 0.9);
+    ln.x = ln.t0 < 0 ? ln.to : L.mix(ln.from, ln.to, L.ease(k));
+    tf(ln.mark, `translate3d(${(ln.x - 4).toFixed(1)}px,0,0)`);
+    bg(ln.mark, row.cur && row.cur.adapted ? "mars" : "white");
+    fg(modRows[ri].f, row.cur && row.cur.adapted ? "mars" : "white");
+    // the model's analysis of the frequency in use
+    const v = analysisOf(row, t), a = anaRows[ri];
+    tf(a.bar, `scaleX(${v.toFixed(4)})`);
+    bg(a.bar, v >= 0.9995 ? "mars" : v >= 0.75 ? "butter" : "lilac");
+  });
+  // locked-out bands
+  for (const k of lockouts) {
+    if (!k.el) continue;
+    tf(k.el, `translate3d(${fx(k.f - 4).toFixed(1)}px,0,0)`);
+    k.el.style.width = (fx(k.f + 4) - fx(k.f - 4)).toFixed(1) + "px";
+    op(k.el, t < k.t1 ? 0.42 : 0);
+  }
+  for (let i = lockouts.length - 1; i >= 0; i--) {
+    const k = lockouts[i];
+    if (t >= k.t1 && !k.cleared) { k.cleared = true; logEvent("All", `${(k.f - 4).toFixed(1)} – ${(k.f + 4).toFixed(1)} MHz returned to the pool`); }
+    if (t >= k.t1 + 2) lockouts.splice(i, 1);
+  }
+});
+
+let lastBlock = Math.floor(rotations / SLOTS);
+L.every(250, (t) => {
+  rows.forEach((row, ri) => {
+    const a = anaRows[ri], v = analysisOf(row, t);
+    L.set(a.val, Math.round(v * 100) + "%");
+    fg(a.val, v >= 0.9995 ? "mars" : v >= 0.75 ? "butter" : "white");
+    if (row.cur) L.set(modRows[ri].hold, Math.max(0, row.cur.end - t).toFixed(1) + " s");
+  });
+  L.set(bigCount, String(adaptations));
+  L.set(rotVal, fmt(rotations));
+  L.set(clearVal, ((100 * (rotations - adaptations)) / rotations).toFixed(2) + "%");
+  L.set(lockVal, `Lockouts  ·  ${lockouts.filter((k) => !k.cleared).length}`);
+  showLocks(t);
+  const blk = Math.floor(rotations / SLOTS);
+  L.set(setVals[4][0], `Block ${blk}`); L.set(setVals[4][1], `Slot ${(rotations % SLOTS) + 1} of ${SLOTS}`);
+  if (blk !== lastBlock) { lastBlock = blk; logEvent("All", `Schedule block ${blk} loaded  ·  ${SLOTS} slots`); }
+  L.set(sdVal, (stardate0 + t / 3600 / 8.766).toFixed(1));
+  if (t < alertUntil) { setState("Adapted", alertSub, "mars"); L.set(pill, `Adapted  ·  ${alertGrid}`); bg(pill, "mars"); }
+  else { setState("Modulating", DEFAULT_SUB, "lilac"); L.set(pill, "Rotation Clear"); bg(pill, "sky"); }
+}, 0);
+
+const showHist = () => {
+  const n = Array.from({ length: NBIN }, () => [0, 0]);
+  let si = 0, sa = 0;
+  for (const [iv, ta] of hist) {
+    n[Math.min(NBIN - 1, Math.floor(iv))][0]++; n[Math.min(NBIN - 1, Math.floor(ta))][1]++;
+    si += iv; sa += ta;
+  }
+  const max = Math.max(...n.flat(), 1);
+  hBars.forEach((pair, b) => pair.forEach((e, k) => tf(e, `scaleY(${(n[b][k] / max).toFixed(4)})`)));
+  L.set(meanInt, (si / hist.length).toFixed(1) + " s");
+  L.set(meanAda, (sa / hist.length).toFixed(1) + " s");
+};
+showHist();
+L.every(6000, showHist, 0);
+L.every(15000, (t) => { if (t - lastLog > 8) routine(); }, 0.3);
+});
+</script></body></html>

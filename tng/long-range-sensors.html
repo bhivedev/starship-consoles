@@ -1,0 +1,579 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Long Range Sensors</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .arm { background: linear-gradient(to top, rgba(143,211,255,.25), rgba(220,240,255,.95)); transform-origin: 50% 100%; border-radius: 2px; }
+  .trailL { transform-origin: 100% 100%; }
+  .trailR { transform-origin: 0 100%; }
+  .glow { border-radius: 50%; }
+  .ml .t { text-shadow: 0 0 6px #000, 0 0 3px #000, 0 0 2px #000; }
+  .ret i { position: absolute; display: block; border-color: var(--butter); border-style: solid; border-width: 0; width: 26px; height: 26px; }
+  .cursor { background: linear-gradient(to right, rgba(143,211,255,0), rgba(220,240,255,.75)); }
+  .bar { transform-origin: 50% 100%; transition: transform 1.4s ease, background-color 1s ease; }
+  .pbar { transform-origin: 0 50%; transition: transform 1.6s ease; }
+  .pill { transition: background-color 1.2s ease; }
+  .proj { transform-origin: 0 50%; background: repeating-linear-gradient(to right, rgba(255,90,60,.85) 0 14px, rgba(255,90,60,0) 14px 26px); }
+  .ping { border-radius: 50%; border: 3px solid var(--ice); }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: sidebar left, title top right ----------------
+const BAR = 64;
+L.title({ x: 3700, y: 40, h: BAR, c: "sky", txt: "Long Range Sensors  •  Subspace Scan" });
+// (L.title measures with a canvas, which sets this line ~11px wider than the page draws it; use the page's own width)
+const titleLeft = 3700 - document.querySelector("[data-title]").offsetWidth;
+L.box({ x: 3724, y: 40, w: 92, h: BAR, c: "sky", r: "r" });
+L.elbow({ corner: "tl", x: 40, y: 40, w: 1360, h: 250, bw: 240, bh: BAR, R: 150, r: 60, c: "blue" });
+L.box({ x: 1400 + L.GAP, y: 40, w: 300, h: BAR, c: "butter", label: "LRS-4" });
+L.rect({ x: 1724 + L.GAP, y: 40, w: titleLeft - L.GAP - (1724 + L.GAP), h: BAR, c: "navy" });
+[[298, 140, "sky", "LRS 01"], [446, 70, "butter", "Fwd"], [524, 420, "blue", "Sweep"], [952, 70, "ice", "20 LY"],
+ [1030, 300, "sky", "Contacts"], [1338, 70, "mars", "Focus"], [1416, 216, "blue", "Arrays"]]
+  .forEach(([y, h, c, label]) => L.box({ x: 40, y, w: 240, h, c, label }));
+L.elbow({ corner: "bl", x: 40, y: 1640, w: 1500, h: 480, bw: 240, bh: BAR, R: 150, r: 60, c: "sky" });
+L.text({ x: 258, base: 1712, s: 40, c: "#000", txt: "Sensors", align: "r", on: true });
+[[1540 + L.GAP, 600, "navy"], [2164 + L.GAP, 900, "ice"], [3088 + L.GAP, 3700 - (3088 + L.GAP), "blue"]]
+  .forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
+L.box({ x: 3724, y: 2056, w: 92, h: BAR, c: "sky", r: "r" });
+
+const header = (x, y, w, label, c1, c2, h = 56, fs = 32) => {
+  const lw = Math.round((L.textWidth(label, fs) + 64) / 10) * 10;
+  L.box({ x, y, w: lw, h, c: c1, label, fs, r: "l" });
+  L.rect({ x: x + lw + L.GAP, y, w: w - lw - L.GAP, h, c: c2 });
+};
+const div = (parent, cls, css) => L.el("div", cls, parent, Object.assign({ position: "absolute" }, css));
+const put = (e, txt) => { if (e.textContent !== txt) e.textContent = txt; };   // a readout repaints only when it changes
+const css = (e, k, v) => { if (e.style[k] !== v) e.style[k] = v; };
+const opa = (o, v) => { if (Math.abs(v - o.op) > 0.004 || (v === 0 && o.op !== 0)) { o.op = v; o.e.style.opacity = v.toFixed(3); } };
+const later = (ms, f, jitter) => L.every(ms, (t) => { if (t > 1) f(t); }, jitter);
+const seeded = (s) => () => { s = (s + 0x6d2b79f5) | 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+const brg = (b) => String(Math.round((b + 360) % 360)).padStart(3, "0");
+const DARK = "#0c1840";
+
+// columns: the scan 330–2330; the right column 2410–3816. Bottom strip: arrays 330–1330, interference 1410–2330, log 2410–3816
+const FX = 330, FW = 2000, FY = 360, FH = 1200, RX = 2410, RR = 3816;
+
+// ---------------- the scan: a fan looking forward along the ship's course ----------------
+const CX = 1330, CY = 1500, K = 52, RANGE = 20, R = RANGE * K, SPAN = 60;
+const rad = (d) => (d * Math.PI) / 180;
+const pol = (b, r) => [CX + r * K * Math.sin(rad(b)), CY - r * K * Math.cos(rad(b))];   // bearing (0 = dead ahead), light-years
+const toPolar = (x, y) => [(Math.atan2(x - CX, CY - y) * 180) / Math.PI, Math.hypot(x - CX, CY - y) / K];
+
+let stardate = 46379.1;
+const STATE = "Long Range Scan";
+L.text({ x: 330, cap: 150, s: 100, c: "ice", txt: STATE });
+const stateSub = L.text({ x: 330 + L.textWidth(STATE, 100) + 40, base: 222, s: 38, c: "sky", txt: "" });
+const showSub = () => put(stateSub, `Forward sweep  ·  Course 047 mark 12  ·  Warp 6  ·  Range ${RANGE} light-years  ·  Stardate ${stardate.toFixed(1)}`);
+showSub();
+const pill = L.box({ x: 3416, y: 150, w: 400, h: 72, c: "sky", label: "Sensors Active", r: "lr", fs: 36, cls: "pill" });
+pill.style.willChange = "opacity";
+L.tick((t) => { pill.style.opacity = (0.82 + 0.18 * Math.sin(t * 1.1)).toFixed(3); });
+
+header(FX, 280, FW, "Forward Scan  ·  Bearing 300 – 060", "sky", "blue");
+L.rect({ x: FX, y: FY, w: FW, h: FH, c: "#02061a", panel: true });
+{
+  const g = L.svg("g", { class: "boot" });
+  const defs = L.svg("defs", {}, g);
+  const fanG = L.svg("radialGradient", { id: "lrFan", cx: CX, cy: CY, r: R, gradientUnits: "userSpaceOnUse" }, defs);
+  [[0, "#1f3fd6", 0.16], [0.7, "#1f3fd6", 0.07], [1, "#3a6fff", 0.13]].forEach(([o, c, a]) => L.svg("stop", { offset: o, "stop-color": c, "stop-opacity": a }, fanG));
+  const [lx, ly] = pol(-SPAN, RANGE), [rx, ry] = pol(SPAN, RANGE);
+  L.svg("path", { d: `M${CX},${CY} L${lx},${ly} A${R},${R} 0 0 1 ${rx},${ry} Z`, fill: "url(#lrFan)" }, g);
+  // the stars behind, inside the fan only
+  const rnd = seeded(9021), cols = ["#5c7dff", "#3a6fff", "#8fd3ff", "#c9d6ff", "#ffffff"];
+  for (let k = 0; k < 420; k++) {
+    const b = (rnd() * 2 - 1) * SPAN, r = Math.sqrt(0.02 + 0.98 * rnd()) * RANGE * 0.985, [x, y] = pol(b, r);
+    L.svg("circle", { cx: x.toFixed(1), cy: y.toFixed(1), r: (0.9 + rnd() ** 3 * 2).toFixed(2), fill: cols[Math.floor(rnd() * cols.length)], opacity: (0.25 + rnd() * 0.45).toFixed(2) }, g);
+  }
+  // bearings every 15°, the fan's edges solid
+  for (let b = -SPAN; b <= SPAN; b += 15) {
+    const [x, y] = pol(b, RANGE), edge = Math.abs(b) === SPAN;
+    L.svg("path", { d: `M${CX},${CY} L${x.toFixed(1)},${y.toFixed(1)}`, stroke: edge ? "var(--blue)" : "#1d3cc4", "stroke-width": edge ? 4 : 2,
+      "stroke-dasharray": edge ? "none" : "3 9", fill: "none" }, g);
+  }
+  // range arcs every 4 light-years
+  for (let r = 4; r <= RANGE; r += 4) {
+    const [ax, ay] = pol(-SPAN, r), [bx, by] = pol(SPAN, r), outer = r === RANGE;
+    L.svg("path", { d: `M${ax.toFixed(1)},${ay.toFixed(1)} A${r * K},${r * K} 0 0 1 ${bx.toFixed(1)},${by.toFixed(1)}`, fill: "none",
+      stroke: outer ? "var(--sky)" : "#1d3cc4", "stroke-width": outer ? 4 : 2, "stroke-dasharray": outer ? "none" : r % 8 ? "6 8" : "none" }, g);
+  }
+  // ticks round the outside, every 5°
+  for (let b = -SPAN; b <= SPAN; b += 5) {
+    const [x0, y0] = pol(b, RANGE + 0.1), [x1, y1] = pol(b, RANGE + (b % 15 ? 0.36 : 0.6));
+    L.svg("path", { d: `M${x0.toFixed(1)},${y0.toFixed(1)} L${x1.toFixed(1)},${y1.toFixed(1)}`, stroke: "var(--sky)", "stroke-width": 3 }, g);
+  }
+  // the ship at the apex
+  L.svg("path", { d: `M${CX - 50},${CY} A50,50 0 0 1 ${CX + 50},${CY}`, fill: "none", stroke: "var(--sky)", "stroke-width": 3 }, g);
+  L.svg("path", { d: `M${CX},${CY - 30} L${CX + 19},${CY + 14} L${CX},${CY + 5} L${CX - 19},${CY + 14} Z`, fill: "var(--white)" }, g);
+}
+// bearing figures round the rim, range figures down the port edge
+for (let b = -SPAN; b <= SPAN; b += 15) {
+  const [x, y] = pol(b, RANGE + 1.25);
+  L.text({ x, base: y + 11, s: 30, c: "sky", txt: brg(b), align: "c", w: 80, legend: true });
+}
+for (let r = 4; r <= RANGE; r += 4) {
+  const [x, y] = pol(-SPAN, r);                                // just inside each arc, above the port edge
+  L.text({ x: x + 32, base: y - 8, s: 30, c: "sky", txt: r + " LY", legend: true });
+}
+// the corners of the panel: scan figures above, readings below
+const nTL = L.numbers({ x: FX + 40, y: FY + 36, s: 36, rows: 3, cols: [{ w: 110, n: 4 }, { w: 90, n: 3 }, { w: 130, n: 5, c: "butter" }], c: "sky" });
+const nTR = L.numbers({ x: FX + FW - 40 - 330, y: FY + 36, s: 36, rows: 3, cols: [{ w: 130, n: 5 }, { w: 90, n: 2, c: "butter" }, { w: 110, n: 6 }], c: "sky" });
+const corner = (x, xr, base, label, c = "sky") => { L.text({ x, base, s: 36, c, txt: label }); return L.text({ x: xr, base, s: 40, c: "white", txt: "", align: "r" }); };
+const sweepB = corner(FX + 40, FX + 420, FY + FH - 148, "Sweep Bearing");
+const sweepDir = corner(FX + 40, FX + 420, FY + FH - 94, "Sweep");
+const sweepRes = corner(FX + 40, FX + 420, FY + FH - 40, "Resolution");
+const shipCourse = corner(FX + FW - 420, FX + FW - 40, FY + FH - 148, "Course");
+const shipSpeed = corner(FX + FW - 420, FX + FW - 40, FY + FH - 94, "Speed");
+const shipCont = corner(FX + FW - 420, FX + FW - 40, FY + FH - 40, "Contacts");
+put(shipCourse, "047 mark 12"); put(shipSpeed, "Warp 6"); put(sweepRes, "0.04 LY");
+
+// ---------------- the sweep: an arm crossing the fan and back, its afterglow behind it ----------------
+const TW = Math.ceil(R * Math.sin(rad(20))) + 4;
+const trailBg = (side) => side === "L"
+  ? "conic-gradient(from 340deg at 100% 100%, rgba(92,157,255,0) 0deg, rgba(92,157,255,.08) 10deg, rgba(143,211,255,.32) 20deg, rgba(0,0,0,0) 20deg)"
+  : "conic-gradient(from 0deg at 0% 100%, rgba(143,211,255,.32) 0deg, rgba(92,157,255,.08) 10deg, rgba(92,157,255,0) 20deg, rgba(0,0,0,0) 20deg)";
+// the afterglow and the arm sit in a box clipped to the fan's two edges, so the glow never spills past them at the turns
+const CB = { x: CX - R - 10, y: CY - R - 10, w: 2 * R + 20, h: R + 20 };
+const fanClip = L.el("div", "lc", L.stage, { left: CB.x + "px", top: CB.y + "px", width: CB.w + "px", height: CB.h + "px" });
+{
+  const ax = CX - CB.x, ay = CY - CB.y, dx = 2 * R * Math.sin(rad(SPAN)), dy = 2 * R * Math.cos(rad(SPAN));
+  fanClip.style.clipPath = `polygon(${ax}px ${ay}px, ${ax - dx}px ${ay - dy}px, ${ax - dx}px ${ay - 3 * R}px, ${ax + dx}px ${ay - 3 * R}px, ${ax + dx}px ${ay - dy}px)`;
+}
+const trails = ["L", "R"].map((side) => {
+  const e = L.layer({ x: (side === "L" ? CX - TW : CX) - CB.x, y: CY - R - CB.y, w: TW, h: R, cls: "trail" + side }, fanClip);
+  e.style.background = trailBg(side);
+  const m = `radial-gradient(circle ${R}px at ${side === "L" ? "100%" : "0%"} 100%, #000 ${R - 2}px, transparent ${R}px)`;
+  e.style.webkitMaskImage = m; e.style.maskImage = m;
+  e.style.opacity = 0;
+  return { e, op: 0 };
+});
+const arm = L.layer({ x: CX - 2 - CB.x, y: CY - R - CB.y, w: 4, h: R, cls: "arm" }, fanClip);
+const PERIOD = 20, KS = 0.94;
+const sweepAt = (t) => (SPAN * Math.asin(KS * Math.sin((2 * Math.PI * t) / PERIOD))) / Math.asin(KS);   // a triangle wave, rounded at the turns
+const VMAX = (SPAN * KS * 2 * Math.PI) / PERIOD / Math.asin(KS);
+
+// ---------------- what the sensors see ----------------
+// b: bearing (port negative), r: light-years, sig: signature strength (0–1)
+const OBJ = [
+  { name: "Beta Kupsic", cls: "Star  ·  Class G8 V", kind: "star", b: -40, r: 14.0, sig: 0.88, ink: "#ffd77a", size: 11, peak: 0.42 },
+  { name: "FGC-1182", cls: "Star  ·  Class M3 V", kind: "star", b: 18, r: 4.6, sig: 0.71, ink: "#ff8a5c", size: 8, peak: 0.64 },
+  { name: "Kappa Taurin", cls: "Star  ·  Class B2 III", kind: "star", b: 44, r: 17.8, sig: 0.94, ink: "#b4ceff", size: 13, peak: 0.16 },
+  { name: "Mar Oscura", cls: "Nebula  ·  Dark Matter", kind: "nebula", b: -10, r: 13.4, sig: 0.34 },
+  { name: "Anomaly 4471", cls: "Subspace Anomaly  ·  Rift", kind: "anomaly", b: 15, r: 10.8, sig: 0.57 },
+  { name: "PSR-2209", cls: "Neutron Star  ·  Pulsar", kind: "pulsar", b: 23, r: 18.6, sig: 0.62 },
+  { name: "C-6012", cls: "Comet  ·  Interstellar", kind: "comet", b: -50, r: 6.0, sig: 0.22 },
+  { name: "Ion Storm", cls: "Ion Storm Front  ·  Class 4", kind: "storm", b: -20, r: 17.4, sig: 0.76 },
+  { name: "", cls: "", kind: "vessel", b: 58, r: 17.2, sig: 0.66 },
+];
+OBJ.forEach((o, i) => { o.i = i; o.hitT = -99; o.sigNow = o.sig; [o.x, o.y] = pol(o.b, o.r); });
+const VESSEL = OBJ[8], STORM = OBJ[7], COMET = OBJ[6];
+
+const svgIn = (parent, w, h) => {
+  const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  s.setAttribute("width", w); s.setAttribute("height", h); s.setAttribute("viewBox", `0 0 ${w} ${h}`);
+  s.style.position = "absolute"; s.style.left = 0; s.style.top = 0; s.style.overflow = "visible";
+  parent.appendChild(s);
+  return s;
+};
+const radial = (svg, id, stops) => {
+  const d = L.svg("defs", {}, svg), g = L.svg("radialGradient", { id }, d);
+  stops.forEach(([o, c, a]) => L.svg("stop", { offset: o, "stop-color": c, "stop-opacity": a }, g));
+};
+const FLOOR = { star: 0.4, nebula: 0.45, anomaly: 0.35, pulsar: 0.35, comet: 0.35, storm: 0.3, vessel: 0.4 };
+for (const o of OBJ) {
+  let w = 80, h = 80;
+  if (o.kind === "nebula") { w = 440; h = 300; }
+  if (o.kind === "storm") { w = 440; h = 150; }
+  if (o.kind === "comet") { w = 60; h = 60; }
+  o.w = w; o.h = h;
+  o.g = { e: L.layer({ x: 0, y: 0, w, h }), op: -1 };
+  const s = svgIn(o.g.e, w, h), cx = w / 2, cy = h / 2;
+  if (o.kind === "star") {
+    radial(s, "st" + o.i, [[0, o.ink, 1], [0.35, o.ink, 0.45], [1, o.ink, 0]]);
+    L.svg("circle", { cx, cy, r: o.size * 3.2, fill: `url(#st${o.i})` }, s);
+    L.svg("circle", { cx, cy, r: o.size * 0.75, fill: o.ink }, s);
+  } else if (o.kind === "nebula") {
+    radial(s, "nb", [[0, "#6b56d8", 0.55], [0.5, "#3a6fff", 0.22], [1, "#3a6fff", 0]]);
+    radial(s, "nb2", [[0, "#8fd3ff", 0.35], [0.6, "#5c9dff", 0.1], [1, "#5c9dff", 0]]);
+    [[220, 150, 210, 130, -12], [160, 120, 120, 90, 20], [290, 180, 130, 90, -30], [240, 140, 90, 60, 0]].forEach(([x, y, rx, ry, a], k) =>
+      L.svg("ellipse", { cx: x, cy: y, rx, ry, fill: `url(#${k === 3 ? "nb2" : "nb"})`, transform: `rotate(${a} ${x} ${y})` }, s));
+  } else if (o.kind === "anomaly") {
+    radial(s, "an", [[0, "#ffcc66", 0.7], [0.45, "#ffcc66", 0.18], [1, "#ffcc66", 0]]);
+    L.svg("circle", { cx, cy, r: 38, fill: "url(#an)" }, s);
+    o.spin = { e: L.layer({ x: 0, y: 0, w: 80, h: 80 }, o.g.e) };
+    const sp = svgIn(o.spin.e, 80, 80);
+    for (let k = 0; k < 3; k++) L.svg("path", { d: L.arc(40, 40, 24, 30, k * 120, k * 120 + 75), fill: "var(--butter)" }, sp);
+  } else if (o.kind === "pulsar") {
+    radial(s, "ps", [[0, "#ffffff", 1], [0.3, "#8fd3ff", 0.5], [1, "#8fd3ff", 0]]);
+    L.svg("circle", { cx, cy, r: 24, fill: "url(#ps)" }, s);
+    L.svg("path", { d: `M${cx - 30},${cy + 30} L${cx + 30},${cy - 30}`, stroke: "#8fd3ff", "stroke-width": 3, opacity: 0.7 }, s);
+    L.svg("circle", { cx, cy, r: 6, fill: "#fff" }, s);
+    o.ping = { e: L.layer({ x: 16, y: 16, w: 48, h: 48, cls: "ping" }, o.g.e), op: -1 };
+  } else if (o.kind === "comet") {
+    radial(s, "cm", [[0, "#ffffff", 1], [0.35, "#e6f6ff", 0.8], [0.6, "#8fd3ff", 0.4], [1, "#8fd3ff", 0]]);
+    L.svg("circle", { cx, cy, r: 22, fill: "url(#cm)" }, s);
+    o.tail = { e: L.layer({ x: 0, y: 0, w: 230, h: 16 }), op: -1 };
+    o.tail.e.style.transformOrigin = "0 50%"; o.tail.e.style.borderRadius = "8px";
+    o.tail.e.style.background = "linear-gradient(to right, rgba(230,246,255,.85), rgba(143,211,255,.4) 25%, rgba(143,211,255,.1) 70%, rgba(143,211,255,0))";
+  } else if (o.kind === "storm") {
+    // a front lying along the range arc it sits on: drawn in its own frame, turned with its bearing
+    const rr = o.r * K, a = 13, d = L.svg("defs", {}, s), f = L.svg("filter", { id: "sb", x: "-20%", y: "-60%", width: "140%", height: "220%" }, d);
+    L.svg("feGaussianBlur", { stdDeviation: 9 }, f);
+    const arcD = (r, aa) => { const p = (q) => [cx + r * Math.sin(rad(q)), cy + rr - r * Math.cos(rad(q))]; const [x0, y0] = p(-aa), [x1, y1] = p(aa); return `M${x0.toFixed(1)},${y0.toFixed(1)} A${r},${r} 0 0 1 ${x1.toFixed(1)},${y1.toFixed(1)}`; };
+    L.svg("path", { d: arcD(rr + 6, a), stroke: "#ff5a3c", "stroke-width": 60, fill: "none", opacity: 0.45, filter: "url(#sb)", "stroke-linecap": "round" }, s);
+    L.svg("path", { d: arcD(rr - 4, a - 2), stroke: "#ffcc66", "stroke-width": 26, fill: "none", opacity: 0.35, filter: "url(#sb)", "stroke-linecap": "round" }, s);
+    L.svg("path", { d: arcD(rr + 18, a - 1), stroke: "#ff5a3c", "stroke-width": 4, fill: "none", "stroke-dasharray": "18 10", opacity: 0.9 }, s);
+    L.svg("path", { d: arcD(rr - 10, a - 4), stroke: "#ffcc66", "stroke-width": 3, fill: "none", "stroke-dasharray": "6 12", opacity: 0.8 }, s);
+  } else if (o.kind === "vessel") {
+    L.svg("path", { d: `M${cx},${cy - 20} L${cx + 18},${cy} L${cx},${cy + 20} L${cx - 18},${cy} Z`, fill: "var(--mars)" }, s);
+    L.svg("circle", { cx, cy, r: 32, fill: "none", stroke: "var(--mars)", "stroke-width": 3, "stroke-dasharray": "8 7" }, s);
+    o.proj = { e: L.layer({ x: 0, y: 0, w: 180, h: 4, cls: "proj" }), op: -1 };
+  }
+  // its name, beside it
+  const LW = 330;
+  o.lab = { e: L.layer({ x: 0, y: 0, w: LW, h: 46, cls: "ml" }), op: -1 };
+  o.labT = L.text({ x: 0, cap: 8, s: 36, c: o.kind === "vessel" ? "mars" : o.kind === "storm" ? "butter" : "ice", txt: o.name }, o.lab.e);
+  o.labT.style.width = LW + "px";
+}
+// where each name sits, from the glyph's centre: [dx, baseline dy, align]
+const LABEL = { "Beta Kupsic": [44, 13], "FGC-1182": [34, 13], "Kappa Taurin": [-50, 13, "r"], "Mar Oscura": [0, 128, "c"], "Anomaly 4471": [48, 13],
+  "PSR-2209": [42, 13], "C-6012": [30, -30], "Ion Storm": [0, 104, "c"], "": [50, 13] };
+const placeLabel = (o) => {
+  const [dx, dy, al] = LABEL[o.kind === "vessel" ? "" : o.name], LW = 330;
+  const x = al === "c" ? o.x - LW / 2 : al === "r" ? o.x + dx - LW : o.x + dx;
+  css(o.labT, "textAlign", al === "c" ? "center" : al === "r" ? "right" : "left");
+  L.move(o.lab.e, x, o.y + dy - (8 + 0.72 * 36));          // the name's baseline at dy below the glyph's centre
+};
+// the focus reticle
+const ret = L.layer({ x: 0, y: 0, w: 120, h: 120, cls: "ret" });
+[["left", "top", "borderLeftWidth", "borderTopWidth"], ["right", "top", "borderRightWidth", "borderTopWidth"],
+ ["left", "bottom", "borderLeftWidth", "borderBottomWidth"], ["right", "bottom", "borderRightWidth", "borderBottomWidth"]]
+  .forEach(([h, v, b1, b2]) => { const i = L.el("i", "", ret); i.style[h] = 0; i.style[v] = 0; i.style[b1] = "5px"; i.style[b2] = "5px"; });
+
+// ---------------- contacts ----------------
+header(RX, 280, RR - RX, "Contacts  ·  Classification", "blue", "sky");
+const TC = { name: RX, cls: 2790, brg: 3270, rng: 3460, bar: 3530, barW: 190, sig: RR };
+L.text({ x: TC.name, base: 400, s: 36, c: "sky", txt: "Designation" });
+L.text({ x: TC.cls, base: 400, s: 36, c: "sky", txt: "Classification" });
+L.text({ x: TC.brg, base: 400, s: 36, c: "sky", txt: "Bearing", align: "r" });
+L.text({ x: TC.rng, base: 400, s: 36, c: "sky", txt: "Range LY", align: "r" });
+L.text({ x: TC.sig, base: 400, s: 36, c: "sky", txt: "Signal", align: "r" });
+OBJ.forEach((o, i) => {
+  const base = 460 + i * 54;
+  o.row = {
+    name: L.text({ x: TC.name, base, s: 36, c: "white", txt: "" }),
+    cls: L.text({ x: TC.cls, base, s: 36, c: "sky", txt: "" }),
+    brg: L.text({ x: TC.brg, base, s: 36, c: "white", txt: "", align: "r" }),
+    rng: L.text({ x: TC.rng, base, s: 36, c: "white", txt: "", align: "r" }),
+    sig: L.text({ x: TC.sig, base, s: 36, c: "white", txt: "", align: "r" }),
+  };
+  L.rect({ x: TC.bar, y: base - 26, w: TC.barW, h: 26, c: DARK });
+  o.bar = L.layer({ x: TC.bar, y: base - 26, w: TC.barW, h: 26, cls: "pbar" });
+  o.bar.style.background = o.kind === "vessel" ? "var(--mars)" : o.kind === "storm" || o.kind === "anomaly" ? "var(--butter)" : "var(--sky)";
+  o.bar.style.transform = "scaleX(0.01)";
+});
+const showRow = (o) => {
+  const lost = o.kind === "vessel" && !o.seen;
+  put(o.row.name, lost ? (o.lostName || "Scanning") : o.name);
+  put(o.row.cls, lost ? (o.lostName ? "Contact lost" : "No contact") : o.cls);
+  put(o.row.brg, lost && !o.lostName ? "—" : brg(o.b));
+  put(o.row.rng, lost && !o.lostName ? "—" : o.r.toFixed(2));
+  put(o.row.sig, lost ? "—" : o.sigNow.toFixed(2));
+  o.bar.style.transform = `scaleX(${lost ? 0.01 : L.clamp(o.sigNow, 0.01, 1).toFixed(3)})`;
+  css(o.row.cls, "color", o.kind === "vessel" ? (lost ? "var(--sky)" : "var(--mars)") : "var(--sky)");
+};
+
+// ---------------- sensor focus: one contact's return ----------------
+header(RX, 1000, RR - RX, "Sensor Focus  ·  Return Profile", "sky", "navy");
+const fName = L.text({ x: RX, base: 1112, s: 52, c: "white", txt: "" });
+const fCls = L.text({ x: RR, base: 1112, s: 40, c: "sky", txt: "", align: "r" });
+const PX = RX, PY = 1150, PW = RR - RX, PH = 250;
+L.rect({ x: PX, y: PY, w: PW, h: PH, c: "#02061a", panel: true });
+{
+  const g = L.svg("g", { class: "boot" });
+  for (let k = 1; k < 4; k++) L.svg("rect", { x: PX, y: PY + (PH * k) / 4 - 1, width: PW, height: 2, fill: "#13235e" }, g);
+  for (let k = 1; k < 8; k++) L.svg("rect", { x: PX + (PW * k) / 8 - 1, y: PY, width: 2, height: PH, fill: "#13235e" }, g);
+}
+[1, 16, 32, 48, 64].forEach((n) => {
+  const x = PX + ((n - 1) / 63) * PW;
+  L.text({ x: n === 1 ? PX : n === 64 ? RR : x, base: PY + PH + 46, s: 30, c: "sky", txt: n === 1 ? "Band 1" : n === 64 ? "64" : n, align: n === 1 ? "l" : n === 64 ? "r" : "c", w: 120, legend: true });
+});
+const profLayer = { e: L.layer({ x: PX, y: PY, w: PW, h: PH }), op: -1 };
+const profSvg = svgIn(profLayer.e, PW, PH);
+const cursor = { e: L.layer({ x: PX, y: PY, w: 70, h: PH, cls: "cursor" }), op: -1 };
+const fVals = ["Bearing", "Range", "Signal", "Doppler"].map((label, i) => {         // label and reading in pairs, a quarter apart
+  const x = RX + (i * PW) / 4;
+  L.text({ x, base: 1546, s: 40, c: "sky", txt: label });
+  return L.text({ x: x + Math.ceil(L.textWidth(label, 40)) + 24, base: 1546, s: 52, c: "white", txt: "" });
+});
+const PROFILE = {
+  star: (x, n, o) => 0.12 + 0.72 * Math.exp(-(((x - o.peak) / 0.2) ** 2)) - [0.22, 0.41, 0.47, 0.63].reduce((a, c, k) => a + 0.16 * Math.exp(-(((x - c) / 0.008) ** 2)) * (1 - k * 0.15), 0) + 0.02 * n,
+  nebula: (x, n) => 0.1 + 0.32 * Math.exp(-(((x - 0.52) / 0.3) ** 2)) + 0.07 * n,
+  anomaly: (x, n) => { const u = 18 * (x - 0.6); return 0.14 + 0.72 * Math.abs(u ? Math.sin(u) / u : 1) + 0.03 * n; },
+  pulsar: (x, n) => 0.08 + [0, 1, 2, 3, 4, 5, 6].reduce((a, k) => a + 0.78 * Math.pow(0.8, k) * Math.exp(-(((x - 0.07 - k * 0.135) / 0.012) ** 2)), 0) + 0.02 * n,
+  comet: (x, n) => 0.08 + 0.36 * Math.exp(-(((x - 0.18) / 0.045) ** 2)) + 0.12 * Math.exp(-(((x - 0.3) / 0.08) ** 2)) + 0.03 * n,
+  storm: (x, n) => 0.32 + 0.16 * Math.sin(x * 23) * Math.sin(x * 7 + 1) + 0.22 * Math.exp(-(((x - 0.25) / 0.15) ** 2)) + 0.08 * n,
+  vessel: (x, n) => 0.08 + [[0.26, 0.86], [0.52, 0.62], [0.78, 0.38]].reduce((a, [c, h]) => a + h * Math.exp(-(((x - c) / 0.016) ** 2)), 0) + 0.025 * n,
+};
+const drawProfile = (o) => {
+  while (profSvg.firstChild) profSvg.firstChild.remove();
+  const rnd = seeded(o.i * 131 + 7), N = 192, pts = [];
+  let n = 0;
+  for (let k = 0; k <= N; k++) {
+    n = 0.6 * n + 0.4 * (rnd() * 2 - 1);
+    const x = k / N, v = L.clamp(PROFILE[o.kind](x, n, o), 0.02, 0.96);
+    pts.push(`${(x * PW).toFixed(1)},${(PH - 10 - v * (PH - 30)).toFixed(1)}`);
+  }
+  const d = L.svg("defs", {}, profSvg), gr = L.svg("linearGradient", { id: "pf", x1: 0, x2: 0, y1: 0, y2: 1 }, d);
+  const col = o.kind === "vessel" ? "#ff5a3c" : o.kind === "storm" || o.kind === "anomaly" ? "#ffcc66" : "#5c9dff";
+  L.svg("stop", { offset: 0, "stop-color": col, "stop-opacity": 0.45 }, gr); L.svg("stop", { offset: 1, "stop-color": col, "stop-opacity": 0.03 }, gr);
+  L.svg("polygon", { points: `0,${PH} ${pts.join(" ")} ${PW},${PH}`, fill: "url(#pf)" }, profSvg);
+  L.svg("polyline", { points: pts.join(" "), fill: "none", stroke: o.kind === "vessel" ? "#ff8a70" : o.kind === "storm" || o.kind === "anomaly" ? "#ffd98a" : "#8fd3ff",
+    "stroke-width": 4, "stroke-linejoin": "round" }, profSvg);
+};
+
+// ---------------- sensor arrays ----------------
+header(330, 1620, 1000, "Sensor Arrays", "blue", "sky", 48, 28);
+const AB = { x: 760, w: 300, pct: 1170 };
+L.text({ x: 330, base: 1734, s: 36, c: "sky", txt: "Array" });
+L.text({ x: AB.x, base: 1734, s: 36, c: "sky", txt: "Power" });
+L.text({ x: 1330, base: 1734, s: 36, c: "sky", txt: "Resolution", align: "r" });
+const ARRAYS = [["Forward Array", 0.94, "0.04 LY"], ["Lateral Array  ·  Port", 0.81, "0.12 LY"], ["Lateral Array  ·  Starboard", 0.83, "0.12 LY"],
+  ["Long Range Pallet", 0.97, "0.02 LY"]].map(([name, v, res], i) => {
+  const base = 1788 + i * 54;
+  L.text({ x: 330, base, s: 36, c: "ice", txt: name });
+  L.rect({ x: AB.x, y: base - 26, w: AB.w, h: 26, c: DARK });
+  const bar = L.layer({ x: AB.x, y: base - 26, w: AB.w, h: 26, cls: "pbar" });
+  bar.style.background = i === 3 ? "var(--butter)" : "var(--sky)";
+  const pct = L.text({ x: AB.pct, base, s: 36, c: "white", txt: "", align: "r" });
+  L.text({ x: 1330, base, s: 36, c: "white", txt: res, align: "r" });
+  return { v, base: v, bar, pct };
+});
+L.text({ x: 330, base: 2004, s: 36, c: "sky", txt: "Effective Range" });
+L.text({ x: 1330, base: 2004, s: 36, c: "butter", txt: `${RANGE.toFixed(1)} light-years`, align: "r" });
+const showArrays = () => ARRAYS.forEach((a) => { a.bar.style.transform = `scaleX(${a.v.toFixed(3)})`; put(a.pct, (a.v * 100).toFixed(1) + "%"); });
+showArrays();
+later(6000, () => { const a = L.pick(ARRAYS); a.v = L.clamp(a.base + L.rand(-0.02, 0.02), 0.5, 0.995); showArrays(); }, 0.3);
+
+// ---------------- subspace interference ----------------
+header(1410, 1620, 920, "Subspace Interference", "sky", "navy", 48, 28);
+L.text({ x: 1410, base: 1734, s: 36, c: "sky", txt: "Noise Floor" });
+const noiseV = L.text({ x: 1800, base: 1734, s: 36, c: "white", txt: "", align: "r" });
+L.text({ x: 1940, base: 1734, s: 36, c: "sky", txt: "Peak" });
+const peakV = L.text({ x: 2330, base: 1734, s: 36, c: "butter", txt: "", align: "r" });
+const NB = 24, SLOT = 920 / NB, BW = 24, BTOP = 1768, BBOT = 1950;
+const bands = Array.from({ length: NB }, (_, i) => {
+  const x = 1410 + i * SLOT + (SLOT - BW) / 2;
+  L.rect({ x, y: BTOP, w: BW, h: BBOT - BTOP, c: DARK, free: true });
+  const e = L.layer({ x, y: BTOP, w: BW, h: BBOT - BTOP, cls: "bar" });
+  const hump = 0.62 * Math.exp(-(((i - 16) / 1.6) ** 2)) + 0.18 * Math.exp(-(((i - 4) / 2.5) ** 2));   // the rift's band, and the ion storm's
+  return { e, x: x + BW / 2, hump, v: 0 };
+});
+[1, 6, 12, 18, 24].forEach((n) => L.text({ x: bands[n - 1].x, base: 2004, s: 36, c: "sky", txt: n, align: "c", w: 60 }));
+const setBand = (b) => {
+  b.v = L.clamp(0.14 + b.hump + L.rand(-0.06, 0.1), 0.05, 0.97);
+  b.e.style.transform = `scaleY(${b.v.toFixed(3)})`;
+  b.e.style.background = b.v > 0.6 ? "var(--butter)" : b.hump > 0.12 ? "var(--sky)" : "var(--blue)";
+};
+bands.forEach(setBand);
+const showNoise = () => {
+  const floor = bands.reduce((a, b) => a + b.v, 0) / NB;
+  put(noiseV, (floor * 1.6).toFixed(2) + " mc");
+  let k = 0; bands.forEach((b, i) => { if (b.v > bands[k].v) k = i; });
+  put(peakV, `Band ${k + 1}  ·  ${(bands[k].v * 1.6).toFixed(2)} mc`);
+};
+showNoise();
+later(700, () => { for (let n = 0; n < 4; n++) setBand(L.pick(bands)); }, 0.3);
+later(3000, showNoise, 0.2);
+
+// ---------------- scan log ----------------
+header(RX, 1620, RR - RX, "Scan Log", "butter", "sky", 48, 28);
+const logRows = Array.from({ length: 6 }, (_, i) => {
+  const base = 1734 + i * 54;
+  return { sd: L.text({ x: RX, base, s: 36, c: "sky", txt: "" }), what: L.text({ x: 2600, base, s: 36, c: "white", txt: "" }),
+           who: L.text({ x: RR, base, s: 36, c: "sky", txt: "", align: "r" }) };
+});
+const logged = [];
+const log = (what, who, c = "white") => {
+  stardate += 0.1; showSub();
+  logged.push([stardate.toFixed(1), what, who, c]);
+  if (logged.length > 6) logged.shift();
+  logRows.forEach((r, i) => {
+    const e = logged[i] || ["", "", "", "white"];
+    put(r.sd, e[0]); put(r.what, e[1]); put(r.who, e[2]); css(r.what, "color", `var(--${e[3]})`);
+  });
+};
+const ROUTINE = [
+  ["Forward sweep complete  ·  20 light-years", "Sensors"],
+  ["Lateral arrays recalibrated  ·  0.3% drift", "Science"],
+  ["Subspace noise filtered  ·  bands 14 – 18", "Sensors"],
+  ["Mar Oscura  ·  dark matter density 2.4 x 10³", "Science"],
+  ["Pulsar PSR-2209  ·  period 1.337 s, stable", "Stellar Cartography"],
+  ["Ion storm front  ·  drift 0.02 c to port", "Science"],
+  ["Anomaly 4471  ·  graviton flux steady", "Science"],
+  ["Long range pallet  ·  cooling cycle nominal", "Engineering"],
+  ["Course 047 mark 12  ·  no obstructions", "Conn"],
+  ["Comet C-6012  ·  ice and carbon compounds", "Science"],
+];
+let routineI = L.irand(0, ROUTINE.length - 1);
+const routine = () => { const [w, who] = ROUTINE[routineI++ % ROUTINE.length]; log(w, who); };
+for (let i = 0; i < 6; i++) routine();
+later(13000, routine, 0.35);
+
+// ---------------- the vessel: comes in on an intercept course, then turns away ----------------
+const SHIPS = [["Ferengi Marauder", "D'Kora class"], ["Klingon Bird-of-Prey", "B'rel class"], ["Cardassian Warship", "Galor class"], ["Federation Freighter", "Antares class"]];
+let shipI = L.irand(0, SHIPS.length - 1), vesselN = L.irand(10, 40);
+const VP = 210, VT = 175;                                     // a visit, and how long it takes to cross
+const [VSx, VSy] = pol(58, 17.2), [VCx, VCy] = pol(10, 3.2), [VFx, VFy] = pol(67, 9.6);
+const bez = (u) => [(1 - u) ** 2 * VSx + 2 * u * (1 - u) * VCx + u * u * VFx, (1 - u) ** 2 * VSy + 2 * u * (1 - u) * VCy + u * u * VFy];
+const V0 = -L.rand(10, 120);                                  // somewhere into a visit at the start
+let visit = -1;
+const vesselState = (t) => {
+  const n = Math.floor((t - V0) / VP), a = t - V0 - n * VP;
+  return { n, u: a / VT, a };
+};
+const newVessel = () => {
+  const [nm, cl] = SHIPS[shipI++ % SHIPS.length];
+  Object.assign(VESSEL, { seen: false, hits: 0, ship: nm, shipCls: cl, id: `Contact ${++vesselN}`, turned: false });
+  VESSEL.name = VESSEL.id; VESSEL.cls = "Vessel  ·  Warp Signature";
+};
+
+// ---------------- motion ----------------
+let prevA = sweepAt(0), focusT0 = -99, retFrom = [CX, CY - 400], settled = false;
+const FOCUS = 14;
+const focusables = () => OBJ.filter((o) => o.kind !== "vessel" || o.seen);
+const hit = (o, t) => {
+  o.hitT = t;
+  o.sigNow = L.clamp(o.sig + L.rand(-0.025, 0.025), 0.05, 0.99);
+  if (o.kind === "vessel") {
+    if (!o.visible) return;
+    o.hits++;
+    if (!o.seen) { o.seen = true; o.lostName = null; log(`Warp signature  ·  bearing ${brg(o.b)}, ${o.r.toFixed(1)} light-years`, "Sensors", "mars"); }
+    if (o.hits === 3) {
+      o.name = o.ship; o.cls = o.turned ? "Vessel  ·  Course Altered" : "Vessel  ·  Intercept Course";
+      log(`${o.id} identified  ·  ${o.ship}, ${o.shipCls}`, "Tactical", "mars");
+      if (!o.turned) { put(pill, "Intercept Course"); pill.style.background = "var(--mars)"; }
+    }
+    if (o.turned && o.hits > 3 && o.cls !== "Vessel  ·  Course Altered") {
+      o.cls = "Vessel  ·  Course Altered";
+      log(`${o.ship}  ·  course altered, now heading ${brg(o.heading)}`, "Tactical", "butter");
+      put(pill, "Sensors Active"); pill.style.background = "var(--sky)";
+    }
+  }
+  showRow(o);
+  css(o.row.name, "color", "var(--butter)");
+  o.flash = t;
+};
+newVessel();
+OBJ.forEach(showRow);
+
+L.tick((t) => {
+  // the arm and its afterglow
+  const a = sweepAt(t), v = (a - prevA) / Math.max(1e-3, 1 / 30);
+  arm.style.transform = `rotate(${a.toFixed(3)}deg)`;
+  const k = L.clamp(Math.abs(v) / VMAX);
+  for (const [i, tr] of trails.entries()) {
+    const on = (i === 0) === v > 0 ? L.clamp((k - 0.15) / 0.6) : 0;
+    if (on > 0 || tr.op > 0) tr.e.style.transform = `rotate(${a.toFixed(3)}deg)`;   // a hidden afterglow is left where it is
+    opa(tr, on);
+  }
+
+  // the moving contacts
+  {
+    const vs = vesselState(t);
+    if (vs.n !== visit) { if (visit >= 0 || vs.a > 3) { if (VESSEL.seen) { VESSEL.lostName = VESSEL.name; } newVessel(); showRow(VESSEL); } visit = vs.n; }
+    const u = L.clamp(vs.u, 0, 1.15), [x, y] = bez(u), [x2, y2] = bez(u + 0.01);
+    VESSEL.x = x; VESSEL.y = y; [VESSEL.b, VESSEL.r] = toPolar(x, y);
+    VESSEL.heading = (Math.atan2(x2 - x, y - y2) * 180) / Math.PI;
+    if (!VESSEL.turned && u > 0.52) VESSEL.turned = true;
+    VESSEL.visible = vs.u < 1 && VESSEL.b < SPAN - 0.5 && VESSEL.r < RANGE - 0.3;
+    VESSEL.vis = L.clamp(vs.a / 4) * L.clamp((SPAN - VESSEL.b) / 2.5) * (vs.u < 1 ? 1 : 0);
+    if (VESSEL.seen && VESSEL.vis === 0 && vs.u > 0.6) {
+      VESSEL.seen = false; VESSEL.lostName = VESSEL.name;
+      log(`${VESSEL.name}  ·  out of sensor range, bearing ${brg(VESSEL.b)}`, "Sensors", "sky");
+      put(pill, "Sensors Active"); pill.style.background = "var(--sky)";
+      showRow(VESSEL);
+    }
+    const ang = Math.atan2(y2 - y, x2 - x);
+    VESSEL.proj.e.style.transform = `translate3d(${(x + 40 * Math.cos(ang)).toFixed(1)}px,${(y - 2 + 40 * Math.sin(ang)).toFixed(1)}px,0) rotate(${ang.toFixed(4)}rad)`;
+  }
+  {
+    const s = ((t / 520 + 0.37) % 1), [x0, y0] = pol(-46, 4.8), [x1, y1] = pol(-37, 8.4);
+    COMET.x = L.mix(x0, x1, s); COMET.y = L.mix(y0, y1, s); [COMET.b, COMET.r] = toPolar(COMET.x, COMET.y);
+    COMET.vis = L.clamp(Math.min(s, 1 - s) / 0.06);
+    const sun = OBJ[1], ang = Math.atan2(COMET.y - sun.y, COMET.x - sun.x);
+    COMET.tail.e.style.transform = `translate3d(${COMET.x.toFixed(1)}px,${(COMET.y - 8).toFixed(1)}px,0) rotate(${ang.toFixed(4)}rad)`;
+  }
+  {
+    STORM.b = -20 + 9 * Math.sin((2 * Math.PI * t) / 400 + 1.1);
+    [STORM.x, STORM.y] = pol(STORM.b, STORM.r);
+  }
+
+  // the sweep finds things
+  for (const o of OBJ) {
+    if ((prevA - o.b) * (a - o.b) <= 0 && prevA !== a) hit(o, t);
+    if (o.flash && t - o.flash > 1.8) { o.flash = 0; css(o.row.name, "color", "var(--white)"); }
+    const age = t - o.hitT;
+    const glow = age < 0.35 ? age / 0.35 : Math.exp(-(age - 0.35) / 7);
+    const vis = o.vis ?? 1, fl = FLOOR[o.kind];
+    if (o.kind === "vessel" && !o.seen) { opa(o.g, 0); opa(o.lab, 0); opa(o.proj, 0); }
+    else {
+      opa(o.g, vis * (fl + (1 - fl) * glow));
+      opa(o.lab, vis * (0.62 + 0.38 * glow));
+      if (o.proj) opa(o.proj, vis * (o.turned ? 0 : 0.8) * (0.5 + 0.5 * glow));
+    }
+    if (o.tail) opa(o.tail, vis * (0.45 + 0.55 * glow));
+    if (o.vis !== undefined || o.kind === "storm" || !settled) L.move(o.g.e, o.x - o.w / 2, o.y - o.h / 2, o.kind === "storm" ? o.b : 0);
+    if (o.spin) L.move(o.spin.e, 0, 0, (t * 14) % 360);
+    if (o.ping) { const p = (t % 2.6) / 2.6; o.ping.e.style.transform = `scale(${(0.6 + p * 1.6).toFixed(3)})`; opa(o.ping, 0.8 * (1 - p)); }
+    if (o.kind === "storm" || o.kind === "vessel" || o.kind === "comet" || !settled) placeLabel(o);
+  }
+  prevA = a;
+
+  // the focus: one contact at a time, the reticle easing over to it
+  const lostFocus = showFocus.cur === VESSEL.i && !VESSEL.seen;
+  if (t - focusT0 >= FOCUS || (lostFocus && t - focusT0 > 1)) {
+    const list = focusables(), cur = OBJ[showFocus.cur ?? -1];
+    let next = list[0];
+    if (cur) { const j = list.indexOf(cur); next = list[(j + 1) % list.length] || list[0]; }
+    retFrom = showFocus.pos || [CX, CY - 400];
+    showFocus(next, t); focusT0 = t;
+  }
+  const fo = OBJ[showFocus.cur], e = L.ease(L.clamp((t - focusT0) / 1.8));
+  const rs = fo.kind === "nebula" ? 1.9 : fo.kind === "storm" ? 2.2 : 1;
+  showFocus.pos = [L.mix(retFrom[0], fo.x, e), L.mix(retFrom[1], fo.y, e)];
+  L.move(ret, showFocus.pos[0] - 60, showFocus.pos[1] - 60, 0, L.mix(showFocus.rs || 1, rs, e));
+  if (e >= 1) showFocus.rs = rs;
+  // the profile fades in, and a cursor reads across it
+  const fa = t - focusT0;
+  opa(profLayer, fa < 0.8 ? fa / 0.8 : fa > FOCUS - 0.6 ? L.clamp((FOCUS - fa) / 0.6) : 1);
+  const cu = (fa - 1) / (FOCUS - 2.4);
+  opa(cursor, cu > 0 && cu < 1 ? 0.9 * Math.sin(cu * Math.PI) : 0);
+  if (cu > 0 && cu < 1) L.move(cursor.e, cu * (PW - 70), 0);
+  settled = true;
+});
+const showFocus = (o, t) => {
+  showFocus.cur = o.i;
+  put(fName, o.name); put(fCls, o.cls);
+  css(fName, "color", o.kind === "vessel" ? "var(--mars)" : "var(--white)");
+  drawProfile(o);
+  showFocusVals(o);
+};
+const showFocusVals = (o) => {
+  put(fVals[0], brg(o.b)); put(fVals[1], o.r.toFixed(2) + " LY"); put(fVals[2], o.sigNow.toFixed(2));
+  const dop = o.kind === "vessel" ? -(o.turned ? -118 : 284) : { star: [-21, 14, 9][o.i] ?? 0, nebula: -4, anomaly: 0, pulsar: 31, comet: -46, storm: -212 }[o.kind];
+  put(fVals[3], o.kind === "vessel" ? (o.turned ? "Receding" : "Closing") : (dop > 0 ? "+" : dop < 0 ? "-" : "") + Math.abs(dop) + " km/s");
+};
+// the readings: a few times a second at most
+L.every(250, (t) => {
+  const a = sweepAt(t), v = sweepAt(t + 0.05) - a;
+  put(sweepB, brg(a)); put(sweepDir, v >= 0 ? "Port to Starboard" : "Starboard to Port");
+  put(VESSEL.labT, VESSEL.name);
+  put(shipCont, String(OBJ.filter((o) => o.kind !== "vessel" || o.seen).length));
+  const fo = OBJ[showFocus.cur];
+  if (fo) { if (fo.kind === "vessel" || fo.kind === "storm" || fo.kind === "comet") showFocusVals(fo); put(fName, fo.name); put(fCls, fo.cls); }
+}, 0);
+later(500, () => { nTL.tick(2); nTR.tick(2); }, 0.3);
+});
+</script></body></html>

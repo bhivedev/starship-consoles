@@ -1,0 +1,543 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Utopia Planitia</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .sw { transition: background-color .9s ease, color .9s ease; }
+  .clip { position: absolute; overflow: hidden; }
+  @keyframes bee { from { opacity: .2; } to { opacity: 1; } }
+  .bee { position: absolute; border: 3px solid var(--butter); border-radius: 4px; box-sizing: border-box;
+         animation: bee 1.8s ease-in-out infinite alternate; will-change: opacity; }
+  .clamp { position: absolute; background: var(--peach); border-radius: 2px; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: wide, no sidebars — the slips are the screen ----------------
+L.frame({ type: "D", title: "Utopia Planitia  •  Fleet Yards", c: "orange", c2: "sky", accent: "peach" });
+
+// Two columns, 64 apart: slips 40–2668 | tables 2732–3816. Every line in the upper part sits on
+// one grid of baselines, 64 apart from 460, so each slip's three lines and the tables beside
+// them share their baselines. Bottom strip on a 54 grid from 1776.
+const LX = 40, LR = 2668, RX = 2732, RR = 3816;
+const G = (k) => 460 + 64 * k;
+const DX0 = 620, DX1 = 2080, CX0 = 640, PX0 = 2140;          // the slip (rails), its cells, the progress readings
+const SLIPY = (i) => 416 + 192 * i, SH = 184;
+const RAIL = "#6e4316", BAY = "#120a04", TRACK = "#2e1d0c", EMPTY = "#4a3216", DIMBOX = "#5a3c1a";
+const col = (c) => (c.startsWith("#") ? c : `var(--${c})`);
+const bg = (e, c) => { if (e._bg !== c) { e._bg = c; e.style.backgroundColor = col(c); } };
+const fg = (e, c) => { if (e._fg !== c) { e._fg = c; e.style.color = col(c); } };
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const op = (e, v) => { v = v < 0.005 ? "0" : v > 0.995 ? "1" : v.toFixed(3); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const pad2 = (n) => String(n).padStart(2, "0");
+const fmt = (n) => Math.round(n).toLocaleString("en-US");
+const widest = (items, s) => Math.ceil(Math.max(...items.map((t) => L.textWidth(t, s))));
+const mmss = (s) => { s = Math.max(0, Math.ceil(s)); return `${pad2(Math.floor(s / 60))}:${pad2(s % 60)}`; };
+const bad = [];
+const fits = (txt, s, w, where) => { if (L.textWidth(txt, s) > w) bad.push(`${where}: "${txt}"`); };
+const columns = (x0, x1, widths) => {                        // a table's columns spread evenly: [left, right] of each
+  const total = widths.reduce((a, b) => a + b, 0), gap = (x1 - x0 - total) / (widths.length - 1);
+  let x = x0;
+  return widths.map((w) => { const c = [Math.round(x), Math.round(x + w)]; x += w + gap; return c; });
+};
+const grow = (x, y, w, h, c) => {                            // a bar that fills: a composited layer
+  const f = L.layer({ x, y, w, h });
+  f.style.background = col(c); f.style.transformOrigin = "0 0"; f.style.transform = "scaleX(0)";
+  return f;
+};
+const WORD = ["No", "One", "Two", "Three", "Four", "Five", "Six"];
+
+// ---------------- time: the Mac's clock; the stardate runs 2.74 a day ----------------
+const LOAD = Date.now();
+const wall = (t) => new Date(LOAD + t * 1000);
+const shipTime = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+const SD0 = 47930;                                           // late 2370: Voyager fitting out
+const stardate = (d) => SD0 + ((d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds() + d.getMilliseconds() / 1000) / 86400) * 2.74;
+
+// ---------------- the hulls ----------------
+// A hull is a block of sections: frame stations (about 18 m apart) by five structural tiers.
+// Four trades work along it one behind another — spaceframe, plating, systems, fitting out — so
+// each hull shows the fronts of its construction. Completion is how far the fronts have run.
+const CLASS = { Galaxy: 36, Nebula: 25, Intrepid: 19 };
+const STAG = [1.6, 0.8, 0, 0.8, 1.6];                         // the middle tier leads, the outer ones follow
+const hull = (o) => { const N = CLASS[o.cls], Lg = N * 0.22 + 0.31, T = N + 1.6 + 3 * Lg;
+  return Object.assign({ N, Lg, T, rate: 1 / (960 * T), t0: 0, drift: 0 }, o); };
+const progress = (h, t) => Math.min(1, h.p0 + h.rate * Math.max(0, t - h.t0));
+const fronts = (h, p) => { const P = p * h.T; return [0, 1, 2, 3].map((s) => P - h.Lg * s); };
+const phaseOf = (p) => (p >= 1 ? "Fitting Out Complete" : p < 0.2 ? "Spaceframe" : p < 0.45 ? "Hull Plating" : p < 0.72 ? "Systems Integration" : "Fitting Out");
+const BEES = { "Spaceframe": 18, "Hull Plating": 21, "Systems Integration": 16, "Fitting Out": 12, "Fitting Out Complete": 3 };
+const jit = (a) => a + L.rand(-0.015, 0.015);
+
+const LAUNCH_SLIP = 4;
+const HULLS = [
+  hull({ reg: "NCC-74656", name: "Voyager", cls: "Intrepid", p0: jit(0.94), launch: 48038.5, status: "On Schedule" }),
+  hull({ reg: "NCC-75190", cls: "Galaxy", p0: jit(0.41), launch: 49155.0, status: "6 Days Behind" }),
+  hull({ reg: "NCC-74811", cls: "Nebula", p0: jit(0.67), launch: 48412.0, status: "4 Days Ahead" }),
+  hull({ reg: "NCC-75302", cls: "Galaxy", p0: jit(0.18), launch: 49870.0, status: "On Schedule" }),
+  hull({ reg: "NCC-73210", cls: "Nebula", p0: 1, launch: null, status: "Launch Today" }),
+  hull({ reg: "NCC-75417", cls: "Intrepid", p0: jit(0.29), launch: 48960.0, status: "2 Days Behind" }),
+];
+const NEXT = hull({ reg: "NCC-75520", cls: "Nebula", p0: 0.05, launch: 50540.0, status: "On Schedule" });
+const NEXT_STATUS = "Keel Laid";
+
+// ---------------- the launch and the keel that follows it ----------------
+// Slip 05's hull is launched within a minute of the screen starting; its slip stands clear, and a
+// prefabricated keel module for the next hull is towed in and clamped down.
+const T0 = L.rand(46, 54);                                   // launch: the hull leaves the dock clamps
+const K0 = T0 + 96;                                          // the keel arrival sequence begins
+const LSEQ = [["Final Inspection", -120, -40], ["Umbilicals Disconnected", -40, -28], ["Gantry Arms Retracted", -28, -16],
+  ["Docking Clamps Released", -16, -6], ["Clear of Slip", 0, 12]];
+const KSEQ = [["Slip Survey", 0, 8], ["Tractor Pylons Engaged", 8, 16], ["Keel Module Under Tow", 16, 36],
+  ["Docking Clamps Secured", 36, 44], ["Keel Laid", 44, 50]];
+NEXT.t0 = K0 + 50;
+const LAUNCH_SD = stardate(wall(T0));
+HULLS[LAUNCH_SLIP].launch = LAUNCH_SD;
+const stage = (t) => (t < T0 ? "count" : t < T0 + 12 ? "launch" : t < T0 + 30 ? "launched" : t < K0 ? "clear" : t < K0 + 50 ? "keel" : "work");
+const frac = (u, a, b) => L.clamp((u - a) / (b - a));
+
+// ================= status line =================
+const WORDS = ["Launch Sequence", "Launch", "Hull Launched", "Slip Clear", "Keel Arrival", "Construction"];
+const SUBX = LX + Math.ceil(widest(WORDS, 100) / 10) * 10 + 56;
+const stateTxt = L.text({ x: LX, cap: 150, s: 100, c: "orange", txt: "" });
+const stateSub = L.text({ x: SUBX, base: 222, s: 38, c: "sky", txt: "" });
+L.text({ x: RX, base: 222, s: 40, c: "peach", txt: "Stardate" });
+const sdVal = L.text({ x: RX + L.textWidth("Stardate", 40) + 24, base: 222, s: 52, c: "white", txt: "" });
+const pill = L.box({ x: RR - 400, y: 150, w: 400, h: 72, c: "sky", label: "", r: "lr", fs: 36, cls: "sw" });
+
+// ================= the construction slips =================
+L.header({ x: LX, y: 280, w: LR - LX, label: "Construction Slips", c1: "orange", c2: "sky" });
+L.text({ x: LX, base: 396, s: 36, c: "sky", txt: "Slip" });
+L.text({ x: 264, base: 396, s: 36, c: "sky", txt: "Hull" });
+L.text({ x: DX0, base: 396, s: 36, c: "sky", txt: "Hull Sections  ·  Frame Stations by Tier" });
+L.text({ x: PX0, base: 396, s: 36, c: "sky", txt: "Progress" });
+// the legend: what each section's colour means
+{
+  let x = DX1;
+  [["Fitted Out", "ice"], ["Systems", "sky"], ["Plated", "orange"], ["Spaceframe", null]].forEach(([txt, c]) => {
+    L.text({ x, base: 396, s: 36, c: "sky", txt, align: "r" });
+    x -= Math.ceil(L.textWidth(txt, 36)) + 16 + 32;
+    if (c) L.rect({ x, y: 396 - 22, w: 32, h: 22, rx: 3, c, free: true });
+    else L.svg("rect", { x: x + 1.5, y: 396 - 22 + 1.5, width: 29, height: 19, rx: 3, fill: "none", stroke: "var(--orange)", "stroke-width": 3 });
+    x -= 48;
+  });
+}
+
+const CELL_STYLE = [                                         // [fill, fill-opacity, stroke, stroke-opacity]
+  ["none", 1, EMPTY, 1], ["none", 1, "var(--orange)", 0.45],
+  ["none", 1, "var(--orange)", 1], ["var(--orange)", 0.35, "var(--orange)", 1],
+  ["var(--orange)", 1, "var(--orange)", 1], ["var(--orange)", 1, "var(--sky)", 1],
+  ["var(--sky)", 1, "var(--sky)", 1], ["var(--sky)", 1, "var(--ice)", 1],
+  ["var(--ice)", 1, "var(--ice)", 1]];
+const CLAMPS = [2, 8, 14, 20, 26, 32];
+
+const INFO_W = DX0 - 40 - 264;
+const SLIPS = HULLS.map((h, i) => {
+  const ty = SLIPY(i), S = { i, id: `Slip ${pad2(i + 1)}`, ty, h, c: i % 2 ? "peach" : "orange" };
+  S.box = L.box({ x: LX, y: ty, w: 200, h: SH, c: S.c, label: S.id, fs: 40, cls: "sw" });
+  S.l1 = L.text({ x: 264, base: G(3 * i), s: 52, c: "white", txt: "" });
+  S.l2 = L.text({ x: 264, base: G(3 * i + 1), s: 40, c: "sky", txt: "" });
+  S.l3 = L.text({ x: 264, base: G(3 * i + 2), s: 40, c: "orange", txt: "", cls: "sw" });
+  // the slip: a bay between two rails, closed at its head, open to the right
+  L.rect({ x: DX0 + 8, y: ty + 6, w: DX1 - DX0 - 8, h: SH - 12, c: BAY, free: true });
+  L.rect({ x: DX0, y: ty, w: DX1 - DX0, h: 6, c: RAIL, free: true });
+  L.rect({ x: DX0, y: ty + SH - 6, w: DX1 - DX0, h: 6, c: RAIL, free: true });
+  L.rect({ x: DX0, y: ty, w: 8, h: SH, c: RAIL, free: true });
+  // the docking clamps, on the rails over the hull
+  S.clamps = L.layer({ x: DX0, y: ty, w: DX1 - DX0, h: SH });
+  // the hull itself: a layer, so a launch can carry it out of the slip without repainting
+  S.layer = L.layer({ x: CX0, y: ty + 21, w: 1440, h: 142 });
+  S.svg = L.svg("svg", { width: 1440, height: 142, viewBox: "0 0 1440 142" }, S.layer);
+  S.svg.style.position = "absolute"; S.svg.style.left = "0"; S.svg.style.top = "0";
+  S.bees = [0, 1, 2, 3].map(() => { const b = L.el("div", "bee", S.layer, { width: "40px", height: "30px", top: "56px", display: "none" }); return b; });
+  // progress
+  L.text({ x: PX0, base: G(3 * i), s: 40, c: "orange", txt: "Complete" });
+  S.pct = L.text({ x: LR, base: G(3 * i), s: 52, c: "white", txt: "", align: "r" });
+  L.rect({ x: PX0, y: G(3 * i + 1) - 26, w: LR - PX0, h: 26, c: TRACK });
+  S.fill = grow(PX0, G(3 * i + 1) - 26, LR - PX0, 26, S.c);
+  L.text({ x: PX0, base: G(3 * i + 2), s: 40, c: "orange", txt: "Work Bees" });
+  S.beeTxt = L.text({ x: LR, base: G(3 * i + 2), s: 52, c: "white", txt: "", align: "r" });
+  return S;
+});
+
+// draw a hull into its slip: one cell per section
+const setHull = (S, h) => {
+  S.h = h;
+  while (S.svg.firstChild) S.svg.removeChild(S.svg.firstChild);
+  S.cells = [];
+  if (!h) { S.clamps.innerHTML = ""; return; }
+  for (let r = 0; r < 5; r++) for (let c = 0; c < h.N; c++) {
+    const e = L.svg("rect", { x: 40 * c + 1.5, y: 30 * r + 1.5, width: 29, height: 19, rx: 3, "stroke-width": 3 }, S.svg);
+    S.cells.push({ e, c, r, k: -1 });
+  }
+  S.clamps.innerHTML = "";
+  CLAMPS.filter((c) => c < h.N).forEach((c) => {
+    for (const y of [0, SH - 12]) L.el("div", "clamp", S.clamps, { left: 20 + 40 * c - 4 + "px", top: y + "px", width: "40px", height: "12px" });
+  });
+  S.drawn = null;
+};
+const drawCells = (S, p) => {
+  const h = S.h; if (!h) return;
+  const key = Math.round(p * h.T * 200);
+  if (S.drawn === key) return; S.drawn = key;
+  const f = fronts(h, p);
+  for (const cell of S.cells) {
+    let s = 0; for (let k = 0; k < 4; k++) if (f[k] >= cell.c + 1 + STAG[cell.r]) s = k + 1;
+    const part = s < 4 && f[s] > cell.c + STAG[cell.r] ? 1 : 0;
+    const k = s * 2 + part;
+    if (cell.k === k) continue;
+    cell.k = k;
+    const [fl, fo, st, so] = CELL_STYLE[k];
+    cell.e.setAttribute("fill", fl); cell.e.setAttribute("fill-opacity", fo);
+    cell.e.setAttribute("stroke", st); cell.e.setAttribute("stroke-opacity", so);
+  }
+};
+// the work bees: one team at each trade's front, on the middle tier
+const placeBees = (S, p, working) => {
+  const h = S.h, f = h ? fronts(h, p) : [];
+  S.bees.forEach((b, k) => {
+    const c = h ? Math.floor(f[k]) : -1, on = working && h && p < 1 && c >= 0 && c < h.N;
+    const v = on ? "block" : "none";
+    if (b._d !== v) { b._d = v; b.style.display = v; }
+    if (on && b._c !== c) { b._c = c; b.style.left = 40 * c - 4 + "px"; }
+  });
+};
+SLIPS.forEach((S) => setHull(S, S.h));
+
+// ================= launch schedule (top right) =================
+L.header({ x: RX, y: 280, w: RR - RX, label: "Launch Schedule", c1: "sky", c2: "orange" });
+const SCAP = ["Slip", "Hull", "Class", "Status", "Launch"];
+const SAL = ["l", "l", "l", "l", "r"];
+const SW = [widest(["Slip", "00"], 40), widest(["Hull", "NCC-00000"], 40), widest(["Class", "Intrepid", "Galaxy", "Nebula"], 40),
+  widest(["Status", "6 Days Behind", "4 Days Ahead", "Launch Today", "Launched", NEXT_STATUS, "On Schedule"], 40), widest(["Launch", "00000.0"], 40)];
+const scols = columns(RX, RR, SW);
+const sx = (j) => (SAL[j] === "l" ? scols[j][0] : scols[j][1]);
+SCAP.forEach((txt, j) => L.text({ x: sx(j), base: 396, s: 36, c: "sky", txt, align: SAL[j] }));
+const srows = Array.from({ length: 6 }, (_, i) => SCAP.map((_, j) => L.text({ x: sx(j), base: G(i), s: 40, c: "orange", txt: "", align: SAL[j], cls: "sw" })));
+
+// ================= yard resources (right, lower) =================
+L.header({ x: RX, y: 832, w: RR - RX, label: "Yard Resources", c1: "peach", c2: "sky" });
+const RES = ["Hulls in Work", "Work Bees", "Construction Crew", "Tractor Pylons", "Industrial Replicators",
+  "Duranium Stores", "Tritanium Stores", "Verterium Cortenide", "Yard Power", "Cargo Docks"];
+const RLW = widest(RES, 40), RVW = widest(["4,000 / 4,000", "120 / 120"], 52);
+const RB0 = RX + RLW + 32, RB1 = RR - RVW - 32;
+const res = RES.map((label, i) => {
+  const base = G(8 + i);
+  L.text({ x: RX, base, s: 40, c: "orange", txt: label });
+  L.rect({ x: RB0, y: base - 20, w: RB1 - RB0, h: 20, c: TRACK });
+  return { fill: grow(RB0, base - 20, RB1 - RB0, 20, ["sky", "orange", "peach"][i % 3]),
+           val: L.text({ x: RR, base, s: 52, c: "white", txt: "", align: "r" }), shown: -1 };
+});
+const setRes = (i, v, of, txt) => {
+  L.set(res[i].val, txt);
+  const k = L.clamp(v / of);
+  if (Math.abs(k - res[i].shown) > 0.0005) { res[i].shown = k; res[i].fill.style.transform = `scaleX(${k.toFixed(4)})`; }
+};
+const stock = { dur: L.rand(66, 74), tri: L.rand(58, 66), vc: L.rand(70, 80) };
+const USE = { dur: 0.0011, tri: 0.0009, vc: 0.0004 };      // % of stores per working slip per second
+let replicators = 13, crewBase = 380;
+
+// ================= yard log (bottom left) =================
+const AX0 = LX, AX1 = 1396, BX0 = 1460, BX1 = LR, CX = RX, CX1 = RR;
+L.header({ x: AX0, y: 1620, w: AX1 - AX0, label: "Yard Log", c1: "sky", c2: "orange", h: 48 });
+const LOGX = [AX0, AX0 + widest(["Ship Time", "00:00:00"], 36) + 48];
+LOGX.push(LOGX[1] + widest(["Slip", "Yard", "00"], 36) + 48);
+["Ship Time", "Slip", "Event"].forEach((txt, j) => L.text({ x: LOGX[j], base: 1716, s: 36, c: "sky", txt }));
+const LOGN = 5, LP = 54;
+const logClip = L.el("div", "clip", L.stage, { left: AX0 + "px", top: 1776 - 46 + "px", width: AX1 - AX0 + "px", height: LOGN * LP + 4 + "px" });
+const logRows = Array.from({ length: LOGN + 1 }, (_, i) => {
+  const e = L.layer({ x: 0, y: 0, w: AX1 - AX0, h: LP }, logClip);
+  const cells = LOGX.map((x, j) => L.text({ x: x - AX0, base: 46, s: 36, c: ["peach", "orange", "white"][j], txt: "" }, e));
+  const row = { e, slot: i, cells };
+  row.fill = (d) => d.forEach((v, j) => L.set(cells[j], v));
+  L.move(e, 0, i * LP);
+  return row;
+});
+logRows[LOGN].e.style.opacity = 0;
+const logQueue = [];
+let logT0 = -1, logLanded = null, logT1 = 0, logPending = null;
+const log = (slip, txt, t = L.t) => logQueue.push([shipTime(wall(t)), slip, txt]);
+L.tick((t) => {                                              // all slide up one place; the top row fades away
+  if (logT0 < 0) { if (logQueue.length) { logPending = logQueue.shift(); logT0 = t; } else return; }
+  const u = t - logT0;
+  if (!logLanded) {
+    const topRow = logRows.find((r) => r.slot === 0), k = L.ease(L.clamp(u / 1.1));
+    logRows.forEach((r) => { if (r.slot <= LOGN - 1) L.move(r.e, 0, (r.slot - k) * LP); });
+    topRow.e.style.opacity = (1 - L.clamp(u / 0.4)).toFixed(3);
+    if (k < 1) return;
+    const spare = logRows.find((r) => r.slot === LOGN);
+    logRows.forEach((r) => { if (r !== spare) r.slot = r.slot === 0 ? LOGN : r.slot - 1; });
+    spare.slot = LOGN - 1; spare.fill(logPending); spare.e.style.opacity = 0; L.move(spare.e, 0, (LOGN - 1) * LP);
+    logLanded = spare; logT1 = t;
+  } else {
+    const a = L.clamp((t - logT1) / 0.8);
+    logLanded.e.style.opacity = a.toFixed(3);
+    if (a >= 1) { logT0 = -1; logLanded = null; }
+  }
+});
+const TRADE_DONE = ["Spaceframe erected", "Plating complete", "Systems installed", "Fitting out complete"];
+
+// ================= slip sequence (bottom middle) =================
+const SEQ_LABELS = ["Launch Sequence", "Keel Arrival"];
+const SLW = Math.ceil(widest(SEQ_LABELS, 28) + 88);
+const seqBox = L.box({ x: BX0, y: 1620, w: SLW, h: 48, c: "butter", label: SEQ_LABELS[0], fs: 28, r: "l", cls: "sw" });
+L.rect({ x: BX0 + SLW + L.GAP, y: 1620, w: BX1 - BX0 - SLW - L.GAP, h: 48, c: "peach" });
+const qCap = L.text({ x: BX0, base: 1716, s: 36, c: "butter", txt: "" });
+const qRight = L.text({ x: BX1, base: 1716, s: 36, c: "peach", txt: "", align: "r" });
+const QNW = widest([...LSEQ, ...KSEQ].map((s) => s[0]), 36), QRW = widest(["In Progress", "Complete", "Pending"], 36);
+const QB0 = BX0 + QNW + 32, QB1 = BX1 - QRW - 32;
+const steps = [0, 1, 2, 3, 4].map((i) => {
+  const base = 1776 + LP * i;
+  const name = L.text({ x: BX0, base, s: 36, c: "peach", txt: "" });
+  L.rect({ x: QB0, y: base - 28, w: QB1 - QB0, h: 28, c: TRACK });
+  return { name, fill: grow(QB0, base - 28, QB1 - QB0, 28, "butter"), res: L.text({ x: BX1, base, s: 36, c: "peach", txt: "", align: "r" }), k: -1 };
+});
+
+// ================= deliveries inbound (bottom right) =================
+L.header({ x: CX, y: 1620, w: CX1 - CX, label: "Deliveries Inbound", c1: "orange", c2: "sky", h: 48 });
+const CARGO = [
+  ["Earth Station McKinley", "Warp Coil Segments", "vc"], ["40 Eridani A Yards", "Duranium Plating", "dur"],
+  ["Planitia Ground Station", "Tritanium Frames", "tri"], ["Starbase 74", "Bussard Collectors", null],
+  ["San Francisco Fleet Yards", "Computer Core Modules", null], ["Jupiter Station", "Isolinear Processors", null],
+  ["Deneva Refinery", "Duranium Plating", "dur"], ["Earth Station McKinley", "Deflector Assembly", null],
+  ["Phobos Depot", "Tritanium Frames", "tri"], ["Planitia Ground Station", "Verterium Cortenide", "vc"],
+  ["Bolarus IX", "Phaser Emitters", null], ["Starbase 74", "Sensor Pallets", null],
+];
+const DCAP = ["Origin", "Cargo", "Arrival"];
+const DAL = ["l", "l", "r"];
+const DW = [widest(["Origin", ...CARGO.map((c) => c[0])], 36), widest(["Cargo", ...CARGO.map((c) => c[1])], 36), widest(["Arrival", "Unloading", "Docking", "00:00"], 36)];
+const dcols = columns(CX, CX1, DW);
+const dx = (j) => (DAL[j] === "l" ? dcols[j][0] : dcols[j][1]);
+DCAP.forEach((txt, j) => L.text({ x: dx(j), base: 1716, s: 36, c: "sky", txt, align: DAL[j] }));
+const drows = [0, 1, 2, 3, 4].map((i) => DCAP.map((_, j) => L.text({ x: dx(j), base: 1776 + LP * i, s: 36, c: ["orange", "peach", "white"][j], txt: "", align: DAL[j] })));
+const DOCK = 15, UNLOAD = 25;
+let deliveries = [], lastPick = [];
+const pickCargo = () => {
+  const low = Object.keys(stock).filter((k) => stock[k] < 56 && !deliveries.some((d) => d.k === k));
+  let pool = CARGO.filter((c) => !lastPick.includes(c));
+  if (low.length) pool = CARGO.filter((c) => c[2] === low[0]);
+  const c = L.pick(pool); lastPick.push(c); if (lastPick.length > 4) lastPick.shift();
+  return c;
+};
+const addDelivery = (at) => { const [o, c, k] = pickCargo(); deliveries.push({ o, c, k, at }); };
+{ let at = L.rand(34, 44); for (let i = 0; i < 5; i++) { addDelivery(at); at += L.rand(70, 130); } }
+
+// ================= the clock: hulls, launch, keel, survey =================
+// the structural survey: a sensor sweep along one hull at a time
+const sweep = L.layer({ x: 0, y: 0, w: 4, h: SH - 12 });
+sweep.style.background = "linear-gradient(to bottom, rgba(143,211,255,0), rgba(143,211,255,.9) 20%, rgba(143,211,255,.9) 80%, rgba(143,211,255,0))";
+op(sweep, 0);
+let sv = { i: 0, t0: 3 }, SVD = 14;
+const working = (S, t) => S.i !== LAUNCH_SLIP || stage(t) === "work";
+L.tick((t) => {
+  // slip 05: the launch, then the keel
+  const S = SLIPS[LAUNCH_SLIP], st = stage(t);
+  if (st === "launch") {
+    const u = (t - T0) / 12;
+    L.move(S.layer, 400 * L.ease(L.clamp(u)), 0); op(S.layer, 1 - L.clamp((t - T0 - 2) / 8));
+  } else if (st === "launched" || st === "clear") {
+    if (S.h) { setHull(S, null); L.move(S.layer, 0, 0); }
+  } else if (st === "keel" || st === "work") {
+    if (S.h !== NEXT) { setHull(S, NEXT); op(S.layer, 0); }
+    const u = t - K0;
+    if (u < 40) { const k = frac(u, 16, 36); L.move(S.layer, 400 * (1 - L.ease(k)), 0); op(S.layer, frac(u, 16, 28)); }
+    else { L.move(S.layer, 0, 0); op(S.layer, 1); }
+  }
+  // the clamps on slip 05
+  op(S.clamps, st === "count" ? 1 - frac(t - T0, -16, -6) : st === "keel" ? frac(t - K0, 36, 44) : st === "work" ? 1 : 0);
+  // the survey sweep
+  let u = t - sv.t0;
+  if (u > SVD + 2) {
+    let n = sv.i;
+    for (let k = 0; k < 6; k++) { n = (n + 1) % 6; if (working(SLIPS[n], t) && SLIPS[n].h) break; }
+    sv = { i: n, t0: t }; u = 0;
+  }
+  const Sv = SLIPS[sv.i];
+  if (!Sv.h || !working(Sv, t)) { op(sweep, 0); return; }
+  const k = L.clamp(u / SVD), ext = 40 * Sv.h.N - 8;
+  L.move(sweep, CX0 - 2 + ext * k, Sv.ty + 6);
+  op(sweep, u > SVD ? 0 : 0.85 * Math.min(1, u / 1.2, (SVD - u) / 1.2));
+});
+
+// ================= readings, a few times a second =================
+const logged = SLIPS.map(() => [0, 0, 0, 0]);               // how many stations each trade had finished
+logged[LAUNCH_SLIP] = fronts(NEXT, NEXT.p0).map((x) => L.clamp(Math.floor(x), 0, NEXT.N));
+const beesOf = (S, t, p) => {
+  if (!S.h) return 0;
+  if (S.i === LAUNCH_SLIP) { const st = stage(t); if (st === "count" || st === "launch") return 0; if (st === "keel") return 4; }
+  return Math.max(0, BEES[phaseOf(p)] + S.h.drift);
+};
+const update = (t) => {
+  const st = stage(t), d = wall(t);
+  L.set(sdVal, stardate(d).toFixed(1));
+  let bees = 0, inWork = 0, crew = crewBase;
+  SLIPS.forEach((S, i) => {
+    const h = S.h, p = h ? progress(h, t) : 0;
+    if (h) drawCells(S, p);
+    placeBees(S, p, h && working(S, t));
+    const b = beesOf(S, t, p); bees += b;
+    if (h) { inWork++; crew += 120 + 20 * b; }
+    // a trade reaching a new station on the middle tier goes in the log
+    if (h && working(S, t)) {
+      const f = fronts(h, p);
+      f.forEach((x, k) => {
+        const n = L.clamp(Math.floor(x), 0, h.N);
+        if (n > logged[i][k]) { if (logged[i][k] >= 0) log(pad2(i + 1), `${h.reg}  ·  ${TRADE_DONE[k]}, frame station ${pad2(n)}`, t); logged[i][k] = n; }
+      });
+    }
+    // the slip's lines
+    if (i === LAUNCH_SLIP && st !== "work") {
+      const hh = st === "keel" ? NEXT : HULLS[LAUNCH_SLIP];
+      const clear = st === "launched" || st === "clear";
+      L.set(S.l1, clear ? "Slip Clear" : hh.reg);
+      L.set(S.l2, clear ? `Next  ·  ${NEXT.cls} Class` : `${hh.cls} Class`);
+      L.set(S.l3, st === "count" ? "Launch Sequence" : st === "launch" ? "Launching" : clear ? "Awaiting Keel Module" : "Keel Arrival");
+      fg(S.l3, clear ? "orange" : "butter");
+      bg(S.box, clear ? DIMBOX : "butter");
+      L.set(S.pct, clear ? "Clear" : st === "keel" && t - K0 < 16 ? "Clear" : `${(p * 100).toFixed(2)}%`);
+      tf(S.fill, `scaleX(${clear || (st === "keel" && t - K0 < 16) ? 0 : p.toFixed(4)})`);
+    } else {
+      L.set(S.l1, h.name ? `${h.reg}  ·  ${h.name}` : h.reg);
+      L.set(S.l2, `${h.cls} Class`);
+      L.set(S.l3, phaseOf(p)); fg(S.l3, "orange");
+      bg(S.box, S.c);
+      L.set(S.pct, `${(p * 100).toFixed(2)}%`);
+      tf(S.fill, `scaleX(${p.toFixed(4)})`);
+    }
+    L.set(S.beeTxt, String(b));
+  });
+
+  // launch schedule: the hulls in the order they leave
+  const list = SLIPS.map((S, i) => ({ i, h: i === LAUNCH_SLIP && st !== "keel" && st !== "work" ? HULLS[LAUNCH_SLIP] : S.h || NEXT }))
+    .sort((a, b) => a.h.launch - b.h.launch);
+  list.forEach((e, r) => {
+    const gone = e.h === HULLS[LAUNCH_SLIP] && st !== "count";
+    const status = gone ? "Launched" : e.h === NEXT && (st === "keel" || (st === "work" && t < K0 + 120)) ? NEXT_STATUS : e.h.status;
+    const vals = [pad2(e.i + 1), e.h.reg, e.h.cls, status, e.h.launch.toFixed(1)];
+    const hot = e.h === HULLS[LAUNCH_SLIP] || e.h === NEXT && st === "keel";
+    vals.forEach((v, j) => { L.set(srows[r][j], v); fg(srows[r][j], hot ? "butter" : j === 4 ? "white" : j === 0 ? "peach" : "orange"); });
+  });
+
+  // the sequence on slip 05
+  const keel = t >= K0, seq = keel ? KSEQ : LSEQ, u = keel ? t - K0 : t - T0, hh = keel ? NEXT : HULLS[LAUNCH_SLIP];
+  L.set(seqBox, SEQ_LABELS[keel ? 1 : 0]); bg(seqBox, keel ? "peach" : "butter");
+  L.set(qCap, `Slip 05  ·  ${hh.reg}  ·  ${hh.cls} Class`);
+  const done = u >= seq[4][2];
+  L.set(qRight, done ? (keel ? "Keel Laid" : "Launched") : keel ? `Step ${seq.findIndex((s) => u < s[2]) + 1} of 5` : u < 0 ? `T−${mmss(-u)}` : `T+${mmss(u)}`);
+  seq.forEach(([name, a, b], i) => {
+    const k = frac(u, a, b), s = steps[i];
+    L.set(s.name, name);
+    if (Math.abs(k - s.k) > 0.001) { s.k = k; s.fill.style.transform = `scaleX(${k.toFixed(4)})`; }
+    const r = k >= 1 ? "Complete" : k > 0 ? "In Progress" : "Pending";
+    L.set(s.res, r); fg(s.res, r === "Complete" ? "sky" : r === "In Progress" ? "butter" : "peach");
+    fg(s.name, r === "Pending" ? "peach" : r === "In Progress" ? "butter" : "sky");
+  });
+
+  // deliveries
+  const docked = deliveries.filter((x) => t >= x.at).length;
+  deliveries.forEach((x, r) => {
+    const v = t < x.at ? mmss(x.at - t) : t < x.at + DOCK ? "Docking" : "Unloading";
+    L.set(drows[r][0], x.o); L.set(drows[r][1], x.c); L.set(drows[r][2], v);
+    fg(drows[r][2], t < x.at ? "white" : t < x.at + DOCK ? "butter" : "sky");
+  });
+
+  // status
+  const pylons = 2 * inWork + (st === "count" && t - T0 > -16 || st === "launch" ? 8 : 0) + (st === "keel" && t - K0 >= 8 && t - K0 < 44 ? 8 : 0);
+  const nStep = seq.find((s) => u < s[2]);
+  if (st === "count") {
+    L.set(stateTxt, "Launch Sequence");
+    L.set(stateSub, `Slip 05  ·  ${HULLS[LAUNCH_SLIP].reg} ${HULLS[LAUNCH_SLIP].cls} Class  ·  launch in ${mmss(T0 - t)}  ·  ${nStep ? nStep[0].toLowerCase() : ""}`);
+  } else if (st === "launch") { L.set(stateTxt, "Launch"); L.set(stateSub, `${HULLS[LAUNCH_SLIP].reg} under thrusters  ·  clearing Slip 05`); }
+  else if (st === "launched") { L.set(stateTxt, "Hull Launched"); L.set(stateSub, `${HULLS[LAUNCH_SLIP].reg} clear of Slip 05  ·  bound for space trials under impulse`); }
+  else if (st === "clear") { L.set(stateTxt, "Slip Clear"); L.set(stateSub, `Slip 05 clear  ·  keel module for ${NEXT.reg} due in ${mmss(K0 - t)}`); }
+  else if (st === "keel") { L.set(stateTxt, "Keel Arrival"); L.set(stateSub, `${NEXT.reg} ${NEXT.cls} Class  ·  Slip 05  ·  ${nStep ? nStep[0].toLowerCase() : "keel laid"}`); }
+  else { L.set(stateTxt, "Construction"); L.set(stateSub, `${WORD[inWork]} hulls in work  ·  ${bees} work bees deployed  ·  ${pylons} tractor pylons holding`); }
+  const hotPill = st === "count" || st === "launch" || st === "launched";
+  L.set(pill, hotPill ? "Slip 05 Launch" : st === "clear" || st === "keel" ? "Slip 05 Keel" : "Mars Orbit");
+  bg(pill, hotPill ? "butter" : st === "clear" || st === "keel" ? "peach" : "sky");
+
+  // yard resources
+  setRes(0, inWork, 6, `${inWork} / 6`);
+  setRes(1, bees, 120, `${bees} / 120`);
+  setRes(2, crew, 4000, `${fmt(crew)} / 4,000`);
+  setRes(3, pylons, 24, `${pylons} / 24`);
+  setRes(4, replicators, 16, `${replicators} / 16`);
+  ["dur", "tri", "vc"].forEach((k, j) => setRes(5 + j, stock[k], 100, `${stock[k].toFixed(1)}%`));
+  const power = Math.round(66 + 3 * Math.sin(t / 70) + bees / 20 + pylons / 6);
+  setRes(8, power, 100, `${power}%`);
+  setRes(9, docked, 4, `${docked} / 4`);
+};
+
+// stores are drawn down by the slips at work, and topped up by deliveries
+let lastT = 0;
+L.tick((t) => {
+  const dt = Math.min(0.5, t - lastT); lastT = t;
+  const n = SLIPS.filter((S) => S.h && working(S, t) && progress(S.h, t) < 1).length;
+  for (const k in stock) stock[k] = Math.max(30, stock[k] - USE[k] * n * dt);
+  const d = deliveries[0];
+  if (d && t >= d.at + DOCK + UNLOAD) {
+    deliveries.shift();
+    if (d.k) stock[d.k] = Math.min(96, stock[d.k] + L.rand(5, 7));
+    log("Yard", `${d.c} received from ${d.o}`, t);
+    addDelivery(Math.max(deliveries[deliveries.length - 1].at, t) + L.rand(70, 130));
+  }
+});
+
+// the launch and the keel go in the log as they happen
+const marks = [
+  [T0 - 40, "05", `${HULLS[LAUNCH_SLIP].reg}  ·  Final inspection complete, cleared for launch`],
+  [T0 - 28, "05", "Umbilicals disconnected, internal power"],
+  [T0 - 16, "05", "Gantry arms retracted"],
+  [T0 - 6, "05", "Docking clamps released"],
+  [T0 + 12, "05", `${HULLS[LAUNCH_SLIP].reg} clear of slip, launched stardate ${LAUNCH_SD.toFixed(1)}`],
+  [K0 + 16, "05", `Keel module for ${NEXT.reg} under tow`],
+  [K0 + 50, "05", `${NEXT.reg}  ·  Keel laid, ${NEXT.cls} class`],
+];
+L.every(250, (t) => { while (marks.length && t >= marks[0][0]) { const m = marks.shift(); if (m[0] > 0.5) log(m[1], m[2], m[0]); } update(t); }, 0);
+
+// the work bees and the replicators move about a little
+L.every(37000, (t) => {
+  if (t < 5) return;
+  const cand = SLIPS.filter((S) => S.h && working(S, t));
+  const S = L.pick(cand); if (!S) return;
+  const d = S.h.drift + L.pick([-1, 1]);
+  if (Math.abs(d) <= 2) S.h.drift = d;
+}, 0.3);
+L.every(53000, (t) => { if (t < 5) return; const r = replicators + L.pick([-1, 1]); if (r >= 11 && r <= 15) replicators = r; }, 0.3);
+
+// ---------------- the log before the screen started ----------------
+{
+  const pre = [];
+  SLIPS.forEach((S, i) => {
+    if (i === LAUNCH_SLIP) return;
+    const h = S.h, f = fronts(h, progress(h, 0));
+    f.forEach((x, k) => { logged[i][k] = L.clamp(Math.floor(x), 0, h.N); });
+    // the most recent station a trade finished on this hull, some minutes ago
+    const k = [3, 2, 1, 0].find((k) => logged[i][k] >= 1 && logged[i][k] < h.N) ?? 0;
+    pre.push([-L.rand(200, 1500), pad2(i + 1), `${h.reg}  ·  ${TRADE_DONE[k]}, frame station ${pad2(Math.max(1, logged[i][k]))}`]);
+  });
+  pre.sort((a, b) => a[0] - b[0]);
+  const rows = pre.slice(-3);
+  rows.push([T0 - 120 - L.rand(5, 30), "Yard", "Duranium Plating received from 40 Eridani A Yards"]);
+  rows.push([T0 - 120, "05", `${HULLS[LAUNCH_SLIP].reg}  ·  Final inspection begun`]);
+  rows.sort((a, b) => a[0] - b[0]);
+  rows.forEach((r, i) => logRows[i].fill([shipTime(wall(r[0])), r[1], r[2]]));
+}
+update(0);
+
+// ---------------- a guard: every line fits its place ----------------
+for (const w of WORDS) if (L.textWidth(w, 100) > SUBX - LX - 40) bad.push("state word");
+const subs = [`Slip 05  ·  NCC-73210 Nebula Class  ·  launch in 00:00  ·  docking clamps released`,
+  `NCC-73210 clear of Slip 05  ·  bound for space trials under impulse`, `Six hulls in work  ·  120 work bees deployed  ·  24 tractor pylons holding`,
+  `Slip 05 clear  ·  keel module for NCC-75520 due in 00:00`, `NCC-75520 Nebula Class  ·  Slip 05  ·  keel module under tow`];
+for (const s of subs) if (SUBX + L.textWidth(s, 38) > LR - 130) bad.push(`subtitle too long: ${s}`);
+HULLS.forEach((h) => fits(h.name ? `${h.reg}  ·  ${h.name}` : h.reg, 52, INFO_W, "slip line"));
+fits("Systems Integration", 40, INFO_W, "phase"); fits("Fitting Out Complete", 40, INFO_W, "phase"); fits("Awaiting Keel Module", 40, INFO_W, "phase");
+fits("100.00%", 52, LR - PX0 - L.textWidth("Complete", 40) - 40, "complete");
+fits(`Slip 05  ·  NCC-73210  ·  Nebula Class`, 36, BX1 - BX0 - L.textWidth("Step 0 of 5", 36) - 60, "sequence caption");
+const legendLeft = DX1 - [["Fitted Out"], ["Systems"], ["Plated"], ["Spaceframe"]].reduce((a, [t]) => a + Math.ceil(L.textWidth(t, 36)) + 96, 0);
+if (legendLeft < DX0 + L.textWidth("Hull Sections  ·  Frame Stations by Tier", 36) + 60) bad.push("legend crowds its caption");
+for (const c of CARGO) { fits(c[0], 36, dcols[0][1] - dcols[0][0] + 1, "origin"); }
+if (bad.length) setTimeout(() => { throw new Error("utopia-planitia: " + bad.join(" | ")); });
+});
+</script></body></html>

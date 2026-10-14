@@ -1,0 +1,459 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Inertial Dampers</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* swapped text dips and comes back; colors change slowly; .boot (the start-up cascade) always wins */
+  .sw { transition: opacity .45s ease, background-color 1.2s ease, color 1.2s ease; }
+  .out:not(.boot) { opacity: .15; }
+  .clip { position: absolute; overflow: hidden; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: sidebar left, title top right ----------------
+L.frame({ type: "A", title: "Inertial Dampers  •  Compensation", c: "lilac", c2: "peach", accent: "plum", foot: "IDF",
+  side: [[140, "peach", "Deck 11"], [70, "plum", "02"], [420, "lilac", "Dampers"], [70, "butter", "2205"],
+         [300, "peach", "Fields"], [70, "plum", "G4"], [216, "lilac", "Helm Link"]] });
+
+// Six columns, 531 wide and 60 apart (330–3816): the readings under the timeline sit one to a
+// column, and the two panels below split on column four (330–2043 | 2103–3816).
+const X0 = 330, X1 = 3816, CP = 591, CW = 531, COL = (i) => X0 + i * CP;
+const MID = COL(3), LEFT_R = MID - 60;                     // 2103; 2043
+const LANE = "#1c1224", GRID = "#3a2848", TRACK = "#2c1c34";
+const FILL_A = "#4b3658", FILL_R = "#55304c";
+const INK = { peach: "#ffb070", lilac: "#c7a0d8", pink: "#f4b6e6", butter: "#ffcc66" };
+const pad2 = (n) => String(n).padStart(2, "0");
+const fmt = (v, dp) => v.toLocaleString("en-US", { minimumFractionDigits: dp, maximumFractionDigits: dp });
+const cls = (e, ...c) => (e.classList.add(...c), e);
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const op = (e, v) => { v = v < 0.005 ? "0" : v > 0.995 ? "1" : v.toFixed(2); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const fg = (e, c) => { if (e._fg !== c) { e._fg = c; e.style.color = `var(--${c})`; } };
+const swap = (els, f) => { els.forEach((e) => e.classList.add("out")); setTimeout(() => { f(); els.forEach((e) => e.classList.remove("out")); }, 460); };
+const smooth = (x) => { x = L.clamp(x); return x * x * (3 - 2 * x); };
+const bad = [];                                            // words that would not fit their places
+const fits = (txt, s, w, where) => { if (L.textWidth(txt, s) > w) bad.push(`${where}: "${txt}"`); };
+const minutes = () => { const d = new Date(); return d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60; };
+const stardate = () => 47780 + (minutes() / 1440) * 2.74;
+
+// ---------------- status line ----------------
+const state = cls(L.text({ x: X0, cap: 150, s: 100, c: "lilac", txt: "Dampers Nominal" }), "sw");
+const sub = cls(L.text({ x: 0, base: 222, s: 38, c: "peach", txt: "" }), "sw");
+const placeSub = () => { sub.style.left = X0 + state.offsetWidth + 40 + "px"; };
+placeSub();
+L.box({ x: X1 - 400, y: 150, w: 400, h: 72, c: "lilac", label: "Field Locked", r: "lr", fs: 36 });
+
+// =====================================================================================
+// THE TIMELINE: the ship's acceleration, the field that cancels it, and what the crew feels
+// =====================================================================================
+L.header({ x: X0, y: 280, w: X1 - X0, label: "Acceleration Events  ·  Damper Response", c1: "lilac", c2: "peach" });
+const SX = 470, SW = X1 - SX;                              // the strip: 470 → 3816
+const LT = 360, LB = 688, RT = 728, RB = 868, SH = RB - LT; // acceleration lane, residual lane
+const AMAX = 2000, RMAX = 0.5;
+L.rect({ x: SX, y: LT, w: SW, h: LB - LT, c: LANE });
+L.rect({ x: SX, y: RT, w: SW, h: RB - RT, c: LANE });
+const aY = (a) => (LB - LT) * (1 - L.clamp(a / AMAX));     // within the strip
+const rY = (r) => RT - LT + (RB - RT) * (1 - L.clamp(r / RMAX));
+[500, 1000, 1500].forEach((g) => L.rect({ x: SX, y: LT + aY(g) - 1, w: SW, h: 2, c: GRID, free: true }));
+L.rect({ x: SX, y: LT + rY(0.25) - 1, w: SW, h: 2, c: GRID, free: true });
+// the scales: g in thousands of standard gravities above, residual g below
+const scale = (txt, y, how) => L.text({ x: SX - 24, [how]: y, s: 30, c: "lilac", txt, align: "r", legend: true });
+scale("2000", LT, "cap");
+[1500, 1000, 500].forEach((g) => scale(String(g), LT + aY(g) + 0.36 * 30, "base"));   // capitals centred on the line
+scale("0", LB, "base");
+scale("0.5", RT, "cap");
+scale("0", RB, "base");
+
+// The strip scrolls: two canvas tiles side by side in a clipped strip, slid as layers; each frame
+// draws only the newest sliver. A tile that leaves the view is cleared and moved to the far end
+// BEFORE the sliver is drawn (tng/sickbay.html). Fills are clipped to whole device pixels, so
+// slivers meet without a seam.
+const SPEED = 60, SUB = 4;                                 // design px per second; samples per frame
+const strip = L.el("div", "boot", L.stage, { position: "absolute", left: SX + "px", top: LT + "px", width: SW + "px", height: SH + "px", overflow: "hidden" });
+const tiles = [0, 1].map((n) => {
+  const c = L.canvas({ x: 0, y: 0, w: SW + 8, h: SH }, strip);   // 8px of overlap: no hairline seam
+  c.cv.style.willChange = "transform"; c.n = n;
+  return c;
+});
+
+// ---------------- the ship: maneuvers and the damping field ----------------
+// [name, profile]. Peaks stay under 1,550 g so a marker's label always has the lane's top to itself.
+const MANEUVERS = [
+  { name: "Full Impulse", kind: "hold", P: 1450, rise: 1.8, hold: 3.2, fall: 1.8 },
+  { name: "All Stop", kind: "hold", P: 1180, rise: 1.5, hold: 2.4, fall: 1.5 },
+  { name: "Evasive  ·  Pattern Delta", kind: "multi", bumps: [[0, 2.2, 980], [1.7, 2.4, 1380], [3.6, 2.2, 760]] },
+  { name: "Warp 6 Engaged", kind: "spike", P: 1520, rise: 0.9, tau: 1.1, D: 6 },
+  { name: "Drop to Impulse", kind: "spike", P: 1300, rise: 0.8, tau: 0.9, D: 5 },
+  { name: "Come About", kind: "hold", P: 640, rise: 1.6, hold: 2.8, fall: 1.6 },
+  { name: "Orbit Insertion", kind: "hold", P: 420, rise: 2.0, hold: 4.0, fall: 2.0 },
+  { name: "Half Impulse", kind: "hold", P: 820, rise: 1.6, hold: 3.0, fall: 1.6 },
+  { name: "Tractor Beam Lock", kind: "hold", P: 300, rise: 1.2, hold: 3.6, fall: 1.4 },
+];
+MANEUVERS.forEach((m) => {
+  m.D = m.kind === "hold" ? m.rise + m.hold + m.fall : m.kind === "multi" ? Math.max(...m.bumps.map(([s, w]) => s + w)) : m.D;
+});
+const profile = (m, u) => {
+  if (m.kind === "hold") return u < m.rise ? m.P * smooth(u / m.rise) : u < m.rise + m.hold ? m.P : m.P * (1 - smooth((u - m.rise - m.hold) / m.fall));
+  if (m.kind === "spike") return u < m.rise ? m.P * smooth(u / m.rise) : m.P * Math.exp(-(((u - m.rise) / m.tau) ** 1.5))   /* level at the peak: no kink */ * (1 - smooth((u - (m.D - 0.8)) / 0.8));
+  return m.bumps.reduce((a, [s, w, p]) => a + (u > s && u < s + w ? p * Math.sin((Math.PI * (u - s)) / w) ** 2 : 0), 0);
+};
+let simT = 0, acc = 5, res = 0.012, prevAcc = 5, ev = null, nextAt = 4, lastM = -1, events = 17;
+const markers = [];                                         // where each event began on the strip, and its label
+const sim = (h, x) => {
+  simT += h;
+  if (!ev && simT >= nextAt) {
+    let i; do i = L.irand(0, MANEUVERS.length - 1); while (i === lastM);
+    lastM = i; ev = { m: MANEUVERS[i], t0: simT, peak: 0 }; events++;
+    markers.push({ x, name: ev.m.name, drawn: false });
+  }
+  // thrusters holding station: a few g, always
+  let a = 5 + 2.5 * Math.sin(simT * 0.37) + 1.5 * Math.sin(simT * 1.13 + 1);
+  if (ev) {
+    const u = simT - ev.t0;
+    if (u >= ev.m.D) { endEvent(ev); ev = null; nextAt = simT + L.rand(7, 13); }
+    else a += profile(ev.m, u);
+  }
+  const da = (a - prevAcc) / h;
+  prevAcc = a; acc = a;
+  // what gets through the field: a trace at rest; more while the acceleration is changing
+  const goal = 0.012 + 0.004 * Math.sin(simT * 0.6) + 0.00013 * Math.abs(da);
+  res += (goal - res) * (1 - Math.exp(-h / 0.12));
+  if (ev) ev.peak = Math.max(ev.peak, res);
+};
+
+let written = SW, prevA = null, prevR = null, filled = false, lastT = null;
+const fillArea = (g, o, prev, pts, base, c) => {
+  g.fillStyle = c; g.beginPath();
+  // start one sample back, on the curve itself, so the clip's whole-pixel edge is covered without a step
+  g.moveTo(prev[2] - o, base); g.lineTo(prev[2] - o, prev[3]); g.lineTo(prev[0] - o, prev[1]);
+  for (const [x, y] of pts) g.lineTo(x - o, y);
+  g.lineTo(pts[pts.length - 1][0] - o, base); g.closePath(); g.fill();
+};
+const stroke = (g, o, prev, pts, c, w) => {
+  g.strokeStyle = c; g.lineWidth = w; g.lineJoin = "round"; g.lineCap = "round";
+  g.beginPath(); g.moveTo(prev[0] - o, prev[1]);
+  for (const [x, y] of pts) g.lineTo(x - o, y);
+  g.stroke();
+};
+const step = (dt) => {
+  const pa = [], pr = [], x0 = written, end = written + dt * SPEED;
+  for (let k = 1; k <= SUB; k++) {
+    const x = written + (dt * SPEED * k) / SUB;
+    sim(dt / SUB, x);
+    pa.push([x, aY(acc)]); pr.push([x, rY(res)]);
+  }
+  for (const tile of tiles) if (end >= (tile.n + 2) * SW) { tile.n += 2; tile.g.clearRect(0, 0, SW + 8, SH); }
+  if (prevA) for (const tile of tiles) {
+    const g = tile.g, o = tile.n * SW, k = tile.k || 1;
+    const c0 = Math.floor((x0 - o) * k) / k, c1 = Math.floor((end - o) * k) / k;
+    if (c1 > c0 && c1 > -4 && c0 < SW + 8) {
+      g.save(); g.beginPath(); g.rect(c0, 0, c1 - c0, SH); g.clip();
+      fillArea(g, o, prevA, pa, LB - LT, FILL_A);
+      fillArea(g, o, prevR, pr, SH, FILL_R);
+      g.restore();
+    }
+    for (const m of markers) if (m.x > x0 - 1 && m.x <= end) { g.fillStyle = INK.butter; g.fillRect(m.x - o - 1.5, 0, 3, LB - LT); }
+    stroke(g, o, prevA, pa, INK.peach, 3.2);
+    stroke(g, o, prevR, pr, INK.pink, 3);
+  }
+  prevA = [...pa[SUB - 1], ...pa[SUB - 2]]; prevR = [...pr[SUB - 1], ...pr[SUB - 2]];
+  written = end;
+};
+const place = () => tiles.forEach((tile) => (tile.cv.style.transform = `translate3d(${(tile.n * SW - (written - SW)).toFixed(2)}px,0,0)`));
+
+// the labels: one layer each, slid with the strip; they fade in once wholly in view and out before the left edge
+const labelFor = (m) => {
+  const w = Math.ceil(L.textWidth(m.name, 36)) + 8;
+  m.el = L.layer({ x: 0, y: 0, w, h: 60 }, strip);
+  L.text({ x: 0, base: 50, s: 36, c: "butter", txt: m.name }, m.el).classList.remove("boot");   // made after the start-up cascade
+  m.w = w; m.a = 0; op(m.el, 0);
+};
+const showLabels = (dt) => {
+  for (let i = markers.length - 1; i >= 0; i--) {
+    const m = markers[i], xr = m.x - (written - SW);
+    if (xr < -40) { if (m.el) m.el.remove(); markers.splice(i, 1); continue; }
+    if (!m.el) labelFor(m);
+    const inView = xr + 16 + m.w <= SW - 24;
+    m.a = L.clamp(m.a + (inView ? dt / 0.8 : -dt / 0.8));
+    tf(m.el, `translate3d(${(xr + 16).toFixed(2)}px,0,0)`);
+    op(m.el, Math.min(smooth(m.a), smooth((xr - 12) / 110)));
+  }
+};
+
+// ---------------- the readings under the timeline: six, one to a column ----------------
+const TILE_L = 944, TILE_V = 1014;
+const tile = (i, label, c) => {
+  const x = COL(i);
+  L.rect({ x, y: TILE_L - 29, w: 12, h: TILE_V - TILE_L + 29, c });
+  L.text({ x: x + 36, base: TILE_L, s: 40, c: "lilac", txt: label });
+  fits(label, 40, CW - 36, "tile");
+  return L.text({ x: x + 36, base: TILE_V, s: 52, c: "white", txt: "" });
+};
+const vAcc = tile(0, "Acceleration", "peach");
+const vComp = tile(1, "Compensation", "lilac");
+const vRes = tile(2, "Residual Aboard", "pink");
+const vLag = tile(3, "Response Lag", "butter");
+const vCoh = tile(4, "Field Coherence", "plum");
+const vEvt = tile(5, "Events This Watch", "lilac");
+
+// =====================================================================================
+// THE LAST EVENT: how the field caught it, in milliseconds
+// =====================================================================================
+const MY = 1080, MROW = (k) => 1212 + 76 * k;              // rows shared with the generators table
+L.header({ x: X0, y: MY, w: LEFT_R - X0, label: "Response Lag  ·  Last Event", c1: "peach", c2: "lilac" });
+const CX0 = X0, CX1 = COL(2) - 60, CY0 = 1160, CY1 = 1468;  // the chart: 330 → 1452
+L.rect({ x: CX0, y: CY0, w: CX1 - CX0, h: CY1 - CY0, c: LANE, panel: true });
+const PX0 = CX0 + 40, PX1 = CX1 - 40, TMAX = 400;           // 0–400 ms
+const px = (ms) => PX0 + ((PX1 - PX0) * ms) / TMAX;
+const py = (v) => 1436 - v * 190;                           // 0 → 1436, 1 (full compensation) → 1246
+const NS = "http://www.w3.org/2000/svg";
+// the curves sit in their own layer (they fade); a cover the colour of the chart slides off to draw them
+const CHW = CX1 - CX0, CHH = CY1 - CY0;                    // layers sized to the chart, never the whole screen
+const curveLayer = L.layer({ x: CX0, y: CY0, w: CHW, h: CHH });
+curveLayer.style.pointerEvents = "none";
+const curveSvg = document.createElementNS(NS, "svg");
+curveSvg.setAttribute("viewBox", `${CX0} ${CY0} ${CHW} ${CHH}`); curveSvg.setAttribute("width", CHW); curveSvg.setAttribute("height", CHH);
+curveLayer.appendChild(curveSvg);
+const gap = L.svg("path", { fill: INK.pink, opacity: 0.38 }, curveSvg);
+const cmdP = L.svg("path", { fill: "none", stroke: INK.peach, "stroke-width": 5, "stroke-linejoin": "round", "stroke-linecap": "round" }, curveSvg);
+const fldP = L.svg("path", { fill: "none", stroke: INK.lilac, "stroke-width": 5, "stroke-linejoin": "round", "stroke-linecap": "round" }, curveSvg);
+const coverClip = L.el("div", "clip", L.stage, { left: PX0 - 6 + "px", top: CY0 + "px", width: PX1 - PX0 + 12 + "px", height: CY1 - CY0 + "px" });
+const cover = L.layer({ x: 0, y: 0, w: PX1 - PX0 + 12, h: CY1 - CY0 }, coverClip);
+cover.style.background = LANE;
+tf(cover, `translate3d(${PX1 - PX0 + 12}px,0,0)`);
+// the grid lies over the cover, so it is always there; the curves are drawn beneath it
+const grid = document.createElementNS(NS, "svg");
+grid.setAttribute("viewBox", `${CX0} ${CY0} ${CHW} ${CHH}`); grid.setAttribute("width", CHW); grid.setAttribute("height", CHH);
+Object.assign(grid.style, { position: "absolute", left: CX0 + "px", top: CY0 + "px", pointerEvents: "none" });
+grid.classList.add("boot");
+L.stage.appendChild(grid);
+[0, 0.5, 1].forEach((v) => L.svg("rect", { x: PX0, y: py(v) - 1, width: PX1 - PX0, height: 2, fill: v === 1 ? "#6a4c7a" : GRID }, grid));
+[0, 100, 200, 300, 400].forEach((ms) => L.svg("rect", { x: px(ms) - 1, y: 1230, width: 2, height: py(0) - 1230 + 12, fill: GRID }, grid));
+[0, 100, 200, 300, 400].forEach((ms) => L.text({ x: px(ms), base: 1516, s: 36, c: "lilac", txt: String(ms), align: "c", w: 160, legend: true }));
+// the key, inside the chart's top edge
+{
+  let x = PX1;
+  for (const [txt, c] of [["Residual", "pink"], ["Damping Field", "lilac"], ["Helm Command", "peach"]]) {
+    L.text({ x, base: 1206, s: 36, c, txt, align: "r" });
+    x -= L.textWidth(txt, 36) + 44;
+  }
+}
+// the readings beside it
+const RX0 = COL(2), RX1 = LEFT_R;
+const evName = cls(L.text({ x: RX0, base: MROW(0), s: 40, c: "butter", txt: "" }), "sw");
+const lagRow = (k, label) => {
+  L.text({ x: RX0, base: MROW(k), s: 40, c: "lilac", txt: label });
+  return cls(L.text({ x: RX1, base: MROW(k), s: 52, c: "white", txt: "", align: "r" }), "sw");
+};
+const vOnset = lagRow(1, "Onset Lag"), vSettle = lagRow(2, "Settling"), vOver = lagRow(3, "Overshoot"), vPeak = lagRow(4, "Peak Residual");
+MANEUVERS.forEach((m) => fits(m.name, 40, RX1 - RX0, "event name"));
+
+// the field's step response: a dead time, then a damped second-order rise (2% settling)
+const curves = (s) => {
+  const os = s.os / 100, lz = Math.log(os), z = -lz / Math.sqrt(Math.PI ** 2 + lz * lz);
+  const wn = 4 / (z * (s.settle - s.lag) / 1000), wd = wn * Math.sqrt(1 - z * z);
+  const cmd = (t) => smooth(t / 26);
+  const fld = (t) => {
+    if (t <= s.lag) return 0;
+    const u = (t - s.lag) / 1000;
+    return 1 - Math.exp(-z * wn * u) * (Math.cos(wd * u) + (z / Math.sqrt(1 - z * z)) * Math.sin(wd * u));
+  };
+  const C = [], F = [];
+  for (let t = 0; t <= TMAX; t += 2) { C.push([px(t), py(cmd(t))]); F.push([px(t), py(fld(t))]); }
+  const d = (pts) => pts.map(([x, y], i) => `${i ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`).join("");
+  cmdP.setAttribute("d", d(C)); fldP.setAttribute("d", d(F));
+  gap.setAttribute("d", d(C) + F.slice().reverse().map(([x, y]) => `L${x.toFixed(1)},${y.toFixed(1)}`).join("") + "Z");
+};
+let last = null, reveal = null;
+const showLast = (s, animate) => {
+  const write = () => {
+    L.set(evName, s.name); L.set(vOnset, s.lag + " ms"); L.set(vSettle, s.settle + " ms");
+    L.set(vOver, s.os.toFixed(1) + "%"); L.set(vPeak, s.peak.toFixed(2) + " g"); L.set(vLag, s.lag + " ms");
+  };
+  if (!animate) { write(); curves(s); return; }
+  swap([evName, vOnset, vSettle, vOver, vPeak, vLag], write);
+  reveal = { t0: L.t, s };
+};
+function endEvent(e) {
+  const sev = L.clamp(e.peak / 0.35);
+  last = { name: e.m.name, lag: Math.round(L.rand(33, 39) + 6 * sev), os: L.rand(0.6, 1.4) + sev, peak: e.peak };
+  last.settle = last.lag + Math.round(L.rand(150, 190) + 40 * sev);
+  if (filled) showLast(last, true); else last.quiet = true;
+}
+// a new event: the old curves fade, the cover comes back, then slides off as the field responds
+L.tick((t) => {
+  if (!reveal) return;
+  const u = t - reveal.t0;
+  if (u < 0.5) { op(curveLayer, 1 - smooth(u / 0.5)); return; }
+  if (!reveal.drawn) { reveal.drawn = true; curves(reveal.s); tf(cover, "translate3d(0px,0,0)"); op(curveLayer, 1); }
+  const k = L.ease(L.clamp((u - 0.6) / 2.4));
+  tf(cover, `translate3d(${(k * (PX1 - PX0 + 12)).toFixed(1)}px,0,0)`);
+  if (k >= 1) reveal = null;
+});
+
+// =====================================================================================
+// FIELD GENERATORS
+// =====================================================================================
+L.header({ x: MID, y: MY, w: X1 - MID, label: "Field Generators", c1: "lilac", c2: "peach" });
+const G = { name: MID, loc: MID + 340, bar: MID + 700, barR: X1 - 520, val: X1 - 300, pill: X1 - 260 };
+[["Generator", G.name], ["Location", G.loc], ["Field Output", G.bar]].forEach(([txt, x]) => L.text({ x, base: MROW(0), s: 36, c: "lilac", txt }));
+L.text({ x: G.pill, base: MROW(0), s: 36, c: "lilac", txt: "Status" });
+const GENS = [["IDF Generator 1", "Saucer  ·  Deck 11", 11, 1.0], ["IDF Generator 2", "Saucer  ·  Deck 14", 14, 0.96],
+              ["IDF Generator 3", "Stardrive  ·  Deck 24", 24, 1.04], ["IDF Generator 4", "Stardrive  ·  Deck 33", 33, 0]];
+const gens = GENS.map(([name, loc, deck, share], k) => {
+  const base = MROW(k + 1), standby = share === 0;
+  L.text({ x: G.name, base, s: 40, c: standby ? "plum" : "white", txt: name });
+  L.text({ x: G.loc, base, s: 36, c: "peach", txt: loc });
+  L.rect({ x: G.bar, y: base - 26, w: G.barR - G.bar, h: 26, c: TRACK });
+  const bar = L.layer({ x: G.bar, y: base - 26, w: G.barR - G.bar, h: 26 });
+  bar.style.background = `var(--${standby ? "plum" : "lilac"})`; bar.style.transformOrigin = "0 0";
+  const v = L.text({ x: G.val + 0, base, s: 52, c: "white", txt: "", align: "r" });
+  L.box({ x: G.pill, y: base - 44.56, w: X1 - G.pill, h: 56, c: standby ? "plum" : "lilac", label: standby ? "Standby" : "Online", fs: 28, r: "lr" });
+  fits(name, 40, G.loc - G.name - 40, "generator"); fits(loc, 36, G.bar - G.loc - 40, "location");
+  return { deck, share, bar, v, phase: k * 1.9, shown: standby ? 0.08 : 0.31 };
+});
+const ACTIVE = gens.filter((g) => g.share > 0).map((g) => g.deck);
+
+// =====================================================================================
+// PER-DECK COMPENSATION: 42 decks, loaded by their distance from the nearest active generator
+// =====================================================================================
+L.header({ x: X0, y: 1620, w: LEFT_R - X0, label: "Per-Deck Compensation", c1: "plum", c2: "lilac", h: 48 });
+const DB = (k) => 1734 + 54 * k;
+const NDECK = 42, DP = (LEFT_R - X0 + 9) / NDECK, DW = DP - 9;   // 41 pitch, 32 wide
+const BT = 1766, BB = 1956, TOL = 0.9;
+const okTxt = L.text({ x: X0, base: DB(0), s: 36, c: "lilac", txt: "" });
+const peakTxt = L.text({ x: LEFT_R, base: DB(0), s: 36, c: "peach", txt: "", align: "r" });
+const decks = Array.from({ length: NDECK }, (_, i) => {
+  const d = i + 1, x = X0 + i * DP;
+  L.rect({ x, y: BT, w: DW, h: BB - BT, c: TRACK, free: true });
+  const f = L.layer({ x, y: BT, w: DW, h: BB - BT });
+  f.style.background = "var(--lilac)"; f.style.transformOrigin = "50% 100%";
+  const far = Math.min(...ACTIVE.map((g) => Math.abs(d - g))) / 18;   // 0 at a generator, 1 at deck 42
+  return { d, f, far, phase: i * 0.61, u: 0.15 };
+});
+L.rect({ x: X0, y: BB - (BB - BT) * TOL - 1.5, w: LEFT_R - X0, h: 3, c: "butter", free: true });   // tolerance, over the tracks
+[1, 10, 20, 30, 40].forEach((d) => L.text({ x: X0 + (d - 1) * DP + DW / 2, base: 2004, s: 30, c: "lilac", txt: pad2(d), align: "c", w: 80, legend: true }));
+
+// =====================================================================================
+// INCIDENT HISTORY: the records, recalled six at a time
+// =====================================================================================
+L.header({ x: MID, y: 1620, w: X1 - MID, label: "Incident History", c1: "lilac", c2: "plum", h: 48 });
+const INC = [
+  ["42761.3", "Borg tractor beam  ·  System J-25", 1820, "Held"],
+  ["43539.1", "Tractor beam load  ·  moon of Bre'el IV", 960, "Held"],
+  ["43989.1", "Evasive  ·  Borg pursuit, Paulson Nebula", 2140, "Held"],
+  ["44085.7", "Helm lockout  ·  unauthorized course, Terlina III", 1380, "Held"],
+  ["45156.1", "Quantum filament strike  ·  main power lost", 2610, "Reserve Power"],
+  ["45652.1", "Evasive  ·  U.S.S. Bozeman, Typhon Expanse", 2290, "Held"],
+  ["46125.3", "Hatch transit  ·  Dyson sphere interior", 1540, "Held"],
+  ["46357.4", "Evasive  ·  Cardassian fleet, Minos Korva", 1960, "Held"],
+  ["47215.5", "Saucer separation drill  ·  Stardrive section", 720, "Held"],
+  ["47622.1", "Subspace shock wave  ·  hull stress, Deck 36", 1110, "Held"],
+];
+const IC = { sd: 0, what: 186, bar: 1000, peak: X1 - MID - 280, out: X1 - MID };
+INC.forEach(([, what]) => fits(what, 36, IC.bar - IC.what - 40, "incident"));
+const strip6 = (x, w, build) => {
+  const c = L.el("div", "clip", L.stage, { left: x + "px", top: DB(0) - 40 + "px", width: w + "px", height: 6 * 54 + 8 + "px" });
+  const rows = Array.from({ length: 6 }, (_, i) => {
+    const e = L.layer({ x: 0, y: 0, w, h: 54 }, c);
+    const r = build(e); r.e = e; r.slot = i; L.move(e, 0, i * 54);
+    return r;
+  });
+  const st = { rows, t0: -1 };
+  st.push = (d, t) => { st.t0 = t; st.pending = d; st.landed = null; };
+  L.tick((t) => {
+    if (st.t0 < 0) return;
+    const u = t - st.t0;
+    if (!st.landed) {                                    // all slide up one place; the top row fades away
+      const top = rows.find((r) => r.slot === 0), k = L.ease(L.clamp(u / 1.1));
+      rows.forEach((r) => L.move(r.e, 0, (r.slot - k) * 54));
+      top.e.style.opacity = (1 - L.clamp(u / 0.7)).toFixed(3);
+      if (k < 1) return;
+      rows.forEach((r) => (r.slot = r.slot === 0 ? 5 : r.slot - 1));   // it becomes the new bottom row
+      top.fill(st.pending); L.move(top.e, 0, 5 * 54); top.e.style.opacity = 0; st.landed = top; st.t1 = t;
+    } else {
+      const a = L.clamp((t - st.t1) / 0.8);
+      st.landed.e.style.opacity = a.toFixed(3);
+      if (a >= 1) { st.t0 = -1; st.landed = null; }
+    }
+  });
+  return st;
+};
+const hist = strip6(MID, X1 - MID, (e) => {
+  const sd = L.text({ x: IC.sd, base: 40, s: 36, c: "orange", txt: "" }, e);
+  const what = L.text({ x: IC.what, base: 40, s: 36, c: "white", txt: "" }, e);
+  const peak = L.text({ x: IC.peak, base: 40, s: 36, c: "peach", txt: "", align: "r", rightIn: true }, e);
+  const out = L.text({ x: IC.out, base: 40, s: 36, c: "lilac", txt: "", align: "r", rightIn: true }, e);
+  // the peak, as a bar on a 0–3,000 g scale
+  const track = L.el("div", "", e, { position: "absolute", left: IC.bar + "px", top: "14px", width: IC.peak - 180 - IC.bar + "px", height: "26px", background: TRACK });
+  const bar = L.el("div", "", track, { position: "absolute", left: "0px", top: "0px", width: "100%", height: "100%", transformOrigin: "0 0" });
+  return { fill: (d) => {
+    bar.style.background = d[3] === "Held" ? "var(--lilac)" : "var(--butter)";
+    bar.style.transform = `scaleX(${(d[2] / 3000).toFixed(3)})`;
+    L.set(sd, d[0]); L.set(what, d[1]); L.set(peak, fmt(d[2], 0) + " g"); L.set(out, d[3]);
+    out.style.color = d[3] === "Held" ? "var(--lilac)" : "var(--butter)";
+  } };
+});
+// the record in order: start a few entries back, add the later ones, and stop at the latest (never wrap to an older one)
+let hi = L.irand(0, INC.length - 8);
+hist.rows.forEach((r, i) => r.fill(INC[hi + i]));
+hi += 6;
+L.every(26000, (t) => { if (t > 2 && hi < INC.length) hist.push(INC[hi++], t); }, 0.15);
+
+// =====================================================================================
+// RUNNING IT
+// =====================================================================================
+let compensating = false, dShown = 0;
+const setState = (on) => {
+  compensating = on;
+  swap([state, sub], () => { L.set(state, on ? "Compensating" : "Dampers Nominal"); fg(state, on ? "butter" : "lilac"); placeSub(); });
+};
+L.tick((t) => {
+  if (!filled) {                                           // start with the timeline already full
+    filled = true; written = 0; tiles[0].n = -1; tiles[1].n = 0;
+    for (let i = 0; i < Math.ceil((SW / SPEED) * 30) + 2; i++) step(1 / 30);
+    lastT = t; place(); showLabels(1);
+    if (last) showLast(last, false);
+    return;
+  }
+  const dt = Math.min(0.1, t - lastT); lastT = t;
+  step(dt); place(); showLabels(dt);
+  // the status word agrees with the readings: compensating while there is acceleration to cancel
+  if (!compensating && acc > 60) setState(true);
+  else if (compensating && acc < 30) setState(false);
+  // generator output and deck load follow the acceleration, eased
+  const load = L.clamp(acc / 1600);
+  dShown += (load - dShown) * 0.08;
+  for (const g of gens) {
+    const goal = g.share ? (0.31 + 0.02 * Math.sin(t * 0.05 + g.phase) + 0.52 * dShown) * g.share : 0.08;
+    g.shown += (goal - g.shown) * 0.15;
+    tf(g.bar, `scaleX(${g.shown.toFixed(4)})`);
+  }
+  for (const d of decks) {
+    d.u = L.clamp(0.24 + 0.12 * d.far + 0.025 * Math.sin(t * 0.21 + d.phase) + dShown * (0.26 + 0.22 * d.far), 0, 0.86);
+    tf(d.f, `scaleY(${d.u.toFixed(3)})`);
+  }
+});
+// the readings: a few times a second
+L.every(250, () => {
+  if (!filled) return;
+  L.set(vAcc, fmt(acc, 1) + " g");
+  L.set(vComp, fmt(Math.max(0, acc - res), 1) + " g");
+  L.set(vRes, res.toFixed(2) + " g");
+  L.set(vEvt, String(events));
+  gens.forEach((g) => L.set(g.v, (g.shown * 100).toFixed(1) + "%"));
+}, 0);
+L.every(500, (t) => {
+  if (!filled) return;
+  L.set(vCoh, (99.74 + 0.05 * Math.sin(t * 0.07) - 0.4 * dShown).toFixed(2) + "%");
+  const within = decks.filter((d) => d.u < TOL).length;
+  L.set(okTxt, `${within} / ${NDECK} Decks Within Tolerance`);
+  const p = decks.reduce((a, b) => (b.u > a.u ? b : a));
+  L.set(peakTxt, `Peak Load  ·  Deck ${pad2(p.d)}  ·  ${Math.round(p.u * 100)}%`);
+}, 0);
+L.every(1000, () => L.set(sub, `Inertial Damping Field  ·  3 of 4 Generators Online  ·  Stardate ${stardate().toFixed(1)}`), 0);
+
+if (bad.length) setTimeout(() => { throw new Error("inertial-dampers: " + bad.join(" | ")); });
+});
+</script></body></html>

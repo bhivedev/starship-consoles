@@ -1,0 +1,515 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Neurology</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* swapped text dips and comes back; colors change slowly; .boot (the start-up cascade) always wins */
+  .sw { transition: opacity .45s ease, background-color 1.2s ease, color 1.2s ease; }
+  .out:not(.boot) { opacity: .15; }
+  .clip { position: absolute; overflow: hidden; }
+  /* the synaptic map: each neuron tinted by its lobe; a firing one is covered by a glow (a composited layer) that fades */
+  .nd.fr { fill: #4a3ea6; } .nd.pa { fill: #725a84; } .nd.te { fill: #5f4380; } .nd.oc { fill: #8a5c80; }
+  .pulse { border-radius: 7px; background: #ffe2f6; opacity: 0; }
+  .glow { border-radius: 10px; background: #fff0fb; opacity: 0; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: sidebar left, title top right ----------------
+L.frame({ type: "A", title: "Neurology  •  Neural Scan", c: "violet", c2: "pink", accent: "lilac", foot: "Neuro",
+  side: [[140, "lilac", "Sickbay"], [70, "plum", "03"], [420, "violet", "Neurology"], [70, "pink", "4757"],
+         [300, "lilac", "EEG"], [70, "plum", "N3"], [216, "violet", "Medical"]] });
+
+// Six columns, 531 wide and 60 apart (330–3816). The EEG wall takes four; the map and log two.
+const X0 = 330, X1 = 3816, CP = 591, CW = 531, COL = (i) => X0 + i * CP;
+const INK = { pink: "#f4b6e6", lilac: "#c7a0d8", violet: "#8f7cf0", plum: "#9c6fb4", butter: "#ffcc66" };
+const WIN = "#130b22", GRID = "#2a1d44", TRACK = "#2a1c3c";
+const fmt = (v, dp = 0) => v.toLocaleString("en-US", { minimumFractionDigits: dp, maximumFractionDigits: dp });
+const cls = (e, ...c) => (e.classList.add(...c), e);
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const op = (e, v) => { v = v < 0.005 ? "0" : v > 0.995 ? "1" : v.toFixed(2); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const fg = (e, c) => { if (e._fg !== c) { e._fg = c; e.style.color = `var(--${c})`; } };
+const bg = (e, c) => { if (e._bg !== c) { e._bg = c; e.style.background = `var(--${c})`; } };
+const swap = (els, f) => { els.forEach((e) => e.classList.add("out")); setTimeout(() => { f(); els.forEach((e) => e.classList.remove("out")); }, 460); };
+const bad = [];                                            // words that would not fit their places
+const fits = (txt, s, w, where) => { if (L.textWidth(txt, s) > w) bad.push(`${where}: "${txt}"`); };
+const minutes = () => { const d = new Date(); return d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60; };
+const stardate = () => 47566 + (minutes() / 1440) * 2.74;
+const clockAgo = (s) => { const d = new Date(Date.now() - s * 1000), p = (n) => String(n).padStart(2, "0"); return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; };
+const TAU = 2 * Math.PI;
+let seed = 0x5eed1a1;                                      // the map's layout: the same every time
+const rnd = () => { seed = (seed + 0x6d2b79f5) | 0; let t = seed; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+
+// ---------------- status line ----------------
+const PATIENT = "Ensign Sam Lavelle";
+const state = cls(L.text({ x: X0, cap: 150, s: 100, c: "pink", txt: "Cortical Activity Normal" }), "sw");
+const sub = cls(L.text({ x: 0, base: 222, s: 38, c: "lilac", txt: "" }), "sw");
+const placeSub = () => { sub.style.left = X0 + state.offsetWidth + 40 + "px"; };
+placeSub();
+const PILL = "Biobed 3  ·  EEG Recording";
+L.box({ x: X1 - 400, y: 150, w: 400, h: 72, c: "lilac", label: PILL, r: "lr", fs: 36 });
+fits(PILL, 36, 400 - 40 - 30, "status pill");
+
+// =====================================================================================
+// THE EEG WALL: sixteen channels, a longitudinal bipolar montage, one chain to a column
+// =====================================================================================
+const ROW = (k) => 360 + 310 * k, WH = 270, TAB = 150;
+const WX = (i) => COL(i) + TAB + 12, WW = CW - TAB - 12;     // trace windows: 369 wide
+const CHAINS = [
+  { name: "Left Temporal",      c1: "violet", c2: "lilac",  tab: "lilac", ink: INK.lilac, temporal: true,  side: 0, ch: ["Fp1–F7", "F7–T3", "T3–T5", "T5–O1"] },
+  { name: "Left Parasagittal",  c1: "pink",   c2: "violet", tab: "pink",  ink: INK.pink,  temporal: false, side: 0, ch: ["Fp1–F3", "F3–C3", "C3–P3", "P3–O1"] },
+  { name: "Right Parasagittal", c1: "pink",   c2: "violet", tab: "pink",  ink: INK.pink,  temporal: false, side: 1, ch: ["Fp2–F4", "F4–C4", "C4–P4", "P4–O2"] },
+  { name: "Right Temporal",     c1: "violet", c2: "lilac",  tab: "lilac", ink: INK.lilac, temporal: true,  side: 1, ch: ["Fp2–F8", "F8–T4", "T4–T6", "T6–O2"] },
+];
+// amplitudes (µV, peak) by position along the chain, front to back: alpha is strongest at the back
+const AMP = {
+  para: { a: [7, 12, 24, 44], b: [8, 9, 7, 4], t: [6, 6, 7, 6], d: [7, 4, 3, 3] },
+  temp: { a: [6, 9, 18, 36], b: [7, 8, 6, 4], t: [7, 8, 9, 6], d: [6, 4, 4, 3] },
+};
+const ALPHA_HZ = [10.2, 10.1];
+const chans = [];
+CHAINS.forEach((chain, i) => {
+  L.header({ x: COL(i), y: 280, w: CW, label: chain.name, c1: chain.c1, c2: chain.c2 });
+  chain.ch.forEach((name, k) => {
+    const y = ROW(k), A = AMP[chain.temporal ? "temp" : "para"];
+    L.box({ x: COL(i), y, w: TAB, h: WH, c: chain.tab, label: name, fs: 32 });
+    const num = L.text({ x: COL(i) + 22, cap: y + 26, s: 64, c: "#000", txt: "", on: true });
+    L.text({ x: COL(i) + 22, cap: y + 92, s: 36, c: "#000", txt: "RMS", on: true });
+    L.rect({ x: WX(i), y, w: WW, h: WH, c: WIN });
+    for (let g = 1; g < 4; g++) L.rect({ x: WX(i) + (WW / 4) * g - 1, y, w: 2, h: WH, c: GRID, free: true });
+    L.rect({ x: WX(i), y: y + WH / 2 - 1, w: WW, h: 2, c: GRID, free: true });
+    const ph = () => rnd() * TAU;
+    chans.push({ chain: i, k, name, num, side: chain.side, front: k === 0,
+      aA: A.a[k], bA: A.b[k], tA: A.t[k], dA: A.d[k], af: ALPHA_HZ[chain.side],
+      p: Array.from({ length: 12 }, ph), lag: (3 - k) * 0.04 + chain.side * 0.07, ms: 0 });
+  });
+});
+
+// the signal: delta, theta, alpha (waxing and waning together), beta, a little fast activity
+const gAlpha = (t) => 0.62 + 0.24 * Math.sin(TAU * 0.09 * t) + 0.14 * Math.sin(TAU * 0.23 * t + 1.3);
+const neural = (c, t) => {
+  const p = c.p;
+  return c.dA * (Math.sin(TAU * 1.7 * t + p[0]) + 0.6 * Math.sin(TAU * 2.9 * t + p[1]))
+       + c.tA * (0.7 + 0.3 * Math.sin(TAU * 0.21 * t + p[2])) * Math.sin(TAU * 6.1 * t + p[3])
+       + c.aA * gAlpha(t + c.lag) * Math.sin(TAU * c.af * t + p[4])
+       + c.bA * (0.6 * Math.sin(TAU * 18.7 * t + p[5]) + 0.5 * Math.sin(TAU * 23.3 * t + p[6]))
+       + 1.6 * Math.sin(TAU * 31.7 * t + p[7]) + 1.2 * Math.sin(TAU * 38.3 * t + p[8]) + 1.0 * Math.sin(TAU * 44.9 * t + p[9])
+       + 3 * Math.sin(TAU * 0.37 * t + p[10]);
+};
+// eye blinks: a slow tall swing in the frontal-pole channels, rejected from the readings as artefact
+const blinks = [];
+let nextBlink = 3.5, blinkCount = 0, live = false;
+const artefact = (c, t) => {
+  let v = 0;
+  for (const b of blinks) {
+    const u = (t - b) / 0.12;
+    if (u > -4 && u < 6) v += Math.exp(-u * u * (u < 0 ? 1 : 0.45));
+  }
+  return c.front ? 70 * v : c.k === 1 ? -14 * v : 0;
+};
+
+// ---------------- the traces scroll: two canvas tiles per column, slid as layers (tng/sickbay.html) ----------------
+const SPAN = 1200, SPEED = WW / 2, SC = 1.6, HALF = WH / 2 - 12;  // 2 s across a window; 1.6 px per µV
+const strips = CHAINS.map((chain, i) => {
+  const box = L.el("div", "boot", L.stage, { position: "absolute", left: WX(i) + "px", top: ROW(0) + "px", width: WW + "px", height: SPAN + "px", overflow: "hidden" });
+  const tiles = [0, 1].map((n) => {
+    const c = L.canvas({ x: 0, y: 0, w: WW + 8, h: SPAN }, box);   // 8px of overlap: no hairline seam
+    c.cv.style.willChange = "transform"; c.n = n;          // n, not k: the kit keeps the pixel scale in c.k
+    return c;
+  });
+  return { ink: chain.ink, tiles };
+});
+const allTiles = strips.flatMap((s) => s.tiles);
+let written = 0, simT = 0, prev = null, filled = false;
+const SUB = 8;                                             // samples per frame: 240 a second
+const step = (dt) => {
+  const pts = chans.map(() => []);
+  for (let k = 1; k <= SUB; k++) {
+    const h = dt / SUB;
+    simT += h;
+    while (nextBlink < simT + 1) {
+      blinks.push(nextBlink);
+      if (live && ++blinkCount % 4 === 0) logPush(`Ocular Artefact  ·  Fp1  Fp2  ·  Rejected`, "lilac");
+      nextBlink += Math.random() < 0.15 ? 0.45 : L.rand(4, 9);   // now and then a double blink
+    }
+    while (blinks.length && blinks[0] < simT - 1) blinks.shift();
+    const x = written + (dt * SPEED * k) / SUB;
+    chans.forEach((c, i) => {
+      const n = neural(c, simT), v = n + artefact(c, simT);
+      c.ms += (n * n - c.ms) * (h / 2);                    // the reading: two seconds' RMS, artefact rejected
+      pts[i].push([x, c.k * 310 + WH / 2 - HALF * Math.tanh((v * SC) / HALF)]);
+    });
+  }
+  // recycle a tile that has left the view BEFORE drawing, so the sliver that crosses into it lands on it
+  const end = written + dt * SPEED;
+  for (const tile of allTiles) if (end >= (tile.n + 2) * WW) { tile.n += 2; tile.g.clearRect(0, 0, WW + 8, SPAN); }
+  if (prev) strips.forEach((s, si) => {
+    for (const tile of s.tiles) {
+      const o = tile.n * WW;
+      if (end < o - 4 || written > o + WW + 12) continue;
+      const g = tile.g;
+      g.strokeStyle = s.ink; g.lineWidth = 2.8; g.lineJoin = "round"; g.lineCap = "round";
+      g.beginPath();
+      chans.forEach((c, i) => {
+        if (c.chain !== si) return;
+        g.moveTo(prev[i][0] - o, prev[i][1]);
+        for (const [x, y] of pts[i]) g.lineTo(x - o, y);
+      });
+      g.stroke();
+    }
+  });
+  prev = pts.map((p) => p[SUB - 1]);
+  written = end;
+};
+const place = () => allTiles.forEach((tile) => tf(tile.cv, `translate3d(${(tile.n * WW - (written - WW)).toFixed(2)}px,0,0)`));
+allTiles.forEach((c) => (c.onResize = () => { filled = false; }));   // a resize wipes the canvases: refill them
+
+// =====================================================================================
+// THE SYNAPTIC MAP: the cortex from above, two hemispheres of neurons; activity spreads in cascades
+// =====================================================================================
+const MX0 = COL(4), MY0 = ROW(0), MY1 = ROW(2) + WH;         // 2694–3816, 360–1250
+L.header({ x: MX0, y: 280, w: X1 - MX0, label: "Synaptic Activity  ·  Cortical Map", c1: "violet", c2: "pink" });
+L.rect({ x: MX0, y: MY0, w: X1 - MX0, h: MY1 - MY0, c: "#0f0819", panel: true });
+const MID = (MX0 + X1) / 2, GAPM = 11, HW = 240, BT = 400, BB = 1210;   // midline; half-gap; hemisphere width
+const shapeW = (v) => HW * Math.pow(Math.sin(Math.PI * L.clamp(v)), 0.55) * (0.86 + 0.14 * v);   // front (top) a little narrower
+const mapG = L.svg("g", { class: "boot" });
+// the hemispheres: a straight inner edge along the fissure, a rounded outer one
+for (const s of [-1, 1]) {
+  let d = `M${MID + s * GAPM},${BT}`;
+  for (let v = 0; v <= 1.0001; v += 0.02) d += ` L${(MID + s * (GAPM + shapeW(v))).toFixed(1)},${(BT + v * (BB - BT)).toFixed(1)}`;
+  d += ` L${MID + s * GAPM},${BB} Z`;
+  L.svg("path", { d, fill: "#1a1030", stroke: "#3e2f6a", "stroke-width": 4, "stroke-linejoin": "round" }, mapG);
+}
+// the neurons: spaced points inside each hemisphere
+const LOBES = ["fr", "pa", "te", "oc"];
+const LOBE_NAME = { fr: "Frontal", pa: "Parietal", te: "Temporal", oc: "Occipital" };
+const LOBE_C = { fr: "violet", pa: "lilac", te: "plum", oc: "pink" };
+const nodes = [];
+for (const s of [-1, 1]) {
+  for (let tries = 0; tries < 4000; tries++) {
+    const v = 0.03 + rnd() * 0.94, w = shapeW(v), u = rnd();
+    const x = MID + s * (GAPM + 14 + u * Math.max(0, w - 30)), y = BT + v * (BB - BT);
+    if (w < 40) continue;
+    if (nodes.some((n) => (n.x - x) ** 2 + (n.y - y) ** 2 < 40 * 40)) continue;
+    const uu = (Math.abs(x - MID) - GAPM) / w;
+    const lobe = v < 0.36 ? "fr" : v > 0.8 ? "oc" : uu > 0.62 ? "te" : "pa";
+    nodes.push({ x, y, s: s < 0 ? 0 : 1, lobe, nb: [] });
+  }
+}
+// connections: each neuron to its three nearest in the same hemisphere; a few across the fissure
+const link = (a, b) => { if (!a.nb.includes(b)) { a.nb.push(b); b.nb.push(a); } };
+for (const a of nodes) {
+  nodes.filter((b) => b !== a && b.s === a.s).sort((p, q) => ((p.x - a.x) ** 2 + (p.y - a.y) ** 2) - ((q.x - a.x) ** 2 + (q.y - a.y) ** 2))
+    .slice(0, 3).forEach((b) => link(a, b));
+}
+const inner = (s) => nodes.filter((n) => n.s === s && Math.abs(n.x - MID) < GAPM + 60 && n.y > BT + 220 && n.y < BB - 220).sort((a, b) => a.y - b.y);
+const [innerL, innerR] = [inner(0), inner(1)];
+const callosal = [];
+innerL.forEach((a) => {
+  const b = innerR.reduce((p, q) => (Math.abs(q.y - a.y) < Math.abs(p.y - a.y) ? q : p));
+  if (Math.abs(b.y - a.y) < 40) { link(a, b); callosal.push(a, b); }
+});
+let edges = "";
+const drawn = new Set();
+nodes.forEach((a, i) => a.nb.forEach((b) => { const j = nodes.indexOf(b), key = i < j ? `${i}-${j}` : `${j}-${i}`; if (!drawn.has(key)) { drawn.add(key); edges += `M${a.x.toFixed(1)},${a.y.toFixed(1)}L${b.x.toFixed(1)},${b.y.toFixed(1)}`; } }));
+L.svg("path", { d: edges, stroke: "#3a2c66", "stroke-width": 2.5, fill: "none" }, mapG);
+nodes.forEach((n) => { n.el = L.svg("circle", { cx: n.x.toFixed(1), cy: n.y.toFixed(1), r: 7.5, class: `nd ${n.lobe}` }, mapG); n.lit = -1; });
+
+// the readings either side of the brain: one hemisphere to a column
+const SB = (k) => 440 + 108 * k;
+const SCOL = [[MX0 + 32, MID - GAPM - HW - 36], [MID + GAPM + HW + 36, X1 - 32]];
+const lobeRead = [{}, {}], sideVals = [[], []];
+SCOL.forEach(([a, b], s) => {
+  L.text({ x: a, base: SB(0), s: 40, c: "pink", txt: s ? "Right Hemisphere" : "Left Hemisphere" });
+  fits("Right Hemisphere", 40, b - a, "hemisphere");
+  LOBES.forEach((lobe, k) => {
+    const base = SB(k + 1);
+    const lb = cls(L.text({ x: a, base, s: 36, c: LOBE_C[lobe], txt: LOBE_NAME[lobe] }), "sw");
+    const v = L.text({ x: b, base, s: 40, c: "white", txt: "", align: "r" });
+    L.rect({ x: a, y: base + 16, w: b - a, h: 10, c: TRACK });
+    const bar = L.layer({ x: a, y: base + 16, w: b - a, h: 10 });
+    bar.style.background = `var(--${LOBE_C[lobe]})`; bar.style.transformOrigin = "0 0";
+    lobeRead[s][lobe] = { lb, v, bar, rate: 3, shown: 3, lobe };
+    fits(`${LOBE_NAME[lobe]}  00.0 Hz`, 40, b - a, "lobe row");
+  });
+  [["Alpha Peak", "lilac"], ["Alpha Index", "lilac"], [s ? "Coherence" : "Cascades", "lilac"]].forEach(([name, c], k) => {
+    L.text({ x: a, base: SB(5 + k), s: 36, c, txt: name });
+    sideVals[s].push(L.text({ x: b, base: SB(5 + k), s: 40, c: "white", txt: "", align: "r" }));
+  });
+});
+L.set(sideVals[0][0], `${ALPHA_HZ[0].toFixed(1)} Hz`); L.set(sideVals[1][0], `${ALPHA_HZ[1].toFixed(1)} Hz`);
+
+// cascades: a neuron fires; the impulse runs along its connections and some of its neighbours fire in turn
+const pool = Array.from({ length: 40 }, () => ({ e: L.layer({ x: 0, y: 0, w: 14, h: 14, cls: "pulse" }), busy: false }));
+const pulses = [];
+const glows = Array.from({ length: 64 }, () => ({ e: L.layer({ x: 0, y: 0, w: 20, h: 20, cls: "glow" }), t0: -1 }));
+const lit = [];
+let cascRate = 90;                                         // cascades a minute, smoothed
+const fire = (n, depth, casc, t) => {
+  if (casc.fired.has(n)) return;
+  casc.fired.add(n);
+  const gl = glows.find((g) => g.t0 < 0);
+  if (gl) { gl.t0 = t; tf(gl.e, `translate3d(${(n.x - 10).toFixed(1)}px,${(n.y - 10).toFixed(1)}px,0)`); op(gl.e, 1); lit.push(gl); }
+  lobeRead[n.s][n.lobe].count = (lobeRead[n.s][n.lobe].count || 0) + 1;
+  if (depth >= 6) return;
+  for (const b of n.nb) {
+    if (casc.fired.has(b) || casc.fired.size + casc.flying >= casc.max) continue;
+    if (Math.random() > 0.64 - 0.07 * depth) continue;
+    const slot = pool.find((p) => !p.busy);
+    if (!slot) return;
+    slot.busy = true; casc.flying++;
+    const len = Math.hypot(b.x - n.x, b.y - n.y);
+    pulses.push({ slot, a: n, b, t0: t, dur: len / 260, depth: depth + 1, casc });
+  }
+};
+const startCascade = (t, focus) => {
+  let pick;
+  if (focus === "cc") pick = L.pick(callosal);
+  else {
+    const lobe = focus || L.pick(["oc", "oc", "oc", "pa", "pa", "fr", "fr", "te", "te"]);
+    pick = L.pick(nodes.filter((n) => n.lobe === lobe));
+  }
+  fire(pick, 0, { fired: new Set(), flying: 0, max: L.irand(14, 26) }, t);
+};
+
+// =====================================================================================
+// NEURAL SCAN LOG (under the map)
+// =====================================================================================
+L.header({ x: MX0, y: ROW(3), w: X1 - MX0, label: "Neural Scan Log", c1: "pink", c2: "lilac" });
+const LB = (k) => 1400 + 52 * k;
+const slider = ({ x, top, w, n, pitch, build }) => {         // rows slide up; pushes queue, so the record stays in order
+  const c = L.el("div", "clip boot", L.stage, { left: x + "px", top: top + "px", width: w + "px", height: n * pitch + 12 + "px" });
+  const rows = Array.from({ length: n }, (_, i) => {
+    const e = L.layer({ x: 0, y: 0, w, h: pitch }, c);
+    const r = build(e); r.e = e; r.slot = i; L.move(e, 0, i * pitch);
+    return r;
+  });
+  const st = { rows, queue: [], t0: -1 };
+  st.push = (d) => { st.queue.push(d); if (st.queue.length > 6) st.queue.shift(); };
+  L.tick((t) => {
+    if (st.t0 < 0) { if (!st.queue.length) return; st.t0 = t; st.pending = st.queue.shift(); st.landed = null; }
+    const u = t - st.t0;
+    if (!st.landed) {
+      const topRow = rows.find((r) => r.slot === 0), k = L.ease(L.clamp(u / 1.1));
+      rows.forEach((r) => L.move(r.e, 0, (r.slot - k) * pitch));
+      topRow.e.style.opacity = (1 - L.clamp(u / 0.7)).toFixed(3);
+      if (k < 1) return;
+      rows.forEach((r) => (r.slot = r.slot === 0 ? n - 1 : r.slot - 1));
+      topRow.fill(st.pending); L.move(topRow.e, 0, (n - 1) * pitch); topRow.e.style.opacity = 0; st.landed = topRow; st.t1 = t;
+    } else {
+      const a = L.clamp((t - st.t1) / 0.8);
+      st.landed.e.style.opacity = a.toFixed(3);
+      if (a >= 1) { st.t0 = -1; st.landed = null; }
+    }
+  });
+  return st;
+};
+const log = slider({ x: MX0, top: LB(0) - 42, w: X1 - MX0, n: 4, pitch: 52, build: (e) => {
+  const tm = L.text({ x: 0, base: 42, s: 36, c: "peach", txt: "" }, e);
+  const msg = L.text({ x: 200, base: 42, s: 36, c: "white", txt: "" }, e);
+  [tm, msg].forEach((x) => x.classList.remove("boot"));
+  return { fill: (d) => { L.set(tm, d.tm); L.set(msg, d.msg); msg.style.color = `var(--${d.c})`; } };
+} });
+function logPush(msg, c = "white") { fits(msg, 36, X1 - MX0 - 200, "log"); log.push({ tm: clockAgo(0), msg, c }); }
+
+// =====================================================================================
+// THE BOTTOM STRIP: frequency bands · evoked potentials · neurology records
+// =====================================================================================
+const DB = (k) => 1734 + 54 * k;
+const A0 = COL(0), A1 = COL(1) + CW, B0 = COL(2), B1 = COL(3) + CW, C0 = COL(4);
+L.header({ x: A0, y: 1620, w: A1 - A0, label: "Frequency Bands  ·  Microvolts RMS", c1: "violet", c2: "pink", h: 48 });
+L.header({ x: B0, y: 1620, w: B1 - B0, label: "Evoked Potentials", c1: "pink", c2: "lilac", h: 48 });
+L.header({ x: C0, y: 1620, w: X1 - C0, label: "Neurology Records", c1: "lilac", c2: "violet", h: 48 });
+
+// ---- frequency bands, from the same sums that draw the traces ----
+const mean = (f) => chans.reduce((a, c) => a + f(c), 0) / chans.length;
+const BANDS = [
+  ["Delta", "0.5 – 4 Hz", "violet", () => mean((c) => c.dA) * Math.sqrt(1.36 / 2)],
+  ["Theta", "4 – 8 Hz", "plum", (t) => mean((c) => c.tA) * (0.7 + 0.3 * Math.sin(TAU * 0.21 * t)) / Math.SQRT2],
+  ["Alpha", "8 – 13 Hz", "pink", (t) => mean((c) => c.aA) * gAlpha(t) / Math.SQRT2],
+  ["Beta", "13 – 30 Hz", "lilac", () => mean((c) => c.bA) * Math.sqrt(0.61 / 2)],
+  ["Gamma", "30 – 45 Hz", "butter", () => Math.sqrt((1.6 ** 2 + 1.2 ** 2 + 1) / 2)],
+];
+const BS = { range: 200, bar: 420, barR: A1 - A0 - 170, max: 15 };
+L.text({ x: A0, base: DB(0), s: 36, c: "lilac", txt: "Band" });
+L.text({ x: A0 + BS.range, base: DB(0), s: 36, c: "lilac", txt: "Range" });
+L.text({ x: A0 + BS.barR, base: DB(0), s: 36, c: "plum", txt: "Scale 0 – 15", align: "r" });
+L.text({ x: A1, base: DB(0), s: 36, c: "lilac", txt: "Mean", align: "r" });
+const bandRows = BANDS.map(([name, range, c, f], k) => {
+  const base = DB(k + 1);
+  L.text({ x: A0, base, s: 40, c: "white", txt: name });
+  L.text({ x: A0 + BS.range, base, s: 36, c: "lilac", txt: range });
+  L.rect({ x: A0 + BS.bar, y: base - 26, w: BS.barR - BS.bar, h: 26, c: TRACK });
+  const bar = L.layer({ x: A0 + BS.bar, y: base - 26, w: BS.barR - BS.bar, h: 26 });
+  bar.style.background = `var(--${c})`; bar.style.transformOrigin = "0 0";
+  return { f, bar, v: L.text({ x: A1, base, s: 40, c: "white", txt: "", align: "r" }), shown: f(0) };
+});
+[5, 10].forEach((u) => L.rect({ x: A0 + BS.bar + ((BS.barR - BS.bar) * u) / BS.max - 1, y: DB(1) - 34, w: 2, h: DB(5) - DB(1) + 42, c: GRID, free: true }));
+
+// ---- evoked potentials: one pathway tested at a time ----
+const EP = { resp: 360, lat: 720, norm: 760, pill: B1 - B0 - 200 };
+const TESTS = [
+  { path: "Visual", resp: "P100", lat: 101.4, dp: 1, norm: "< 115 ms", focus: "oc", where: "Occipital Cortex", stim: "Pattern Reversal 2 Hz" },
+  { path: "Brainstem Auditory", resp: "Wave V", lat: 5.62, dp: 2, norm: "< 6.20 ms", focus: "te", where: "Temporal Cortex", stim: "Click 11 Hz" },
+  { path: "Somatosensory", resp: "N20", lat: 19.3, dp: 1, norm: "< 22.0 ms", focus: "pa", where: "Parietal Cortex", stim: "Median Nerve 5 Hz" },
+  { path: "Motor", resp: "MEP", lat: 21.8, dp: 1, norm: "< 24.0 ms", focus: "fr", where: "Frontal Cortex", stim: "Transcranial Pulse" },
+  { path: "Interhemispheric", resp: "Transfer", lat: 12.6, dp: 1, norm: "< 18.0 ms", focus: "cc", where: "Corpus Callosum", stim: "Lateralised Flash" },
+];
+[["Pathway", 0], ["Response", EP.resp], ["Normal", EP.norm], ["Status", EP.pill]].forEach(([txt, x]) => L.text({ x: B0 + x, base: DB(0), s: 36, c: "lilac", txt }));
+L.text({ x: B0 + EP.lat, base: DB(0), s: 36, c: "lilac", txt: "Latency", align: "r" });
+TESTS.forEach((T, k) => {
+  const base = DB(k + 1);
+  L.text({ x: B0, base, s: 40, c: "white", txt: T.path });
+  L.text({ x: B0 + EP.resp, base, s: 36, c: "pink", txt: T.resp });
+  T.v = cls(L.text({ x: B0 + EP.lat, base, s: 40, c: "white", txt: `${T.lat.toFixed(T.dp)} ms`, align: "r" }), "sw");
+  L.text({ x: B0 + EP.norm, base, s: 36, c: "lilac", txt: T.norm });
+  T.pill = cls(L.box({ x: B0 + EP.pill, y: base - 37, w: 200, h: 46, c: "lilac", label: "Normal", fs: 28, r: "lr" }), "sw");
+  fits(T.path, 40, EP.resp - 40, "pathway");
+  T.shown = T.lat;
+});
+
+// ---- neurology records: earlier cases on file, in order ----
+const RC = { pat: 190, find: 520 };
+[["Stardate", 0], ["Patient", RC.pat], ["Finding", RC.find]].forEach(([txt, x]) => L.text({ x: C0 + x, base: DB(0), s: 36, c: "lilac", txt }));
+const RECORDS = [
+  ["43657.0", "Lal", "Positronic Neural Net  ·  Cascade Failure"],
+  ["44704.2", "Lt. R. Barclay", "Cytherian Neural Enhancement"],
+  ["45587.3", "Lt. Worf", "Spinal Reconstruction  ·  Genitronic"],
+  ["45944.1", "Capt. J.-L. Picard", "Kataan Probe  ·  Nucleonic Beam Link"],
+];
+RECORDS.forEach(([sd, who, what], k) => {
+  const base = DB(k + 1);
+  L.text({ x: C0, base, s: 36, c: "peach", txt: sd });
+  L.text({ x: C0 + RC.pat, base, s: 36, c: "white", txt: who });
+  L.text({ x: C0 + RC.find, base, s: 36, c: "lilac", txt: what });
+  fits(who, 36, RC.find - RC.pat - 30, "record patient"); fits(what, 36, X1 - C0 - RC.find, "record finding");
+});
+const curSD = L.text({ x: C0, base: DB(5), s: 36, c: "peach", txt: "" });
+L.text({ x: C0 + RC.pat, base: DB(5), s: 36, c: "pink", txt: "Ens. S. Lavelle" });
+L.text({ x: C0 + RC.find, base: DB(5), s: 36, c: "pink", txt: "Routine Neural Scan  ·  In Progress" });
+
+// =====================================================================================
+// RUNNING IT
+// =====================================================================================
+// The test cycle: a resting scan, then one pathway's evoked-potential test (12 s, 200 sweeps), in turn.
+const REST = 20, TEST = 12, SWEEPS = 200, FIRST = 6;
+let test = null, testNo = 0, nextTest = FIRST;
+const restSub = () => `${PATIENT}  ·  Routine Neural Scan  ·  Stardate ${stardate().toFixed(1)}`;
+const testSub = () => `${PATIENT}  ·  ${test.T.path} Pathway  ·  ${test.T.where}  ·  Sweep ${test.sweeps} / ${SWEEPS}`;
+const startTest = (t) => {
+  const T = TESTS[testNo++ % TESTS.length];
+  test = { T, t0: t, sweeps: 0, final: T.lat * (1 + (Math.random() - 0.5) * 0.012), ph: Math.random() * 6 };
+  swap([state, sub], () => { L.set(state, "Evoked Potential Testing"); fg(state, "butter"); L.set(sub, testSub()); placeSub(); });
+  swap([T.pill], () => { L.set(T.pill, "Testing"); bg(T.pill, "butter"); });
+  if (T.focus !== "cc") lobeRead.forEach((r) => fg(r[T.focus].lb, "butter"));
+  logPush(`${T.resp} Test  ·  ${T.path} Pathway  ·  ${T.stim}`, "butter");
+};
+const endTest = (t) => {
+  const T = test.T;
+  T.shown = test.final;
+  swap([state, sub], () => { L.set(state, "Cortical Activity Normal"); fg(state, "pink"); L.set(sub, restSub()); placeSub(); });
+  swap([T.pill, T.v], () => { L.set(T.pill, "Normal"); bg(T.pill, "lilac"); L.set(T.v, `${T.shown.toFixed(T.dp)} ms`); });
+  if (T.focus !== "cc") lobeRead.forEach((r) => fg(r[T.focus].lb, LOBE_C[T.focus]));
+  logPush(`${T.resp} Latency ${T.shown.toFixed(T.dp)} ms  ·  Within Normal Limits`, "lilac");
+  test = null; nextTest = t + REST;
+};
+L.set(sub, restSub());
+placeSub();
+
+// the log's record so far
+[["Neural Scan Started  ·  21 Electrodes  ·  Impedance Below 5 kOhm", "lilac", 94],
+ ["Posterior Dominant Rhythm 10.2 Hz  ·  Symmetric  ·  Reactive", "white", 71],
+ ["Interhemispheric Transfer 12.6 ms  ·  Within Normal Limits", "lilac", 40],
+ ["Ocular Artefact  ·  Fp1  Fp2  ·  Rejected", "lilac", 17]]
+  .forEach(([msg, c, ago], k) => { fits(msg, 36, X1 - MX0 - 200, "log"); log.rows[k].fill({ tm: clockAgo(ago), msg, c }); });
+const CALM = ["Posterior Dominant Rhythm 10.2 Hz  ·  Symmetric", "No Epileptiform Discharges", "Synaptic Mapping  ·  Sweep Complete",
+              "Cortical Scan Archived to Medical Database", "Alpha Attenuates on Eye Opening  ·  Normal", "Sleep Architecture Absent  ·  Patient Awake"];
+let calmDeck = [];
+L.every(23000, (t) => {
+  if (t < 5 || test) return;
+  if (!calmDeck.length) calmDeck = CALM.slice().sort(() => Math.random() - 0.5);
+  logPush(calmDeck.pop(), "white");
+}, 0.2);
+
+let lastT = null, nextCasc = 0.4, gE = gAlpha(0);
+L.tick((t) => {
+  // ---- the traces ----
+  if (!filled) {                                           // start with the windows already full
+    filled = true; written = 0; prev = null;
+    strips.forEach((s) => { s.tiles[0].n = -1; s.tiles[1].n = 0; s.tiles.forEach((c) => c.g.clearRect(0, 0, WW + 8, SPAN)); });
+    for (let i = 0; i < Math.ceil((WW / SPEED) * 30) + 2; i++) step(1 / 30);
+    chans.forEach((c) => (c.ms = c.aA * c.aA / 4 + c.bA * c.bA / 4 + c.tA * c.tA / 3 + c.dA * c.dA * 0.68));
+    live = true; lastT = t; place(); return;
+  }
+  const dt = Math.min(0.1, t - lastT); lastT = t;
+  step(dt);
+  place();
+
+  // ---- the test cycle ----
+  if (!test && t >= nextTest) startTest(t);
+  if (test) {
+    test.sweeps = Math.min(SWEEPS, Math.floor((SWEEPS * (t - test.t0)) / TEST));
+    if (t - test.t0 >= TEST) endTest(t);
+  }
+
+  // ---- the map ----
+  if (t >= nextCasc) {
+    const focus = test && Math.random() < 0.8 ? test.T.focus : null;
+    startCascade(t, focus);
+    cascRate += (60 / Math.max(0.2, t - (startCascade.last ?? t - 0.65)) - cascRate) * 0.02;
+    startCascade.last = t;
+    nextCasc = t + (test ? L.rand(0.35, 0.6) : L.rand(0.45, 0.85));
+  }
+  for (let i = pulses.length - 1; i >= 0; i--) {
+    const p = pulses[i], u = (t - p.t0) / p.dur;
+    if (u >= 1) {
+      op(p.slot.e, 0); p.slot.busy = false; p.casc.flying--; pulses.splice(i, 1);
+      fire(p.b, p.depth, p.casc, t);
+      continue;
+    }
+    tf(p.slot.e, `translate3d(${(L.mix(p.a.x, p.b.x, u) - 7).toFixed(1)}px,${(L.mix(p.a.y, p.b.y, u) - 7).toFixed(1)}px,0)`);
+    op(p.slot.e, Math.min(1, u * 4, (1 - u) * 4));
+  }
+  for (let i = lit.length - 1; i >= 0; i--) {                 // a fired neuron glows, then fades back over a second
+    const g = lit[i], u = (t - g.t0 - 0.15) / 1.2;
+    if (u >= 1) { op(g.e, 0); g.t0 = -1; lit.splice(i, 1); } else if (u > 0) op(g.e, 1 - L.ease(u));
+  }
+  // firing rates: counts smoothed over about twelve seconds
+  const k = 1 - Math.exp(-dt / 12);
+  for (const side of lobeRead) for (const lobe of LOBES) {
+    const r = side[lobe];
+    r.rate += ((r.count || 0) / Math.max(dt, 1e-3) - r.rate) * k; r.count = 0;
+    r.shown += (r.rate - r.shown) * 0.05;
+    tf(r.bar, `scaleX(${L.clamp(r.shown / 8).toFixed(4)})`);
+  }
+  gE += (gAlpha(t) - gE) * (1 - Math.exp(-dt / 10));
+  for (const b of bandRows) {
+    b.shown += (b.f(t) - b.shown) * 0.08;
+    tf(b.bar, `scaleX(${L.clamp(b.shown / BS.max).toFixed(4)})`);
+  }
+  if (test) {                                              // the latency estimate settles as sweeps are averaged
+    const p = test.sweeps / SWEEPS;
+    test.T.shown = test.final * (1 + 0.06 * Math.pow(1 - p, 1.5) * Math.sin(t * 0.9 + test.ph));
+  }
+});
+
+// the readings: a few times a second
+L.every(500, () => {
+  chans.forEach((c) => L.set(c.num, String(Math.round(Math.sqrt(c.ms)))));
+  bandRows.forEach((b) => L.set(b.v, b.shown.toFixed(1)));
+  if (test) { L.set(test.T.v, `${test.T.shown.toFixed(test.T.dp)} ms`); L.set(sub, testSub()); }
+}, 0);
+L.every(1000, () => {
+  for (const side of lobeRead) for (const lobe of LOBES) L.set(side[lobe].v, `${side[lobe].shown.toFixed(1)} Hz`);
+  L.set(sideVals[0][1], `${Math.round(40 + 36 * gE)}%`);
+  L.set(sideVals[1][1], `${Math.round(38 + 36 * gE)}%`);
+  L.set(sideVals[0][2], `${Math.round(cascRate)} / min`);
+  L.set(sideVals[1][2], (0.84 + 0.03 * Math.sin(L.t * 0.05)).toFixed(2));
+  if (!test) L.set(sub, restSub());
+  L.set(curSD, stardate().toFixed(1));
+}, 0);
+
+if (bad.length) setTimeout(() => { throw new Error("neurology: " + bad.join(" | ")); });
+});
+</script></body></html>

@@ -1,0 +1,504 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Microbiology</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* text that is swapped dips and comes back; colors change slowly; .boot (the start-up cascade) always wins */
+  .sw { transition: opacity .45s ease, color 1.2s ease, background-color 1.2s ease; }
+  .out:not(.boot) { opacity: .15; }
+  .dish { position: absolute; border-radius: 50%; }
+  .clip { position: absolute; border-radius: 50%; overflow: hidden; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: sidebar left, title top right ----------------
+L.frame({ type: "A", title: "Microbiology  •  Culture Analysis", c: "olive", c2: "lilac", accent: "sand", foot: "Medical",
+  side: [[140, "sand", "Med 05"], [70, "lilac", "Lab 2"], [420, "olive", "Microbiology"], [70, "plum", ""],
+         [300, "lilac", "Cultures"], [70, "sand", ""], [216, "olive", "Pathology"]] });
+
+// Plates 330–2490 (four columns of 522, 24 apart); the right-hand column 2554–3816.
+// The bottom strip's three panels take the plate columns' edges: 330–1398 | 1422–2490 | 2554–3816.
+const X0 = 330, GR = 2490, RX = 2554, X1 = 3816;
+const PANEL = "#15130a", TRACK = "#2c2914", RIM = "#77704a";
+const HOUR = 7.5;                                          // seconds of screen time for an hour in the incubator
+const LIFE = 48, ID_AT = 24, ID_LEN = 10;                  // hours on the plate; identification starts at 24 h and takes 10 s
+const cls = (e, ...c) => (e.classList.add(...c), e);
+const op = (e, v) => { v = v < 0.005 ? "0" : v > 0.995 ? "1" : v.toFixed(3); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const fg = (e, c) => { if (e._fg !== c) { e._fg = c; e.style.color = c.startsWith("#") ? c : `var(--${c})`; } };
+const bg = (e, c) => { if (e._bg !== c) { e._bg = c; e.style.background = c.startsWith("#") ? c : `var(--${c})`; } };
+const fill = (x, y, w, h, c, parent) => { const f = L.layer({ x, y, w, h }, parent); f.style.background = `var(--${c})`; f.style.transformOrigin = "0 0"; return f; };
+const gauss = () => Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(2 * Math.PI * Math.random());
+const pad = (n, k) => String(n).padStart(k, "0");
+const bad = [];
+const fits = (txt, s, w, where) => { if (L.textWidth(txt, s) > w) bad.push(`${where}: "${txt}" ${Math.round(L.textWidth(txt, s))}>${Math.round(w)}`); };
+
+// ---------------- what grows ----------------
+// dbl: doubling time (min); lag (h); peak: log10 CFU at the plateau; n: colonies on a spread plate; r: colony radius (px);
+// look: how a colony is drawn; zones: disc diffusion, mm, against the five agents of its panel.
+const MEDIA = { "Blood Agar": "#4a1913", "MacConkey": "#46203c", "Nutrient Agar": "#3d3716", "Sabouraud": "#43361f" };
+const BACT = ["Ampicillin", "Tetracycline", "Ciprofloxacin", "Gentamicin", "Vancomycin"];
+const FUNG = ["Fluconazole", "Amphotericin B", "Nystatin", "Voriconazole", "Caspofungin"];
+const ORGS = [
+  { name: "Escherichia coli", morph: "Gram-Negative Rod", med: "MacConkey", src: ["Water Reclamation", "Ten Forward Galley"],
+    col: "#f4a6c8", look: "round", dbl: 21, lag: 8, peak: 9.3, n: [50, 90], r: [8, 12], zones: [17, 22, 33, 21, 6], w: 3 },
+  { name: "Staphylococcus epidermidis", morph: "Gram-Positive Coccus", med: "Blood Agar", src: ["Sickbay  ·  Patient Swab", "Crew Quarters 0912"],
+    col: "#efe9dc", look: "round", dbl: 32, lag: 9, peak: 8.8, n: [60, 110], r: [6, 9], zones: [13, 25, 27, 23, 18], w: 3 },
+  { name: "Micrococcus luteus", morph: "Gram-Positive Coccus", med: "Nutrient Agar", src: ["Air Filter  ·  Deck 9", "Main Bridge"],
+    col: "#ffcc66", look: "round", dbl: 58, lag: 11, peak: 8.4, n: [30, 60], r: [8, 12], zones: [32, 29, 24, 26, 21], w: 2 },
+  { name: "Serratia marcescens", morph: "Gram-Negative Rod", med: "Nutrient Agar", src: ["Hydroponics Bay 2", "Arboretum"],
+    col: "#d9483a", look: "round", dbl: 30, lag: 9, peak: 9.0, n: [40, 80], r: [8, 12], zones: [6, 14, 30, 22, 6], w: 2 },
+  { name: "Bacillus subtilis", morph: "Gram-Positive Rod", med: "Nutrient Agar", src: ["Cargo Bay 4", "Arboretum"],
+    col: "#d8c89e", look: "lobed", dbl: 26, lag: 8, peak: 8.9, n: [18, 40], r: [13, 20], zones: [24, 27, 31, 24, 19], w: 2 },
+  { name: "Pseudomonas fluorescens", morph: "Gram-Negative Rod", med: "Nutrient Agar", src: ["Water Reclamation", "Hydroponics Bay 2"],
+    col: "#d8d69c", look: "halo", halo: "rgba(196,224,100,0.13)", dbl: 40, lag: 10, peak: 8.9, n: [30, 60], r: [9, 13], zones: [6, 12, 31, 20, 6], w: 2 },
+  { name: "Chromobacterium violaceum", morph: "Gram-Negative Rod", med: "Nutrient Agar", src: ["Arboretum", "Hydroponics Bay 2"],
+    col: "#8b62d8", look: "round", dbl: 44, lag: 10, peak: 8.6, n: [30, 60], r: [8, 11], zones: [8, 23, 29, 22, 9], w: 1.5 },
+  { name: "Streptococcus pyogenes", morph: "Gram-Positive Coccus", med: "Blood Agar", src: ["Sickbay  ·  Patient Swab"],
+    col: "#e9e3d4", look: "halo", halo: "rgba(255,196,160,0.20)", dbl: 36, lag: 10, peak: 8.5, n: [40, 80], r: [4, 6], zones: [30, 23, 21, 15, 22], w: 1.5 },
+  { name: "Candida albicans", morph: "Yeast", med: "Sabouraud", src: ["Sickbay  ·  Patient Swab", "Ten Forward Galley"],
+    col: "#f3ebd8", look: "round", dbl: 90, lag: 9, peak: 8.0, n: [25, 50], r: [9, 13], zones: [26, 18, 20, 28, 22], w: 1.5, fungus: true },
+  { name: "Aspergillus niger", morph: "Filamentous Mould", med: "Sabouraud", src: ["Cargo Bay 4", "Air Filter  ·  Deck 9"],
+    col: "#e6e3d8", look: "mould", dbl: 120, lag: 8, peak: 7.6, n: [6, 12], r: [22, 34], zones: [6, 17, 16, 23, 19], w: 1.5, fungus: true },
+  { name: "Unclassified Bacillus", morph: "Gram-Positive Rod", med: "Nutrient Agar", src: ["Away Team  ·  El-Adrel IV"],
+    col: "#ffb070", look: "lobed", dbl: 70, lag: 12, peak: 8.2, n: [14, 30], r: [12, 18], zones: [9, 21, 26, 18, 15], w: 0, novel: true },
+];
+
+// ---------------- status line ----------------
+const BIG = 100;
+const state = cls(L.text({ x: X0, cap: 150, s: BIG, c: "lilac", txt: "Incubating" }), "sw");
+const sub = cls(L.text({ x: 0, base: 222, s: 38, c: "sand", txt: "Sickbay  ·  Microbiology Laboratory  ·  Deck 12  ·  Dr. B. Crusher" }), "sw");
+const placeSub = () => { sub.style.left = X0 + L.textWidth(state.textContent, BIG) + 48 + "px"; };
+placeSub();
+L.box({ x: X1 - 400, y: 150, w: 400, h: 72, c: "olive", label: "Biosafety Level 2", r: "lr", fs: 36 });
+
+// ---------------- the plates ----------------
+L.header({ x: X0, y: 280, w: GR - X0, label: "Culture Plates  ·  Imaging Array", c1: "olive", c2: "lilac" });
+const PW = 522, PH = 384, PG = 24, PY = 360;
+const R = 156, DX = 24, DY = 36, D = 2 * R;                 // the dish, in its panel
+const TX = 360, TW = PW - TX - 16;                           // the text column, in its panel
+const slots = [];
+for (let row = 0; row < 3; row++) for (let col = 0; col < 4; col++) {
+  const x0 = X0 + col * (PW + PG), y0 = PY + row * (PH + PG);
+  L.rect({ x: x0, y: y0, w: PW, h: PH, c: PANEL, panel: true });
+  const box = cls(L.box({ x: x0 + TX, y: y0 + DY, w: TW, h: 48, c: "olive", label: "", fs: 28 }), "sw");
+  const med = cls(L.text({ x: x0 + TX, base: y0 + 132, s: 36, c: "sand", txt: "" }), "sw");
+  L.text({ x: x0 + TX, base: y0 + 181, s: 36, c: "lilac", txt: "Incubation" });
+  const hrs = L.text({ x: x0 + TX, base: y0 + 241, s: 52, c: "white", txt: "" });
+  L.text({ x: x0 + TX, base: y0 + 289, s: 36, c: "lilac", txt: "Colonies" });
+  const cnt = L.text({ x: x0 + TX, base: y0 + 348, s: 52, c: "white", txt: "" });
+  // the dish: agar in a glass rim, the colonies on a canvas over it, a scan bar for identification
+  const dish = L.layer({ x: x0 + DX, y: y0 + DY, w: D, h: D });
+  const agar = L.el("div", "dish", dish, { left: "0px", top: "0px", width: D + "px", height: D + "px", border: `5px solid ${RIM}` });
+  const cv = L.canvas({ x: 0, y: 0, w: D, h: D }, dish);
+  const glass = L.svg("svg", { width: D, height: D, viewBox: `0 0 ${D} ${D}` }, dish);
+  Object.assign(glass.style, { position: "absolute", left: "0px", top: "0px" });
+  L.svg("path", { d: L.arc(R, R, R - 13, R - 9, 292, 338), fill: "rgba(255,255,255,0.16)" }, glass);
+  L.svg("path", { d: L.arc(R, R, R - 13, R - 10, 346, 356), fill: "rgba(255,255,255,0.12)" }, glass);
+  const clip = L.el("div", "clip", dish, { left: "5px", top: "5px", width: D - 10 + "px", height: D - 10 + "px" });
+  const scan = L.layer({ x: -9, y: 0, w: 18, h: D - 10 }, clip);
+  scan.style.background = "linear-gradient(to right, rgba(199,160,216,0), rgba(199,160,216,.9) 45%, rgba(242,242,255,.95) 50%, rgba(199,160,216,.9) 55%, rgba(199,160,216,0))";
+  op(scan, 0);
+  const s = { i: slots.length, x0, y0, box, med, hrs, cnt, dish, agar, cv, scan, p: null };
+  cv.onResize = () => { if (s.p) drawPlate(s, true); };
+  slots.push(s);
+}
+
+// ---------------- identification ----------------
+L.header({ x: RX, y: 280, w: X1 - RX, label: "Identification", c1: "lilac", c2: "olive" });
+const TC = { src: 2718, org: 2995, morph: 3320, n: 3660, m: X1 };
+[["Source", TC.src, ""], ["Organism", TC.org, ""], ["Morphology", TC.morph, ""], ["Colonies", TC.n, "r"], ["Match", TC.m, "r"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: 404, s: 36, c: "lilac", txt, align }));
+L.text({ x: RX, base: 404, s: 36, c: "lilac", txt: "Culture Plate" });
+const BW = Math.round(L.textWidth("Culture Plate", 36));      // the plate boxes are as wide as their column's name
+const TP = 60, TY = 428, TB = 37.2;
+const rows = slots.map((s, i) => {
+  const y = TY + i * TP, base = y + TB;
+  return {
+    box: cls(L.box({ x: RX, y, w: BW, h: 48, c: "olive", label: "", fs: 28, r: "l" }), "sw"),
+    src: cls(L.text({ x: TC.src, base, s: 36, c: "sand", txt: "" }), "sw"),
+    org: cls(L.text({ x: TC.org, base, s: 36, c: "sand", txt: "" }), "sw"),
+    morph: cls(L.text({ x: TC.morph, base, s: 36, c: "sand", txt: "" }), "sw"),
+    n: cls(L.text({ x: TC.n, base, s: 36, c: "white", txt: "", align: "r" }), "sw"),
+    m: cls(L.text({ x: TC.m, base, s: 36, c: "white", txt: "", align: "r" }), "sw"),
+  };
+});
+
+// ---------------- growth curves ----------------
+L.header({ x: RX, y: 1176, w: X1 - RX, label: "Growth Curves  ·  Log CFU", c1: "olive", c2: "sand" });
+const gName = cls(L.text({ x: RX, base: 1290, s: 36, c: "lilac", txt: "" }), "sw");
+const gLag = cls(L.text({ x: TC.org, base: 1290, s: 36, c: "white", txt: "" }), "sw");
+const gDbl = cls(L.text({ x: TC.morph, base: 1290, s: 36, c: "white", txt: "" }), "sw");
+const gPk = cls(L.text({ x: X1, base: 1290, s: 36, c: "white", txt: "", align: "r" }), "sw");
+// the chart is a panel the width of the column; its scale sits inside it, left of the plot
+const CY0 = 1312, CW = X1 - RX, CHh = 208, PL = 64, PWd = CW - PL;
+const chart = L.canvas({ x: RX, y: CY0, w: CW, h: CHh, panel: true });
+const cY = (v) => 6 + ((10 - v) / 8) * (CHh - 12), cX = (h) => PL + (h / LIFE) * PWd;
+for (const v of [4, 6, 8]) L.text({ x: RX + PL - 18, base: CY0 + cY(v) + 11, s: 30, c: "sand", txt: String(v), align: "r", legend: true });
+[[0, "l"], [12, "c"], [24, "c"], [36, "c"], [48, "r"]].forEach(([h, a]) =>
+  L.text({ x: a === "r" ? X1 : RX + cX(h), base: 1560, s: 30, c: "sand", txt: h === 48 ? "48 h" : String(h), align: a, w: 80, legend: true }));
+
+// ---------------- the bottom strip ----------------
+L.header({ x: X0, y: 1620, w: 1398 - X0, label: "Incubators", c1: "lilac", c2: "olive", h: 48 });
+L.header({ x: 1422, y: 1620, w: GR - 1422, label: "Antimicrobial Sensitivity", c1: "olive", c2: "plum", h: 48 });
+L.header({ x: RX, y: 1620, w: X1 - RX, label: "Culture Log", c1: "sand", c2: "lilac", h: 48 });
+const SB = (k) => 1734 + k * 54;
+
+// incubators: set points, held to a tenth
+const IC = { atm: 600, temp: 1000, co2: 1200, hum: 1398 };
+[["Unit", X0, ""], ["Atmosphere", IC.atm, ""], ["Temp", IC.temp, "r"], ["CO2", IC.co2, "r"], ["Humidity", IC.hum, "r"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: SB(0), s: 36, c: "lilac", txt, align }));
+const INC = [["Incubator 1", "Aerobic", 37.0, 5.0, 92], ["Incubator 2", "Anaerobic", 37.0, 10.0, 88], ["Incubator 3", "Fungal", 30.0, 0.0, 85],
+             ["Incubator 4", "Isolation  ·  Class M", 22.0, 0.4, 70], ["Cold Store", "Refrigerated", 4.0, null, 45]];
+const incs = INC.map(([unit, atm, temp, co2, hum], k) => {
+  const base = SB(k + 1);
+  L.text({ x: X0, base, s: 36, c: "sand", txt: unit });
+  L.text({ x: IC.atm, base, s: 36, c: "olive", txt: atm });
+  return { temp, co2, hum, d: 0, tT: L.text({ x: IC.temp, base, s: 36, c: "white", txt: temp.toFixed(1) + " °C", align: "r" }),
+           tC: L.text({ x: IC.co2, base, s: 36, c: "white", txt: co2 === null ? "—" : co2.toFixed(1) + "%", align: "r" }),
+           tH: L.text({ x: IC.hum, base, s: 36, c: "white", txt: hum + "%", align: "r" }) };
+});
+
+// sensitivity: the latest identified plate's discs
+const SX = 1422, SBX = 1640, SBR = 2180, SV = 2300;
+const sSubj = cls(L.text({ x: SX, base: SB(0), s: 36, c: "white", txt: "" }), "sw");
+L.text({ x: GR, base: SB(0), s: 36, c: "lilac", txt: "Disc Diffusion  ·  mm", align: "r" });
+const sens = Array.from({ length: 5 }, (_, k) => {
+  const base = SB(k + 1);
+  L.rect({ x: SBX, y: base - 26, w: SBR - SBX, h: 26, c: TRACK });
+  return { a: cls(L.text({ x: SX, base, s: 36, c: "sand", txt: "" }), "sw"), bar: fill(SBX, base - 26, SBR - SBX, 26, "olive"),
+           v: L.text({ x: SV, base, s: 36, c: "white", txt: "", align: "r" }), w: L.text({ x: GR, base, s: 36, c: "white", txt: "", align: "r" }),
+           from: 0, to: 0, cur: 0 };
+});
+const ZMAX = 40;
+const verdict = (mm) => (mm >= 20 ? ["Susceptible", "olive"] : mm >= 15 ? ["Intermediate", "butter"] : ["Resistant", "red"]);
+let sensT = -1e9, sensFor = null;
+
+// the log: oldest at the top, a new line arrives at the bottom
+const LG = { sd: RX, pl: RX + 130, ev: RX + 240 };
+const LN = 6, LP = 54, LY = SB(0) - 44;
+const logRows = Array.from({ length: LN }, (_, i) => {
+  const e = L.layer({ x: RX, y: LY, w: X1 - RX, h: LP });
+  const r = { e, slot: i,
+    sd: L.text({ x: 0, base: 44, s: 36, c: "lilac", txt: "" }, e),
+    pl: L.text({ x: LG.pl - RX, base: 44, s: 36, c: "olive", txt: "" }, e),
+    ev: L.text({ x: LG.ev - RX, base: 44, s: 36, c: "sand", txt: "" }, e),
+    dt: L.text({ x: X1 - RX, base: 44, s: 36, c: "white", txt: "", align: "r", rightIn: true }, e) };
+  L.move(e, 0, i * LP);
+  return r;
+});
+const S0 = 47631.6 + Math.random() * 0.8;                   // the stardate at lab hour 0 (now)
+const sdAt = (labH) => (S0 + labH * 0.114).toFixed(1);       // a stardate is 0.114 per hour
+const showLog = (r, x) => { L.set(r.sd, sdAt(x.h)); L.set(r.pl, x.pl); L.set(r.ev, x.ev); L.set(r.dt, x.dt); fg(r.ev, x.c || "sand"); };
+const pendingLog = [];
+let lastLogH = -1e9;
+const logEvent = (x) => { x.h = Math.max(x.h, lastLogH); lastLogH = x.h; pendingLog.push(x); };   // always in time order
+
+// ---------------- a plate's life ----------------
+let nextNo = 412;
+const labH = (t) => t / HOUR;
+const pickOrg = () => {
+  const now = slots.map((s) => s.p && s.p.org);
+  const novelOn = now.some((o) => o && o.novel);
+  const pool = ORGS.filter((o) => (o.novel ? !novelOn : now.filter((x) => x === o).length < 2));
+  if (!novelOn && Math.random() < 0.08) return ORGS[ORGS.length - 1];
+  const sum = pool.reduce((a, o) => a + o.w, 0);
+  let r = Math.random() * sum, i = 0;
+  while ((r -= pool[i].w) > 0) i++;
+  return pool[i];
+};
+// colonies: a spread plate, or a four-quadrant streak thinning to single colonies
+const RU = R - 16;                                           // the agar's usable radius
+function makeColonies(org, A, w, hm) {
+  const out = [], streak = org.look !== "mould" && Math.random() < 0.5;
+  const tau = Math.min(10, 2.2 * w + 4);                   // a colony spreads, then slows
+  const add = (x, y, r) => out.push({ x: x + R, y: y + R, r, hA: Math.max(2, hm - 1.2 * w + gauss() * 0.6 * w), tau: tau * L.rand(0.85, 1.15),
+                                       lobes: Array.from({ length: 12 }, () => L.rand(0.8, 1.05)), sp: L.rand(0, 6) });
+  const free = (x, y, r) => out.every((c) => Math.hypot(c.x - R - x, c.y - R - y) > c.r + r + 3);
+  if (streak) {
+    const a0 = L.rand(0, 360), dens = [80, 26, 12, 6], rr = [[2.5, 4], [3.5, 6], [0.55, 0.8], [0.8, 1]];
+    dens.forEach((n, k) => {
+      const ang = ((a0 + k * 90) * Math.PI) / 180, ux = Math.sin(ang), uy = -Math.cos(ang);
+      for (let i = 0; i < n * 3 && out.filter((c) => c.k === k).length < n; i++) {
+        const s = k === 0 ? i / n : Math.random();
+        const u = RU * (0.2 + 0.7 * s), tri = 2 * Math.abs(((s * 4.5) % 2) - 1) - 1, v = tri * u * 0.5 + gauss() * 1.5;
+        const x = ux * u - uy * v, y = uy * u + ux * v;
+        const r = k < 2 ? L.rand(...rr[k]) : L.rand(org.r[0] * rr[k][0], org.r[1] * rr[k][1]);
+        if (Math.hypot(x, y) + r > RU) continue;
+        if (k > 0 && !free(x, y, r)) continue;
+        add(x, y, r); out[out.length - 1].k = k;
+      }
+    });
+  } else {
+    const n = L.irand(...org.n);
+    for (let i = 0; i < n * 30 && out.length < n; i++) {
+      const r = L.rand(...org.r), d = Math.sqrt(Math.random()) * (RU - r), a = L.rand(0, 2 * Math.PI);
+      const x = d * Math.sin(a), y = -d * Math.cos(a);
+      if (free(x, y, r)) add(x, y, r);
+    }
+  }
+  return out;
+}
+function newPlate(org, t0, no) {
+  const slope = (Math.log10(2) * 60) / (org.dbl * L.rand(0.92, 1.08));
+  const peak = org.peak + L.rand(-0.15, 0.15), A = peak - 3, w = A / (4 * slope), lag = org.lag + L.rand(-0.8, 0.8), hm = lag + 2 * w;
+  const p = { org, t0, no, pl: "P-" + pad(no, 4), src: L.pick(org.src), med: org.med, A, w, hm, peak, lag,
+              dblMin: (Math.log10(2) * 60) / slope, cols: [], id: "wait", idT: 0, idDone: -1e9,
+              match: org.novel ? L.rand(58, 68) : L.rand(96.0, 99.8), zones: org.zones.map((z) => (z <= 6 ? 6 : L.clamp(z + L.irand(-2, 2), 7, ZMAX))),
+              count: 0, drawnH: -1 };
+  p.cols = makeColonies(org, A, w, hm);
+  p.settle = Math.min(LIFE, Math.max(...p.cols.map((c) => c.hA + 4.5 * c.tau)));
+  p.final = p.cols.filter((c) => colR(c, LIFE) >= 1.3).length;
+  return p;
+}
+const colR = (c, h) => (h <= c.hA ? 0 : c.r * (1 - Math.exp(-(h - c.hA) / c.tau)));
+const logN = (p, h) => 3 + p.A / (1 + Math.exp(-(h - p.hm) / p.w));
+const hourOf = (p, t) => (t - p.t0) / HOUR;
+
+// the colonies, drawn: only when they have grown enough to see
+function drawPlate(s, force) {
+  const p = s.p, h = Math.min(LIFE, hourOf(p, L.t));
+  if (!force && (h - p.drawnH < 0.1 || p.drawnH >= p.settle)) return;
+  p.drawnH = h;
+  const g = s.cv.g, org = p.org;
+  g.clearRect(0, 0, D, D);
+  let n = 0;
+  if (org.look === "halo") {                                // a pigment or a haemolysis zone round each colony
+    g.fillStyle = org.halo;
+    for (const c of p.cols) { const r = colR(c, h); if (r < 1) continue; g.beginPath(); g.arc(c.x, c.y, r * 2.1, 0, 7); g.fill(); }
+  }
+  for (const c of p.cols) {
+    const r = colR(c, h);
+    if (r < 0.8) continue;
+    if (r >= 1.3) n++;
+    const a = L.clamp((r - 0.8) / 2);
+    g.globalAlpha = a;
+    if (org.look === "mould") {
+      g.fillStyle = "rgba(230,227,216,0.9)"; g.beginPath(); g.arc(c.x, c.y, r, 0, 7); g.fill();
+      g.fillStyle = "#24211a"; g.beginPath(); g.arc(c.x, c.y, r * 0.52, 0, 7); g.fill();
+      g.fillStyle = "#3d3a2c";
+      for (let k = 0; k < 6; k++) { const an = c.sp + k * 1.05; g.beginPath(); g.arc(c.x + Math.sin(an) * r * 0.36, c.y - Math.cos(an) * r * 0.28, r * 0.1, 0, 7); g.fill(); }
+    } else if (org.look === "lobed") {
+      g.fillStyle = org.col; g.beginPath();
+      c.lobes.forEach((m, k) => { const an = (k / 12) * 2 * Math.PI + c.sp, rr = r * m; k ? g.lineTo(c.x + Math.sin(an) * rr, c.y - Math.cos(an) * rr) : g.moveTo(c.x + Math.sin(an) * rr, c.y - Math.cos(an) * rr); });
+      g.closePath(); g.fill();
+      g.fillStyle = "rgba(0,0,0,0.13)"; g.beginPath(); g.arc(c.x, c.y, r * 0.55, 0, 7); g.fill();
+    } else {
+      g.fillStyle = org.col; g.beginPath(); g.arc(c.x, c.y, r, 0, 7); g.fill();
+      g.fillStyle = "rgba(255,255,255,0.24)"; g.beginPath(); g.arc(c.x - r * 0.22, c.y - r * 0.26, r * 0.42, 0, 7); g.fill();
+    }
+  }
+  g.globalAlpha = 1;
+  p.count = n;
+}
+
+// a slot's text
+const idState = (p) => (p.id === "done" ? "done" : p.id === "run" ? "run" : "wait");
+function showSlot(s) {
+  const p = s.p, r = rows[s.i], st = idState(p), h = Math.min(LIFE, hourOf(p, L.t));
+  L.set(s.box, p.pl); L.set(s.med, p.med); L.set(s.hrs, h.toFixed(1) + " h"); L.set(s.cnt, p.count);
+  const bc = st === "run" ? "lilac" : st === "done" ? (p.org.novel ? "peach" : "sand") : "olive";
+  bg(s.box, bc); bg(r.box, bc);
+  L.set(r.box, p.pl); L.set(r.src, p.src); L.set(r.n, p.count);
+  if (st === "done") {
+    L.set(r.org, p.org.name); L.set(r.morph, p.org.morph); L.set(r.m, p.match.toFixed(1) + "%");
+    fg(r.org, p.org.novel ? "peach" : "white"); fg(r.m, p.org.novel ? "peach" : "white");
+  } else {
+    L.set(r.org, st === "run" ? `Analyzing  ${Math.floor(L.clamp((L.t - p.idT) / ID_LEN) * 100)}%` : p.count ? "Growing" : "Incubating");
+    L.set(r.morph, "—"); L.set(r.m, "—");
+    fg(r.org, st === "run" ? "lilac" : "sand"); fg(r.m, "sand");
+  }
+}
+const slotText = (s) => [s.box, s.med, ...Object.values(rows[s.i])];
+
+// ---------------- the starting picture: twelve plates of every age ----------------
+const order = slots.map((s) => s.i).sort(() => Math.random() - 0.5);
+const ages = slots.map((s, i) => (order[i] + 0.5 + L.rand(-0.3, 0.3)) * (LIFE / slots.length));
+const byAge = slots.map((s) => s.i).sort((a, b) => ages[b] - ages[a]);
+const history = [];
+byAge.forEach((i) => {
+  const s = slots[i], h = ages[i], org = pickOrg();
+  s.p = newPlate(org, -h * HOUR, nextNo++);
+  s.fade = 1; s.phase = "live";
+  bg(s.agar, MEDIA[s.p.med]);
+  // what came before it on this position, and what has happened since it went in
+  const prev = newPlate(pickOrg(), -(h + LIFE) * HOUR, 0);
+  history.push({ h: -h - 0.02, pl: "P-" + pad(s.p.no - slots.length, 4), ev: "Read and Autoclaved", dt: prev.final + " Colonies" });
+  history.push({ h: -h, pl: s.p.pl, ev: "Inoculated  ·  " + s.p.src, dt: s.p.med });
+  if (h >= ID_AT + ID_LEN / HOUR) {
+    s.p.id = "done"; s.p.idDone = -(h - ID_AT - ID_LEN / HOUR) * HOUR;
+    history.push(identifiedEvent(s.p, -(h - ID_AT - ID_LEN / HOUR)));
+  } else if (h >= ID_AT) { s.p.id = "run"; s.p.idT = -(h - ID_AT) * HOUR; }
+});
+function identifiedEvent(p, hAt) {
+  return p.org.novel ? { h: hAt, pl: p.pl, ev: "Novel Isolate  ·  Referred to Exobiology", dt: p.match.toFixed(1) + "%", c: "peach" }
+                     : { h: hAt, pl: p.pl, ev: "Identified  ·  " + p.org.name, dt: p.match.toFixed(1) + "%", c: "white" };
+}
+history.sort((a, b) => a.h - b.h);
+const shownLog = history.slice(-LN);
+lastLogH = shownLog[LN - 1].h;
+logRows.forEach((r, i) => showLog(r, shownLog[i]));
+slots.forEach((s) => { showSlot(s); });
+
+// ---------------- the guard: every word fits its place ----------------
+for (const o of ORGS) {
+  fits(o.med, 36, TW, "plate medium"); fits(o.name, 36, TC.morph - TC.org - 30, "organism"); fits(o.morph, 36, TC.n - TC.morph - 120, "morphology");
+  for (const s of o.src) { fits(s, 36, TC.org - TC.src - 30, "source"); fits("Inoculated  ·  " + s, 36, 3600 - LG.ev, "log"); }
+  fits(`P-0000  ·  ${o.name}`, 36, TC.org - RX - 30, "growth name");
+  fits("Identified  ·  " + o.name, 36, 3600 - LG.ev, "log");
+}
+for (const a of [...BACT, ...FUNG]) fits(a, 36, SBX - SX - 30, "agent");
+if (bad.length) setTimeout(() => { throw new Error("microbiology: " + bad.join(" | ")); });
+
+// ---------------- sensitivity and the curve's readings follow the latest identification ----------------
+const latest = () => slots.map((s) => s.p).filter((p) => p.id === "done").sort((a, b) => b.idDone - a.idDone)[0];
+const focus = () => (slots.find((s) => s.p.id === "run") || {}).p || latest();
+function showSens(p, t) {
+  sensFor = p; sensT = t;
+  const agents = p.org.fungus ? FUNG : BACT;
+  sens.forEach((r, k) => { r.from = r.cur; r.to = p.zones[k]; L.set(r.a, agents[k]); });
+  L.set(sSubj, `${p.pl}  ·  ${p.org.name}`);
+}
+let gFor = null;
+function showGrowth(p) {
+  gFor = p;
+  L.set(gName, `${p.pl}  ·  ${p.id === "done" ? p.org.name : "Analyzing"}`);
+  L.set(gLag, `Lag  ${p.lag.toFixed(1)} h`);
+  L.set(gDbl, `Doubling  ${Math.round(p.dblMin)} min`);
+  L.set(gPk, `Plateau  ${p.peak.toFixed(1)}`);
+}
+{ const p = latest(); if (p) { showSens(p, -10); sens.forEach((r) => (r.cur = r.from = r.to)); } }
+
+// ---------------- the chart ----------------
+function drawChart() {
+  const g = chart.g, t = L.t, f = gFor;
+  g.fillStyle = PANEL; g.fillRect(0, 0, CW, CHh);
+  g.fillStyle = TRACK;
+  for (const v of [4, 6, 8]) g.fillRect(PL, Math.round(cY(v)) - 1, PWd, 2);
+  for (const h of [12, 24, 36]) g.fillRect(Math.round(cX(h)) - 1, 0, 2, CHh);
+  const curve = (p, color, lw, alpha) => {
+    const h1 = Math.min(LIFE, hourOf(p, t));
+    if (h1 <= 0 || alpha <= 0.01) return;
+    g.globalAlpha = alpha; g.strokeStyle = color; g.lineWidth = lw; g.lineJoin = "round"; g.beginPath();
+    for (let h = 0; ; h = Math.min(h1, h + 0.5)) { const x = cX(h), y = cY(logN(p, h)); h ? g.lineTo(x, y) : g.moveTo(x, y); if (h >= h1) break; }
+    g.stroke();
+    if (p === f) { g.fillStyle = "#f2f2ff"; g.beginPath(); g.arc(cX(h1), cY(logN(p, h1)), 6, 0, 7); g.fill(); }
+    g.globalAlpha = 1;
+  };
+  for (const s of slots) if (s.p !== f) curve(s.p, "#a99a3a", 2.5, 0.8 * s.fade);
+  const fs = slots.find((s) => s.p === f);
+  if (fs) curve(f, "#c7a0d8", 4, fs.fade);
+}
+chart.onResize = drawChart;
+
+// ---------------- running ----------------
+let idleWord = "";
+const setState = () => {
+  const w = slots.some((s) => s.p.id === "run") ? "Identifying" : "Incubating";
+  if (w === idleWord) return;
+  idleWord = w;
+  [state, sub].forEach((e) => e.classList.add("out"));
+  setTimeout(() => { L.set(state, w); placeSub(); [state, sub].forEach((e) => e.classList.remove("out")); }, 460);
+};
+setState();
+
+let logAnim = null;
+const stepLog = (t) => {
+  if (!logAnim) { if (!pendingLog.length) return; logAnim = { phase: "fade", t0: t, row: logRows.find((r) => r.slot === 0) }; }
+  const u = t - logAnim.t0, r0 = logAnim.row;
+  if (logAnim.phase === "fade") {
+    op(r0.e, 1 - L.clamp(u / 0.6));
+    if (u >= 0.6) logAnim = { phase: "slide", t0: t, row: r0 };
+  } else if (logAnim.phase === "slide") {
+    const k = L.ease(L.clamp(u / 0.9));
+    logRows.forEach((r) => { if (r.slot > 0) L.move(r.e, 0, (r.slot - k) * LP); });
+    if (k >= 1) {
+      logRows.forEach((r) => (r.slot = r === r0 ? LN - 1 : r.slot - 1));
+      showLog(r0, pendingLog.shift()); L.move(r0.e, 0, (LN - 1) * LP);
+      logAnim = { phase: "in", t0: t, row: r0 };
+    }
+  } else {
+    op(r0.e, L.clamp(u / 0.7));
+    if (u >= 0.7) logAnim = null;
+  }
+};
+
+const FADE = 1.4;
+L.tick((t) => {
+  for (const s of slots) {
+    const p = s.p, h = hourOf(p, t);
+    // identification: one plate at a time, once it has grown
+    if (p.id === "wait" && h >= ID_AT && p.count >= 3 && !slots.some((q) => q.p.id === "run")) { p.id = "run"; p.idT = t; showSlot(s); setState(); }
+    if (p.id === "run") {
+      const u = t - p.idT;
+      // the scan crosses the dish and comes back, easing at each side
+      const k = u < 4.6 ? L.ease(L.clamp(u / 4.6)) : 1 - L.ease(L.clamp((u - 5) / 4.6));
+      tf(s.scan, `translate3d(${(k * (D - 10)).toFixed(1)}px,0,0)`);
+      op(s.scan, Math.min(1, Math.min(u, ID_LEN - u) / 0.8));
+      if (u >= ID_LEN) {
+        p.id = "done"; p.idDone = t; op(s.scan, 0);
+        logEvent(identifiedEvent(p, labH(t)));
+        showSens(p, t); showSlot(s); setState();
+      }
+    }
+    // the end of a plate's life: read, faded out, autoclaved; a fresh plate fades in where it was
+    if (s.phase === "live" && h >= LIFE) {
+      s.phase = "out"; s.t1 = t;
+      logEvent({ h: labH(t), pl: p.pl, ev: "Read and Autoclaved", dt: p.count + " Colonies" });
+      slotText(s).forEach((e) => e.classList.add("out"));
+    }
+    if (s.phase === "out") {
+      s.fade = 1 - L.clamp((t - s.t1) / FADE);
+      if (s.fade <= 0) {
+        s.p = newPlate(pickOrg(), t, nextNo++);
+        bg(s.agar, MEDIA[s.p.med]); s.cv.g.clearRect(0, 0, D, D);
+        logEvent({ h: labH(t) + 0.01, pl: s.p.pl, ev: "Inoculated  ·  " + s.p.src, dt: s.p.med });
+        showSlot(s);
+        slotText(s).forEach((e) => e.classList.remove("out"));
+        s.phase = "in"; s.t1 = t;
+      }
+    } else if (s.phase === "in") {
+      s.fade = L.clamp((t - s.t1) / FADE);
+      if (s.fade >= 1) s.phase = "live";
+    }
+    op(s.dish, s.fade);
+  }
+  // sensitivity bars ease to the new plate's zones; the figures follow the bars
+  const k = L.ease(L.clamp((t - sensT) / 1.6));
+  sens.forEach((r) => {
+    r.cur = L.mix(r.from, r.to, k);
+    tf(r.bar, `scaleX(${(r.cur / ZMAX).toFixed(4)})`);
+    const mm = Math.round(r.cur), [wd, c] = verdict(r.to);
+    L.set(r.v, mm + " mm");
+    if (k >= 1) { L.set(r.w, wd); fg(r.w, c === "olive" ? "white" : c); bg(r.bar, c); } else if (k > 0) L.set(r.w, "");
+  });
+  stepLog(t);
+});
+
+// the colonies, a little at a time
+L.every(150, (t) => {
+  for (const s of slots) if (s.phase !== "out" || s.fade > 0) drawPlate(s, false);
+  if (slots.some((s) => s.phase !== "live")) drawChart();
+}, 0);
+// readings
+L.every(400, () => {
+  slots.forEach(showSlot);
+  const f = focus();
+  if (f && f !== gFor) {
+    [gName, gLag, gDbl, gPk].forEach((e) => e.classList.add("out"));
+    setTimeout(() => { showGrowth(f); [gName, gLag, gDbl, gPk].forEach((e) => e.classList.remove("out")); }, 460);
+    gFor = f;
+  } else if (f) L.set(gName, `${f.pl}  ·  ${f.id === "done" ? f.org.name : "Analyzing"}`);
+}, 0);
+L.every(1000, drawChart, 0);
+// the incubators hold their set points; now and then one wanders a tenth and comes back
+L.every(3000, () => {
+  const c = L.pick(incs);
+  c.d = c.d ? 0 : L.pick([-0.1, 0.1]);
+  L.set(c.tT, (c.temp + c.d).toFixed(1) + " °C");
+}, 0.4);
+{ const f = focus(); if (f) showGrowth(f); }
+});
+</script></body></html>

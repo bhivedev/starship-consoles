@@ -1,0 +1,491 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Wormhole Transit</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* swapped text dips and comes back; .boot (the start-up cascade) always wins */
+  .sw { transition: opacity .45s ease, color 1.2s ease; }
+  .out:not(.boot) { opacity: .2; }
+  /* queue rows slide up as a vessel transits; the row that leaves fades out first */
+  .qrow { transition: transform .9s ease-in-out, opacity .6s ease; }
+  .qrow.still { transition: none; }
+  .core { border-radius: 50%; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: a bracket, title centred ----------------
+L.frame({ type: "C", title: "Wormhole Transit  •  Bajoran Wormhole", c: "lilac", c2: "sky", accent: "ice", foot: "Nav",
+  side: [[140, "sky", "Nav 07"], [70, "ice", "4660"], [420, "lilac", "Outbound"], [70, "plum", "22"], [300, "sky", "Bajor"],
+         [70, "ice", "B6"], [216, "lilac", "Belt"]],
+  side2: [[140, "lilac", "Relay 3"], [70, "plum", "7000"], [420, "sky", "Inbound"], [70, "ice", "41"], [300, "lilac", "Gamma"],
+          [70, "plum", "G2"], [216, "sky", "Idran"]] });
+
+const TRACK = "#1c1630", DISK = "#04061a";
+const colr = (c) => (c.startsWith("#") ? c : `var(--${c})`);
+const cls = (e, ...c) => (e.classList.add(...c), e);
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const op = (e, v) => { v = L.clamp(v).toFixed(2); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const fg = (e, c) => { if (e._fg !== c) { e._fg = c; e.style.color = colr(c); } };
+const swap = (els, f) => { els.forEach((e) => e.classList.add("out")); setTimeout(() => { f(); els.forEach((e) => e.classList.remove("out")); }, 460); };
+const mod = (a, n) => ((a % n) + n) % n;
+const D2 = (n) => String(n).padStart(2, "0");
+const mmss = (s) => { s = Math.max(0, Math.ceil(s)); return `${Math.floor(s / 60)}:${D2(s % 60)}`; };
+
+// Columns: left 220–1080, the mouth 1140–2700, right 2760–3620. Rows of 64 on an 88 grid above,
+// the bottom strip on 54.
+const LX = 220, LR = 1080, MX = 1140, MR = 2700, RX = 2760, RR = 3620;
+const BX = 300, BRW = 220;                                   // bars start 300 in, stop 220 short of the edge
+const ROW0 = 428, ROW1 = 1148, PITCH = 88;
+const base0 = (i) => ROW0 + i * PITCH + 52.5, base1 = (i) => ROW1 + i * PITCH + 52.5;
+const STRIP = (i) => 1734 + i * 54;
+
+const fill = (x, y, w, h, c) => {
+  const f = L.layer({ x, y, w, h });
+  f.style.background = colr(c); f.style.transformOrigin = "0 0";
+  return f;
+};
+const gaugeRow = (x, r, base, name, c) => {
+  L.text({ x, base, s: 40, c: "lilac", txt: name });
+  L.rect({ x: x + BX, y: base - 26, w: r - BRW - (x + BX), h: 26, c: TRACK });
+  return { bar: fill(x + BX, base - 26, r - BRW - (x + BX), 26, c), v: L.text({ x: r, base, s: 52, c: "white", txt: "", align: "r" }), u: -1 };
+};
+const showBar = (g, k) => { k = L.clamp(k); if (Math.abs(k - g.u) > 0.0005) { g.u = k; tf(g.bar, `scaleX(${k.toFixed(4)})`); } };
+
+// ---------------- the traffic: one transit every 34 s, outbound and inbound by turns ----------------
+// A transit k: cleared at T(k); the mouth opens 9 s on, stands open 12–16 s (the vessel passes),
+// closes by 20 s, and stays dark until the next.
+const P = 34, T0 = 2, OPEN = 9, FULL = 12, DONE = 16, SHUT = 20;
+const T = (k) => T0 + k * P;
+const isOut = (k) => mod(k, 2) === 0;
+const OUT = [
+  { n: "Rio Grande", type: "Runabout  ·  Idran Survey", log: "Runabout", c: "lilac" },
+  { n: "Rakantha", type: "Bajoran Freighter  ·  Cargo", log: "Freighter", c: "ice" },
+  { probe: true, type: "Class 1 Probe  ·  Relay Chain", log: "Probe", c: "sky" },
+  { n: "Kendra", type: "Bajoran Transport  ·  Survey Team", log: "Transport", c: "ice" },
+  { n: "Yangtzee Kiang", type: "Runabout  ·  Relay Service", log: "Runabout", c: "lilac" },
+  { n: "Dakhur", type: "Bajoran Survey Ship  ·  Mapping", log: "Survey Ship", c: "ice" },
+  { n: "Hedrikspool", type: "Bajoran Freighter  ·  Supplies", log: "Freighter", c: "ice" },
+  { n: "Perikian", type: "Bajoran Transport  ·  Pilgrims", log: "Transport", c: "ice" },
+  { n: "Tamulna", type: "Bajoran Survey Ship  ·  Sampling", log: "Survey Ship", c: "ice" },
+];
+const IN = [
+  { n: "Ganges", type: "Runabout  ·  Idran Survey", log: "Runabout", c: "lilac" },
+  { n: "Tozhat", type: "Bajoran Freighter  ·  Cargo", log: "Freighter", c: "ice" },
+  { n: "Ashalla", type: "Bajoran Transport  ·  Passengers", log: "Transport", c: "ice" },
+  { n: "Jalanda", type: "Bajoran Survey Ship  ·  Mapping", log: "Survey Ship", c: "ice" },
+  { n: "Hathon", type: "Bajoran Freighter  ·  Ore", log: "Freighter", c: "ice" },
+  { n: "Musilla", type: "Bajoran Transport  ·  Trade", log: "Transport", c: "ice" },
+  { n: "Jeraddo", type: "Bajoran Freighter  ·  Cargo", log: "Freighter", c: "ice" },
+  { n: "Derna", type: "Bajoran Transport  ·  Pilgrims", log: "Transport", c: "ice" },
+];
+const vessel = (k) => {
+  if (!isOut(k)) return IN[mod((k - 1) / 2, IN.length)];
+  const j = k / 2, v = OUT[mod(j, OUT.length)];
+  return v.probe ? { ...v, n: `Probe ${12 + Math.floor((j - 2) / OUT.length)}` } : v;
+};
+const cycle = (t) => { const k = Math.floor((t - T0) / P); return { k, u: t - T(k) }; };
+const phaseOf = (u) => (u < OPEN ? "cleared" : u < FULL ? "opening" : u < DONE ? "transit" : u < SHUT ? "closing" : "closed");
+const aperture = (t) => {
+  const { u } = cycle(t);
+  if (u < OPEN || u >= SHUT) return 0;
+  if (u < FULL) return L.ease((u - OPEN) / (FULL - OPEN));
+  if (u < DONE) return 1;
+  return 1 - L.ease((u - DONE) / (SHUT - DONE));
+};
+// subspace distortion at the mouth, in millicochranes: a quiet background, a great swell when open
+const distortion = (t) => {
+  const a = aperture(t);
+  return 16 + 3 * Math.sin(t * 0.13) + 2 * Math.sin(t * 0.051 + 1) + 640 * Math.pow(a, 1.3) * (1 + 0.015 * Math.sin(t * 0.9));
+};
+// the next transit (of a direction, or either) whose mouth has not yet opened
+const nextOpen = (t, dir) => {
+  let { k } = cycle(t);
+  while (T(k) + OPEN <= t || (dir === "out" && !isOut(k)) || (dir === "in" && isOut(k))) k++;
+  return k;
+};
+// transits completed since the watch began
+const K_WATCH = -26;
+const doneCount = (t, dir) => {
+  let n = 0;
+  for (let k = K_WATCH; T(k) + DONE <= t; k++) if (dir === undefined || isOut(k) === (dir === "out")) n++;
+  return n;
+};
+
+const SD0 = 46602.5, SD_PER_S = 1000 / 31557600;
+
+// ---------------- status line ----------------
+const WORDS = { closed: ["Wormhole Closed", "lilac"], cleared: ["Transit Cleared", "sky"], opening: ["Wormhole Opening", "ice"],
+  transit: ["Transit in Progress", "ice"], closing: ["Wormhole Closing", "sky"] };
+const state = cls(L.text({ x: LX, cap: 150, s: 100, c: "lilac", txt: "" }), "sw");
+const stateSub = L.text({ x: MX, base: 222, s: 38, c: "lilac", txt: "" });
+L.box({ x: RR - 400, y: 150, w: 400, h: 72, c: "sky", label: "Station Keeping", r: "lr", fs: 36 });
+
+// ---------------- a queue of vessels, as rows that slide up ----------------
+const queue = (x, r, y0, rows, dir, sub) => {
+  const w = r - x;
+  const make = (i) => {
+    const lay = cls(L.layer({ x, y: y0, w, h: 64 }), "qrow");
+    const box = L.box({ x: 0, y: 0, w: BX - 24, h: 64, c: "ice", label: "", fs: 32, r: "l" }, lay);
+    const type = L.text({ x: BX, base: 52.5, s: 40, c: "lilac", txt: "" }, lay);
+    const eta = L.text({ x: w, base: 52.5, s: 52, c: "white", txt: "", align: "r", rightIn: true }, lay);
+    return { lay, box, type, eta, k: null, slot: i };
+  };
+  const q = { rows: Array.from({ length: rows }, (_, i) => make(i)), busy: false };
+  const fillRow = (row, k) => {
+    const v = vessel(k);
+    row.k = k; L.set(row.box, v.n); row.box.style.background = colr(v.c); L.set(row.type, v.type);
+  };
+  const place = (row) => tf(row.lay, `translate3d(0,${row.slot * PITCH}px,0)`);
+  const ks = (t) => { const out = []; let k = nextOpen(t - (DONE - OPEN), dir); while (out.length < rows) { out.push(k); k += 2; } return out; };
+  const first = ks(0);
+  q.rows.forEach((row, i) => { fillRow(row, first[i]); place(row); });
+  q.update = (t) => {
+    const want = ks(t);
+    const head = q.rows.find((r) => r.slot === 0);
+    if (!q.busy && head.k !== want[0]) {                    // the head has gone through: it fades, the rest move up
+      q.busy = true;
+      head.lay.style.opacity = 0;
+      setTimeout(() => {
+        q.rows.forEach((r) => { if (r !== head) { r.slot--; place(r); } });
+        head.lay.classList.add("still"); head.slot = rows - 1; place(head);
+        fillRow(head, Math.max(...q.rows.map((r) => r.k)) + 2);
+        setTimeout(() => { head.lay.classList.remove("still"); head.lay.style.opacity = 1; q.busy = false; }, 900);
+      }, 650);
+    }
+    q.rows.forEach((row) => {
+      const left = T(row.k) + OPEN - t;
+      L.set(row.eta, left > 0 ? mmss(left) : "Transit");
+      fg(row.eta, left > 0 ? (row.slot === 0 ? "ice" : "white") : "ice");
+    });
+  };
+  return q;
+};
+
+// ---------------- outbound queue ----------------
+L.header({ x: LX, y: 280, w: LR - LX, label: "Transit Queue  ·  Outbound", c1: "lilac", c2: "sky" });
+L.text({ x: LX, base: 400, s: 36, c: "sky", txt: "Bajor to Gamma  ·  Cleared by Deep Space 9" });
+const qOut = queue(LX, LR, ROW0, 6, "out");
+
+// ---------------- the Denorios Belt ----------------
+L.header({ x: LX, y: 1000, w: LR - LX, label: "Denorios Belt", c1: "sky", c2: "lilac" });
+L.text({ x: LX, base: 1120, s: 36, c: "sky", txt: "Charged Plasma Field  ·  Approach Corridor Clear" });
+const belt = [["Plasma Density", "lilac"], ["Field Charge", "sky"], ["Tachyon Eddies", "lilac"], ["Neutrino Flux", "ice"], ["Deflector Load", "sky"]]
+  .map(([n, c], i) => gaugeRow(LX, LR, base1(i), n, c));
+
+// ---------------- transit log ----------------
+L.header({ x: LX, y: 1620, w: LR - LX, label: "Transit Log", c1: "lilac", c2: "plum", h: 48 });
+const LOGV = LX + 150, LOGT = LX + 470;
+const logRows = Array.from({ length: 6 }, (_, i) => ({
+  tm: L.text({ x: LX, base: STRIP(i), s: 36, c: "sky", txt: "" }),
+  vs: L.text({ x: LOGV, base: STRIP(i), s: 36, c: "white", txt: "" }),
+  ty: L.text({ x: LOGT, base: STRIP(i), s: 36, c: "lilac", txt: "" }),
+  dr: L.text({ x: LR, base: STRIP(i), s: 36, c: "ice", txt: "", align: "r" }) }));
+const clockAt = (ago) => { const d = new Date(Date.now() - ago * 1000); return `${D2(d.getHours())}:${D2(d.getMinutes())}:${D2(d.getSeconds())}`; };
+const logged = [];
+const logTransit = (k, ago) => {
+  const v = vessel(k);
+  logged.push([clockAt(ago), v.n, v.log, isOut(k) ? "Outbound" : "Inbound", isOut(k) ? "lilac" : "sky"]);
+  if (logged.length > logRows.length) logged.shift();
+  logRows.forEach((r, i) => {
+    const e = logged[i] || ["", "", "", "", "ice"];
+    L.set(r.tm, e[0]); L.set(r.vs, e[1]); L.set(r.ty, e[2]); L.set(r.dr, e[3]); fg(r.dr, e[4]);
+  });
+};
+let lastLogged = cycle(0).k - 1;
+while (T(lastLogged) + DONE > 0) lastLogged--;
+for (let k = lastLogged - 5; k <= lastLogged; k++) logTransit(k, -(T(k) + DONE));
+
+// ---------------- the Gamma terminus ----------------
+L.header({ x: RX, y: 280, w: RR - RX, label: "Gamma Terminus  ·  Idran System", c1: "sky", c2: "lilac" });
+L.text({ x: RX, base: 400, s: 36, c: "sky", txt: "Relayed by Probe 3  ·  70,000 Light Years" });
+const gamma = [["Relay Signal", "sky"], ["Relay Lag", "lilac"], ["Neutrino Flux", "ice"], ["Verteron Nodes", "lilac"], ["Stellar Wind", "sky"], ["Probe Power", "lilac"]]
+  .map(([n, c], i) => gaugeRow(RX, RR, base0(i), n, c));
+
+// ---------------- inbound queue ----------------
+L.header({ x: RX, y: 1000, w: RR - RX, label: "Transit Queue  ·  Inbound", c1: "lilac", c2: "sky" });
+L.text({ x: RX, base: 1120, s: 36, c: "sky", txt: "Gamma to Bajor  ·  Holding at the Idran Terminus" });
+const qIn = queue(RX, RR, ROW1, 5, "in");
+
+// ---------------- traffic control ----------------
+L.header({ x: RX, y: 1620, w: RR - RX, label: "Traffic Control  ·  Deep Space 9", c1: "sky", c2: "plum", h: 48 });
+const TC = [RX, 3080, 3260, 3440, RR];
+["Direction", "Transits", "Queued", "Interval", "Next"].forEach((txt, i) => L.text({ x: TC[i], base: STRIP(0), s: 36, c: "sky", txt, align: i ? "r" : "l" }));
+const tcRows = [["Outbound", "lilac", "out", 6, P * 2], ["Inbound", "sky", "in", 5, P * 2], ["Combined", "ice", undefined, 11, P]].map(([name, c, dir, qd, iv], i) => {
+  L.text({ x: RX, base: STRIP(i + 1), s: 36, c, txt: name });
+  const n = L.text({ x: TC[1], base: STRIP(i + 1), s: 36, c: "white", txt: "", align: "r" });
+  L.text({ x: TC[2], base: STRIP(i + 1), s: 36, c: "white", txt: String(qd), align: "r" });
+  L.text({ x: TC[3], base: STRIP(i + 1), s: 36, c: "white", txt: mmss(iv), align: "r" });
+  return { dir, n, next: L.text({ x: TC[4], base: STRIP(i + 1), s: 36, c: "white", txt: "", align: "r" }) };
+});
+const small = (i, name, c) => {
+  L.text({ x: RX, base: STRIP(i), s: 36, c: "sky", txt: name });
+  L.rect({ x: RX + BX, y: STRIP(i) - 22, w: TC[3] - (RX + BX), h: 22, c: TRACK });
+  return { bar: fill(RX + BX, STRIP(i) - 22, TC[3] - (RX + BX), 22, c), v: L.text({ x: RR, base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }), u: -1 };
+};
+const openTime = small(4, "Mouth Open", "ice");
+const corridor = small(5, "Corridor Load", "lilac");
+
+// ---------------- the mouth ----------------
+L.header({ x: MX, y: 280, w: MR - MX, label: "Wormhole Mouth  ·  Bajor Terminus", c1: "lilac", c2: "sky" });
+const CX = 1920, CY = 975, RB0 = 584, RB1 = 600, RD = 528;
+const pt = (r, a) => [CX + r * Math.sin((a * Math.PI) / 180), CY - r * Math.cos((a * Math.PI) / 180)];
+// the bezel: twelve segments; the approach gate (225°) and the exit gate (45°) lit
+for (let s = 0; s < 12; s++) {
+  const c = s === 7 ? "lilac" : s === 1 ? "ice" : ["violet", "sky", "plum"][s % 3];
+  L.svg("path", { d: L.arc(CX, CY, RB0, RB1, s * 30 + 0.7, s * 30 + 29.3), fill: colr(c), class: "boot" });
+}
+{
+  let p5 = "", p30 = "";
+  for (let a = 0; a < 360; a += 5) {
+    const [x0, y0] = pt(a % 30 ? 552 : 538, a), [x1, y1] = pt(568, a);
+    const seg = `M${x0.toFixed(1)},${y0.toFixed(1)} L${x1.toFixed(1)},${y1.toFixed(1)}`;
+    if (a % 30) p5 += seg; else p30 += seg;
+  }
+  L.svg("path", { d: p5, stroke: "var(--violet)", "stroke-width": 3, class: "boot" });
+  L.svg("path", { d: p30, stroke: "var(--lilac)", "stroke-width": 6, class: "boot" });
+}
+L.svg("circle", { cx: CX, cy: CY, r: RD, fill: DISK, class: "boot" });
+[176, 352].forEach((r) => L.svg("circle", { cx: CX, cy: CY, r, fill: "none", stroke: "#1a1c48", "stroke-width": 3, class: "boot" }));
+// the two lanes: in from the south-west, out to the north-east
+const lane = (a, c) => {
+  let d = "";
+  for (let r = 150; r <= 500; r += 28) { const [x0, y0] = pt(r, a), [x1, y1] = pt(r + 12, a); d += `M${x0.toFixed(1)},${y0.toFixed(1)} L${x1.toFixed(1)},${y1.toFixed(1)}`; }
+  L.svg("path", { d, stroke: c, "stroke-width": 6, "stroke-linecap": "round", class: "boot" });
+};
+lane(225, "#4a3c66"); lane(45, "#26476e");
+
+const SZ = 1040, SO = SZ / 2;
+const svgLayer = (inner, size = SZ) => {
+  const lay = L.layer({ x: CX - size / 2, y: CY - size / 2, w: size, h: size });
+  lay.innerHTML = `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="position:absolute;left:0;top:0">${inner}</svg>`;
+  return lay;
+};
+// at rest: the verteron nodes, faint, turning slowly
+const dormant = svgLayer([[150, "violet", "34 22"], [260, "plum", "60 40"], [370, "violet", "18 30"], [470, "plum", "90 56"]]
+  .map(([r, c, da]) => `<circle cx="${SO}" cy="${SO}" r="${r}" fill="none" stroke="var(--${c})" stroke-width="5" stroke-dasharray="${da}"/>`).join(""));
+// open: spiral arms, a counter-turning ring of segments, a bright core
+const ARMS = 8;
+const arms = (() => {
+  let s = `<defs><radialGradient id="ga" cx="${SO}" cy="${SO}" r="500" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#ffffff"/><stop offset=".25" stop-color="var(--ice)"/><stop offset=".6" stop-color="var(--sky)"/>
+    <stop offset="1" stop-color="var(--violet)" stop-opacity="0"/></radialGradient>
+    <radialGradient id="gb" cx="${SO}" cy="${SO}" r="500" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#ffffff"/><stop offset=".3" stop-color="var(--lilac)"/><stop offset=".65" stop-color="var(--plum)"/>
+    <stop offset="1" stop-color="var(--violet)" stop-opacity="0"/></radialGradient></defs>`;
+  const TH = 1.7 * Math.PI, R0 = 46, R1 = 500, b = Math.log(R1 / R0) / TH, N = 40;
+  for (let a = 0; a < ARMS; a++) {
+    const phi = (a / ARMS) * 2 * Math.PI, A = [], B = [];
+    for (let i = 0; i <= N; i++) {
+      const th = (i / N) * TH, r = R0 * Math.exp(b * th), w = 0.34 * (1 - 0.7 * (i / N));
+      A.push([SO + r * Math.sin(phi + th), SO - r * Math.cos(phi + th)]);
+      B.push([SO + r * Math.sin(phi + th + w), SO - r * Math.cos(phi + th + w)]);
+    }
+    const d = "M" + A.concat(B.reverse()).map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" L") + " Z";
+    s += `<path d="${d}" fill="url(#${a % 2 ? "gb" : "ga"})" opacity="${a % 2 ? 0.8 : 0.95}"/>`;
+  }
+  return svgLayer(s);
+})();
+const rings = (() => {
+  let s = "";
+  const segs = (r, w, n, len, c) => {
+    for (let i = 0; i < n; i++) {
+      const a0 = (i / n) * 360 + (r % 37), d = L.arc(SO, SO, r - w / 2, r + w / 2, a0, a0 + len);
+      s += `<path d="${d}" fill="var(--${c})"/>`;
+    }
+  };
+  segs(118, 10, 6, 34, "white"); segs(214, 12, 8, 26, "ice"); segs(306, 10, 10, 18, "lilac"); segs(398, 14, 12, 12, "sky"); segs(478, 8, 16, 9, "lilac");
+  return svgLayer(s);
+})();
+const core = L.layer({ x: CX - 190, y: CY - 190, w: 380, h: 380, cls: "core" });
+core.style.background = "radial-gradient(circle, #ffffff 0%, #ffffff 14%, rgba(143,211,255,.85) 34%, rgba(92,157,255,.35) 58%, rgba(92,157,255,0) 72%)";
+[arms, rings, core].forEach((e) => (e.style.opacity = 0));
+
+// the vessel in transit: a chevron, its name beside it
+const marker = (tagSide) => {
+  const lay = L.layer({ x: 0, y: 0, w: 80, h: 80 });
+  lay.style.transformOrigin = "40px 40px"; lay.style.opacity = 0;
+  lay.innerHTML = `<svg width="80" height="80" style="position:absolute;left:0;top:0"><g transform="rotate(45 40 40)">
+    <path d="M40,6 L68,62 L40,46 L12,62 Z" fill="var(--butter)"/></g></svg>`;
+  const tagLay = L.layer({ x: 0, y: 0, w: 1, h: 1 }, lay);
+  const tag = L.box({ x: 0, y: 0, w: 200, h: 44, c: "butter", label: "", fs: 28, r: "lr" }, tagLay);
+  return { lay, tagLay, tag, side: tagSide, name: null };
+};
+const mOut = marker("se"), mIn = marker("nw");
+const showMarker = (m, k, r, a, sc, o, to) => {
+  if (o <= 0.001) { op(m.lay, 0); return; }
+  const v = vessel(k);
+  if (m.name !== v.n) {
+    m.name = v.n; L.set(m.tag, v.n);
+    const w = Math.ceil(L.textWidth(v.n, 28) + 64);
+    m.tag.style.width = w + "px";
+    tf(m.tagLay, m.side === "se" ? "translate3d(76px,64px,0)" : `translate3d(${-w - 4}px,-48px,0)`);
+  }
+  const [x, y] = pt(r, a);
+  tf(m.lay, `translate3d(${(x - 40).toFixed(1)}px,${(y - 40).toFixed(1)}px,0) scale(${sc.toFixed(3)})`);
+  op(m.lay, o); op(m.tagLay, to);
+};
+
+// readings in the instrument's four corners
+const corner = (x, align, lb, label, vb, cb) => ({
+  l: L.text({ x, base: lb, s: 36, c: "sky", txt: label, align }),
+  v: L.text({ x, base: vb, s: 100, c: "white", txt: "", align }),
+  c: L.text({ x, base: cb, s: 36, c: "lilac", txt: "", align }),
+});
+const cAp = corner(MX, "l", 400, "Aperture", base0(1), base0(2));
+const cDist = corner(MR, "r", 400, "Subspace Distortion", base0(1), base0(2));
+const cNext = corner(MX, "l", base1(1), "Next Transit", base1(3), base1(4));
+const cMouth = corner(MR, "r", base1(1), "Mouth", base1(3), base1(4));
+L.set(cAp.c, "Kilometers");
+L.set(cDist.c, "Millicochranes");
+
+// ---------------- subspace distortion: a ten-minute sweep under the mouth ----------------
+{
+  const lw = Math.ceil(L.textWidth("Subspace Distortion  ·  Ten Minutes", 28) + 88);
+  const LG = [["Outbound", "lilac"], ["Inbound", "sky"]].map(([t, c]) => [t, c, Math.ceil(L.textWidth(t, 28) + 60)]);
+  const lgw = LG.reduce((a, l) => a + l[2] + L.GAP, 0);
+  L.header({ x: MX, y: 1620, w: MR - MX - lgw, label: "Subspace Distortion  ·  Ten Minutes", c1: "sky", c2: "plum", h: 48, lw });
+  let x = MR - lgw + L.GAP;
+  LG.forEach(([t, c, w], i) => { L.box({ x, y: 1620, w, h: 48, c, label: t, fs: 28, r: i === LG.length - 1 ? "r" : null }); x += w + L.GAP; });
+}
+const CHX = 1236, CHY = 1692, CHW = MR - CHX, CHH = 312, WIN = 600;
+const PY0 = 18, PY1 = 300, VMAX = 800;                           // plot: 800 at the top, 0 at the bottom (design px in the chart)
+for (let v = 0; v <= VMAX; v += 200) L.text({ x: CHX - 24, base: CHY + PY1 - (v / VMAX) * (PY1 - PY0) + 11.5, s: 32, c: "sky", txt: String(v), align: "r", legend: true });
+const chart = L.canvas({ x: CHX, y: CHY, w: CHW, h: CHH });
+const cursor = L.layer({ x: CHX, y: CHY, w: 4, h: CHH });
+cursor.style.background = "var(--ice)";
+const COL = { out: ["#4a3a5c", "#c7a0d8"], in: ["#1e3a66", "#8fd3ff"], idle: "#7a68c8", grid: "#232056" };
+let NC = 1, KX = 1, drawnTo = -1;
+const colTime = (X, t) => {                                      // the time a device column shows, as of t
+  const sweep0 = t - mod(t, WIN), tc = sweep0 + ((X + 0.5) / NC) * WIN;
+  return tc <= t ? tc : tc - WIN;
+};
+const vy = (v) => (PY0 + (PY1 - PY0) * (1 - L.clamp(v / VMAX))) * KX;
+const drawCol = (X, tc, blank) => {
+  const g = chart.g;
+  g.fillStyle = "#000"; g.fillRect(X, 0, 1, CHH * KX);
+  g.fillStyle = COL.grid;
+  if (mod(Math.floor(X / KX), 14) < 7) for (let v = 200; v <= VMAX; v += 200) g.fillRect(X, Math.round(vy(v)), 1, Math.max(1, Math.round(1.5 * KX)));
+  if (blank) return;
+  const v = distortion(tc), vp = distortion(tc - WIN / NC), a = aperture(tc);
+  const dir = isOut(cycle(tc).k) ? "out" : "in";
+  const y = vy(v), yp = vy(vp), y0 = vy(0), th = 2.4 * KX;
+  if (a > 0) { g.fillStyle = COL[dir][0]; g.fillRect(X, y, 1, y0 - y); }
+  g.fillStyle = a > 0.02 ? COL[dir][1] : COL.idle;
+  g.fillRect(X, Math.min(y, yp) - th / 2, 1, Math.abs(y - yp) + th);
+};
+const GAPC = () => Math.round(26 * KX);
+const curCol = (t) => Math.floor((mod(t, WIN) / WIN) * NC);
+chart.onResize = () => {
+  const g = chart.g;
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  NC = chart.cv.width; KX = NC / CHW;
+  const t = L.t, cx = curCol(t);
+  for (let X = 0; X < NC; X++) {
+    const ahead = mod(X - cx, NC);
+    drawCol(X, colTime(X, t), ahead > 0 && ahead <= GAPC());
+  }
+  drawnTo = cx;
+};
+L.tick((t) => {
+  if (drawnTo < 0) return;
+  const cx = curCol(t);
+  while (drawnTo !== cx) {
+    drawnTo = (drawnTo + 1) % NC;
+    drawCol(drawnTo, colTime(drawnTo, t), false);
+    const ahead = (drawnTo + GAPC()) % NC;
+    drawCol(ahead, 0, true);
+  }
+  tf(cursor, `translate3d(${(cx / KX - 2).toFixed(2)}px,0,0)`);
+});
+
+// ---------------- the clock ----------------
+let shown = null, spin = 0, tPrev = null;
+L.tick((t) => {
+  const { k, u } = cycle(t), a = aperture(t), ph = phaseOf(u);
+  const out = isOut(k);
+  // the mouth
+  spin += (tPrev === null ? 0 : Math.min(0.1, t - tPrev)) * (3 + 8 * a); tPrev = t;   // a slow idle turn, faster as it opens
+  op(dormant, 0.55 - 0.35 * a);
+  tf(dormant, `rotate(${(t * 2.2).toFixed(2)}deg)`);
+  tf(arms, `rotate(${(-spin).toFixed(2)}deg) scale(${(0.62 + 0.38 * a).toFixed(3)})`);
+  if (a > 0.001) {
+    tf(rings, `rotate(${(spin * 0.55).toFixed(2)}deg) scale(${(0.5 + 0.5 * a).toFixed(3)})`);
+    tf(core, `scale(${(0.25 + 0.75 * a * (1 + 0.03 * Math.sin(t * 1.4))).toFixed(3)})`);
+  }
+  op(arms, 0.14 + 0.86 * a); op(rings, 0.9 * a); op(core, Math.min(1, a * 1.4));
+  // the vessels
+  if (out && u < DONE) {
+    // in along the south-west lane, held at the edge while the mouth opens, then into the core
+    const r = u < OPEN ? L.mix(500, 250, L.ease(u / OPEN)) : u < FULL ? L.mix(250, 210, (u - OPEN) / (FULL - OPEN)) : L.mix(210, 0, L.ease((u - FULL) / (DONE - FULL)));
+    const sc = u < FULL ? 1 : L.mix(1, 0.2, (u - FULL) / (DONE - FULL));
+    const o = Math.min(L.clamp(u / 1.2), 1 - L.clamp((u - FULL - 2.4) / 1.4));
+    showMarker(mOut, k, r, 225, sc, o, 1 - L.clamp((u - FULL) / 0.8));
+  } else showMarker(mOut, k, 0, 225, 1, 0, 0);
+  if (!out && u >= FULL - 0.5 && u < SHUT + 3) {
+    // out of the core and away up the north-east lane, fading before the ring
+    const v = u - (FULL - 0.5);
+    const r = L.mix(0, 470, L.ease(L.clamp(v / 10.5)));
+    const sc = L.mix(0.2, 1, L.clamp(v / 4));
+    const o = Math.min(L.clamp(v / 1.2), 1 - L.clamp((v - 9) / 1.5));
+    showMarker(mIn, k, r, 45, sc, o, Math.min(L.clamp((v - 3.5) / 0.8), 1 - L.clamp((v - 8.5) / 1.2)));
+  } else showMarker(mIn, k, 0, 45, 1, 0, 0);
+  // the status word
+  if (ph !== shown) {
+    shown = ph;
+    swap([state], () => { L.set(state, WORDS[ph][0]); fg(state, WORDS[ph][1]); });
+  }
+  // the log, as each vessel clears the mouth
+  while (T(lastLogged + 1) + DONE <= t) { lastLogged++; logTransit(lastLogged, 0); }
+});
+
+L.every(250, (t) => {
+  const { k, u } = cycle(t), a = aperture(t), ph = phaseOf(u);
+  L.set(cAp.v, (2.4 * a).toFixed(2));
+  L.set(cDist.v, distortion(t).toFixed(1));
+  const kn = nextOpen(t), v = vessel(kn);
+  L.set(cNext.v, mmss(T(kn) + OPEN - t));
+  L.set(cNext.c, `${v.n}  ·  ${isOut(kn) ? "Outbound" : "Inbound"}`);
+  L.set(cMouth.v, { closed: "Closed", cleared: "Closed", opening: "Opening", transit: "Open", closing: "Closing" }[ph]);
+  L.set(cMouth.c, { closed: "Verteron Nodes Dormant", cleared: `${vessel(k).n} Cleared`, opening: "Verteron Nodes Active",
+    transit: `${vessel(k).n} in Transit`, closing: "Aperture Collapsing" }[ph]);
+  qOut.update(t); qIn.update(t);
+  tcRows.forEach((r) => {
+    L.set(r.n, String(doneCount(t, r.dir)));
+    L.set(r.next, mmss(T(nextOpen(t, r.dir)) + OPEN - t));
+  });
+  // both mouths open together: the neutrino flux follows the aperture on either side
+  const nf = 0.04 + 0.86 * a + 0.006 * Math.sin(t * 0.7);
+  showBar(belt[3], nf); L.set(belt[3].v, (nf * 100).toFixed(1) + "%");
+  showBar(gamma[2], nf * 0.97); L.set(gamma[2].v, (nf * 97).toFixed(1) + "%");
+  const nodes = Math.round(4 + 60 * a);
+  showBar(gamma[3], nodes / 64); L.set(gamma[3].v, `${nodes} / 64`);
+}, 0);
+
+// the steady readings, breathing a little
+L.every(1000, (t) => {
+  L.set(stateSub, `Denorios Belt  ·  Bajor System  ·  Stardate ${(SD0 + SD_PER_S * t).toFixed(1)}  ·  Ensign Ro at the Conn`);
+  const pd = 0.618 + 0.01 * Math.sin(t * 0.031);
+  showBar(belt[0], pd); L.set(belt[0].v, (pd * 100).toFixed(1) + "%");
+  const fc = 3.42 + 0.05 * Math.sin(t * 0.023);
+  showBar(belt[1], fc / 5); L.set(belt[1].v, fc.toFixed(2) + " MV");
+  const ed = 3 + Math.round(Math.sin(t * 0.011) * 1.4);
+  showBar(belt[2], ed / 8); L.set(belt[2].v, `${ed} / 8`);
+  const dl = 0.384 + 0.006 * Math.sin(t * 0.041);
+  showBar(belt[4], dl); L.set(belt[4].v, (dl * 100).toFixed(1) + "%");
+  const rs = 0.974 + 0.004 * Math.sin(t * 0.037);
+  showBar(gamma[0], rs); L.set(gamma[0].v, (rs * 100).toFixed(1) + "%");
+  const lag = 0.42 + 0.02 * Math.sin(t * 0.019);
+  showBar(gamma[1], lag); L.set(gamma[1].v, lag.toFixed(2) + " s");
+  const sw = 412 + 9 * Math.sin(t * 0.017);
+  showBar(gamma[4], sw / 800); L.set(gamma[4].v, Math.round(sw) + " km/s");
+  const pp = 0.881 - t * 0.00001;
+  showBar(gamma[5], pp); L.set(gamma[5].v, (pp * 100).toFixed(1) + "%");
+  // the mouth stands open 11 s in every 34
+  const ot = (SHUT - OPEN) / P;
+  showBar(openTime, ot); L.set(openTime.v, (ot * 100).toFixed(1) + "%");
+  showBar(corridor, 11 / 16); L.set(corridor.v, "11 / 16");
+}, 0);
+});
+</script></body></html>

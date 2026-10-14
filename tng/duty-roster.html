@@ -1,0 +1,277 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Duty Roster</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .blk { transition: background-color 1.2s ease; }
+  .sw { transition: background-color 1s ease, color 1s ease; }
+  .fl { transform-origin: 0 0; transition: transform 1.6s ease; }
+  .now { width: 0; height: 0; border-left: 12px solid transparent; border-right: 12px solid transparent; border-top: 18px solid var(--white); }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: wide, no sidebars ----------------
+L.frame({ type: "D", title: "Duty Roster  •  Shift Scheduling", c: "gold", c2: "peach", accent: "tan" });
+
+const X0 = 40, X1 = 3816, DARK = "#2a2010", GRID = "#3a2c12", TRACK = "#33260f";
+const col = (c) => (c.startsWith("#") ? c : `var(--${c})`);
+const pad2 = (n) => String(n).padStart(2, "0");
+const fmt = (n) => Math.round(n).toLocaleString("en");
+const hhmm = (h) => pad2(Math.floor(h)) + pad2(Math.floor((h % 1) * 60 + 1e-6));
+const bg = (e, c) => { if (e._bg !== c) { e._bg = c; e.style.background = col(c); } };
+const fg = (e, c) => { if (e._fg !== c) { e._fg = c; e.style.color = col(c); } };
+const op = (e, v) => { v = v.toFixed(2); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const widest = (items, s) => Math.ceil(Math.max(...items.map((t) => L.textWidth(t, s))));
+const clock = () => { const d = new Date(); return d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600; };
+
+// ---------------- the grid ----------------
+// The Gantt: department column, then 24 hours at 96 px an hour. The right column reads the roster
+// at the review cursor, row for row. The bottom strip splits under the Alpha watch and the Gantt's end.
+const LW = 400, TX0 = X0 + LW + L.GAP, HOUR = 96, TX1 = TX0 + 24 * HOUR;      // 464 → 2768
+const RX0 = TX1 + 64, RX1 = X1;                                              // 2832 → 3816
+const HY = 280, CAP = 400, BAND = 428, ROW0 = 508, PITCH = 88, RH = 64;
+const rowY = (i) => ROW0 + i * PITCH, rowBase = (i) => rowY(i) + 52.5;      // a 32px box label's baseline
+const tx = (h) => TX0 + h * HOUR;
+
+// ---------------- the roster ----------------
+// Watches: Gamma 0000–0800, Alpha 0800–1600, Beta 1600–2400 (ship's time: the Mac's own clock).
+const WATCHES = [["Gamma", 0], ["Alpha", 8], ["Beta", 16]];
+const watchAt = (h) => Math.min(2, Math.floor(h / 8));
+const TYPES = { W: ["Watch", "gold"], R: ["Relief", "peach"], T: ["Training", "tan"], D: ["Drill", "orange"], A: ["Away Team", "butter"] };
+// [department, approving officer, blocks: [from, to, type, name, (alternate for a swap)]]
+const ROSTER = [
+  ["Command", "Capt. Picard", [[0, 8, "W", "Lt. Cmdr. Data"], [8, 14, "W", "Capt. Picard"], [14, 20, "W", "Cmdr. Riker"], [20, 24, "R", "Lt. Worf"]]],
+  ["Conn", "Cmdr. Riker", [[0, 8, "W", "Ens. Lavelle"], [8, 15, "W", "Ens. Ro Laren"], [15, 17, "R", "Ens. Brevik", "Ens. Calder"], [17, 24, "W", "Lt. j.g. Haskell"]]],
+  ["Operations", "Lt. Cmdr. Data", [[0, 8, "W", "Ens. Ortiz"], [8, 13, "W", "Lt. Cmdr. Data"], [13, 16, "R", "Ens. Kaur"], [16, 24, "W", "Ens. Tirol", "Ens. Faraday"]]],
+  ["Tactical", "Lt. Worf", [[0, 8, "W", "Lt. j.g. Rhee", "Ens. Okafor"], [8, 14, "W", "Lt. Worf"], [14, 16, "D", "Lt. Worf"], [16, 20, "W", "Lt. j.g. Delgado"], [20, 24, "W", "Ens. Patil", "Ens. Moyer"]]],
+  ["Engineering", "Lt. Cmdr. La Forge", [[0, 8, "W", "Ens. Taurik"], [8, 15, "W", "Lt. Cmdr. La Forge"], [15, 17, "T", "Lt. Barclay"], [17, 21, "W", "Lt. Barclay"], [21, 24, "W", "Ens. Gomez", "Ens. Vasquez"]]],
+  ["Science", "Lt. Cmdr. Data", [[0, 8, "W", "Ens. Nakamura", "Ens. Sefton"], [8, 10, "W", "Lt. Kellerman"], [10, 14, "A", "Lt. Kellerman"], [14, 18, "W", "Lt. j.g. Ashby"], [18, 24, "W", "Ens. Doyle", "Ens. Hale"]]],
+  ["Medical", "Dr. Crusher", [[0, 8, "W", "Ens. Ogawa"], [8, 14, "W", "Dr. Crusher"], [14, 16, "T", "Dr. Crusher"], [16, 24, "W", "Dr. Selar"]]],
+  ["Security", "Lt. Worf", [[0, 8, "W", "Ens. Sito Jaxa"], [8, 12, "W", "Lt. j.g. Rourke"], [12, 14, "D", "Lt. j.g. Rourke"], [14, 16, "W", "Ens. Vale", "Ens. Quill"], [16, 24, "W", "Ens. Varga"]]],
+  ["Transporters", "Lt. Cmdr. Data", [[0, 8, "W", "Ens. Vance", "Ens. Hollis"], [8, 11, "W", "Chief Mendez"], [11, 13, "D", "Chief Mendez"], [13, 16, "W", "Chief Mendez"], [16, 24, "W", "Ens. Laird"]]],
+  ["Shuttlebays", "Cmdr. Riker", [[0, 8, "W", "Ens. Pell", "Ens. Kirby"], [8, 11, "W", "Lt. Sedor"], [11, 14, "A", "Lt. Sedor"], [14, 16, "R", "Ens. Kuril"], [16, 24, "W", "Ens. Yusef"]]],
+  ["Environmental", "Lt. Cmdr. La Forge", [[0, 8, "W", "Ens. Marsh"], [8, 10, "T", "Lt. Chen"], [10, 16, "W", "Lt. Chen"], [16, 24, "W", "Ens. Bryce", "Ens. Lowe"]]],
+  ["Damage Control", "Lt. Cmdr. La Forge", [[0, 8, "W", "Ens. Ruiz"], [8, 10, "D", "Ens. Lefler"], [10, 16, "W", "Ens. Lefler"], [16, 24, "W", "Lt. j.g. Strand", "Ens. Okoye"]]],
+].map(([dept, chief, blocks]) => ({ dept, chief, blocks: blocks.map(([a, b, ty, name, alt]) => ({ a, b, ty, name, alt })) }));
+
+// ---------------- status line ----------------
+const stateTxt = L.text({ x: X0, cap: 150, s: 100, c: "gold", txt: "Alpha Watch" });
+const stateSub = L.text({ x: 0, base: 222, s: 38, c: "peach", txt: "" });
+const SD0 = 47566.4, stardate = (t) => SD0 + t / 3600 / 8.766;   // a unit of stardate is about 8.8 hours
+const SDX = TX1 - Math.ceil(L.textWidth("47566.8", 52)) - 24 - Math.ceil(L.textWidth("Stardate", 40));
+L.text({ x: SDX, base: 222, s: 40, c: "peach", txt: "Stardate" });
+const sdVal = L.text({ x: SDX + Math.ceil(L.textWidth("Stardate", 40)) + 24, base: 222, s: 52, c: "white", txt: "" });
+// the key: what a bar's colour means, over the right-hand column
+{
+  const keys = Object.values(TYPES), KG = 16, KW = (RX1 - RX0 - KG * (keys.length - 1)) / keys.length;
+  keys.forEach(([name, c], i) => L.box({ x: Math.round(RX0 + i * (KW + KG)), y: 166, w: Math.round(KW), h: 56, c, label: name, fs: 28, r: i === 0 ? "l" : null }));
+}
+
+// ---------------- the Gantt ----------------
+L.header({ x: X0, y: HY, w: TX1 - X0, label: "Duty Roster  ·  All Departments  ·  24 Hours", c1: "gold", c2: "peach" });
+L.text({ x: X0, base: CAP, s: 36, c: "peach", txt: "Department" });
+for (let h = 0; h <= 24; h += 2) {                          // the ends sit flush with the timeline's edges
+  const align = h === 0 ? "l" : h === 24 ? "r" : "c";
+  L.text({ x: tx(h), base: CAP, s: 34, c: "peach", txt: pad2(h) + "00", align, w: 120, legend: true });
+}
+for (let h = 1; h < 24; h++)                                // a faint hour grid, seen between the rows
+  L.rect({ x: tx(h) - 1, y: BAND, w: 2, h: rowY(ROSTER.length - 1) + RH - BAND, c: h % 8 ? GRID : "#5a4418", free: true });
+L.box({ x: X0, y: BAND, w: LW, h: 56, c: "tan", label: "Watch", fs: 32, r: "l" });
+const bands = WATCHES.map(([name, h0], i) => {
+  const x = tx(h0) + (i ? 3 : 0), w = 8 * HOUR - (i ? 3 : 0) - (i < 2 ? 3 : 0);
+  return L.box({ x, y: BAND, w, h: 56, c: "gold", label: `${name} Watch  ·  ${pad2(h0)}00 – ${pad2(h0 + 8)}00`, fs: 32, cls: "sw" });
+});
+// a block's label: the full name if it fits, else the surname
+const labelFor = (b) => {
+  const w = b.w - 22 - 16;
+  if (L.textWidth(b.name, 32) <= w) return b.name;
+  const sur = b.name.split(" ").pop();
+  return L.textWidth(sur, 32) <= w ? sur : "";
+};
+ROSTER.forEach((r, i) => {
+  L.box({ x: X0, y: rowY(i), w: LW, h: RH, c: i % 2 ? "tan" : "peach", label: r.dept, fs: 32, r: "l" });
+  r.blocks.forEach((b) => {
+    b.x = tx(b.a) + (b.a > 0 ? 3 : 0); b.w = (b.b - b.a) * HOUR - (b.a > 0 ? 3 : 0) - (b.b < 24 ? 3 : 0);
+    b.e = L.box({ x: b.x, y: rowY(i), w: b.w, h: RH, c: TYPES[b.ty][1], label: "", fs: 32, cls: "lt blk" });
+    b.e.textContent = labelFor(b);
+  });
+});
+const GB = rowY(ROSTER.length - 1) + RH;                    // the Gantt's foot
+// ship's time: a marker on the watch band; the review cursor walks the day
+const elapsed = L.layer({ x: TX0, y: ROW0, w: 24 * HOUR, h: GB - ROW0 });   // the hours already worked, shaded
+elapsed.style.background = "rgba(0,0,0,0.42)"; elapsed.style.transformOrigin = "0 0";
+const nowTip = L.layer({ x: 0, y: BAND - 22, cls: "now" });
+const cursor = L.layer({ x: 0, y: BAND - 4, w: 4, h: GB - BAND + 8 });
+cursor.style.background = "var(--white)";
+
+// ---------------- coverage review: the roster read at the cursor ----------------
+L.header({ x: RX0, y: HY, w: RX1 - RX0, label: "Coverage Review", c1: "peach", c2: "gold" });
+const allNames = ROSTER.flatMap((r) => r.blocks.flatMap((b) => [b.name, b.alt || ""]));
+// three columns spread evenly: the name flush left, the duty (a colour chip and its word), the hours flush right
+const RNW = widest(allNames, 40), RDW = 60 + widest(Object.values(TYPES).map((t) => t[0]), 40), RHW = widest(["0000 – 0000"], 40);
+const RGAP = Math.floor((RX1 - RX0 - RNW - RDW - RHW) / 2);
+const RN = RX0, RCH = RX0 + RNW + RGAP, RT = RCH + 60;
+L.text({ x: RN, base: CAP, s: 36, c: "peach", txt: "Assigned" });
+L.text({ x: RCH, base: CAP, s: 36, c: "peach", txt: "Duty" });
+L.text({ x: RX1, base: CAP, s: 36, c: "peach", txt: "Hours", align: "r" });
+const bandBase = BAND + 56 - 6 - 0.17 * 32;                   // the watch band's label baseline
+L.text({ x: RX0, base: bandBase, s: 40, c: "peach", txt: "Review" });
+const revTime = L.text({ x: RX0 + Math.ceil(L.textWidth("Review", 40)) + 24, base: bandBase, s: 52, c: "white", txt: "" });
+const revWatch = L.text({ x: RX1, base: bandBase, s: 40, c: "gold", txt: "", align: "r" });
+const reads = ROSTER.map((r, i) => {
+  const base = rowBase(i);
+  const chip = L.box({ x: RCH, y: base - 32, w: 36, h: 32, c: "gold", label: "" });
+  return { chip, name: L.text({ x: RN, base, s: 40, c: "white", txt: "" }), ty: L.text({ x: RT, base, s: 40, c: "peach", txt: "" }),
+           hrs: L.text({ x: RX1, base, s: 40, c: "gold", txt: "", align: "r" }), cur: null };
+});
+const blockAt = (r, h) => r.blocks.find((b) => h >= b.a && h < b.b) || r.blocks[r.blocks.length - 1];
+const showRead = (i, h) => {
+  const r = ROSTER[i], b = blockAt(r, h), v = reads[i];
+  const key = b.name + b.a;
+  if (v.cur === key) return;
+  v.cur = key;
+  bg(v.chip, TYPES[b.ty][1]);
+  L.set(v.name, b.name); L.set(v.ty, TYPES[b.ty][0]);
+  L.set(v.hrs, `${pad2(b.a)}00 – ${pad2(b.b)}00`);
+};
+const PASS = 100, POFF = 37;                                 // a review every 100 s; the screen opens part-way through one
+const passAt = (t) => { const u = t + POFF; return { n: 211 + Math.floor(u / PASS), ph: u % PASS }; };
+const hourOf = (ph) => L.clamp((ph - 2) / 92) * 24;           // fade in 2 s, walk 92 s, hold 3 s, fade out 3 s
+const alphaOf = (ph) => L.clamp(ph / 2) * L.clamp((PASS - ph) / 3);
+
+// ---------------- watch strength ----------------
+const BH = 1620, BCAP = 1716, BROW = (i) => 1776 + i * 54;
+const STRENGTH = { Gamma: 196, Alpha: 344, Beta: 278, Leave: 12, Detached: 8 };   // 838 Starfleet personnel
+const SX0 = RX0, SX1 = RX1;
+L.header({ x: SX0, y: BH, w: SX1 - SX0, label: "Watch Strength", c1: "gold", c2: "peach", h: 48 });
+L.text({ x: SX0, base: BCAP, s: 36, c: "peach", txt: "Starfleet Personnel" });
+L.text({ x: SX1, base: BCAP, s: 36, c: "white", txt: `${fmt(838)}  ·  ${fmt(1014)} Aboard`, align: "r" });
+const SROWS = [["Gamma", "Gamma Watch", "tan"], ["Alpha", "Alpha Watch", "gold"], ["Beta", "Beta Watch", "peach"], ["Leave", "On Leave", "butter"], ["Detached", "Detached Duty", "orange"]];
+const SBX = SX0 + widest(SROWS.map((s) => s[1]), 36) + 40, SBW = SX1 - 120 - SBX;
+const gauges = SROWS.map(([key, name, c], i) => {
+  const base = BROW(i);
+  L.text({ x: SX0, base, s: 36, c: "peach", txt: name });
+  L.rect({ x: SBX, y: base - 26, w: SBW, h: 26, c: TRACK });
+  const f = L.layer({ x: SBX, y: base - 26, w: SBW, h: 26, cls: "fl" });
+  f.style.background = col(c); f.style.transform = "scaleX(0)";
+  return { key, f, v: L.text({ x: SX1, base, s: 40, c: "white", txt: "", align: "r" }) };
+});
+const showStrength = () => gauges.forEach((g) => {
+  const n = STRENGTH[g.key], k = (n / 400).toFixed(4);
+  if (g.f._k !== k) { g.f._k = k; g.f.style.transform = `scaleX(${k})`; }
+  L.set(g.v, String(n));
+});
+
+// ---------------- promotions board ----------------
+const PX0 = X0, PX1 = tx(8) - 64;                             // ends under the Alpha watch, a column gap short
+L.header({ x: PX0, y: BH, w: PX1 - PX0, label: "Promotions Board", c1: "peach", c2: "gold", h: 48 });
+const CANDS = [
+  ["Ens. Sam Lavelle", "Conn", "Cmdr. Riker", "Under Review"],
+  ["Ens. Sito Jaxa", "Security", "Lt. Worf", "Interview"],
+  ["Ens. Taurik", "Engineering", "Lt. Cmdr. La Forge", "Under Review"],
+  ["Ens. Alyssa Ogawa", "Medical", "Dr. Crusher", "Recommended"],
+  ["Ens. Ortiz", "Operations", "Lt. Cmdr. Data", "Pending"],
+];
+const PN = PX0 + 128, PP = PN + widest(CANDS.map((c) => c[0]), 36) + 48, PE = PP + widest(CANDS.map((c) => c[1]), 36) + 48;
+[["Candidate", PN, "l"], ["Post", PP, "l"], ["Evaluated By", PE, "l"], ["Status", PX1, "r"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: BCAP, s: 36, c: "peach", txt, align }));
+const cands = CANDS.map(([who, post, by, st], i) => {
+  const base = BROW(i);
+  const no = L.box({ x: PX0, y: base - 36, w: 96, h: 44, c: "gold", label: pad2(i + 1), fs: 28, r: "l", cls: "sw" });
+  const name = L.text({ x: PN, base, s: 36, c: "gold", txt: who, cls: "sw" });
+  L.text({ x: PP, base, s: 36, c: "peach", txt: post });
+  L.text({ x: PE, base, s: 36, c: "peach", txt: by });
+  L.text({ x: PX1, base, s: 36, c: st === "Recommended" ? "butter" : "gold", txt: st, align: "r" });
+  return { who, by, no, name };
+});
+const BOARD = 24;                                              // the board takes up each file in turn
+const boardAt = (t) => Math.floor((t + 5) / BOARD) % CANDS.length;
+
+// ---------------- roster changes ----------------
+const GX0 = tx(8), GX1 = TX1;
+L.header({ x: GX0, y: BH, w: GX1 - GX0, label: "Roster Changes", c1: "gold", c2: "tan", h: 48 });
+const GE = GX0 + 128, GBY = GX1;
+[["Time", GX0, "l"], ["Change", GE, "l"], ["Approved By", GBY, "r"]].forEach(([txt, x, align]) => L.text({ x, base: BCAP, s: 36, c: "peach", txt, align }));
+const logRows = Array.from({ length: 5 }, (_, i) => ({
+  tm: L.text({ x: GX0, base: BROW(i), s: 36, c: "gold", txt: "" }),
+  tx: L.text({ x: GE, base: BROW(i), s: 36, c: "white", txt: "" }),
+  by: L.text({ x: GBY, base: BROW(i), s: 36, c: "peach", txt: "", align: "r" }),
+}));
+const logged = [];
+const showLog = () => logRows.forEach((r, i) => { const e = logged[i] || ["", "", ""]; L.set(r.tm, e[0]); L.set(r.tx, e[1]); L.set(r.by, e[2]); });
+const nowStamp = (minsAgo = 0) => { const d = new Date(Date.now() - minsAgo * 60000); return pad2(d.getHours()) + pad2(d.getMinutes()); };
+const log = (txt, by, minsAgo = 0) => { logged.push([nowStamp(minsAgo), txt, by]); while (logged.length > logRows.length) logged.shift(); showLog(); };
+
+// the changes themselves: swaps on the roster (the Gantt changes with them), leave, fitness reports
+const swappable = ROSTER.flatMap((r) => r.blocks.filter((b) => b.alt).map((b) => ({ r, b })));
+const swap = (s, minsAgo) => {
+  const { r, b } = s, was = b.name;
+  [b.name, b.alt] = [b.alt, b.name];
+  b.e.textContent = labelFor(b);
+  log(`Swap  ·  ${r.dept} ${pad2(b.a)}00 – ${pad2(b.b)}00  ·  ${b.name} for ${was}`, r.chief, minsAgo);
+  if (minsAgo === undefined) {                                // the bar flashes as it changes
+    b.e.style.background = "var(--white)";
+    setTimeout(() => (b.e.style.background = col(TYPES[b.ty][1])), 1400);
+  }
+};
+const LEAVE = [["Ens. Calloway", "Beta"], ["Lt. j.g. Pryce", "Alpha"], ["Ens. Hendry", "Gamma"], ["Lt. Nakai", "Alpha"], ["Ens. Fitch", "Beta"], ["Ens. Torvik", "Gamma"]];
+const away = new Set(["Lt. Nakai"]);
+const leave = (minsAgo) => {
+  const goOut = STRENGTH.Leave <= 11 || (STRENGTH.Leave < 14 && Math.random() < 0.5);
+  const pool = LEAVE.filter(([n]) => away.has(n) !== goOut);
+  if (!pool.length) return;
+  const [n, w] = L.pick(pool);
+  if (goOut) { away.add(n); STRENGTH.Leave++; STRENGTH[w]--; log(`Leave approved  ·  ${n}  ·  ${w} watch  ·  ${L.pick([2, 3, 4])} days`, "Cmdr. Riker", minsAgo); }
+  else { away.delete(n); STRENGTH.Leave--; STRENGTH[w]++; log(`Returned from leave  ·  ${n}  ·  ${w} watch`, "Cmdr. Riker", minsAgo); }
+  showStrength();
+};
+const report = (minsAgo) => { const c = L.pick(cands); log(`Fitness report filed  ·  ${c.who}`, c.by, minsAgo); };
+// the morning's changes, already made
+report(96); swap(swappable[3], 74); leave(55); swap(swappable[8], 31); report(12);
+let deck = [];
+L.every(70000, (t) => {
+  if (t < 5) return;
+  if (!deck.length) deck = ["swap", "swap", "swap", "leave", "leave", "report"].sort(() => Math.random() - 0.5);
+  const k = deck.pop();
+  if (k === "swap") swap(L.pick(swappable)); else if (k === "leave") leave(); else report();
+}, 0.25);
+
+// ---------------- the running state ----------------
+let lastWatch = -1, lastBoard = -1;
+const showClock = () => {
+  const h = clock(), w = watchAt(h), [name, h0] = WATCHES[w];
+  L.move(nowTip, tx(h) - 12, 0);
+  const k = (h / 24).toFixed(4);
+  if (elapsed._k !== k) { elapsed._k = k; elapsed.style.transform = `scaleX(${k})`; }
+  if (w !== lastWatch) {
+    lastWatch = w;
+    bands.forEach((b, i) => { bg(b, i === w ? "gold" : DARK); fg(b, i === w ? "#000" : "gold"); });
+    L.set(stateTxt, `${name} Watch`);
+    stateSub.style.left = X0 + Math.ceil(L.textWidth(stateTxt.textContent, 100)) + 40 + "px";
+  }
+  const d = new Date();
+  L.set(stateSub, `On watch ${pad2(h0)}00 – ${pad2(h0 + 8)}00  ·  ${STRENGTH[name]} on duty  ·  Ship's time ${pad2(d.getHours())}:${pad2(d.getMinutes())}  ·  Roster approved by Cmdr. Riker`);
+};
+L.tick((t) => {
+  const p = passAt(t), h = hourOf(p.ph);
+  L.move(cursor, tx(h) - 2, 0); op(cursor, 0.75 * alphaOf(p.ph));
+});
+L.every(250, (t) => {
+  const p = passAt(t), h = hourOf(p.ph);
+  ROSTER.forEach((r, i) => showRead(i, h));
+  L.set(sdVal, stardate(t).toFixed(1));
+  L.set(revTime, hhmm(Math.min(h, 23.999)));
+  const w = WATCHES[watchAt(h)][0];
+  L.set(revWatch, `${w} Watch  ·  ${STRENGTH[w]} Crew`);
+  const k = boardAt(t);
+  if (k !== lastBoard) {
+    lastBoard = k;
+    cands.forEach((c, i) => { bg(c.no, i === k ? "butter" : i % 2 ? "peach" : "gold"); fg(c.name, i === k ? "white" : "gold"); });
+  }
+}, 0);
+showStrength(); showClock();
+L.every(1000, showClock, 0);
+});
+</script></body></html>

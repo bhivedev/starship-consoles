@@ -1,0 +1,529 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Schoolroom</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* swapped text dips and comes back; colors change slowly; .boot (the start-up cascade) always wins */
+  .sw { transition: opacity .5s ease, color 1.2s ease, background-color 1.2s ease; }
+  .out:not(.boot) { opacity: .15; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: sidebar left, title top right ----------------
+L.frame({ type: "A", title: "Schoolroom  •  Ship's School", c: "butter", c2: "sky", accent: "ice", foot: "Education",
+  side: [[140, "sky", "Deck 10"], [70, "ice", "10-04"], [420, "butter", "School"], [70, "peach", "05"],
+         [300, "sky", "Classes"], [70, "ice", "98"], [216, "butter", "Library"]] });
+
+// Two columns, as wide as Microbiology's: 330–2490 | 2554–3816. The middle band and the strip split the
+// left column again at 1398 | 1422, so every bar in the left half starts at 640 or 1732.
+const X0 = 330, GR = 2490, RX = 2554, X1 = 3816, ML = 1398, MR = 1422;
+const TRACK = "#1b2a40";
+const cls = (e, ...c) => (e.classList.add(...c), e);
+const op = (e, v) => { v = v < 0.005 ? "0" : v > 0.995 ? "1" : v.toFixed(3); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const fg = (e, c) => { const v = c.startsWith("#") ? c : `var(--${c})`; if (e._fg !== v) { e._fg = v; e.style.color = v; } };
+const bg = (e, c) => { const v = c.startsWith("#") ? c : `var(--${c})`; if (e._bg !== v) { e._bg = v; e.style.background = v; } };
+const fill = (x, y, w, h, c) => { const f = L.layer({ x, y, w, h }); f.style.background = `var(--${c})`; f.style.transformOrigin = "0 0"; f._bg = `var(--${c})`; return f; };
+const scaleX = (e, k) => tf(e, `scaleX(${L.clamp(k).toFixed(4)})`);
+const swap = (els, f) => { els.forEach((e) => e.classList.add("out")); setTimeout(() => { f(); els.forEach((e) => e.classList.remove("out")); }, 520); };
+const pad2 = (n) => String(n).padStart(2, "0");
+const hhmm = (m) => pad2(Math.floor(m / 60) % 24) + pad2(Math.floor(m) % 60);
+const shuffle = (a) => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = L.irand(0, i); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const range = (n) => Array.from({ length: n }, (_, i) => i);
+const bad = [];
+const fits = (txt, s, w, where) => { if (L.textWidth(txt, s) > w) bad.push(`${where}: "${txt}" ${Math.round(L.textWidth(txt, s))}>${Math.round(w)}`); };
+
+// ---------------- the school ----------------
+// Subjects: a colour on the timetable, the specialist who teaches it, lessons in the term, topics, and a lesson
+// plan of five steps that always adds up to the 60-minute period.
+const SUBJ = [
+  { name: "Mathematics", c: "butter", teacher: "M. Ozaki", total: 180,
+    topics: ["Fractions and Ratios", "Geometry of Orbits", "Prime Numbers"],
+    steps: [["Warm-Up Problems", 8], ["New Concept", 15], ["Worked Examples", 12], ["Padd Exercises", 17], ["Review", 8]] },
+  { name: "Federation Standard", c: "sky", teacher: "R. Hollis", total: 180,
+    topics: ["Poetry", "Story Writing", "Reading Aloud"],
+    steps: [["Reading", 12], ["Discussion", 10], ["Vocabulary", 8], ["Writing", 22], ["Sharing", 8]] },
+  { name: "Natural Science", c: "ice", teacher: "T. Abara", total: 150,
+    topics: ["States of Matter", "Magnetism", "The Water Cycle"],
+    steps: [["Question of the Day", 6], ["Demonstration", 12], ["Experiment", 24], ["Results", 10], ["Clean-Up", 8]] },
+  { name: "Astronomy", c: "lilac", teacher: "J. Okonkwo", total: 120,
+    topics: ["The Life of a Star", "Nebulae", "Planets of Sector 001"],
+    steps: [["Recap", 6], ["Holographic Model", 16], ["Star Charts", 18], ["Questions", 12], ["Review", 8]] },
+  { name: "History", c: "tan", teacher: "E. Laskin", total: 120,
+    topics: ["The First Warp Flight", "Founding of the Federation", "The Age of Sail"],
+    steps: [["Story", 15], ["Timeline", 12], ["Primary Sources", 15], ["Discussion", 12], ["Review", 6]] },
+  { name: "Music", c: "pink", teacher: "A. Delgado", total: 90,
+    topics: ["Rhythm and Melody", "Songs of Many Worlds", "The Ressikan Flute"],
+    steps: [["Warm-Up", 8], ["Listening", 12], ["Practice", 22], ["Ensemble", 12], ["Review", 6]] },
+  { name: "Art", c: "peach", teacher: "N. Brenner", total: 90,
+    topics: ["Color and Light", "Bajoran Pottery", "Clay Sculpture"],
+    steps: [["Inspiration", 8], ["Sketching", 14], ["Making", 26], ["Gallery Walk", 8], ["Tidy Up", 4]] },
+  { name: "Botany", c: "sand", teacher: "P. Varga", total: 90,
+    topics: ["Seeds and Germination", "Plant Life Cycles", "Hydroponics"],
+    steps: [["Observation", 10], ["Planting", 18], ["Measuring Growth", 14], ["Journal", 12], ["Watering", 6]] },
+  { name: "Physical Education", c: "orange", teacher: "L. Kowalski", total: 120,
+    topics: ["Gymnastics", "Team Games", "Parrises Squares"],
+    steps: [["Warm-Up", 10], ["Skills", 15], ["Game", 25], ["Cool-Down", 6], ["Changing", 4]] },
+  { name: "Exobiology", c: "gold", teacher: "S. Tavares", total: 90,
+    topics: ["Life on Other Worlds", "Silicon-Based Life", "Microscopic Life"],
+    steps: [["Specimen", 10], ["Microscope", 15], ["Classification", 15], ["Drawing", 14], ["Review", 6]] },
+];
+// Field trips round the ship, each with the officer who shows the children round
+const TRIPS = [
+  { dest: "Arboretum", guide: "K. O'Brien" }, { dest: "Main Engineering", guide: "Lt. Cmdr. La Forge" },
+  { dest: "Main Bridge", guide: "Capt. Picard" }, { dest: "Stellar Cartography", guide: "Lt. Cmdr. Data" },
+  { dest: "Holodeck 3", guide: "Lt. Barclay" }, { dest: "Ten Forward", guide: "Guinan" },
+  { dest: "Sickbay", guide: "Dr. Crusher" }, { dest: "Shuttlebay 2", guide: "Cmdr. Riker" },
+];
+const TRIP_STEPS = [["Gather in Class", 8], ["Turbolift", 6], ["Guided Tour", 30], ["Questions", 10], ["Return to Class", 6]];
+const CLASSES = [{ name: "Primary 1", n: 18 }, { name: "Primary 2", n: 21 }, { name: "Primary 3", n: 19 },
+                 { name: "Middle School", n: 24 }, { name: "Upper School", n: 16 }];
+const NC = CLASSES.length;
+const SICK = ["Scraped Knee", "Headache", "Bumped Elbow", "Upset Stomach", "Nosebleed"];
+
+// ---------------- the school day, a school minute to a second ----------------
+// 0745 assembly · six periods of an hour, 0800–1500, lunch 1200–1300 · dismissal until 1515, then the next day.
+const PST = [480, 540, 600, 660, 780, 840];                // the periods' start, in minutes of the day
+const DAY0 = 465, DAY1 = 915, SPAN = DAY1 - DAY0;
+const M0 = +(new URLSearchParams(location.search).get("m") || L.rand(500, 820));   // the screen opens part-way through a day (?m= for checking)
+const clockAt = (t) => { const u = M0 - DAY0 + t; const d = Math.floor(u / SPAN); return { d, m: DAY0 + (u - d * SPAN) }; };
+const absOf = (d, m) => d * 1440 + m;
+const S0 = 47634.0 + L.rand(0, 0.4);                       // stardate at day 0, 0000; 0.114 a ship's hour
+const sdAt = (A) => (S0 + (A / 60) * 0.114).toFixed(1);
+const periodAt = (m) => PST.findIndex((s) => m >= s && m < s + 60);
+
+// a day's timetable: no class takes a subject twice, no specialist is in two rooms at once; two field trips
+const days = new Map();
+function day(d) {
+  if (days.has(d)) return days.get(d);
+  let cells = null;
+  for (let tries = 0; tries < 400 && !cells; tries++) {
+    const cs = range(NC).map(() => []), used = range(NC).map(() => new Set());
+    let ok = true;
+    for (let p = 0; p < 6 && ok; p++) {
+      const taken = new Set();
+      for (const c of shuffle(range(NC))) {
+        const opts = range(SUBJ.length).filter((i) => !used[c].has(i) && !taken.has(i));
+        if (!opts.length) { ok = false; break; }
+        const s = L.pick(opts); used[c].add(s); taken.add(s);
+        cs[c][p] = { s, topic: L.pick(SUBJ[s].topics) };
+      }
+    }
+    if (ok) cells = cs;
+  }
+  const tc = shuffle(range(NC)).slice(0, 2), tp = shuffle(range(6)).slice(0, 2).sort((a, b) => a - b), td = shuffle(range(TRIPS.length).filter((i) => !(days.get(d - 1) || { trips: [] }).trips.some((tr) => tr.dest === TRIPS[i]))).slice(0, 2);   // not where yesterday's went
+  const trips = [0, 1].map((k) => ({ d, c: tc[k], p: tp[k], dest: TRIPS[td[k]] }));
+  trips.forEach((tr) => { cells[tr.c][tr.p] = { trip: tr.dest, topic: tr.dest.dest }; });
+  const present = CLASSES.map((k) => k.n - (Math.random() < 0.55 ? 0 : L.irand(1, 2)));
+  const D = { d, cells, trips, present };
+  days.set(d, D);
+  for (const k of [...days.keys()]) if (k < d - 3) days.delete(k);   // the screen can run for hours
+  return D;
+}
+const presentTotal = (D) => D.present.reduce((a, b) => a + b, 0);
+
+// ---------------- status line ----------------
+const BIG = 100;
+const state = cls(L.text({ x: X0, cap: 150, s: BIG, c: "butter", txt: "" }), "sw");
+const sub = cls(L.text({ x: 0, base: 222, s: 38, c: "sky", txt: "" }), "sw");
+const placeSub = () => { sub.style.left = X0 + L.textWidth(state.textContent, BIG) + 48 + "px"; };
+const reading = (x, label, align) => {
+  const lw = L.textWidth(label, 40);
+  if (align === "r") {                                     // value right-aligned at x, label before it
+    const v = L.text({ x, cap: 150, s: BIG, c: "white", txt: "0000", align: "r" });
+    const lab = L.text({ x: 0, base: 222, s: 40, c: "sky", txt: label });
+    return { v, place: () => { lab.style.left = x - L.textWidth(v.textContent, BIG) - 36 - lw + "px"; } };
+  }
+  L.text({ x, base: 222, s: 40, c: "sky", txt: label });
+  return { v: L.text({ x: x + lw + 36, cap: 150, s: BIG, c: "white", txt: "" }), place: () => {} };
+};
+const rPresent = reading(MR, "Students Present");
+const rTime = reading(RX, "School Time");
+const rBell = reading(X1, "Next Bell", "r");
+
+// ---------------- the timetable ----------------
+// a class box, then six lesson columns and a narrow lunch column, 8 apart, to the column's edge
+L.header({ x: X0, y: 280, w: GR - X0, label: "Timetable  ·  Today", c1: "butter", c2: "sky" });
+const LBW = 280, CX0 = X0 + LBW + L.GAP, CW = 278, LW = 140, CG = 8;
+const RY = (i) => 428 + i * 104, RH = 80, RB = (i) => RY(i) + 68.56;    // a row's top, its labels' baseline
+const colX = [];
+for (let i = 0, x = CX0; i < 7; i++) { colX.push(x); x += (i === 4 ? LW : CW) + CG; }
+const cellCol = (p) => (p < 4 ? p : p + 1);
+L.text({ x: X0, base: 400, s: 36, c: "sky", txt: "Class" });
+["0800", "0900", "1000", "1100", "1200", "1300", "1400"].forEach((txt, i) => L.text({ x: colX[i], base: 400, s: 36, c: "sky", txt, legend: true }));
+L.text({ x: GR, base: 400, s: 36, c: "sky", txt: "1500", align: "r", legend: true });
+const cellEls = CLASSES.map((k, c) => {
+  L.box({ x: X0, y: RY(c), w: LBW, h: RH, c: c % 2 ? "sky" : "butter", label: k.name, fs: 32, r: "l" });
+  return PST.map((_, p) => cls(L.box({ x: colX[cellCol(p)], y: RY(c), w: CW, h: RH, c: "sand", label: "", fs: 32, cls: "sw" }), "sw"));
+});
+L.box({ x: colX[4], y: RY(0), w: LW, h: RY(NC - 1) + RH - RY(0), c: "slate", label: "Lunch", fs: 32 });
+const cellOf = (D, c, p) => D.cells[c][p];
+const cellName = (cell) => (cell.trip ? cell.trip.dest : SUBJ[cell.s].name);
+const cellColor = (cell) => (cell.trip ? "white" : SUBJ[cell.s].c);
+const showCells = (D) => cellEls.forEach((row, c) => row.forEach((e, p) => { const cell = cellOf(D, c, p); L.set(e, cellName(cell)); bg(e, cellColor(cell)); }));
+// the past dims under a veil; a cursor walks the day
+const GY0 = RY(0), GY1 = RY(NC - 1) + RH;
+const veil = L.layer({ x: CX0, y: GY0, w: GR - CX0, h: GY1 - GY0 });
+Object.assign(veil.style, { background: "rgba(0,0,0,0.58)", transformOrigin: "0 0" });
+const cursor = L.layer({ x: CX0 - 2, y: GY0 - 16, w: 4, h: GY1 - GY0 + 32 });
+cursor.style.background = "var(--white)";
+let veilX = null;                                       // null: snap to place (at the start, and at a new day)
+const xAt = (m) => {
+  if (m <= 480) return CX0;
+  if (m >= 900) return GR;
+  const i = Math.min(6, Math.floor((m - 480) / 60)), k = (m - 480 - i * 60) / 60;
+  return colX[i] + k * ((i < 6 ? colX[i + 1] : GR) - colX[i]);
+};
+
+// ---------------- lessons in progress: one row per class, on the timetable's rows ----------------
+L.header({ x: RX, y: 280, w: X1 - RX, label: "Lessons in Progress", c1: "sky", c2: "butter" });
+const LP = { tch: 2880, bar: 3150, barR: 3600 };
+L.text({ x: RX, base: 400, s: 36, c: "sky", txt: "Lesson" });
+L.text({ x: LP.tch, base: 400, s: 36, c: "sky", txt: "Teacher" });
+L.text({ x: LP.bar, base: 400, s: 36, c: "sky", txt: "Period" });
+L.text({ x: X1, base: 400, s: 36, c: "sky", txt: "Minutes", align: "r" });
+const lrows = CLASSES.map((_, c) => {
+  const base = RB(c);
+  L.rect({ x: LP.bar, y: base - 26, w: LP.barR - LP.bar, h: 26, c: TRACK });
+  return { key: "", subj: cls(L.text({ x: RX, base, s: 40, c: "white", txt: "" }), "sw"),
+           tch: cls(L.text({ x: LP.tch, base, s: 36, c: "sand", txt: "" }), "sw"),
+           bar: cls(fill(LP.bar, base - 26, LP.barR - LP.bar, 26, "butter"), "sw"),
+           min: cls(L.text({ x: X1, base, s: 36, c: "white", txt: "", align: "r" }), "sw"), k: 0 };
+});
+// what a class is doing at minute m: [key, subject, colour, teacher, fraction, minutes text]
+function lessonNow(D, c, m) {
+  const p = periodAt(m);
+  if (m < 480) return ["asm", "Assembly", "sand", "All Staff", (m - DAY0) / 15, `${Math.floor(m - DAY0)} / 15`];
+  if (m >= 900) return ["dis", "Dismissed", "sand", "Duty Teacher", (m - 900) / 15, `${Math.floor(m - 900)} / 15`];
+  if (p < 0) return ["lunch", "Lunch", "sand", "Duty Teacher", (m - 720) / 60, `${Math.floor(m - 720)} / 60`];
+  const cell = cellOf(D, c, p), e = m - PST[p];
+  return [`p${p}`, cell.trip ? "Field Trip" : SUBJ[cell.s].name, cell.trip ? "white" : SUBJ[cell.s].c,
+          cell.trip ? cell.trip.guide : SUBJ[cell.s].teacher, e / 60, `${Math.floor(e)} / 60`];
+}
+
+// ---------------- curriculum: lessons taught this term, school-wide ----------------
+L.header({ x: X0, y: 1000, w: GR - X0, label: "Curriculum  ·  Term Progress  ·  All Classes", c1: "sky", c2: "ice" });
+const MB = (k) => 1116 + 84 * k;                            // the middle band's baselines (k 0 = column names)
+const BAR = [640, 1160, 1732, 2252], BH = 20;           // (thinner than the type: a word between two bars is not a title)                         // bars: left half 640–1160, right half 1732–2252
+for (const [x, b, r] of [[X0, BAR[0], ML], [MR, BAR[2], GR]]) {
+  L.text({ x, base: MB(0), s: 36, c: "sky", txt: "Subject" });
+  L.text({ x: b, base: MB(0), s: 36, c: "sky", txt: "Term" });
+  L.text({ x: r, base: MB(0), s: 36, c: "sky", txt: "Lessons", align: "r" });
+}
+const curr = SUBJ.map((s, i) => {
+  const half = i < 5 ? 0 : 1, k = (i % 5) + 1, base = MB(k);
+  const x = half ? MR : X0, b0 = BAR[half * 2], b1 = BAR[half * 2 + 1], r = half ? GR : ML;
+  L.text({ x, base, s: 36, c: "sand", txt: s.name });
+  L.rect({ x: b0, y: base - BH, w: b1 - b0, h: BH, c: TRACK });
+  const n = Math.round(s.total * L.rand(0.52, 0.64));
+  return { s, bar: fill(b0, base - BH, b1 - b0, BH, s.c), n: L.text({ x: r, base, s: 36, c: "white", txt: "", align: "r" }),
+           from: n, to: n, cur: n, t0: -10 };
+});
+
+// ---------------- field trips ----------------
+L.header({ x: RX, y: 1000, w: X1 - RX, label: "Field Trips", c1: "butter", c2: "sky" });
+const FT = { dest: 2740, guide: 3010, when: 3290 };
+[["Class", RX, ""], ["Destination", FT.dest, ""], ["Guide", FT.guide, ""], ["When", FT.when, ""], ["Status", X1, "r"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: MB(0), s: 36, c: "sky", txt, align }));
+const frows = range(5).map((k) => {
+  const base = MB(k + 1);
+  return { key: "", st: "",
+    cl: cls(L.text({ x: RX, base, s: 36, c: "sand", txt: "" }), "sw"),
+    dest: cls(L.text({ x: FT.dest, base, s: 36, c: "white", txt: "" }), "sw"),
+    guide: cls(L.text({ x: FT.guide, base, s: 36, c: "sand", txt: "" }), "sw"),
+    when: cls(L.text({ x: FT.when, base, s: 36, c: "sand", txt: "" }), "sw"),
+    stat: cls(L.text({ x: X1, base, s: 36, c: "white", txt: "", align: "r" }), "sw") };
+});
+const STATUS_C = { Scheduled: "sky", "On Trip": "butter", Returned: "sand", Approved: "ice" };
+function tripStatus(tr, d, m) {
+  if (tr.d < d) return "Returned";
+  if (tr.d > d) return "Approved";
+  const s = PST[tr.p];
+  return m < s ? "Scheduled" : m < s + 60 ? "On Trip" : "Returned";
+}
+
+// ---------------- the bottom strip ----------------
+L.header({ x: X0, y: 1620, w: ML - X0, label: "Attendance", c1: "butter", c2: "sky", h: 48 });
+L.header({ x: MR, y: 1620, w: GR - MR, label: "Lesson in Focus", c1: "sky", c2: "butter", h: 48 });
+L.header({ x: RX, y: 1620, w: X1 - RX, label: "School Log", c1: "ice", c2: "butter", h: 48 });
+const SB = (k) => 1734 + k * 54;
+
+// attendance: present of enrolled, a bar that agrees
+L.text({ x: X0, base: SB(0), s: 36, c: "sky", txt: "Class" });
+L.text({ x: BAR[0], base: SB(0), s: 36, c: "sky", txt: "Present" });
+L.text({ x: ML, base: SB(0), s: 36, c: "sky", txt: "Of Enrolled", align: "r" });
+const att = CLASSES.map((k, c) => {
+  const base = SB(c + 1);
+  L.text({ x: X0, base, s: 36, c: "sand", txt: k.name });
+  L.rect({ x: BAR[0], y: base - BH, w: BAR[1] - BAR[0], h: BH, c: TRACK });
+  return { bar: fill(BAR[0], base - BH, BAR[1] - BAR[0], BH, "sky"), n: L.text({ x: ML, base, s: 36, c: "white", txt: "", align: "r" }),
+           from: 0, to: 0, cur: 0, t0: -10 };
+});
+
+// the lesson in focus: one class's lesson plan, step by step
+const fTitle = cls(L.text({ x: MR, base: SB(0), s: 36, c: "white", txt: "" }), "sw");
+const fTopic = cls(L.text({ x: GR, base: SB(0), s: 36, c: "butter", txt: "", align: "r" }), "sw");
+const fsteps = range(5).map((k) => {
+  const base = SB(k + 1);
+  L.rect({ x: BAR[2], y: base - BH, w: BAR[3] - BAR[2], h: BH, c: TRACK });
+  return { name: cls(L.text({ x: MR, base, s: 36, c: "sand", txt: "" }), "sw"), bar: cls(fill(BAR[2], base - BH, BAR[3] - BAR[2], BH, "sky"), "sw"),
+           n: cls(L.text({ x: GR, base, s: 36, c: "white", txt: "", align: "r" }), "sw") };
+});
+
+// the log: oldest at the top, a new line arrives at the bottom
+const LG = { cl: RX + 150, ev: RX + 400 };
+const LN = 6, LPH = 54, LY = SB(0) - 44;
+const logRows = range(LN).map((i) => {
+  const e = L.layer({ x: RX, y: LY, w: X1 - RX, h: LPH });
+  const r = { e, slot: i,
+    sd: L.text({ x: 0, base: 44, s: 36, c: "sky", txt: "" }, e),
+    cl: L.text({ x: LG.cl - RX, base: 44, s: 36, c: "butter", txt: "" }, e),
+    ev: L.text({ x: LG.ev - RX, base: 44, s: 36, c: "sand", txt: "" }, e),
+    dt: L.text({ x: X1 - RX, base: 44, s: 36, c: "white", txt: "", align: "r", rightIn: true }, e) };
+  L.move(e, 0, i * LPH);
+  return r;
+});
+const showLog = (r, x) => { L.set(r.sd, sdAt(x.A)); L.set(r.cl, x.cl); L.set(r.ev, x.ev); L.set(r.dt, x.dt); fg(r.ev, x.c || "sand"); };
+const pendingLog = [];
+let lastLogA = -1e12;
+const logEvent = (x) => { x.A = Math.max(x.A, lastLogA); lastLogA = x.A; pendingLog.push(x); };   // always in time order
+
+// the day's fixed events, by absolute minute; dt may be worked out when the line is written
+const evCache = new Map();
+function dayEvents(d) {
+  if (evCache.has(d)) return evCache.get(d);
+  const D = day(d), at = (m) => absOf(d, m), out = [];
+  out.push({ A: at(465), cl: "School", ev: "Morning Assembly", dt: () => presentTotal(D) + " Present", c: "sky" });
+  out.push({ A: at(480), cl: "School", ev: "Classes Begin", dt: "Period 1" });
+  PST.forEach((s, p) => {
+    const n = D.cells.filter((r) => !r[p].trip).length;
+    out.push({ A: at(s + 60), cl: "School", ev: `Period ${p + 1} Complete`, dt: n + " Lessons", done: p });
+  });
+  out.push({ A: at(780), cl: "School", ev: "Classes Resume", dt: "Period 5" });
+  out.push({ A: at(900) + 0.01, cl: "School", ev: "Classes Dismissed", dt: () => presentTotal(D) + " Students", c: "sky" });
+  D.trips.forEach((tr) => {
+    out.push({ A: at(PST[tr.p]) + 0.005, cl: CLASSES[tr.c].name, ev: "Field Trip  ·  " + tr.dest.dest, dt: tr.dest.guide, c: "butter" });
+    out.push({ A: at(PST[tr.p] + 60) + 0.005, cl: CLASSES[tr.c].name, ev: "Returned  ·  " + tr.dest.dest, dt: () => D.present[tr.c] + " Students" });
+  });
+  out.sort((a, b) => a.A - b.A);
+  evCache.set(d, out);
+  for (const k of [...evCache.keys()]) if (k < d - 3) evCache.delete(k);
+  return out;
+}
+const lineOf = (e) => ({ A: e.A, cl: e.cl, ev: e.ev, dt: typeof e.dt === "function" ? e.dt() : e.dt, c: e.c });
+
+// ---------------- the guard: every word fits its place ----------------
+for (const s of SUBJ) {
+  fits(s.name, 32, CW - 40, "cell"); fits(s.name, 40, LP.tch - RX - 40, "lesson"); fits(s.teacher, 36, LP.bar - LP.tch - 40, "teacher");
+  fits(s.name, 36, BAR[0] - X0 - 40, "curriculum");
+  for (const tp of s.topics) fits(`Middle School  ·  ${s.name}`, 36, GR - MR - L.textWidth(tp, 36) - 48, "focus title");
+  for (const [n] of s.steps) fits(n, 36, BAR[2] - MR - 40, "step");
+  fits("Assignments Submitted  ·  " + s.name, 36, X1 - LG.ev - L.textWidth("24 Padds", 36) - 48, "log");
+  for (const tp of s.topics) fits("Library Request  ·  " + tp, 36, X1 - LG.ev - L.textWidth(s.teacher, 36) - 48, "log");
+}
+for (const tr of TRIPS) {
+  fits(tr.dest, 32, CW - 40, "cell"); fits(tr.guide, 36, LP.bar - LP.tch - 40, "teacher");
+  fits(tr.dest, 36, FT.guide - FT.dest - 36, "trip"); fits(tr.guide, 36, FT.when - FT.guide - 36, "guide");
+  fits(`Middle School  ·  Field Trip`, 36, GR - MR - L.textWidth(tr.dest, 36) - 48, "focus title");
+  fits("Field Trip  ·  " + tr.dest, 36, X1 - LG.ev - L.textWidth(tr.guide, 36) - 48, "log");
+  fits("Returned  ·  " + tr.dest, 36, X1 - LG.ev - L.textWidth("24 Students", 36) - 48, "log");
+}
+for (const [n] of TRIP_STEPS) fits(n, 36, BAR[2] - MR - 40, "step");
+for (const k of CLASSES) { fits(k.name, 36, FT.dest - RX - 36, "trip class"); fits(k.name, 36, LG.ev - LG.cl - 36, "log class"); fits(k.name, 36, BAR[0] - X0 - 40, "attendance"); }
+fits("Yesterday 1400", 36, X1 - FT.when - L.textWidth("Scheduled", 36) - 36, "when");
+for (const s of SICK) fits("Student to Sickbay", 36, X1 - LG.ev - L.textWidth(s, 36) - 48, "log");
+if (bad.length) setTimeout(() => { throw new Error("schoolroom: " + bad.join(" | ")); });
+
+// ---------------- the starting picture ----------------
+const c0 = clockAt(0);
+let curD = c0.d, lastA = absOf(c0.d, c0.m);
+showCells(day(curD));
+{
+  const hist = [...dayEvents(curD - 1), ...dayEvents(curD)].filter((e) => e.A <= lastA).slice(-LN).map(lineOf);
+  lastLogA = hist[hist.length - 1].A;
+  logRows.forEach((r, i) => showLog(r, hist[i]));
+}
+const showAttendance = (D, now) => att.forEach((a, c) => {
+  a.from = now ? D.present[c] : a.cur; a.to = D.present[c]; a.t0 = now ? -10 : L.t;
+  if (now) a.cur = a.to;
+});
+showAttendance(day(curD), true);
+
+// ---------------- running ----------------
+const sick = [];                                            // students in Sickbay, and when they come back
+let rollT = -10;
+function newDay(d, t) {
+  rollT = t; veilX = null;
+  sick.length = 0;
+  const D = day(d);
+  swap(cellEls.flat(), () => showCells(D));
+  att.forEach((a) => a.n.classList.add("sw"));
+  showAttendance(D, false);
+  if (curr.some((c) => c.to >= c.s.total - 6)) {            // a new term
+    curr.forEach((c) => { c.from = c.cur; c.to = 0; c.t0 = t; });
+    logEvent({ A: absOf(d, DAY0) - 0.01, cl: "School", ev: "New Term Begins", dt: "All Classes", c: "sky" });
+  }
+}
+function fire(e, t) {
+  logEvent(lineOf(e));
+  if (e.done !== undefined) {                               // a period ends: its lessons count towards the term
+    const D = day(Math.floor(e.A / 1440));
+    D.cells.forEach((r) => { const cell = r[e.done]; if (!cell.trip) { const c = curr[cell.s]; c.from = c.cur; c.to += 1; c.t0 = t; } });
+  }
+}
+
+// status line
+let word = "", subTxt = "";
+function showState(D, m) {
+  const p = periodAt(m);
+  const w = m < 480 ? "Assembly" : m >= 900 ? "Dismissed" : p < 0 ? "Lunch" : "In Class";
+  const s = m < 480 ? "Deck 10  ·  Classes Begin 0800" : m >= 900 ? "Deck 10  ·  Classes Resume 0800"
+          : p < 0 ? "Deck 10  ·  Classes Resume 1300" : `Deck 10  ·  Period ${p + 1} of 6`;
+  if (w !== word) { word = w; subTxt = s; swap([state, sub], () => { L.set(state, w); L.set(sub, s); placeSub(); }); }
+  else if (s !== subTxt) { subTxt = s; swap([sub], () => L.set(sub, s)); }
+}
+
+// field trips table: yesterday's last, today's two, tomorrow's two
+function showTrips(d, m) {
+  const list = [day(d - 1).trips[1], ...day(d).trips, ...day(d + 1).trips];
+  list.forEach((tr, k) => {
+    const r = frows[k], key = `${tr.d}:${tr.p}:${tr.c}`, st = tripStatus(tr, d, m);
+    const rel = tr.d - d, when = (rel < 0 ? "Yesterday " : rel > 0 ? "Tomorrow " : "Today ") + hhmm(PST[tr.p]);
+    const put = () => { L.set(r.cl, CLASSES[tr.c].name); L.set(r.dest, tr.dest.dest); L.set(r.guide, tr.dest.guide); L.set(r.when, when);
+                        L.set(r.stat, st); fg(r.stat, STATUS_C[st]); fg(r.dest, rel < 0 ? "sand" : "white"); };
+    if (!r.key) { r.key = key; r.st = st; put(); }
+    else if (r.key !== key) { r.key = key; r.st = st; swap([r.cl, r.dest, r.guide, r.when, r.stat], put); }
+    else if (r.st !== st) { r.st = st; swap([r.stat], put); }
+  });
+}
+
+// lessons in progress
+function showLessons(D, d, m, first) {
+  lrows.forEach((r, c) => {
+    const [k, subj, col, tch, , mins] = lessonNow(D, c, m), key = `${d}:${k}`;
+    const put = () => { L.set(r.subj, subj); fg(r.subj, col); L.set(r.tch, tch); L.set(r.min, mins); bg(r.bar, k.startsWith("p") ? col : "sky"); };
+    if (first) { r.key = key; put(); }
+    else if (r.key !== key) { r.key = key; swap([r.subj, r.tch, r.bar, r.min], put); }
+    else L.set(r.min, mins);
+  });
+}
+
+// lesson in focus: a new class every half minute
+let focusC = L.irand(0, NC - 1), focusKey = "";
+const focusP = (m) => { const p = periodAt(m); if (p >= 0) return p; const n = PST.findIndex((s) => s > m); return n < 0 ? 5 : n; };
+function focusPlan(D, m) {
+  const p = focusP(m), cell = cellOf(D, focusC, p);
+  return { p, cell, steps: cell.trip ? TRIP_STEPS : SUBJ[cell.s].steps, e: L.clamp(m - PST[p], 0, 60) };
+}
+function stepState(f) {
+  let s0 = 0;
+  return f.steps.map(([name, dur]) => { const done = L.clamp(f.e - s0, 0, dur); s0 += dur; return { name, dur, done }; });
+}
+function showFocus(D, d, m, first) {
+  const f = focusPlan(D, m), key = `${d}:${focusC}:${f.p}`;
+  const put = () => {
+    L.set(fTitle, `${CLASSES[focusC].name}  ·  ${f.cell.trip ? "Field Trip" : SUBJ[f.cell.s].name}`);
+    L.set(fTopic, f.cell.topic);
+    stepState(f).forEach((s, k) => L.set(fsteps[k].name, s.name));
+  };
+  if (first) { focusKey = key; put(); }
+  else if (key !== focusKey) { focusKey = key; swap([fTitle, fTopic, ...fsteps.flatMap((s) => [s.name, s.bar, s.n])], put); }
+  if (key === focusKey) stepState(f).forEach((s, k) => {
+    const r = fsteps[k], st = s.done >= s.dur ? 2 : s.done > 0 ? 1 : 0;
+    L.set(r.n, `${Math.floor(s.done)} / ${s.dur}`);
+    fg(r.name, ["sand", "white", "sky"][st]); bg(r.bar, st === 1 ? "butter" : "sky");
+  });
+}
+L.every(30000, (t) => { if (t > 1) focusC = (focusC + 1) % NC; }, 0);
+
+// readings, a few times a second
+function readings(t, first) {
+  const { d, m } = clockAt(t), D = day(d);
+  showState(D, m); showTrips(d, m); showLessons(D, d, m, first); showFocus(D, d, m, first);
+  L.set(rTime.v, hhmm(m));
+  const nb = [480, 540, 600, 660, 720, 780, 840, 900].find((b) => b > m);
+  L.set(rBell.v, hhmm(nb === undefined ? 480 : nb)); rBell.place();
+  L.set(rPresent.v, presentTotal(D));
+}
+readings(0, true);
+L.every(250, (t) => readings(t, false), 0);
+
+// now and then, something happens in a classroom
+L.every(24000, (t) => {
+  if (t < 4) return;
+  const { d, m } = clockAt(t), D = day(d), p = periodAt(m), A = absOf(d, m);
+  if (p < 0 || m - PST[p] < 4 || PST[p] + 60 - m < 4) return;
+  const inClass = range(NC).filter((c) => !D.cells[c][p].trip);
+  const c = L.pick(inClass), cell = D.cells[c][p], name = CLASSES[c].name, r = Math.random();
+  if (r < 0.3 && m < 840 && !sick.some((s) => s.c === c) && D.present[c] > CLASSES[c].n - 3) {
+    D.present[c]--; att[c].from = att[c].cur; att[c].to = D.present[c]; att[c].t0 = t;
+    sick.push({ A: absOf(d, m + L.rand(30, 55)), c, d });
+    logEvent({ A, cl: name, ev: "Student to Sickbay", dt: L.pick(SICK), c: "peach" });
+  } else if (r < 0.65) {
+    logEvent({ A, cl: name, ev: "Assignments Submitted  ·  " + SUBJ[cell.s].name, dt: D.present[c] - L.irand(0, 2) + " Padds" });
+  } else {
+    logEvent({ A, cl: name, ev: "Library Request  ·  " + cell.topic, dt: SUBJ[cell.s].teacher });
+  }
+}, 0.4);
+
+// the log moves one line at a time: the oldest fades, the rest slide up, the new one fades in
+let logAnim = null;
+const stepLog = (t) => {
+  if (!logAnim) { if (!pendingLog.length) return; logAnim = { phase: "fade", t0: t, row: logRows.find((r) => r.slot === 0) }; }
+  const u = t - logAnim.t0, r0 = logAnim.row;
+  if (logAnim.phase === "fade") {
+    op(r0.e, 1 - L.clamp(u / 0.6));
+    if (u >= 0.6) logAnim = { phase: "slide", t0: t, row: r0 };
+  } else if (logAnim.phase === "slide") {
+    const k = L.ease(L.clamp(u / 0.9));
+    logRows.forEach((r) => { if (r.slot > 0) L.move(r.e, 0, (r.slot - k) * LPH); });
+    if (k >= 1) {
+      logRows.forEach((r) => (r.slot = r === r0 ? LN - 1 : r.slot - 1));
+      showLog(r0, pendingLog.shift()); L.move(r0.e, 0, (LN - 1) * LPH);
+      logAnim = { phase: "in", t0: t, row: r0 };
+    }
+  } else {
+    op(r0.e, L.clamp(u / 0.7));
+    if (u >= 0.7) logAnim = null;
+  }
+};
+
+L.tick((t) => {
+  const { d, m } = clockAt(t), A = absOf(d, m), D = day(d);
+  if (d !== curD) { curD = d; newDay(d, t); }
+  for (const e of [...dayEvents(d - 1), ...dayEvents(d)]) if (e.A > lastA && e.A <= A) fire(e, t);
+  for (let i = sick.length - 1; i >= 0; i--) if (A >= sick[i].A) {
+    const s = sick.splice(i, 1)[0], SD = day(s.d);
+    SD.present[s.c]++;
+    if (s.d === d) { att[s.c].from = att[s.c].cur; att[s.c].to = SD.present[s.c]; att[s.c].t0 = t; }
+    logEvent({ A, cl: CLASSES[s.c].name, ev: "Returned from Sickbay", dt: "Dr. Crusher" });
+  }
+  lastA = A;
+  // the cursor and the veil; at a new day both fade, then start again from 0800
+  const u = t - rollT;
+  if (u < 0.6) { op(veil, 1 - u / 0.6); op(cursor, 1 - u / 0.6); }
+  else {
+    const x = xAt(m);
+    // the veil covers only finished periods (to the start of the current column), never half a lesson
+    const vx = m <= 480 ? CX0 : m >= 900 ? GR : colX[Math.min(6, Math.floor((m - 480) / 60))] - CG / 2;
+    veilX = veilX === null ? vx : veilX + (vx - veilX) * 0.08;                         // and glides there when a period ends
+    scaleX(veil, (veilX - CX0) / (GR - CX0)); op(veil, 1);
+    tf(cursor, `translate3d(${(x - CX0).toFixed(1)}px,0,0)`); op(cursor, L.clamp((u - 0.6) / 0.6));
+  }
+  // bars: the lessons' periods, the focus plan's steps, the term's lessons and attendance ease to their counts
+  lrows.forEach((r, c) => scaleX(r.bar, lessonNow(D, c, m)[4]));
+  if (focusKey === `${d}:${focusC}:${focusP(m)}`) stepState(focusPlan(D, m)).forEach((s, k) => scaleX(fsteps[k].bar, s.done / s.dur));
+  curr.forEach((c) => {
+    c.cur = L.mix(c.from, c.to, L.ease(L.clamp((t - c.t0) / 1.6)));
+    scaleX(c.bar, c.cur / c.s.total); L.set(c.n, `${Math.round(c.cur)} / ${c.s.total}`);
+  });
+  att.forEach((a, c) => {
+    a.cur = L.mix(a.from, a.to, L.ease(L.clamp((t - a.t0) / 1.2)));
+    scaleX(a.bar, a.cur / CLASSES[c].n); L.set(a.n, `${Math.round(a.cur)} / ${CLASSES[c].n}`);
+  });
+  stepLog(t);
+});
+});
+</script></body></html>

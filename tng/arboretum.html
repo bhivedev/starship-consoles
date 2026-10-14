@@ -1,0 +1,368 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Arboretum</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .sw { transition: background-color 1s ease, color 1s ease; }
+  .fd { transition: opacity .45s ease; }
+  .fd.out { opacity: .2; }
+  .clip { overflow: hidden; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: sidebar left, title top right ----------------
+L.frame({ type: "A", title: "Arboretum  •  Botanical Garden", c: "olive", c2: "sand", accent: "peach", foot: "Arboretum",
+  side: [[140, "sand", "Arb 01"], [70, "peach", "Beds"], [420, "olive", "Botany"], [70, "butter", "Water"],
+         [300, "sand", "Lamps"], [70, "peach", "Soil"], [216, "olive", "Catalog"]] });
+
+const PANEL = "#16150a", TRACK = "#2b2915", GRID = "#3a371d", QUEUED = "#34311c", DRIP = "#283034";
+const col = (c) => (c.startsWith("#") ? c : `var(--${c})`);
+const pad2 = (n) => String(n).padStart(2, "0");
+const fmt = (n) => Math.round(n).toLocaleString("en");
+const smooth = (k) => k * k * k * (k * (k * 6 - 15) + 10);
+const rng = (seed) => () => {
+  seed = (seed + 0x6d2b79f5) | 0;
+  let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+};
+const fill = (x, y, w, h, c, origin = "0 0", parent) => {   // a bar that grows: a composited layer
+  const f = L.layer({ x, y, w, h }, parent);
+  f.style.background = col(c); f.style.transformOrigin = origin;
+  return f;
+};
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const op = (e, v) => { v = v.toFixed(2); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const bg = (e, c) => { if (e._bg !== c) { e._bg = c; e.style.background = col(c); } };
+const fg = (e, c) => { if (e._fg !== c) { e._fg = c; e.style.color = col(c); } };
+const widest = (items, s) => Math.ceil(Math.max(...items.map((t) => L.textWidth(t, s))));
+const columns = (x0, x1, widths) => {                        // a table's columns spread evenly: [left, right] of each
+  const total = widths.reduce((a, b) => a + b, 0), gap = (x1 - x0 - total) / (widths.length - 1);
+  let x = x0;
+  return widths.map((w) => { const c = [Math.round(x), Math.round(x + w)]; x += w + gap; return c; });
+};
+
+// ---------------- the garden ----------------
+// Climate zones: colour, lamps on / off (ship hours; a one-hour ramp at each end), water per pulse (litres),
+// air temperature, humidity, peak light (kilolux), soil moisture lowest point and gain per pulse (%).
+const ZONES = [
+  { name: "Tropical",   c: "olive",  on: 6,  off: 18, vol: 14, T: 28.0, RH: 82, klx: 40, lo: 63, gain: 6 },
+  { name: "Temperate",  c: "sand",   on: 5,  off: 20, vol: 10, T: 21.0, RH: 60, klx: 50, lo: 54, gain: 5 },
+  { name: "Arid",       c: "tan",    on: 6,  off: 19, vol: 5,  T: 33.0, RH: 18, klx: 85, lo: 19, gain: 4 },
+  { name: "Alpine",     c: "gold",   on: 4,  off: 20, vol: 8,  T: 11.0, RH: 55, klx: 70, lo: 45, gain: 5 },
+  { name: "Aquatic",    c: "butter", on: 7,  off: 19, vol: 16, T: 25.0, RH: 88, klx: 35, lo: 91, gain: 4 },
+  { name: "Hydroponic", c: "peach",  on: 22, off: 16, vol: 12, T: 23.0, RH: 70, klx: 30, lo: 72, gain: 5 },
+];
+const MAIN = 1;                                             // the temperate lamps light the walks: the garden's day
+// [species, origin, height cm, growth mm per day, stage]
+const BEDS = [
+  [["Cacao", "Earth  ·  Amazon Basin", 310, 1.2, "Fruiting"], ["Moth Orchid", "Earth  ·  Java", 48, 0.4, "Flowering"],
+   ["Banana", "Earth  ·  Malay Peninsula", 420, 6.8, "Fruiting"], ["Pitcher Plant", "Earth  ·  Borneo", 62, 0.6, "Mature"],
+   ["Heliconia", "Earth  ·  Peru", 180, 2.4, "Flowering"]],
+  [["Moba Tree", "Bajor", 260, 1.6, "Fruiting"], ["Jumja Tree", "Bajor", 340, 1.9, "Vegetative"],
+   ["Kaferian Apple", "Kaferia", 290, 1.1, "Budding"], ["Strangler Fig", "Earth  ·  Sumatra", 380, 3.1, "Vegetative"],
+   ["Bird of Paradise", "Earth  ·  Cape Province", 150, 1.4, "Flowering"]],
+  [["Pinot Noir Vine", "Earth  ·  La Barre, France", 140, 2.1, "Fruiting"], ["English Oak", "Earth  ·  Sherwood", 380, 1.4, "Vegetative"],
+   ["Japanese Maple", "Earth  ·  Kyoto", 240, 0.9, "Vegetative"], ["Damask Rose", "Earth  ·  Damascus", 120, 1.8, "Flowering"],
+   ["Lavender", "Earth  ·  Provence", 60, 0.8, "Flowering"]],
+  [["Juniper Bonsai", "Earth  ·  Honshu", 34, 0.1, "Mature"], ["Tree Peony", "Earth  ·  Luoyang", 90, 1.3, "Budding"],
+   ["Tulip", "Earth  ·  Tien Shan", 42, 1.5, "Dormant"], ["Cherry Blossom", "Earth  ·  Yoshino", 310, 1.0, "Flowering"],
+   ["Foxglove", "Earth  ·  Cornwall", 110, 2.6, "Flowering"]],
+  [["Saguaro", "Earth  ·  Sonoran Desert", 220, 0.3, "Mature"], ["Blue Agave", "Earth  ·  Jalisco", 140, 0.5, "Vegetative"],
+   ["Welwitschia", "Earth  ·  Namib Desert", 40, 0.2, "Mature"], ["Aloe", "Earth  ·  Arabia", 70, 0.7, "Flowering"],
+   ["Ocotillo", "Earth  ·  Chihuahuan Desert", 300, 1.1, "Budding"]],
+  [["Plomeek", "Vulcan", 56, 1.9, "Vegetative"], ["Joshua Tree", "Earth  ·  Mojave Desert", 260, 0.4, "Mature"],
+   ["Dragon Tree", "Earth  ·  Socotra", 200, 0.3, "Mature"], ["Desert Rose", "Earth  ·  Arabia", 80, 0.6, "Flowering"],
+   ["Barrel Cactus", "Earth  ·  Baja California", 60, 0.2, "Budding"]],
+  [["Edelweiss", "Earth  ·  Swiss Alps", 18, 0.3, "Flowering"], ["Trumpet Gentian", "Earth  ·  Pyrenees", 10, 0.2, "Flowering"],
+   ["Arctic Poppy", "Earth  ·  Svalbard", 22, 0.5, "Budding"], ["Purple Saxifrage", "Earth  ·  Greenland", 6, 0.1, "Dormant"],
+   ["Bristlecone Pine", "Earth  ·  White Mountains", 140, 0.1, "Mature"]],
+  [["Himalayan Blue Poppy", "Earth  ·  Tibet", 90, 1.2, "Flowering"], ["Rhododendron", "Earth  ·  Nepal", 210, 0.8, "Budding"],
+   ["Glacier Lily", "Earth  ·  Rocky Mountains", 26, 0.6, "Seedling"], ["Moss Campion", "Earth  ·  Iceland", 5, 0.1, "Flowering"],
+   ["Dwarf Willow", "Earth  ·  Baffin Island", 8, 0.2, "Vegetative"]],
+  [["Sacred Lotus", "Earth  ·  Ganges Delta", 120, 3.2, "Flowering"], ["Giant Water Lily", "Earth  ·  Amazon Basin", 30, 4.5, "Flowering"],
+   ["Papyrus", "Earth  ·  Nile Delta", 340, 5.6, "Vegetative"], ["Venus Flytrap", "Earth  ·  Carolina", 12, 0.3, "Mature"],
+   ["Pickerelweed", "Earth  ·  Florida", 80, 2.0, "Flowering"]],
+  [["Red Mangrove", "Earth  ·  Sundarbans", 260, 1.5, "Vegetative"], ["Bald Cypress", "Earth  ·  Louisiana", 400, 1.8, "Vegetative"],
+   ["Cattail", "Earth  ·  Great Lakes", 190, 4.1, "Fruiting"], ["Sundew", "Earth  ·  New Zealand", 9, 0.2, "Flowering"],
+   ["Giant Kelp", "Earth  ·  Pacific Coast", 410, 9.5, "Vegetative"]],
+  [["Katterpod", "Bajor", 70, 3.4, "Fruiting"], ["Leola Root", "Talax", 36, 2.2, "Vegetative"],
+   ["Tomato", "Earth  ·  Andes", 160, 4.8, "Fruiting"], ["Basil", "Earth  ·  India", 45, 2.9, "Vegetative"],
+   ["Strawberry", "Earth  ·  Brittany", 25, 1.6, "Fruiting"]],
+  [["Chili Pepper", "Earth  ·  Mexico", 80, 2.5, "Flowering"], ["Rice", "Earth  ·  Yangtze Valley", 95, 6.1, "Vegetative"],
+   ["Soybean", "Earth  ·  Manchuria", 70, 4.2, "Budding"], ["Lettuce", "Earth  ·  Nile Valley", 22, 3.6, "Vegetative"],
+   ["Wheat", "Earth  ·  Fertile Crescent", 14, 3.8, "Seedling"]],
+].map((list, b) => {
+  const r = rng(9001 + b * 131), Z = ZONES[Math.floor(b / 2)];
+  const species = list.map(([name, origin, h, g, stage]) => ({ name, origin, h, g, stage,
+    sd: (41000 + Math.floor(r() * 48000) / 10).toFixed(1) }));
+  const mean = species.reduce((a, s) => a + s.g, 0) / species.length;
+  const target = Math.round(mean * (1.02 + r() * 0.08) * 10) / 10;
+  const ph = r() * 6;
+  const days = Array.from({ length: 15 }, (_, d) => mean * (1 + 0.1 * Math.sin(d * 0.8 + ph) + 0.08 * (r() - 0.5)));
+  return { b, Z, species, target, days, today: days[14], vol: Z.vol };
+});
+const STAGE_C = { Flowering: "peach", Fruiting: "butter", Budding: "pink", Vegetative: "olive", Mature: "sand", Dormant: "tan", Seedling: "gold" };
+const BLOOM = ["peach", "pink", "lilac", "butter"];
+
+// ---------------- the irrigation schedule: every bed in turn, one pulse each ----------------
+// A slot: valve selected (PRE), water with a one-second ramp each end, then the bed is held while it soaks (POST).
+const Q = 0.8, RAMP = 1, PRE = 1, POST = 2, RES_CAP = 1800, RES_MID = 1410;
+let acc = 0;
+BEDS.forEach((B) => {
+  B.win = B.vol / Q + RAMP;                                   // watering window: Q·(full + ramp) = vol
+  B.slot0 = acc; B.w0 = acc + PRE; B.slot = PRE + B.win + POST; acc += B.slot;
+});
+const ROUND = acc, USE = BEDS.reduce((a, B) => a + B.vol, 0);
+const flowAt = (B, p) => (p <= 0 || p >= B.win ? 0 : p < RAMP ? (Q * p) / RAMP : p > B.win - RAMP ? (Q * (B.win - p)) / RAMP : Q);
+const givenAt = (B, p) => (p <= 0 ? 0 : p < RAMP ? (Q * p * p) / (2 * RAMP) : p <= B.win - RAMP ? (Q * RAMP) / 2 + Q * (p - RAMP)
+  : p < B.win ? B.vol - (Q * (B.win - p) ** 2) / (2 * RAMP) : B.vol);
+const modR = (x) => ((x % ROUND) + ROUND) % ROUND;
+const moisture = (B, tr) => {                                // periodic: rises with each pulse, dries until the next
+  const p = modR(tr - B.w0), Z = B.Z, gain = Z.gain * (B.b % 2 ? 0.9 : 1);
+  return p < B.win ? Z.lo + (gain * givenAt(B, p)) / B.vol : Z.lo + gain - (gain * (p - B.win)) / (ROUND - B.win);
+};
+const reservoir = (tr) => RES_MID - USE / 2 + (USE * tr) / ROUND - BEDS.reduce((a, B) => a + givenAt(B, tr - B.w0), 0);
+const W0 = (Date.now() / 1000) % (ROUND * 10000);             // on the ship's clock: every screen agrees
+const clock = (t) => { const s = W0 + t; return { s, tr: modR(s), cycle: Math.floor(s / ROUND) % 10000 }; };
+const slotAt = (tr) => BEDS.find((B) => tr < B.slot0 + B.slot) || BEDS[BEDS.length - 1];
+
+// the lamps: ship hours, a one-hour ramp up and down
+const lampAt = (Z, h) => {
+  const len = (Z.off - Z.on + 24) % 24, p = (h - Z.on + 24) % 24;
+  if (p >= len) return 0;
+  return Math.min(1, p / 1, (len - p) / 1);
+};
+const shipHours = () => { const d = new Date(); return d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600; };
+
+// ================= status line =================
+const LX0 = 330, LX1 = 2050, RX0 = 2110, RX1 = 3816;
+const stateTxt = L.text({ x: LX0, cap: 150, s: 100, c: "sand", txt: "" });
+const subTxt = L.text({ x: RX0, base: 222, s: 38, c: "olive", txt: "" });
+const pill = L.box({ x: RX1 - 400, y: 150, w: 400, h: 72, c: "sand", label: "", r: "lr", fs: 36, cls: "sw" });
+
+// ================= the beds (left): twelve plots, four by three =================
+const BH = 38;                                              // a bar as tall as a value's capitals
+const TW = 412, TH = 352, TGX = 24, TGY = 32, TY0 = 440;
+L.header({ x: LX0, y: 280, w: LX1 - LX0, label: "Arboretum Beds", c1: "olive", c2: "sand" });
+L.text({ x: LX0, base: 400, s: 36, c: "sand", txt: "Twelve Beds in Six Climate Zones  ·  Soil Moisture and Growth" });
+const meanTxt = L.text({ x: LX1, base: 400, s: 36, c: "sand", txt: "", align: "r" });
+const VR = Math.ceil(widest(["Moisture", "Growth"], 40) + 24 + L.textWidth("100%", 52)), BX = VR + 24;
+BEDS.forEach((B) => {
+  const tx = LX0 + (B.b % 4) * (TW + TGX), ty = TY0 + Math.floor(B.b / 4) * (TH + TGY);
+  B.tx = tx; B.ty = ty;
+  B.head = L.box({ x: tx, y: ty, w: TW, h: 48, c: B.Z.c, label: `Bed ${pad2(B.b + 1)}  ·  ${B.Z.name}`, fs: 28, cls: "sw" });
+  L.rect({ x: tx, y: ty + 64, w: TW, h: 152, c: PANEL });
+  // the planting: two of each species, a disc sized by its height, coloured by what it is doing
+  B.species.forEach((S, i) => {
+    const cx = tx + 41.2 + i * 82.4, k = L.clamp(Math.log10(S.h) / Math.log10(420));
+    const c = S.stage === "Flowering" ? BLOOM[(B.b + i) % BLOOM.length] : STAGE_C[S.stage];
+    [[104, 1], [160, 0.78]].forEach(([dy, sc]) => {
+      const r = (10 + 16 * k) * sc;
+      L.svg("circle", { cx, cy: ty + dy, r: r.toFixed(1), fill: col(c), class: "boot" });
+      L.svg("circle", { cx, cy: ty + dy, r: (r * 0.38).toFixed(1), fill: "rgba(0,0,0,0.35)", class: "boot" });
+    });
+  });
+  L.rect({ x: tx + 12, y: ty + 200, w: TW - 24, h: 6, c: DRIP, free: true });
+  B.rows = [["Moisture", ty + 276, "ice"], ["Growth", ty + 340, "olive"]].map(([label, base, c]) => {
+    L.text({ x: tx, base, s: 40, c: "sand", txt: label });
+    L.rect({ x: tx + BX, y: base - BH, w: TW - BX, h: BH, c: TRACK });
+    return { val: L.text({ x: tx + VR, base, s: 52, c: "white", txt: "", align: "r" }), bar: fill(tx + BX, base - BH, TW - BX, BH, c) };
+  });
+  B.pct = Math.round((100 * B.today) / B.target);
+  B.rows[1].bar.style.transform = `scaleX(${Math.min(1, B.pct / 100).toFixed(3)})`;
+  if (B.pct >= 100) B.rows[1].bar.style.background = "var(--butter)";
+});
+// water running along the active bed's drip line
+const drip = L.layer({ x: 0, y: 0, w: TW - 24, h: 6, cls: "clip" });
+const dripFlow = L.el("div", "layer", drip, { left: "0px", top: "0px", width: TW - 24 + 40 + "px", height: "6px",
+  background: "repeating-linear-gradient(90deg, var(--ice) 0 22px, transparent 22px 40px)" });
+drip.style.opacity = "0";
+
+// ================= light cycle (top right): photoperiod by zone on a 24-hour scale =================
+const ZB = 240, LVW = Math.ceil(L.textWidth("100%", 40)), TRX = RX0 + ZB + L.GAP, TRX1 = RX1 - LVW - L.GAP, TRW = TRX1 - TRX;
+const LROW = (i) => 476 + i * 72;
+const hx = (h) => TRX + (h / 24) * TRW;
+L.header({ x: RX0, y: 280, w: RX1 - RX0, label: "Light Cycle", c1: "butter", c2: "olive" });
+L.text({ x: RX0, base: 400, s: 36, c: "sand", txt: "Photoperiod by Zone  ·  Lamp Output" });
+const timeTxt = L.text({ x: RX1, base: 400, s: 36, c: "butter", txt: "", align: "r" });
+for (let h = 0; h <= 24; h += 3)
+  L.text({ x: h === 0 ? hx(h) : h === 24 ? hx(h) : hx(h), base: 452, s: 30, c: "sand", txt: pad2(h) + "00",
+           align: h === 0 ? "l" : h === 24 ? "r" : "c", w: 100, legend: true });
+const defs = L.svg("defs", {});
+const lampVals = ZONES.map((Z, i) => {
+  const y = LROW(i);
+  L.box({ x: RX0, y, w: ZB, h: 56, c: Z.c, label: Z.name, fs: 32 });
+  L.rect({ x: TRX, y, w: TRW, h: 56, c: TRACK });
+  const cp = L.svg("clipPath", { id: "zc" + i }, defs);
+  L.svg("rect", { x: TRX, y, width: TRW, height: 56 }, cp);
+  const g = L.svg("g", { "clip-path": `url(#zc${i})`, class: "boot" });
+  for (let h = 3; h < 24; h += 3) L.svg("rect", { x: hx(h) - 1, y, width: 2, height: 56, fill: GRID }, g);
+  const len = (Z.off - Z.on + 24) % 24;
+  for (const sh of [-24, 0]) {
+    const a = Z.on + sh, b = a + len;
+    L.svg("polygon", { points: [[hx(a), y + 48], [hx(a + 1), y + 8], [hx(b - 1), y + 8], [hx(b), y + 48]].map((p) => p.join(",")).join(" "),
+      fill: col(Z.c) }, g);
+  }
+  return L.text({ x: RX1, base: y + 42, s: 40, c: "white", txt: "", align: "r" });
+});
+const nowLine = L.layer({ x: TRX - 2, y: LROW(0) - 8, w: 4, h: LROW(5) + 56 + 8 - (LROW(0) - 8) });
+nowLine.style.background = "var(--white)";
+
+// ================= irrigation cycle (middle right) =================
+L.header({ x: RX0, y: 960, w: RX1 - RX0, label: "Irrigation Cycle", c1: "sand", c2: "olive" });
+const cycTxt = L.text({ x: RX0, base: 1080, s: 36, c: "sand", txt: "" });
+const nextTxt = L.text({ x: RX1, base: 1080, s: 36, c: "sand", txt: "", align: "r" });
+const SW = 133, SG = 10;
+const segs = BEDS.map((B) => L.box({ x: RX0 + B.b * (SW + SG), y: 1112, w: SW, h: 56, c: QUEUED, label: pad2(B.b + 1), fs: 32, cls: "sw" }));
+const IROW = [1236, 1314, 1392, 1470, 1548];
+const ILAB = ["Delivered", "Flow Rate", "Round", "Reservoir", "Line Pressure"];
+const ILW = widest(ILAB, 40), IVW = widest(["16.0 / 16.0 L", "48.0 L/min", "12 / 12", "1,800 L", "380 kPa"], 52);
+const IBX = RX0 + ILW + 40, IBX1 = RX1 - IVW - 40;
+const ibars = ILAB.map((label, i) => {
+  L.text({ x: RX0, base: IROW[i], s: 40, c: "sand", txt: label });
+  L.rect({ x: IBX, y: IROW[i] - BH, w: IBX1 - IBX, h: BH, c: TRACK });
+  return { bar: fill(IBX, IROW[i] - BH, IBX1 - IBX, BH, ["ice", "olive", "sand", "ice", "tan"][i]),
+           val: L.text({ x: RX1, base: IROW[i], s: 52, c: "white", txt: "", align: "r" }) };
+});
+
+// ================= species catalog (bottom left) =================
+const CX0 = LX0, CX1 = LX1, CROW = (i) => 1776 + i * 54;
+L.header({ x: CX0, y: 1620, w: CX1 - CX0, label: "Species Catalog", c1: "olive", c2: "sand", h: 48 });
+const ALL = BEDS.flatMap((B) => B.species);
+const CCAP = ["Species", "Origin", "Height  cm", "Growth  mm / Day", "Stage", "Planted"];
+const CW = [widest(ALL.map((s) => s.name).concat("Bed 00 Species"), 36), widest(ALL.map((s) => s.origin), 36),
+  L.textWidth("Height  cm", 36), L.textWidth("Growth  mm / Day", 36), widest(Object.keys(STAGE_C).concat("Stage"), 36), widest(["Stardate", "48888.8"], 36)];
+const ccols = columns(CX0, CX1, CW.map(Math.ceil));
+const CAL = ["l", "l", "r", "r", "l", "r"];
+const cxOf = (j) => (CAL[j] === "l" ? ccols[j][0] : ccols[j][1]);
+const ccap = ["", "Origin", "Height  cm", "Growth  mm / Day", "Stage", "Stardate"].map((txt, j) =>
+  L.text({ x: cxOf(j), base: 1716, s: 36, c: j ? "sand" : "butter", txt, align: CAL[j], cls: "fd" }));
+const crows = Array.from({ length: 5 }, (_, i) => CCAP.map((_, j) =>
+  L.text({ x: cxOf(j), base: CROW(i), s: 36, c: ["white", "sand", "sand", "white", "sand", "tan"][j], txt: "", align: CAL[j], cls: "fd sw" })));
+
+// ================= growth (bottom middle): the bed's last fifteen days =================
+const GX0 = 2110, GX1 = 2960, GY0 = 1740, GY1 = 1952, GB = GY1 - 12, GH = GB - (GY0 + 12);
+L.header({ x: GX0, y: 1620, w: GX1 - GX0, label: "Growth", c1: "peach", c2: "olive", h: 48 });
+L.text({ x: GX0, base: 1716, s: 36, c: "sand", txt: "Mean Height Gain  mm / Day" });
+const gCap = L.text({ x: GX1, base: 1716, s: 36, c: "butter", txt: "", align: "r", cls: "fd" });
+L.rect({ x: GX0, y: GY0, w: GX1 - GX0, h: GY1 - GY0, c: PANEL });
+const GP = (GX1 - GX0 - 24) / 15, GBW = Math.round(GP - 16);
+const gx = (d) => Math.round(GX0 + 12 + d * GP + (GP - GBW) / 2);
+const gbars = Array.from({ length: 15 }, (_, d) => fill(gx(d), GY0 + 12, GBW, GH, d === 14 ? "butter" : "olive", "50% 100%"));
+L.rect({ x: GX0 + 12, y: Math.round(GB - GH / 1.4) - 1, w: GX1 - GX0 - 24, h: 3, c: "peach", free: true });   // the target
+L.text({ x: gx(0), base: 1992, s: 30, c: "sand", txt: "14 Days Ago", legend: true });
+L.text({ x: gx(7) + GBW / 2, base: 1992, s: 30, c: "sand", txt: "7 Days", align: "c", w: 200, legend: true });
+L.text({ x: gx(14) + GBW, base: 1992, s: 30, c: "sand", txt: "Today", align: "r", legend: true });
+const gv = gbars.map(() => ({ v: 0, from: 0, to: 0 }));
+let gT0 = -9;
+
+// ================= zone environment (bottom right) =================
+const EX0 = 3020, EX1 = RX1;
+L.header({ x: EX0, y: 1620, w: EX1 - EX0, label: "Zone Environment", c1: "sand", c2: "tan", h: 48 });
+const ELAB = ["Air Temperature  °C", "Relative Humidity  %", "Carbon Dioxide  ppm", "Light Level  klx", "Soil Moisture  %"];
+const ecols = columns(EX0, EX1, [widest(ELAB.concat(ZONES.map((Z) => Z.name + " Zone")), 36), L.textWidth("Now", 36), L.textWidth("Set Point", 36)].map(Math.ceil));
+const ezone = L.text({ x: EX0, base: 1716, s: 36, c: "butter", txt: "", cls: "fd" });
+L.text({ x: ecols[1][1], base: 1716, s: 36, c: "sand", txt: "Now", align: "r" });
+L.text({ x: ecols[2][1], base: 1716, s: 36, c: "sand", txt: "Set Point", align: "r" });
+const erows = ELAB.map((label, i) => {
+  L.text({ x: EX0, base: CROW(i), s: 36, c: "sand", txt: label });
+  return [1, 2].map((j) => L.text({ x: ecols[j][1], base: CROW(i), s: 36, c: j === 1 ? "white" : "tan", txt: "", align: "r", cls: "fd" }));
+});
+
+// ================= the clock =================
+let shownB = null, swapT = -99;
+const swapEls = [...ccap, ...crows.flat(), gCap, ezone, ...erows.flat()];
+// the zone's air and soil, for the bed on show
+const writeEnv = (A, t) => {
+  const Z = A.Z, k = t / 37 + A.b, h = shipHours(), tr = clock(t).tr;
+  const vals = [[(Z.T + 0.3 * Math.sin(k)).toFixed(1), Z.T.toFixed(1)],
+                [String(Math.round(Z.RH + 1.2 * Math.sin(k * 0.7 + 1))), String(Z.RH)],
+                [String(Math.round(420 + 9 * Math.sin(k * 0.5 + 2))), "420"],
+                [(Z.klx * lampAt(Z, h)).toFixed(1), Z.klx.toFixed(1)],
+                [String(Math.round(moisture(A, tr))), String(Math.round(Z.lo + Z.gain / 2))]];
+  vals.forEach((v, i) => { L.set(erows[i][0], v[0]); L.set(erows[i][1], v[1]); });
+};
+const writeBed = (B) => {
+  L.set(ccap[0], `Bed ${pad2(B.b + 1)} Species`);
+  crows.forEach((row, i) => {
+    const S = B.species[i];
+    [S.name, S.origin, String(S.h), S.g.toFixed(1), S.stage, S.sd].forEach((v, j) => L.set(row[j], v));
+    fg(row[4], STAGE_C[S.stage]);
+  });
+  L.set(gCap, `Today ${B.today.toFixed(1)}  ·  Target ${B.target.toFixed(1)}`);
+  L.set(ezone, `${B.Z.name} Zone  ·  Bed ${pad2(B.b + 1)}`);
+  writeEnv(B, L.t);
+};
+const selectBed = (B, t, first) => {
+  shownB = B;
+  gv.forEach((g, d) => { g.from = g.v; g.to = B.days[d] / (B.target * 1.4); });
+  gT0 = t;
+  if (first) { writeBed(B); return; }
+  swapEls.forEach((e) => e.classList.add("out"));
+  setTimeout(() => { writeBed(B); swapEls.forEach((e) => e.classList.remove("out")); }, 450);
+};
+
+L.tick((t) => {
+  const { s, tr } = clock(t), A = slotAt(tr);
+  if (A !== shownB) selectBed(A, t, shownB === null);
+  // every bed's soil moisture
+  BEDS.forEach((B) => tf(B.rows[0].bar, `scaleX(${(moisture(B, tr) / 100).toFixed(4)})`));
+  // the active bed: its drip line runs while water flows
+  const p = tr - A.w0, f = flowAt(A, p);
+  L.move(drip, A.tx + 12, A.ty + 200);
+  op(drip, f / Q);
+  if (f > 0) tf(dripFlow, `translate3d(${(-((s * 48) % 40)).toFixed(1)}px,0,0)`);
+  // near a slot's edges the delivered bar dips out, so it never jumps from full to empty in view
+  const edge = Math.min(tr - A.slot0, A.slot0 + A.slot - tr), dip = smooth(L.clamp(edge / 0.4));
+  const roundEdge = Math.min(tr, ROUND - tr), rdip = smooth(L.clamp(roundEdge / 0.4));
+  const given = givenAt(A, p), frac = (A.b + given / A.vol) / BEDS.length;   // beds watered: the current one counts as its water goes in
+  const pres = 380 - (40 * f) / Q;
+  [given / A.vol, f * 60 / 60, frac, reservoir(tr) / RES_CAP, pres / 500].forEach((v, i) => tf(ibars[i].bar, `scaleX(${L.clamp(v).toFixed(4)})`));
+  op(ibars[0].bar, dip); op(ibars[0].val, dip);
+  op(ibars[2].bar, rdip); op(ibars[2].val, rdip);
+  // growth bars ease to the bed's fifteen days
+  const ge = L.ease(L.clamp((t - gT0 - 0.2) / 1.4));
+  gv.forEach((g, d) => { g.v = L.mix(g.from, g.to, ge); tf(gbars[d], `scaleY(${L.clamp(g.v).toFixed(4)})`); });
+});
+
+L.every(250, (t) => {
+  const { tr, cycle } = clock(t), A = slotAt(tr), h = shipHours();
+  // lamps and the garden's day
+  const lamps = ZONES.map((Z) => lampAt(Z, h));
+  lamps.forEach((v, i) => L.set(lampVals[i], Math.round(v * 100) + "%"));
+  const main = lamps[MAIN], rising = lampAt(ZONES[MAIN], h + 0.01) > main;
+  L.set(stateTxt, main >= 1 ? "Day Cycle" : main <= 0 ? "Night Cycle" : rising ? "Dawn Cycle" : "Dusk Cycle");
+  L.set(timeTxt, `Ship Time ${pad2(Math.floor(h))}:${pad2(Math.floor((h % 1) * 60))}`);
+  tf(nowLine, `translate3d(${((h / 24) * TRW).toFixed(1)}px,0,0)`);
+  L.set(subTxt, `Main Lamps ${Math.round(main * 100)}%  ·  Irrigation Cycle ${String(cycle).padStart(4, "0")}  ·  12 Beds, 60 Species`);
+  // the beds
+  let msum = 0;
+  BEDS.forEach((B) => {
+    const m = moisture(B, tr); msum += m;
+    L.set(B.rows[0].val, Math.round(m) + "%");
+    L.set(B.rows[1].val, B.pct + "%");
+    bg(B.head, B === A ? "ice" : B.Z.c);
+    const seg = segs[B.b], st = B.b < A.b ? "done" : B === A ? "on" : "queued";
+    bg(seg, st === "done" ? "olive" : st === "on" ? "ice" : QUEUED);
+    fg(seg, st === "queued" ? "sand" : "#000");
+  });
+  L.set(meanTxt, `Mean Moisture ${Math.round(msum / BEDS.length)}%`);
+  // the irrigation readings: the same numbers as the bars
+  const p = tr - A.w0, f = flowAt(A, p), q = tr - A.slot0;
+  L.set(pill, q < PRE ? `Opening Valve ${pad2(A.b + 1)}` : q < PRE + A.win ? `Irrigating Bed ${pad2(A.b + 1)}` : `Bed ${pad2(A.b + 1)} Soaking`);
+  bg(pill, q < PRE ? "sand" : q < PRE + A.win ? "ice" : "olive");
+  const N = BEDS[(A.b + 1) % BEDS.length];
+  L.set(cycTxt, `Cycle ${String(cycle).padStart(4, "0")}  ·  Bed ${pad2(A.b + 1)} of 12  ·  ${A.Z.name}`);
+  L.set(nextTxt, `Next  ·  Bed ${pad2(N.b + 1)}, ${N.Z.name}`);
+  L.set(ibars[0].val, `${givenAt(A, p).toFixed(1)} / ${A.vol.toFixed(1)} L`);
+  L.set(ibars[1].val, `${(f * 60).toFixed(1)} L/min`);
+  L.set(ibars[2].val, `${A.b + (givenAt(A, p) >= A.vol - 1e-6 ? 1 : 0)} / 12`);   // a soaking bed has had its water
+  L.set(ibars[3].val, fmt(reservoir(tr)) + " L");
+  L.set(ibars[4].val, Math.round(380 - (40 * f) / Q) + " kPa");
+  if (shownB === A && !ezone.classList.contains("out")) writeEnv(A, t);
+}, 0);
+});
+</script></body></html>

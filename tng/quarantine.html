@@ -1,0 +1,334 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Quarantine</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* swapped text dips and comes back; colors change slowly; .boot (the start-up cascade) always wins */
+  .sw { transition: opacity .45s ease, background-color 1.2s ease; }
+  .out:not(.boot) { opacity: .15; }
+  .pill { transition: background-color 1.2s ease; }
+  .fade { transition: opacity 1.6s ease; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: a bracket, title centred ----------------
+L.frame({ type: "C", title: "Quarantine  •  Biohazard Containment", c: "mars", c2: "butter", accent: "peach", foot: "Medical",
+  side: [[140, "butter", "Med 12"], [70, "peach", "4475"], [420, "mars", "Isolation"], [70, "butter", "06"],
+         [300, "peach", "Wards"], [70, "butter", "L4"], [216, "mars", "Protocol"]],
+  side2: [[140, "peach", "Bio 03"], [70, "butter", "0917"], [420, "mars", "Pathogen"], [70, "peach", "47"],
+          [300, "butter", "Fields"], [70, "peach", "D12"], [216, "mars", "Decon"]] });
+
+const TRACK = "#3a1a10", RING = "#5a2a1a";
+const colr = (c) => (c.startsWith("#") ? c : `var(--${c})`);
+const cls = (e, ...c) => (e.classList.add(...c), e);
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const op = (e, v) => { v = v.toFixed(2); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const bg = (e, c) => { if (e._bg !== c) { e._bg = c; e.style.background = colr(c); } };
+const fmt = (n) => Math.round(n).toLocaleString("en");
+const mmss = (s) => { s = Math.max(0, Math.ceil(s)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+const swap = (els, f) => { els.forEach((e) => e.classList.add("out")); setTimeout(() => { f(); els.forEach((e) => e.classList.remove("out")); }, 460); };
+const wave = (t, p, ph = 0) => Math.sin((2 * Math.PI * t) / p + ph);   // a slow drift, never a jump
+
+// ---------------- the grid ----------------
+// Columns: the wards 220–1500 (three tiles of 400), the pathogen 1580–2540, fields and cycle 2620–3620.
+// Two sections, headers at 280 and 950; a caption one row in, then five rows on an 88 px pitch.
+const AX = 220, AR = 1500, BX = 1580, BR = 2540, CX = 2620, CR = 3620;
+const H = [280, 950];
+const cap = (s) => H[s] + 120;
+const row = (s, i) => H[s] + 200 + i * 88;
+const STRIP = (i) => 1734 + i * 54;
+
+// a gauge: a name, a dark track and its fill, a value at the column's right edge
+const fill = (x, y, w, h, c) => {
+  const f = L.layer({ x, y, w, h });
+  f.style.background = colr(c); f.style.transformOrigin = "0 0";
+  return f;
+};
+const gauge = (o) => {
+  const { x, r, base, name, c, bx, brw, bh = 22, s = 52, ns = 40 } = o;
+  const n = L.text({ x, base, s: ns, c: o.nc || "peach", txt: name });
+  L.rect({ x: x + bx, y: base - bh, w: r - brw - (x + bx), h: bh, c: TRACK });
+  return { n, bar: fill(x + bx, base - bh, r - brw - (x + bx), bh, c), v: L.text({ x: r, base, s, c: "white", txt: "", align: "r" }), u: -1 };
+};
+const showBar = (g, k) => { k = L.clamp(k); if (Math.abs(k - g.u) > 0.0004) { g.u = k; tf(g.bar, `scaleX(${k.toFixed(4)})`); } };
+
+// ---------------- the story: the patients, the rounds, the airlock cycle ----------------
+const WARDS = [
+  { name: "Lt. R. Barclay", dept: "Science", day: 4, status: "Recovering", sc: "peach", load: 1.8, temp: 37.3, pulse: 68 },
+  { name: "Ens. S. Lavelle", dept: "Operations", day: 3, status: "Observation", sc: "butter", load: 12.4, temp: 37.8, pulse: 74 },
+  { name: "Lt. A. Kurland", dept: "Geology", day: 3, status: "Treatment", sc: "mars", load: 21.7, temp: 38.2, pulse: 81 },
+  { name: "Ens. N. Kaplan", dept: "Engineering", day: 2, status: "Observation", sc: "butter", load: 6.1, temp: 37.6, pulse: 71 },
+  { name: "Vacant", since: "47631.6" },
+  { name: "Vacant", since: "47633.0" },
+];
+const STAFF = ["Dr. Crusher", "Nurse Ogawa", "Dr. Selar"];
+const STAGES = [["Airlock Seal", 5], ["Anionic Field", 20], ["Sterilization Field", 16], ["Biofilter Scan", 12], ["Release", 5]];
+const RUN = STAGES.reduce((a, s) => a + s[1], 0), PERIOD = 80, OFFSET = 60;    // 58 s of cycle, 22 s standing by
+const wardOf = (n) => ((n + 1) % 4 + 4) % 4;                // rounds go 1, 2, 3, 4 and round again
+const staffOf = (n) => STAFF[((n % 3) + 3) % 3];
+const cycleAt = (t) => {
+  const n = Math.floor((t + OFFSET) / PERIOD), ph = (t + OFFSET) - n * PERIOD;
+  let a = 0, st = -1, k = 1;
+  for (let i = 0; i < STAGES.length; i++) { if (ph < a + STAGES[i][1]) { st = i; k = (ph - a) / STAGES[i][1]; break; } a += STAGES[i][1]; }
+  return { n, ph, st, k, w: wardOf(n), staff: staffOf(n) };
+};
+
+// ---------------- status line ----------------
+const WORDS = ["Containment Secure", "Decontamination Cycle"];
+const SUBX = AX + Math.max(...WORDS.map((w) => L.textWidth(w, 100))) + 56;
+const state = cls(L.text({ x: AX, cap: 150, s: 100, c: "mars", txt: "" }), "sw");
+const stateSub = cls(L.text({ x: SUBX, base: 222, s: 38, c: "peach", txt: "" }), "sw");
+L.box({ x: CX, y: 158, w: 488, h: 64, c: "mars", label: "Biohazard Level 4", fs: 32, r: "l" });
+L.box({ x: CX + 488 + L.GAP, y: 158, w: CR - (CX + 488 + L.GAP), h: 64, c: "butter", label: "Deck 12  ·  Sealed", fs: 32, r: "r" });
+
+// ---------------- the isolation wards: six tiles, three across, one per section row ----------------
+const TW = 400, TG = 40;
+const tiles = WARDS.map((w, i) => {
+  const s = Math.floor(i / 3), x = AX + (i % 3) * (TW + TG), occ = !!w.dept;
+  L.header({ x, y: H[s], w: TW, label: `Ward ${i + 1}`, c1: i % 2 ? "butter" : "mars", c2: i % 2 ? "mars" : "peach" });
+  L.text({ x, base: cap(s), s: 52, c: occ ? "white" : "peach", txt: w.name });
+  L.text({ x, base: row(s, 0), s: 36, c: occ ? "butter" : "peach", txt: occ ? `${w.dept}  ·  Day ${w.day} of 6` : `Sterile since ${w.since}` });
+  const names = occ ? ["Load", "Temp", "Pulse"] : ["Purity", "Residue", "Temp"];
+  const g = names.map((n, j) => gauge({ x, r: x + TW, base: row(s, 1 + j), name: n, c: j === 0 ? "mars" : j === 1 ? "peach" : "butter",
+    bx: 124, brw: 120, bh: 18, s: 40, ns: 36 }));
+  const pill = cls(L.box({ x, y: row(s, 4) - 42, w: TW, h: 48, c: occ ? w.sc : "peach", label: occ ? w.status : "Ready for Admission", fs: 30, r: "lr" }), "pill");
+  return { w, occ, g, pill, s };
+});
+
+// ---------------- the pathogen model: a retrovirus, flat and geometric, turning slowly ----------------
+L.header({ x: BX, y: H[0], w: BR - BX, label: "Pathogen Model  ·  RV-4475", c1: "peach", c2: "mars" });
+const CXm = (BX + BR) / 2, CYm = 620, LS = 520;
+// the scan ring and its ticks, drawn once
+L.svg("circle", { cx: CXm, cy: CYm, r: 240, fill: "none", stroke: RING, "stroke-width": 3, class: "boot" });
+for (let a = 0; a < 360; a += 10) {
+  const big = a % 30 === 0, r1 = big ? 232 : 236, r2 = big ? 250 : 246, s = Math.sin((a * Math.PI) / 180), c = -Math.cos((a * Math.PI) / 180);
+  L.svg("line", { x1: CXm + r1 * s, y1: CYm + r1 * c, x2: CXm + r2 * s, y2: CYm + r2 * c, stroke: big ? "#b06a4a" : RING, "stroke-width": big ? 4 : 3, class: "boot" });
+}
+const NSs = "http://www.w3.org/2000/svg";
+const modelLayer = (draw) => {
+  const lay = cls(L.layer({ x: CXm - LS / 2, y: CYm - LS / 2, w: LS, h: LS }), "boot");
+  const sv = document.createElementNS(NSs, "svg");
+  sv.setAttribute("viewBox", `0 0 ${LS} ${LS}`); sv.setAttribute("width", LS); sv.setAttribute("height", LS);
+  sv.style.display = "block";
+  lay.appendChild(sv); draw(sv, LS / 2);
+  return lay;
+};
+const scan = modelLayer((sv, c) => L.svg("path", { d: L.arc(c, c, 233, 247, 0, 36), fill: "var(--butter)", opacity: 0.85 }, sv));
+const shell = modelLayer((sv, c) => {
+  L.svg("circle", { cx: c, cy: c, r: 154, fill: "none", stroke: "var(--peach)", "stroke-width": 5, "stroke-dasharray": "22 14", opacity: 0.8 }, sv);
+  L.svg("path", { d: L.arc(c, c, 168, 184, 0, 359.99), fill: "var(--mars)" }, sv);
+  for (let k = 0; k < 18; k++) {
+    const a = k * 20;
+    const g = L.svg("g", { transform: `rotate(${a} ${c} ${c})` }, sv);
+    L.svg("rect", { x: c - 4, y: c - 214, width: 8, height: 32, fill: "var(--butter)" }, g);
+    L.svg("circle", { cx: c, cy: c - 220, r: 10, fill: "var(--butter)" }, g);
+  }
+});
+const capsid = modelLayer((sv, c) => {
+  const v = Array.from({ length: 6 }, (_, k) => [c + 118 * Math.sin((k * Math.PI) / 3), c - 118 * Math.cos((k * Math.PI) / 3)]);
+  const inner = (k) => v[k].join(",");
+  L.svg("path", { d: `M${inner(0)} L${inner(2)} L${inner(4)} Z M${inner(1)} L${inner(3)} L${inner(5)} Z`, fill: "none", stroke: "var(--sunset)", "stroke-width": 3, opacity: 0.7 }, sv);
+  L.svg("polygon", { points: v.map((p) => p.join(",")).join(" "), fill: "none", stroke: "var(--peach)", "stroke-width": 6, "stroke-linejoin": "round" }, sv);
+});
+const genome = modelLayer((sv, c) => {
+  [[0, "var(--white)", 4], [Math.PI, "var(--butter)", 3]].forEach(([ph, col, sw]) => {
+    let d = "";
+    for (let k = 0; k <= 240; k++) {
+      const a = (k / 240) * 2 * Math.PI, r = 62 + 9 * Math.sin(12 * a + ph);
+      d += (k ? "L" : "M") + (c + r * Math.sin(a)).toFixed(1) + "," + (c - r * Math.cos(a)).toFixed(1);
+    }
+    L.svg("path", { d: d + "Z", fill: "none", stroke: col, "stroke-width": sw }, sv);
+  });
+});
+// callouts at the corners, leaders to the parts they name
+const callout = (txt, side, base, ang, r) => {
+  const w = L.textWidth(txt, 36), right = side === "r";
+  L.text({ x: right ? BR : BX, base, s: 36, c: "peach", txt, align: right ? "r" : "l" });
+  const x0 = right ? BR - w - 18 : BX + w + 18, y0 = base - 13;
+  const px = CXm + r * Math.sin((ang * Math.PI) / 180), py = CYm - r * Math.cos((ang * Math.PI) / 180);
+  L.svg("polyline", { points: `${x0},${y0} ${px.toFixed(1)},${py.toFixed(1)}`, fill: "none", stroke: "#b06a4a", "stroke-width": 3, class: "boot" });
+};
+callout("Glycoprotein Spikes", "l", cap(0), 315, 206);
+callout("Lipid Envelope", "r", cap(0), 45, 184);
+callout("Icosahedral Capsid", "l", row(0, 4), 225, 104);
+callout("RNA Genome", "r", row(0, 4), 135, 72);
+L.text({ x: BX, base: row(0, 1), s: 36, c: "peach", txt: "Diameter" });
+L.text({ x: BX, base: row(0, 2), s: 52, c: "white", txt: "118 nm" });
+L.text({ x: BR, base: row(0, 1), s: 36, c: "peach", txt: "Scan Pass", align: "r" });
+const passTxt = L.text({ x: BR, base: row(0, 2), s: 52, c: "white", txt: "", align: "r" });
+
+// ---------------- pathogen profile ----------------
+L.header({ x: BX, y: H[1], w: BR - BX, label: "Pathogen Profile", c1: "mars", c2: "butter" });
+L.text({ x: BX, base: cap(1), s: 36, c: "butter", txt: "Retrovirus  ·  Away team soil core, Celtris III" });
+const pg = (i, n, c) => gauge({ x: BX, r: BR, base: row(1, i), name: n, c, bx: 300, brw: 200 });
+const PRO = { genome: pg(0, "Genome Mapped", "peach"), repl: pg(1, "Replication", "mars"), eff: pg(2, "Antiviral Efficacy", "butter"),
+  synth: pg(3, "Synthesis", "butter"), doses: pg(4, "Doses Ready", "peach") };
+
+// ---------------- containment fields ----------------
+L.header({ x: CX, y: H[0], w: CR - CX, label: "Containment Fields", c1: "butter", c2: "mars" });
+L.text({ x: CX, base: cap(0), s: 36, c: "butter", txt: "Level 10 quarantine fields  ·  Bars to rated strength" });
+const cg = (i, n, c) => gauge({ x: CX, r: CR, base: row(0, i), name: n, c, bx: 300, brw: 200 });
+const FLD = [cg(0, "Ward Fields", "mars"), cg(1, "Airlock Fields", "mars"), cg(2, "Deck Barrier", "peach"),
+  cg(3, "Emitter Load", "butter"), cg(4, "Backup Emitters", "peach")];
+
+// ---------------- decontamination cycle ----------------
+L.header({ x: CX, y: H[1], w: CR - CX, label: "Decontamination Cycle", c1: "mars", c2: "peach" });
+const cycCap = L.text({ x: CX, base: cap(1), s: 36, c: "butter", txt: "" });
+const STG = STAGES.map(([n], i) => gauge({ x: CX, r: CR, base: row(1, i), name: n, c: i % 2 ? "peach" : "butter", bx: 300, brw: 200 }));
+
+// ---------------- bottom strip: protocol, environment, log ----------------
+L.header({ x: AX, y: 1620, w: AR - AX, label: "Quarantine Protocol", c1: "butter", c2: "mars", h: 48 });
+const PROTO = [
+  ["Isolation wards sealed  ·  Deck 12", "Lt. Worf", "Confirmed"],
+  ["Level 10 quarantine fields raised", "Lt. Cmdr. Data", "Confirmed"],
+  ["Transporter biofilters keyed to RV-4475", "Chief O'Brien", "Active"],
+  ["Ventilation on independent recycling", "Lt. Cmdr. La Forge", "Active"],
+  ["Away team bioscans complete", "Dr. Selar", "6 / 6"],
+  ["Airlock cycles logged  ·  This shift", "Nurse Ogawa", ""],
+];
+const OFX = 980;
+const protoV = PROTO.map(([a, b, c], i) => {
+  L.text({ x: AX, base: STRIP(i), s: 36, c: "peach", txt: a });
+  L.text({ x: OFX, base: STRIP(i), s: 36, c: "white", txt: b });
+  return L.text({ x: AR, base: STRIP(i), s: 36, c: "butter", txt: c, align: "r" });
+});
+L.header({ x: BX, y: 1620, w: BR - BX, label: "Isolation Environment", c1: "mars", c2: "butter", h: 48 });
+const eg = (i, n, c) => gauge({ x: BX, r: BR, base: STRIP(i), name: n, c, bx: 260, brw: 170, bh: 22, s: 36, ns: 36 });
+const ENV = { press: eg(0, "Pressure Diff", "mars"), air: eg(1, "Air Exchange", "mars"), bio: eg(2, "Biofilter Load", "butter"),
+  hum: eg(3, "Humidity", "peach"), oxy: eg(4, "Oxygen", "peach"), scrub: eg(5, "Scrubbers", "butter") };
+L.header({ x: CX, y: 1620, w: CR - CX, label: "Medical Log", c1: "peach", c2: "mars", h: 48 });
+const logRows = Array.from({ length: 6 }, (_, i) => ({
+  sd: L.text({ x: CX, base: STRIP(i), s: 36, c: "butter", txt: "" }),
+  tx: L.text({ x: CX + 150, base: STRIP(i), s: 36, c: "peach", txt: "" }),
+  by: L.text({ x: CR, base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }) }));
+let stardate = 47634.2;
+const logged = [];
+const logLine = (txt, by) => {                            // newest at the foot; always in time order
+  stardate += 0.1;
+  logged.push([stardate.toFixed(1), txt, by]); if (logged.length > logRows.length) logged.shift();
+  logRows.forEach((r, i) => { const e = logged[i] || ["", "", ""]; L.set(r.sd, e[0]); L.set(r.tx, e[1]); L.set(r.by, e[2]); });
+};
+
+// ---------------- the running state ----------------
+let doses = 96, airlocks = 13, batch = 0, last = null, phaseKey = "", lastT = 0;
+const sm = { emit: 0.34, bio: 0.12 };
+const BATCH = 150, BOFF = 90, MAKE = 144;
+const batchAt = (t) => { const p = (t + BOFF) % BATCH; return { no: 7 + Math.floor((t + BOFF) / BATCH), p }; };
+{ // the log so far: the quarantine, the last batch, the last rounds
+  const c0 = cycleAt(0), prev = c0.st < 0 ? c0.n : c0.n - 1, b0 = batchAt(0);
+  logLine("Away team bioscans  ·  RV-4475 isolated", "Lab 2");
+  logLine("Quarantine declared  ·  Deck 12 sealed", "CMO");
+  logLine(`Antiviral batch ${b0.no - 1}  ·  20 doses`, "Pharm");
+  logLine(`${staffOf(prev - 1)} exits Ward ${wardOf(prev - 1) + 1}`, "Airlock");
+  logLine(`${staffOf(prev)} exits Ward ${wardOf(prev) + 1}`, "Airlock");
+  if (c0.st < 0) logLine(`Ward ${wardOf(prev) + 1} airlock sterile  ·  Scan clear`, "Clear");
+  batch = b0.no;
+}
+
+const showState = (c) => {
+  if (c.st >= 0) {
+    L.set(state, WORDS[1]);
+    L.set(stateSub, `Ward ${c.w + 1} airlock  ·  ${STAGES[c.st][0]}  ·  ${c.staff} leaving after rounds`);
+  } else {
+    L.set(state, WORDS[0]);
+    L.set(stateSub, `Four patients in isolation  ·  All fields at level 10  ·  Routine watch`);
+  }
+};
+
+L.tick((t) => {
+  const dt = Math.min(0.1, t - lastT); lastT = t;
+  const c = cycleAt(t);
+  // events, in order: a cycle starts, a cycle ends
+  if (last) {
+    if (c.n !== last.n) { doses -= 6; logLine(`${c.staff} exits Ward ${c.w + 1}`, "Airlock"); }
+    if (c.st < 0 && last.st >= 0) { airlocks++; logLine(`Ward ${c.w + 1} airlock sterile  ·  Scan clear`, "Clear"); }
+  }
+  last = c;
+  // the batch
+  const b = batchAt(t);
+  if (b.no !== batch) batch = b.no;
+  if (b.p >= MAKE && batchAt(t - dt).p < MAKE) {
+    {
+      doses += 20; logLine(`Antiviral batch ${b.no}  ·  20 doses`, "Pharm");
+      if (doses >= 240) { doses -= 120; setTimeout(() => logLine("120 doses to Sickbay stores", "Stores"), 3000); }
+    }
+  }
+  // the model turns: the shell one way, the capsid the other, the genome slowly, the scan arc steadily
+  tf(shell, `rotate(${((t * 360) / 300).toFixed(2)}deg)`);
+  tf(capsid, `rotate(${(-(t * 360) / 200).toFixed(2)}deg)`);
+  tf(genome, `rotate(${((t * 360) / 140).toFixed(2)}deg)`);
+  tf(scan, `rotate(${((t * 360) / 24).toFixed(2)}deg)`);
+  // the stages fill as they run; a finished cycle stays full while the airlocks stand by
+  STG.forEach((g, i) => showBar(g, c.st < 0 ? 1 : i < c.st ? 1 : i === c.st ? c.k : 0));
+  // synthesis: a steady fill, then the full bar fades and the next batch starts from empty
+  const prog = L.clamp(b.p / MAKE);
+  showBar(PRO.synth, prog);
+  op(PRO.synth.bar, b.p < MAKE + 3 ? 1 : L.clamp(1 - (b.p - MAKE - 3) / 2.5));
+  // loads ease with the fields: higher while the anionic and sterilization fields run
+  const hot = c.st === 1 || c.st === 2, e = 1 - Math.exp(-dt / 4);
+  sm.emit += ((hot ? 0.56 : 0.34) - sm.emit) * e;
+  sm.bio += ((hot ? 0.31 : c.st >= 0 ? 0.18 : 0.12) - sm.bio) * e;
+  showBar(FLD[3], sm.emit); showBar(ENV.bio, sm.bio);
+  // the phase in words, and the ward pill
+  const key = c.st >= 0 ? "run" + c.n + ":" + c.st : "idle";
+  if (key !== phaseKey) {
+    const first = !phaseKey; phaseKey = key;
+    if (first) showState(c); else swap([state, stateSub], () => showState(c));
+    tiles.forEach((tl, i) => {
+      if (!tl.occ) return;
+      const on = c.st >= 0 && c.w === i;
+      bg(tl.pill, on ? "white" : tl.w.sc); L.set(tl.pill, on ? "Airlock Cycling" : tl.w.status);
+    });
+  }
+});
+
+// the numbers: four times a second
+L.every(250, (t) => {
+  const c = cycleAt(t), b = batchAt(t);
+  // the wards
+  tiles.forEach((tl, i) => {
+    const [g0, g1, g2] = tl.g;
+    if (tl.occ) {
+      const w = tl.w, load = w.load * Math.exp(-t / 5000), temp = w.temp + 0.04 * wave(t, 47, i), pulse = w.pulse + 1.2 * wave(t, 31, 2 * i);
+      showBar(g0, Math.log10(load * 1000) / 5); L.set(g0.v, load.toFixed(1) + "k");
+      showBar(g1, (temp - 35) / 6); L.set(g1.v, temp.toFixed(1) + "°");
+      showBar(g2, pulse / 140); L.set(g2.v, String(Math.round(pulse)));
+    } else {
+      showBar(g0, 0.9999); L.set(g0.v, "99.99%");
+      showBar(g1, 0); L.set(g1.v, "0.00");
+      const temp = 20.1 + 0.05 * wave(t, 53, i); showBar(g2, temp / 40); L.set(g2.v, temp.toFixed(1) + "°");
+    }
+  });
+  // the scan
+  L.set(passTxt, String(212 + Math.floor(t / 24)));
+  // the profile
+  showBar(PRO.genome, 1); L.set(PRO.genome.v, "9,642 bp");
+  const repl = 0.31 * Math.exp(-t / 6000) + 0.003 * wave(t, 41); showBar(PRO.repl, repl / 1.0); L.set(PRO.repl.v, repl.toFixed(2) + " /h");
+  const eff = 92 + 0.4 * wave(t, 67); showBar(PRO.eff, eff / 100); L.set(PRO.eff.v, Math.round(eff) + "%");
+  L.set(PRO.synth.v, b.p < MAKE ? Math.floor((100 * b.p) / MAKE) + "%" : "Done");
+  showBar(PRO.doses, doses / 400); L.set(PRO.doses.v, String(doses));
+  // the fields
+  const f0 = 99.8 + 0.1 * wave(t, 37), f1 = 99.6 + 0.1 * wave(t, 43, 1), f2 = 99.7 + 0.1 * wave(t, 59, 2);
+  [f0, f1, f2].forEach((v, i) => { showBar(FLD[i], v / 100); L.set(FLD[i].v, v.toFixed(1) + "%"); });
+  L.set(FLD[3].v, Math.round(sm.emit * 100) + "%");
+  showBar(FLD[4], 1); L.set(FLD[4].v, "100%");
+  // the cycle
+  STG.forEach((g, i) => {
+    const done = c.st < 0 || i < c.st;
+    L.set(g.v, done ? "Done" : i === c.st ? mmss(STAGES[i][1] * (1 - c.k)) : "—");
+  });
+  if (c.st >= 0) L.set(cycCap, `Ward ${c.w + 1} airlock  ·  ${c.staff}  ·  Release in ${mmss(RUN - c.ph)}`);
+  else L.set(cycCap, `Airlocks standing by  ·  Next rounds Ward ${wardOf(c.n + 1) + 1} in ${mmss(PERIOD - c.ph)}`);
+  // the environment
+  const pr = 0.42 + 0.01 * wave(t, 39); showBar(ENV.press, pr / 1); L.set(ENV.press.v, "-" + pr.toFixed(2) + " kPa");
+  showBar(ENV.air, 18 / 30); L.set(ENV.air.v, "18 /h");
+  L.set(ENV.bio.v, Math.round(sm.bio * 100) + "%");
+  const hum = 42 + 0.6 * wave(t, 71); showBar(ENV.hum, hum / 100); L.set(ENV.hum.v, Math.round(hum) + "%");
+  const oxy = 21.0 + 0.04 * wave(t, 83); showBar(ENV.oxy, oxy / 30); L.set(ENV.oxy.v, oxy.toFixed(1) + "%");
+  showBar(ENV.scrub, 0.97); L.set(ENV.scrub.v, "97%");
+  L.set(protoV[5], String(airlocks));
+}, 0);
+});
+</script></body></html>

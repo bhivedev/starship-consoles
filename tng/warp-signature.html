@@ -1,0 +1,461 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Warp Signature</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .sw { transition: background-color .9s ease, color .9s ease; }
+  .fd { transition: opacity .45s ease; }
+  .fd.out { opacity: 0; }
+  .dot { border-radius: 50%; }
+  .ring { border-radius: 50%; border: 5px solid var(--butter); }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: wide, no sidebars ----------------
+L.frame({ type: "D", title: "Warp Signature  •  Trail Analysis", c: "sky", c2: "lilac", accent: "ice" });
+
+// three columns on one grid: the spectrum spans the first two
+const A0 = 40, A1 = 2296, B0 = 2360, B1 = 3816;            // spectrum | library
+const D0 = 40, D1 = 1136, O0 = 1200, O1 = 2296;            // the spectrum's width, halved
+const PANEL = "#0a0c26", GRID = "#1d2258", TRACK = "#1a1840", HI = "#1f2470";
+const col = (c) => (c.startsWith("#") ? c : `var(--${c})`);
+const smooth = (k) => k * k * k * (k * (k * 6 - 15) + 10);
+const sm = (a, b, u) => smooth(L.clamp((u - a) / (b - a)));
+const rng = (seed) => () => {                             // seeded: a trail reads the same every time it is shown
+  seed = (seed + 0x6d2b79f5) | 0;
+  let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+};
+const fill = (x, y, w, h, c, origin = "0 0", parent) => {
+  const f = L.layer({ x, y, w, h }, parent);
+  f.style.background = col(c); f.style.transformOrigin = origin;
+  return f;
+};
+const svgLayer = (x, y, w, h) => {                        // an SVG drawing on its own composited layer
+  const e = L.layer({ x, y, w, h });
+  const s = L.svg("svg", { width: w, height: h, viewBox: `0 0 ${w} ${h}` }, e);
+  s.style.position = "absolute"; s.style.overflow = "visible";
+  return { e, s };
+};
+const columns = (x0, x1, widths) => {                     // first column left at x0, the rest right-aligned, evenly spread
+  const total = widths.reduce((a, b) => a + b, 0), gap = (x1 - x0 - total) / (widths.length - 1);
+  let x = x0;
+  return widths.map((w, i) => { const r = x + w; x = r + gap; return i === 0 ? x0 : Math.round(r); });
+};
+const widest = (items, s) => Math.ceil(Math.max(...items.map((t) => L.textWidth(t, s))));
+
+// ---------------- the reference library: warp signatures by class ----------------
+const NB = 50;                                            // 10 MHz bands, 0 to 500 MHz
+const sig = (peaks) => {
+  const a = Array.from({ length: NB }, (_, i) => 0.16 * Math.exp(-i / 22) + peaks.reduce((s, [b, amp, w]) => s + amp * Math.exp(-Math.pow((i - b) / w, 2) / 2), 0));
+  const m = Math.max(...a);
+  return a.map((v) => v / m);
+};
+const REFS = [
+  ["Federation", "sky", "Galaxy Class", "Fleet Registry", [[9, 1, 1.6], [22, 0.55, 2], [35, 0.3, 1.5]]],
+  ["Federation", "sky", "Ambassador Class", "Narendra III", [[8, 1, 1.8], [20, 0.6, 2.2], [32, 0.35, 1.6]]],
+  ["Klingon", "mars", "Vor'cha Class", "Klingon Empire", [[14, 1, 1.4], [27, 0.7, 1.8], [41, 0.4, 1.4]]],
+  ["Klingon", "mars", "K't'inga Class", "Klingon Empire", [[13, 0.85, 1.8], [29, 1, 2], [44, 0.3, 1.4]]],
+  ["Romulan", "olive", "D'deridex Class", "Neutral Zone", [[4, 0.6, 3.5], [24, 1, 1.1], [38, 0.5, 2.5]]],
+  ["Cardassian", "tan", "Galor Class", "Minos Korva", [[11, 0.8, 1.6], [17, 1, 1.4], [33, 0.45, 2]]],
+  ["Ferengi", "orange", "D'Kora Class", "Delphi Ardu", [[20, 1, 2.4], [36, 0.75, 1.8], [46, 0.3, 1.2]]],
+  ["Pakled", "peach", "Mondor Class", "Rhomboid Dronegar", [[16, 1, 3], [30, 0.5, 3]]],
+  ["Borg", "lilac", "Borg Cube", "System J-25", [[2, 0.5, 1], [26, 0.35, 6], [47, 1, 1.2]]],
+  ["Borg", "lilac", "Borg Scout Vessel", "Argolis Cluster", [[3, 0.45, 1], [28, 0.3, 5], [46, 1, 1.3]]],
+].map(([power, c, cls, rec, peaks]) => ({ power, c, cls, rec, spec: sig(peaks) }));
+const NR = REFS.length;
+const score = (o, r) => Math.max(0, 100 * (1 - Math.sqrt(o.reduce((a, v, i) => a + (v - r[i]) ** 2, 0) / NB) / 0.55));
+
+// ---------------- the trails, analysed one after another ----------------
+// ref: the class that laid it (-1: not in the library). w: warp factor. a0: hours since it passed us.
+// d: light years back to where it began. hl: the trail's half-life, hours.
+const TRAILS = [
+  { ref: 2, w: 6.0, a0: 14.2, d: 2.4, hl: 20, brg: [214, 6], hd: [32, 4], from: "Mempa System", chem: [1.42, 71, 318, 22.4] },
+  { ref: 4, w: 7.0, a0: 9.6, d: 3.6, hl: 28, brg: [301, 12], hd: [118, 3], from: "Neutral Zone", chem: [0.06, 84, 52, 31.8] },
+  { ref: 5, w: 5.0, a0: 18.5, d: 1.2, hl: 22, brg: [148, 352], hd: [329, 8], from: "Celtris III", chem: [1.18, 62, 286, 17.6] },
+  { ref: 6, w: 4.0, a0: 22.4, d: 0.6, hl: 18, brg: [87, 5], hd: [266, 1], from: "Barzan System", chem: [0.94, 55, 244, 12.1] },
+  { ref: 1, w: 6.0, a0: 6.8, d: 2.9, hl: 24, brg: [12, 4], hd: [191, 2], from: "Starbase 74", chem: [1.31, 68, 297, 20.8] },
+  { ref: -1, w: 5.0, a0: 31.0, d: 1.2, hl: 26, brg: [243, 9], hd: [57, 6], from: "Sector 21538", chem: [0.71, 79, 158, 26.3],
+    peaks: [[18, 1, 2], [31, 0.6, 2.6], [43, 0.5, 1.6]] },
+];
+const lyph = (w) => Math.pow(w, 10 / 3) / 8766;           // light years per hour at warp w
+const N0 = 41, CYCLE = 60, OFFSET = 9, MATCH = 80;
+const C0 = 17, CS = 2.8;                                  // comparisons: one reference every 2.8 s from u = 17
+const trailAt = (s) => N0 + Math.floor((s + OFFSET) / CYCLE);
+const cyc = (s) => (((s + OFFSET) % CYCLE) + CYCLE) % CYCLE;
+const sdAt = (n, u) => (46271.0 + 0.1 * (n - N0) + (0.1 * u) / CYCLE).toFixed(1);
+const trails = new Map();
+const trail = (n) => {
+  if (trails.has(n)) return trails.get(n);
+  const T = TRAILS[((n % TRAILS.length) + TRAILS.length) % TRAILS.length], r = rng(n * 7919 + 17);
+  const base = T.ref >= 0 ? REFS[T.ref].spec : sig(T.peaks);
+  let o = base.map((v) => v * (1 + 0.08 * (r() * 2 - 1)) + 0.03 * r());
+  const m = Math.max(...o); o = o.map((v) => v / m);
+  const match = REFS.map((R) => score(o, R.spec));
+  const best = match.indexOf(Math.max(...match));
+  const v = lyph(T.w), span = Math.min(0.7, v * 16);       // the stretch of trail our sensors sample
+  const samples = Array.from({ length: 8 }, (_, k) => {
+    const dist = 0.05 + (span - 0.05) * (k / 7), age = T.a0 + dist / v;
+    return { dist, age, lvl: 100 * Math.pow(0.5, age / T.hl) * (1 + 0.05 * (r() * 2 - 1)) };
+  });
+  const R = Object.assign({}, T, { n, o, match, best, ok: match[best] >= MATCH, v, samples, aO: T.a0 + T.d / v,
+    sector: 21500 + ((n * 37) % 90), bear: `${T.brg[0] + (n % 3)} mark ${T.brg[1] % 360}`, off: (r() * 2 - 1) });
+  trails.set(n, R);
+  return R;
+};
+const name = (R) => (R.ok ? REFS[R.best].cls : "Unidentified");
+
+// ---------------- status line ----------------
+const stateTxt = L.text({ x: A0, cap: 150, s: 100, c: "lilac", txt: "" });
+const stateSub = L.text({ x: 0, base: 222, s: 38, c: "sky", txt: "" });
+const setState = (word, sub) => {
+  L.set(stateTxt, word);
+  stateSub.style.left = A0 + L.textWidth(word, 100) + 40 + "px";
+  L.set(stateSub, sub);
+};
+const pill = L.box({ x: B1 - 400, y: 150, w: 400, h: 72, c: "sky", label: "", r: "lr", fs: 36, cls: "sw" });
+L.text({ x: B0, base: 222, s: 40, c: "sky", txt: "Stardate" });
+const sdVal = L.text({ x: B0 + L.textWidth("Stardate", 40) + 24, base: 222, s: 52, c: "white", txt: "" });
+
+// ---------------- warp signature spectrum (top, wide) ----------------
+const PT = 428, PB = 960, PH = PB - PT, CAP = 400, AXIS = 1008;
+L.header({ x: A0, y: 280, w: A1 - A0, label: "Warp Signature Spectrum", c1: "sky", c2: "lilac" });
+L.text({ x: A0, base: CAP, s: 36, c: "lilac", txt: "Relative Intensity  ·  Percent of Peak" });
+{ // the key, set right: observed bars, reference trace
+  const rw = L.textWidth("Library Reference", 36);
+  L.text({ x: A1, base: CAP, s: 36, c: "white", txt: "Library Reference", align: "r" });
+  L.rect({ x: A1 - rw - 24 - 44, y: CAP - 16, w: 44, h: 6, c: "white", free: true });
+  const mx = A1 - rw - 24 - 44 - 48;
+  L.text({ x: mx, base: CAP, s: 36, c: "sky", txt: "Trail Observed", align: "r" });
+  L.rect({ x: mx - L.textWidth("Trail Observed", 36) - 24 - 26, y: CAP - 26, w: 26, h: 26, c: "sky", free: true });
+}
+L.rect({ x: A0, y: PT, w: A1 - A0, h: PH, c: PANEL, panel: true });
+for (let q = 0; q < 4; q++) {
+  const y = PT + (PH * q) / 4;
+  if (q > 0) L.rect({ x: A0, y: y - 1, w: A1 - A0, h: 2, c: GRID, free: true });
+  L.text({ x: A0 + 20, base: y + 42, s: 30, c: "lilac", txt: String(100 - 25 * q), legend: true });
+}
+const PX0 = A0 + 96, BGAP = 10, PITCH = (A1 - PX0 + BGAP) / NB, BW = Math.round(PITCH - BGAP);
+const bx = (i) => Math.round(PX0 + i * PITCH);
+const bars = Array.from({ length: NB }, (_, i) => {
+  const b = fill(bx(i), PT, BW, PH, "sky", "50% 100%");
+  b.style.transform = "scaleY(0)";
+  return { b, v: -1, o: "" };
+});
+for (let f = 0; f <= 500; f += 100) {                     // band edges: a label between the bars
+  const x = f === 0 ? PX0 : f === 500 ? A1 : Math.round(PX0 + (f / 10) * PITCH - BGAP / 2);
+  const txt = f === 500 ? "500 MHz" : String(f);
+  L.text({ x, base: AXIS, s: 30, c: "lilac", txt, align: f === 0 ? "l" : f === 500 ? "r" : "c", w: 160, legend: true });
+}
+// one reference trace per class, each on its own layer, faded in while it is compared
+const overlays = REFS.map((R) => {
+  const { e, s } = svgLayer(PX0, PT, A1 - PX0, PH);
+  const pts = R.spec.map((v, i) => `${(bx(i) - PX0 + BW / 2).toFixed(1)},${(PH * (1 - v * 0.999)).toFixed(1)}`).join(" ");
+  const p = L.svg("polyline", { points: pts, fill: "none", stroke: "var(--white)", "stroke-width": 5, "stroke-linejoin": "round", "stroke-linecap": "round" }, s);
+  e.style.opacity = 0;
+  return { e, p, op: 0 };
+});
+const sweepLine = L.layer({ x: PX0 - BGAP / 2 - 2, y: PT - 10, w: 4, h: PH + 20 });
+sweepLine.style.background = "var(--white)"; sweepLine.style.opacity = 0;
+
+// ---------------- reference library (top right) ----------------
+L.header({ x: B0, y: 280, w: B1 - B0, label: "Reference Library", c1: "lilac", c2: "sky" });
+const LROW = (i) => 468 + i * 54;
+const LCAP = ["Power", "Class", "Record", "Match"];
+const MBW = 220;
+const lw = [widest(REFS.map((r) => r.power), 40), widest(REFS.map((r) => r.cls), 40), widest(REFS.map((r) => r.rec), 36), MBW + 24 + L.textWidth("100.0%", 40)];
+const lc = columns(B0, B1, lw);
+const LCLS = lc[0] + lw[0] + 40;                          // class and record set left, after the power
+const LREC = LCLS + lw[1] + 40;
+[["Power", B0, "l"], ["Class", LCLS, "l"], ["Record", LREC, "l"], ["Match", B1, "r"]].forEach(([txt, x, align]) => L.text({ x, base: CAP, s: 36, c: "lilac", txt, align }));
+const hiRow = fill(B0 - 16, 0, B1 - B0 + 32, 54, HI);
+hiRow.style.opacity = 0;
+const MBX = LREC + lw[2] + 64, MBW2 = B1 - Math.ceil(L.textWidth("100.0%", 40)) - 32 - MBX;
+const lib = REFS.map((R, i) => {
+  const base = LROW(i);
+  L.text({ x: B0, base, s: 40, c: R.c, txt: R.power });
+  const cls = L.text({ x: LCLS, base, s: 40, c: "white", txt: R.cls, cls: "sw" });
+  L.text({ x: LREC, base, s: 36, c: "lilac", txt: R.rec });
+  L.rect({ x: MBX, y: base - 26, w: MBW2, h: 26, c: TRACK });
+  const bar = fill(MBX, base - 26, MBW2, 26, "lilac");
+  bar.style.transform = "scaleX(0)";
+  return { cls, bar, val: L.text({ x: B1, base, s: 40, c: "white", txt: "", align: "r" }), v: -1, best: null };
+});
+
+// ---------------- trail decay (middle left) ----------------
+const MH = 1060, MCAP = 1180, MT = 1208, MB = 1520, MHH = MB - MT, MAXIS = 1568;
+L.header({ x: D0, y: MH, w: D1 - D0, label: "Trail Decay", c1: "lilac", c2: "sky" });
+L.text({ x: D0, base: MCAP, s: 36, c: "lilac", txt: "Residual Field  ·  Percent" });
+const hlTxt = L.text({ x: D1, base: MCAP, s: 36, c: "white", txt: "", align: "r" });
+L.rect({ x: D0, y: MT, w: D1 - D0, h: MHH, c: PANEL, panel: true });
+const DX0 = D0 + 96, DX1 = D1 - 48, AMAX = 96;
+const ax = (a) => DX0 + (a / AMAX) * (DX1 - DX0);
+const ay = (v) => MB - (v / 100) * MHH;
+for (let q = 0; q < 4; q++) {
+  const y = MT + (MHH * q) / 4;
+  if (q > 0) L.rect({ x: D0, y: y - 1, w: D1 - D0, h: 2, c: GRID, free: true });
+  L.text({ x: D0 + 20, base: y + 42, s: 30, c: "lilac", txt: String(100 - 25 * q), legend: true });
+}
+for (let a = 24; a < AMAX; a += 24) L.rect({ x: Math.round(ax(a)) - 1, y: MT, w: 2, h: MHH, c: GRID, free: true });
+for (let a = 0; a <= AMAX; a += 24) L.text({ x: ax(a), base: MAXIS, s: 30, c: "lilac", txt: a === AMAX ? "96 h" : String(a), align: "c", w: 120, legend: true });
+const decay = svgLayer(D0, MT, D1 - D0, MHH);
+const decayPath = L.svg("path", { d: "", fill: "none", stroke: "var(--lilac)", "stroke-width": 5, "stroke-linecap": "round" }, decay.s);
+const decayExt = L.svg("path", { d: "", fill: "none", stroke: "var(--lilac)", "stroke-width": 4, "stroke-dasharray": "14 12", opacity: 0.8 }, decay.s);
+decay.e.style.opacity = 0;
+const sampleDots = Array.from({ length: 8 }, () => { const e = L.layer({ x: 0, y: 0, w: 18, h: 18, cls: "dot" }); e.style.background = "var(--white)"; e.style.opacity = 0; return e; });
+const originRing = L.layer({ x: 0, y: 0, w: 34, h: 34, cls: "ring" }); originRing.style.opacity = 0;
+
+// ---------------- origin estimate (middle centre) ----------------
+L.header({ x: O0, y: MH, w: O1 - O0, label: "Origin Estimate", c1: "sky", c2: "lilac" });
+L.text({ x: O0, base: MCAP, s: 36, c: "lilac", txt: "Back Projection  ·  Light Years" });
+const uncTxt = L.text({ x: O1, base: MCAP, s: 36, c: "white", txt: "", align: "r" });
+L.rect({ x: O0, y: MT, w: O1 - O0, h: MHH, c: PANEL, panel: true });
+const SHIPX = O1 - 120, OXL = O0 + 96, PXLY = (SHIPX - OXL) / 4, MIDY = MT + MHH / 2;
+const lx = (d) => SHIPX - d * PXLY;
+for (let d = 1; d <= 3; d++) L.rect({ x: Math.round(lx(d)) - 1, y: MT, w: 2, h: MHH, c: GRID, free: true });
+L.rect({ x: O0, y: MIDY - 1, w: O1 - O0, h: 2, c: GRID, free: true });
+for (let d = 4; d >= 0; d--) L.text({ x: lx(d), base: MAXIS, s: 30, c: "lilac", txt: d === 0 ? "Enterprise" : d === 4 ? "4 ly" : String(d), align: "c", w: 200, legend: true });
+// the ship: a small marker at the zero line
+const shipMark = L.layer({ x: SHIPX - 16, y: MIDY - 16, w: 32, h: 32 });
+shipMark.style.background = "var(--sky)"; shipMark.style.transform = "rotate(45deg)";
+const orig = svgLayer(O0, MT, O1 - O0, MHH);
+const trailSolid = L.svg("line", { stroke: "var(--sky)", "stroke-width": 5, "stroke-linecap": "round" }, orig.s);
+orig.e.style.opacity = 0;
+const proj = svgLayer(O0, MT, O1 - O0, MHH);
+const trailProj = L.svg("line", { stroke: "var(--butter)", "stroke-width": 4, "stroke-dasharray": "14 12" }, proj.s);
+proj.e.style.opacity = 0;
+const ellipse = L.layer({ x: 0, y: 0, w: 10, h: 10, cls: "ring" }); ellipse.style.opacity = 0; ellipse.style.borderColor = "var(--butter)";
+const originLbl = L.text({ x: 0, base: 0, s: 36, c: "butter", txt: "" }, L.layer({ x: 0, y: 0, w: 1, h: 1 }));
+const originBox = originLbl.parentElement; originBox.style.opacity = 0;
+const pathDots = Array.from({ length: 8 }, () => { const e = L.layer({ x: 0, y: 0, w: 14, h: 14, cls: "dot" }); e.style.background = "var(--white)"; e.style.opacity = 0; return e; });
+
+// ---------------- trail parameters (middle right) ----------------
+L.header({ x: B0, y: MH, w: B1 - B0, label: "Trail Parameters", c1: "sky", c2: "lilac" });
+const PROW = (i) => 1252 + i * 79;
+const PARAMS = [["Warp Factor", "Field dispersion"], ["Heading", "Trail axis"], ["Trail Age", "Decay fit"], ["Origin Range", "Back projection"], ["Departed Origin", "Hours before contact"]];
+const pcx = columns(B0, B1, [widest(PARAMS.map((p) => p[0]), 40), L.textWidth("888 mark 888", 52), widest(PARAMS.map((p) => p[1]), 36)]);
+const PVX = pcx[1];
+L.text({ x: B0, base: MCAP, s: 36, c: "lilac", txt: "Parameter" });
+L.text({ x: PVX, base: MCAP, s: 36, c: "lilac", txt: "Estimate", align: "r" });
+L.text({ x: B1, base: MCAP, s: 36, c: "lilac", txt: "Method", align: "r" });
+const params = PARAMS.map(([nm, how], i) => {
+  L.text({ x: B0, base: PROW(i), s: 40, c: "sky", txt: nm });
+  L.text({ x: B1, base: PROW(i), s: 36, c: "lilac", txt: how, align: "r" });
+  return L.text({ x: PVX, base: PROW(i), s: 52, c: "white", txt: "", align: "r", cls: "sw" });
+});
+
+// ---------------- bottom strip: log, contacts, composition ----------------
+const BH = 1620, BCAP = 1716, BROW = (i) => 1776 + i * 54, NL = 4;
+L.header({ x: D0, y: BH, w: D1 - D0, label: "Analysis Log", c1: "sky", c2: "lilac", h: 48 });
+L.text({ x: D0, base: BCAP, s: 36, c: "lilac", txt: "Stardate" });
+const LTX = D0 + L.textWidth("46888.8", 36) + 48;
+L.text({ x: LTX, base: BCAP, s: 36, c: "lilac", txt: "Trail  ·  Identified As  ·  Origin" });
+L.text({ x: D1, base: BCAP, s: 36, c: "lilac", txt: "Match", align: "r" });
+const logRows = Array.from({ length: NL }, (_, i) => ({
+  sd: L.text({ x: D0, base: BROW(i), s: 36, c: "sky", txt: "", cls: "fd" }),
+  tx: L.text({ x: LTX, base: BROW(i), s: 36, c: "white", txt: "", cls: "fd" }),
+  pc: L.text({ x: D1, base: BROW(i), s: 36, c: "ice", txt: "", align: "r", cls: "fd" }),
+}));
+
+L.header({ x: O0, y: BH, w: O1 - O0, label: "Trail Contacts", c1: "lilac", c2: "sky", h: 48 });
+const QCAP = ["Trail", "Bearing", "Sector", "Status"];
+const qc = columns(O0, O1, [L.textWidth("Trail 888", 36), L.textWidth("888 mark 888", 36), L.textWidth("Sector", 36), L.textWidth("Analyzing", 36)]);
+QCAP.forEach((txt, j) => L.text({ x: qc[j], base: BCAP, s: 36, c: "lilac", txt, align: j ? "r" : "l" }));
+const qRows = Array.from({ length: NL }, (_, i) => QCAP.map((_, j) => L.text({ x: qc[j], base: BROW(i), s: 36, c: j ? "white" : "sky", txt: "", align: j ? "r" : "l", cls: "fd sw" })));
+
+L.header({ x: B0, y: BH, w: B1 - B0, label: "Trail Composition", c1: "sky", c2: "lilac", h: 48 });
+const COMP = [["Antimatter Residue", 2, (v) => v.toFixed(2) + " ppm"], ["Plasma Ionization", 100, (v) => Math.round(v) + "%"],
+              ["Deuterium Trace", 400, (v) => Math.round(v) + " ppb"], ["Subspace Distortion", 40, (v) => v.toFixed(1) + " mc"]];
+const CVW = Math.ceil(L.textWidth("0.00 ppm", 36) / 10) * 10;
+const CLX = B0 + widest(COMP.map((c) => c[0]), 36) + 48, CLW = B1 - CVW - 40 - CLX;
+L.text({ x: B0, base: BCAP, s: 36, c: "lilac", txt: "Trace" });
+L.text({ x: CLX, base: BCAP, s: 36, c: "lilac", txt: "Level at Contact" });
+L.text({ x: B1, base: BCAP, s: 36, c: "lilac", txt: "Value", align: "r" });
+const comp = COMP.map(([nm, max, show], i) => {
+  const base = BROW(i);
+  L.text({ x: B0, base, s: 36, c: "sky", txt: nm });
+  L.rect({ x: CLX, y: base - 26, w: CLW, h: 26, c: TRACK });
+  const bar = fill(CLX, base - 26, CLW, 26, i % 2 ? "lilac" : "sky");
+  return { max, show, bar, val: L.text({ x: B1, base, s: 36, c: "white", txt: "", align: "r" }), v: -1 };
+});
+
+// a trail on the origin plot: a straight line from its origin, passing the ship
+const geo = (R) => {
+  const yO = MIDY + (R.off > 0 ? 1 : -1) * (40 + 50 * Math.abs(R.off)), yS = MIDY - (yO - MIDY) * 0.25;
+  return (d) => [lx(d), yS + ((yO - yS) * d) / R.d];
+};
+const prevMarks = Array.from({ length: 4 }, () => {
+  const e = L.layer({ x: 0, y: 0, w: 26, h: 26, cls: "ring" });
+  e.style.borderColor = "var(--lilac)"; e.style.borderWidth = "4px";
+  const tb = L.layer({ x: 0, y: 0, w: 1, h: 1 });
+  const t = L.text({ x: 0, base: 0, s: 30, c: "lilac", txt: "" }, tb);
+  return { e, tb, t };
+});
+// ---------------- drawing a trail once, while it is hidden ----------------
+let drawnN = null;
+const drawTrail = (R) => {
+  drawnN = R.n;
+  // decay: the fitted curve over the sampled stretch, dashed on to the origin
+  const curve = (a0, a1) => { let d = ""; for (let k = 0; k <= 40; k++) { const a = a0 + ((a1 - a0) * k) / 40; d += (k ? "L" : "M") + (ax(a) - D0).toFixed(1) + "," + (ay(100 * Math.pow(0.5, a / R.hl)) - MT).toFixed(1); } return d; };
+  decayPath.setAttribute("d", curve(0, R.samples[7].age));
+  decayExt.setAttribute("d", curve(R.samples[7].age, R.aO));
+  R.samples.forEach((p, k) => L.move(sampleDots[k], ax(p.age) - 9, ay(p.lvl) - 9));
+  L.move(originRing, ax(R.aO) - 17, ay(100 * Math.pow(0.5, R.aO / R.hl)) - 17);
+  // origin: a straight trail from the origin, passing the ship
+  const at = geo(R);
+  // the origins of the last four trails, dim, for comparison
+  // (a mark that would land on another, or on this trail's origin, is left out: no overlapping labels)
+  const placed = [at(R.d)];
+  prevMarks.forEach((m, k) => {
+    const Q = trail(R.n - 1 - k), [x, y] = geo(Q)(Q.d);
+    const clear = placed.every(([px, py]) => Math.hypot(px - x, py - y) > 110);
+    m.hide = !clear;
+    if (!clear) return;
+    placed.push([x, y]);
+    L.move(m.e, x - 13, y - 13);
+    L.set(m.t, String(Q.n));
+    L.move(m.tb, x + 22, y + 11);
+  });
+  const [x0, y0] = at(-0.25), [x1, y1] = at(R.samples[7].dist), [x2, y2] = at(R.d);
+  Object.entries({ x1: x0 - O0, y1: y0 - MT, x2: x1 - O0, y2: y1 - MT }).forEach(([k, v]) => trailSolid.setAttribute(k, v.toFixed(1)));
+  Object.entries({ x1: x1 - O0, y1: y1 - MT, x2: x2 - O0, y2: y2 - MT }).forEach(([k, v]) => trailProj.setAttribute(k, v.toFixed(1)));
+  R.samples.forEach((p, k) => { const [x, y] = at(p.dist); L.move(pathDots[k], x - 7, y - 7); });
+  const ew = 120, eh = 70;
+  ellipse.style.width = ew + "px"; ellipse.style.height = eh + "px";
+  ellipse.style.left = x2 - ew / 2 + "px"; ellipse.style.top = y2 - eh / 2 + "px";
+  L.set(originLbl, R.from);
+  const tw = L.textWidth(R.from, 36), lxp = L.clamp(x2 - tw / 2, O0 + 24, O1 - 24 - tw);
+  const ly = y2 > MIDY ? y2 - eh / 2 - 22 : y2 + eh / 2 + 22 + 0.72 * 36;
+  L.move(originBox, lxp, ly);
+};
+
+// ---------------- the clock ----------------
+const PH_ACQ = 3, PH_SCAN = 17, PH_CMP = C0 + NR * CS, PH_ORG = 53;   // 3, 17, 45, 53
+const SW0 = 3.6, SW1 = 16.4;
+const swept = (u) => L.clamp((u - SW0) / (SW1 - SW0));
+const setOp = (o, v) => { v = v.toFixed(3); if (o.op !== v) { o.op = v; o.e.style.opacity = v; } };
+const opa = (e, v) => { v = v.toFixed(3); if (e._o !== v) { e._o = v; e.style.opacity = v; } };
+const cmpDone = (u, j) => L.clamp((u - (C0 + j * CS) - 0.4) / 1.6);    // reference j's match, counted in
+L.tick((t) => {
+  const u = cyc(t), n = trailAt(t), R = trail(n), P = trail(n - 1);
+  if (drawnN !== n && u >= 1.5) drawTrail(R);
+  if (drawnN === null) drawTrail(u >= 1.5 ? R : P);
+  const cur = u < 1.5 ? P : R;                             // what the panels show: last trail until the new one is drawn
+  // spectrum bars: fall away for the new trail, then rise as the sweep reaches them
+  const s = swept(u);
+  bars.forEach((b, i) => {
+    let v;
+    if (u < PH_ACQ) v = P.o[i] * (1 - sm(0, 2.4, u));
+    else { const t0 = SW0 + (i / NB) * (SW1 - SW0); v = R.o[i] * L.ease(L.clamp((u - t0) / 0.7)); }
+    if (Math.abs(v - b.v) > 0.0004) { b.v = v; b.b.style.transform = `scaleY(${v.toFixed(4)})`; }
+  });
+  L.move(sweepLine, (A1 - PX0) * s, 0);
+  opa(sweepLine, sm(SW0 - 0.5, SW0, u) * (1 - sm(SW1, SW1 + 0.5, u)));
+  // reference traces: the one being compared, then the best match held to the end
+  const j = Math.floor((u - C0) / CS), inCmp = u >= C0 && u < PH_CMP;
+  overlays.forEach((ov, i) => {
+    let v = 0;
+    if (inCmp && i === j) { const a = C0 + j * CS; v = sm(a, a + 0.4, u) * (1 - sm(a + CS - 0.4, a + CS, u)); }
+    if (u >= PH_CMP && i === R.best) v = sm(PH_CMP, PH_CMP + 0.8, u) * (1 - sm(CYCLE - 1, CYCLE, u));
+    if (u < 1 && i === P.best) v = 1 - sm(0, 1, u);
+    setOp(ov, v);
+  });
+  // the library row under comparison
+  if (inCmp) { L.move(hiRow, 0, LROW(j) - 40); opa(hiRow, sm(C0, C0 + 0.4, u)); }
+  else if (u >= PH_CMP) { L.move(hiRow, 0, LROW(R.best) - 40); opa(hiRow, 1 - sm(CYCLE - 1, CYCLE, u)); }
+  else opa(hiRow, 0);
+  lib.forEach((row, i) => {
+    const k = u < PH_ACQ ? (1 - sm(0, 1.5, u)) * (P.match[i] / 100) : (cmpDone(u, i) * R.match[i]) / 100;
+    if (Math.abs(k - row.v) > 0.0004) { row.v = k; row.bar.style.transform = `scaleX(${k.toFixed(4)})`; }
+  });
+  // decay and origin plots
+  const fade = 1 - sm(0, 1.4, u);                          // the old trail fades out first
+  sampleDots.forEach((e, k) => opa(e, u < PH_ACQ ? fade * (u < 1.5 ? 1 : 0) : sm(SW0 + k * 1.5, SW0 + k * 1.5 + 0.6, u)));
+  pathDots.forEach((e, k) => opa(e, u < PH_ACQ ? fade * (u < 1.5 ? 1 : 0) : sm(SW0 + k * 1.5, SW0 + k * 1.5 + 0.6, u)));
+  opa(orig.e, u < PH_ACQ ? (u < 1.5 ? fade : sm(1.5, 3, u)) : 1);
+  prevMarks.forEach((m) => { const v = m.hide ? 0 : orig.e._o; opa(m.e, 0.6 * v); opa(m.tb, 0.8 * v); });
+  opa(decay.e, u < PH_ACQ ? (u < 1.5 ? fade : 0) : sm(PH_CMP, PH_CMP + 2, u));
+  opa(originRing, u < PH_ACQ ? (u < 1.5 ? fade : 0) : sm(PH_CMP + 2, PH_CMP + 3, u));
+  opa(proj.e, u < PH_ACQ ? (u < 1.5 ? fade : 0) : sm(PH_CMP + 2, PH_CMP + 3.5, u));
+  const e = sm(PH_CMP + 2.5, PH_ORG, u);
+  opa(ellipse, u < PH_ACQ ? (u < 1.5 ? fade : 0) : sm(PH_CMP + 2.5, PH_CMP + 3.2, u));
+  ellipse.style.transform = `scale(${(u < PH_ACQ ? 1 : 2.2 - 1.2 * e).toFixed(4)})`;
+  opa(originBox, u < PH_ACQ ? (u < 1.5 ? fade : 0) : sm(PH_ORG - 0.6, PH_ORG + 0.4, u));
+  // composition: glides to the new trail's levels during the scan
+  const g = sm(SW0, SW0 + 3, u);
+  comp.forEach((c, i) => {
+    const v = L.mix(P.chem[i], R.chem[i], u < PH_ACQ ? 0 : g), k = L.clamp(v / c.max);
+    c.now = v;
+    if (Math.abs(k - c.v) > 0.0004) { c.v = k; c.bar.style.transform = `scaleX(${k.toFixed(4)})`; }
+  });
+});
+
+let lastN = null, lastLogged = null;
+const PEND = "Pending";
+L.every(250, (t) => {
+  const u = cyc(t), n = trailAt(t), R = trail(n);
+  // status
+  const j = L.clamp(Math.floor((u - C0) / CS), 0, NR - 1);
+  const word = u < PH_ACQ ? "Acquiring" : u < PH_SCAN ? "Spectral Scan" : u < PH_CMP ? "Comparing" : u < PH_ORG ? "Projecting" : R.ok ? "Match Found" : "No Match";
+  setState(word, `Trail ${n}  ·  Bearing ${R.bear}  ·  Sector ${R.sector}  ·  Long Range Sensors`);
+  L.set(sdVal, sdAt(n, u));
+  const done = REFS.filter((_, i) => cmpDone(u, i) >= 1).length;
+  const [pl, pc] = u < PH_SCAN ? ["Trail Locked", "sky"] : u < PH_CMP ? [`Compared ${done} of ${NR}`, "lilac"]
+    : R.ok ? [`Match  ·  ${R.match[R.best].toFixed(1)}%`, "butter"] : ["No Match", "plum"];
+  L.set(pill, pl); pill.style.background = col(pc);
+  // library values
+  lib.forEach((row, i) => {
+    if (u < PH_ACQ || cmpDone(u, i) <= 0) { L.set(row.val, u < PH_ACQ ? "" : "Pending"); row.val.style.color = col("plum"); }
+    else { L.set(row.val, (cmpDone(u, i) * R.match[i]).toFixed(1) + "%"); row.val.style.color = col(cmpDone(u, i) >= 1 ? "white" : "ice"); }
+    const best = u >= PH_CMP && i === R.best;
+    if (row.best !== best) { row.best = best; row.cls.style.color = col(best ? (R.ok ? "butter" : "plum") : "white"); }
+  });
+  // decay caption, origin uncertainty, parameters
+  const fitted = u >= PH_CMP + 2;
+  L.set(hlTxt, fitted ? `Half-Life  ·  ${R.hl.toFixed(1)} h` : "Half-Life  ·  Fitting");
+  const unc = 0.12 + 0.08 * R.d;
+  const eK = 2.2 - 1.2 * sm(PH_CMP + 2.5, PH_ORG, u);
+  L.set(uncTxt, u >= PH_CMP + 2.5 ? `Uncertainty  ·  ± ${(unc * eK).toFixed(2)} ly` : "Uncertainty  ·  Pending");
+  const vals = [
+    u >= PH_SCAN ? `Warp ${R.w.toFixed(1)}` : PEND,
+    u >= PH_SCAN ? `${R.hd[0]} mark ${R.hd[1]}` : PEND,
+    fitted ? `${R.a0.toFixed(1)} h` : PEND,
+    u >= PH_ORG ? `${R.d.toFixed(1)} ly` : PEND,
+    u >= PH_ORG ? `${R.aO.toFixed(1)} h` : PEND,
+  ];
+  params.forEach((e, i) => { L.set(e, vals[i]); e.style.color = col(vals[i] === PEND ? "plum" : "white"); });
+  comp.forEach((c) => L.set(c.val, c.show(c.now)));
+  // the log: a trail is logged at the end of its analysis, in order
+  const logged = u >= PH_ORG ? n : n - 1;
+  if (logged !== lastLogged) {
+    const first = lastLogged === null;
+    lastLogged = logged;
+    const put = () => logRows.forEach((r, i) => {
+      const Q = trail(logged - (NL - 1) + i);
+      L.set(r.sd, sdAt(Q.n, PH_ORG));
+      L.set(r.tx, `Trail ${Q.n}  ·  ${Q.ok ? REFS[Q.best].cls : "Unidentified"}  ·  ${Q.from}`);
+      L.set(r.pc, Q.match[Q.best].toFixed(1) + "%");
+      r.pc.style.color = col(Q.ok ? "ice" : "plum");
+    });
+    if (first) put();
+    else { logRows.forEach((r) => [r.sd, r.tx, r.pc].forEach((e) => e.classList.add("out"))); setTimeout(() => { put(); logRows.forEach((r) => [r.sd, r.tx, r.pc].forEach((e) => e.classList.remove("out"))); }, 450); }
+  }
+  // contacts: the last trail logged, this one, and those waiting
+  if (n !== lastN) {
+    const first = lastN === null;
+    lastN = n;
+    const put = () => qRows.forEach((row, i) => {
+      const Q = trail(n - 1 + i);
+      const st = i === 0 ? ["Logged", "ice"] : i === 1 ? ["Analyzing", "butter"] : ["Queued", "plum"];
+      [`Trail ${Q.n}`, Q.bear, String(Q.sector), st[0]].forEach((txt, k) => L.set(row[k], txt));
+      row[3].style.color = col(st[1]);
+    });
+    if (first) put();
+    else { qRows.flat().forEach((e) => e.classList.add("out")); setTimeout(() => { put(); qRows.flat().forEach((e) => e.classList.remove("out")); }, 450); }
+  }
+}, 0);
+});
+</script></body></html>

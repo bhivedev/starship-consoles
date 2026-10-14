@@ -1,0 +1,621 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Holodeck</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .room { position: absolute; overflow: hidden; }
+  .sweep { background: #fff3cf; box-shadow: 0 0 22px 6px rgba(255, 214, 110, .75); }
+  .ring { border-radius: 50%; border: 9px solid var(--white); transform-origin: 0 0; }
+  .beam { background: linear-gradient(to top, rgba(242,242,255,.95), rgba(242,242,255,0)); transform-origin: 0 0; }
+  .cell { position: absolute; transition: background-color .7s ease; }
+  .pill { transition: background-color 1.2s ease; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: sidebar on the left, title at top right ----------------
+const BAR = 64;
+L.title({ x: 3700, y: 40, h: BAR, c: "butter", txt: "Holodeck 3  •  Program Control" });
+// (L.title measures with a canvas, which sets this line ~11px wider than the page draws it; use the page's own width)
+const titleLeft = 3700 - document.querySelector("[data-title]").offsetWidth;
+L.box({ x: 3724, y: 40, w: 92, h: BAR, c: "gold", r: "r" });
+L.elbow({ corner: "tl", x: 40, y: 40, w: 1360, h: 250, bw: 240, bh: BAR, R: 150, r: 60, c: "gold" });
+L.rect({ x: 1400 + L.GAP, y: 40, w: 300, h: BAR, c: "orange" });
+L.rect({ x: 1724 + L.GAP, y: 40, w: titleLeft - L.GAP - (1724 + L.GAP), h: BAR, c: "gold" });
+[[298, 140, "butter", "Holo 03"], [446, 70, "orange", "Deck 11"], [524, 420, "gold", "Grid"], [952, 70, "tan", "1.5 M"],
+ [1030, 300, "butter", "Programs"], [1338, 70, "orange", "Arch"], [1416, 216, "gold", "Emitters"]]
+  .forEach(([y, h, c, label]) => L.box({ x: 40, y, w: 240, h, c, label }));
+L.elbow({ corner: "bl", x: 40, y: 1640, w: 1500, h: 480, bw: 240, bh: BAR, R: 150, r: 60, c: "orange" });
+L.text({ x: 258, base: 1712, s: 40, c: "#000", txt: "Holodeck", align: "r", on: true });
+[[1540 + L.GAP, 600, "butter"], [2164 + L.GAP, 900, "gold"], [3088 + L.GAP, 3700 - (3088 + L.GAP), "orange"]]
+  .forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
+L.box({ x: 3724, y: 2056, w: 92, h: BAR, c: "gold", r: "r" });
+
+const header = (x, y, w, label, c1, c2, h = 56, fs = 32) => {
+  const lw = Math.round((L.textWidth(label, fs) + 64) / 10) * 10;
+  L.box({ x, y, w: lw, h, c: c1, label, fs, r: "l" });
+  if (c2) L.rect({ x: x + lw + L.GAP, y, w: w - lw - L.GAP, h, c: c2 });
+  return lw;
+};
+const fill = (x, y, w, h, c, parent) => {
+  const f = L.layer({ x, y, w, h }, parent);
+  f.style.background = c.startsWith("#") ? c : `var(--${c})`; f.style.transformOrigin = "0 0";
+  return f;
+};
+const pad2 = (n) => String(n).padStart(2, "0");
+const hms = (s) => `${pad2(Math.floor(s / 3600))}:${pad2(Math.floor(s / 60) % 60)}:${pad2(Math.floor(s) % 60)}`;
+
+// columns: the room 330–2350, the right-hand column 2410–3816
+const C1 = 330, C1R = 2350, C3 = 2410, C3R = 3816;
+
+// ---------------- the programs ----------------
+// geometric primitives, in metres: X across (−10 … 10), Z into the room (0 … 24), Y up
+const box = (x, z, w, d, h, y0 = 0) => ({ k: "box", x, z, w, d, h, y0 });
+const cyl = (x, z, r, h, y0 = 0) => ({ k: "cyl", x, z, r, h, y0 });
+const cone = (x, z, r, h, y0 = 0) => ({ k: "cone", x, z, r, h, y0 });
+const pyr = (x, z, w, d, h, y0 = 0) => ({ k: "pyr", x, z, w, d, h, y0 });
+const ball = (x, y, z, r) => ({ k: "ball", x, y, z, r });
+const table = (x, z) => [cyl(x, z, 0.8, 0.1, 1.0), cyl(x, z, 0.09, 1.0)];
+const chair = (x, z, back = 1) => [box(x, z, 1.0, 1.0, 0.9), box(x, z + 0.45 * back, 1.0, 0.16, 1.2, 0.9)];
+const parasol = (x, z) => [...table(x, z), cyl(x, z, 0.05, 1.7, 1.1), cone(x, z, 1.7, 0.7, 2.8)];
+const tree = (x, z, s = 1) => [cyl(x, z, 0.22 * s, 1.4 * s), cone(x, z, 1.3 * s, 3.4 * s, 1.4 * s)];
+const RH = 11.88;
+const PROGRAMS = [
+  { code: "0471", name: "Dixon Hill", story: "The Big Goodbye", setting: "San Francisco, 1941", by: "Picard",
+    party: ["Captain Picard", "Lt. Cmdr. Data", "Dr. Crusher"], at: [[-3, 10], [3.5, 9], [-6, 13]], cast: [["Cyrus Redblock", 4, 21]],
+    pw: [3.6, 2.2, 1.1, 0.9, 0.5], scene: [
+      [box(0, 15, 3.4, 1.4, 1.5), cyl(1.0, 15, 0.1, 0.5, 1.5), cone(1.0, 15, 0.45, 0.45, 2.0)],
+      chair(0, 16.8), chair(-2, 12.2, -1), chair(2, 12.2, -1),
+      [box(-6.6, 19.5, 1.3, 1.3, 2.9)], [box(-5.1, 19.5, 1.3, 1.3, 2.9)],
+      [cyl(6.5, 18, 0.1, 3.6), cyl(6.5, 18, 0.5, 0.12, 0)],
+      [box(3.6, 23, 0.3, 0.4, 4.4), box(6.4, 23, 0.3, 0.4, 4.4), box(5, 23, 3.1, 0.4, 0.4, 4.4)]] },
+  { code: "1182", name: "Sherlock Holmes", story: "Elementary, Dear Data", setting: "London, 1890", by: "Data",
+    party: ["Lt. Cmdr. Data", "Lt. La Forge", "Dr. Pulaski"], at: [[-1.5, 8], [2.5, 9.5], [5.5, 11]], cast: [["Professor Moriarty", 6, 20]],
+    pw: [4.1, 2.6, 0.9, 1.2, 0.6], scene: [
+      [box(0, 23, 4.4, 1.2, 2.8), box(0, 22.8, 5.2, 1.7, 0.3, 2.8)],
+      chair(-2.6, 18.5), chair(2.6, 18.5),
+      [...table(0, 13), ball(0, 1.45, 13, 0.35)],
+      [box(-8.6, 15, 1.4, 4, 4.6)], [box(8.6, 16, 1.4, 4, 4.6)],
+      [cyl(-6, 9, 0.6, 0.5), cyl(-6, 9, 0.12, 2.6, 0.5)]] },
+  { code: "2207", name: "Vulcan Retreat", story: "Meditation of Kolinahr", setting: "Vulcan, Gol Plateau", by: "Troi",
+    party: ["Counselor Troi"], at: [[0, 9]], cast: [["Vulcan Master", 0, 14.5], ["Acolyte", -4.5, 11], ["Acolyte", 4.5, 10.5]],
+    pw: [3.2, 2.9, 0.4, 2.2, 0.3], scene: [
+      [pyr(-5, 21.5, 8, 4, 6.5)], [pyr(3.5, 22, 10, 3.5, 8)],
+      [cyl(0, 13, 1.6, 0.3)], [cyl(-4.5, 11, 1.0, 0.3)], [cyl(4.5, 10.5, 1.0, 0.3)],
+      [cyl(0, 16.5, 0.6, 1.1), cone(0, 16.5, 0.45, 0.7, 1.1)],
+      [box(-7.5, 15, 0.8, 0.8, 3.6), pyr(-7.5, 15, 0.8, 0.8, 1.0, 3.6)], [box(7.5, 15, 0.8, 0.8, 3.6), pyr(7.5, 15, 0.8, 0.8, 1.0, 3.6)]] },
+  { code: "3315", name: "Klingon Calisthenics", story: "Combat Program Two", setting: "Qo'noS Highlands", by: "Worf",
+    party: ["Lt. Worf", "Cmdr. Riker"], at: [[-1, 11], [2.5, 9]], cast: [["Klingon Warrior", 3, 16], ["Klingon Warrior", -2, 19]],
+    pw: [3.4, 2.4, 3.8, 1.0, 0.7], scene: [
+      [box(-5, 17, 5, 3.4, 1.2), box(-5, 17.4, 3.2, 2.2, 1.1, 1.2)],
+      [cyl(5, 19.5, 0.8, 6.5)], [cyl(8, 13.5, 0.6, 4.6)], [cyl(-8.2, 21, 0.7, 7.5)],
+      [pyr(1, 22, 6, 3, 4)], [ball(2.5, 0.9, 13.5, 0.9)], [ball(-6.5, 0.7, 9.5, 0.7)]] },
+  { code: "4060", name: "Café des Artistes", story: "We'll Always Have Paris", setting: "Paris, 2337", by: "Picard",
+    party: ["Captain Picard"], at: [[-1, 9]], cast: [["Waiter", -3, 20], ["Patrons  (12)", 1, 14], ["Accordionist", 7, 20]],
+    pw: [3.9, 2.3, 0.6, 1.4, 0.8], scene: [
+      parasol(-4.5, 12), parasol(3, 10.5), parasol(5.5, 17.5), parasol(-1.5, 18.5),
+      [box(-6.5, 22, 5, 1.2, 1.7)], [cyl(8.4, 21, 0.12, 5.2), ball(8.4, 5.5, 21, 0.4)]] },
+  { code: "5129", name: "Equestrian", story: "Arabian Stallion Ride", setting: "Andalusian Hills", by: "Picard",
+    party: ["Captain Picard"], at: [[1, 8]], cast: [["Arabian Stallion", 1, 8], ["Mare and Foal", 5, 20], ["Hawk", -1, 16]],
+    pw: [3.5, 2.7, 2.9, 1.6, 0.4], scene: [
+      [cyl(-6, 7, 0.12, 1.8), cyl(-6, 11, 0.12, 1.8), cyl(-6, 15, 0.12, 1.8), cyl(-6, 19, 0.12, 1.8),
+       box(-6, 13, 0.12, 12.4, 0.16, 1.0), box(-6, 13, 0.12, 12.4, 0.16, 1.6)],
+      [box(1, 14, 0.25, 0.25, 1.7), box(4, 14, 0.25, 0.25, 1.7), box(2.5, 14, 3.2, 0.14, 0.14, 1.3)],
+      [pyr(3, 22, 12, 3, 3.2)], tree(7.5, 18), tree(-2.5, 20, 0.8), tree(8.5, 11, 0.9)] },
+  { code: "6033", name: "Bourbon Street", story: "Jazz Club, After Hours", setting: "New Orleans, 1958", by: "Riker",
+    party: ["Cmdr. Riker"], at: [[-2, 9]], cast: [["Minuet", -1, 12], ["Jazz Quartet", 0, 21], ["Bartender", 8.6, 13]],
+    pw: [3.7, 2.1, 0.7, 1.0, 1.4], scene: [
+      [box(0, 21.5, 11, 4, 0.8)], [box(-2.8, 21.5, 2.2, 1.5, 1.3, 0.8)],
+      [cyl(1.6, 21, 0.05, 1.7, 0.8), ball(1.6, 2.6, 21, 0.14)],
+      table(-5, 13), table(0.5, 12), table(5, 14.5), table(-2, 16.5),
+      [box(8.6, 13, 1.2, 8, 1.6)]] },
+  { code: "7114", name: "Fencing Salle", story: "Sabre, Third Form", setting: "Paris Salle d'Armes", by: "Picard",
+    party: ["Captain Picard", "Lt. Cmdr. Data"], at: [[0, 9], [0, 17]], cast: [["Fencing Master", 4, 13], ["Bout Director", -4, 13]],
+    pw: [3.0, 1.8, 2.4, 0.9, 0.3], scene: [
+      [box(0, 13, 2, 15, 0.08)],
+      [cyl(-7, 9, 0.5, RH)], [cyl(-7, 18, 0.5, RH)], [cyl(7, 9, 0.5, RH)], [cyl(7, 18, 0.5, RH)],
+      [box(-3.5, 22.5, 3, 0.6, 2.4)], [box(4, 22.5, 3.4, 0.8, 0.6)]] },
+  { code: "8256", name: "Age of Sail", story: "Promotion Ceremony", setting: "Atlantic, 19th Century", by: "Riker",
+    party: ["Cmdr. Riker", "Lt. Worf", "Counselor Troi", "Dr. Crusher"], at: [[-2, 8], [2, 8.5], [-3.5, 11], [3.5, 12]], cast: [],
+    pw: [4.3, 3.1, 1.4, 2.8, 0.9], scene: [
+      [box(0, 15, 12, 13, 0.6)],
+      [cyl(0, 18, 0.35, 11, 0.6), box(0, 18, 8, 0.3, 0.3, 8.4), box(0, 18.3, 7, 0.1, 4.2, 4.0)],
+      [box(-5.8, 15, 0.25, 13, 1.0, 0.6)], [box(5.8, 15, 0.25, 13, 1.0, 0.6)],
+      [cyl(-3.2, 10, 0.5, 1.1, 0.6)], [cyl(-2.1, 10.4, 0.5, 1.1, 0.6)], [box(3, 20.5, 1.6, 1.2, 1.4, 0.6)]] },
+];
+
+// ---------------- the room: one-point perspective ----------------
+const PX = C1, PY = 360, PW = C1R - C1, PH = 1200;      // the front of the room fills the panel exactly
+const S0 = PW / 20, DEPTH = 24, KB = 0.36, DD = KB * DEPTH / (1 - KB);   // back wall at 36% of the front
+const VX = PW / 2, VY = 0.42 * PH, EYE = RH - VY / S0;  // the eye a little above the middle of the room
+const kz = (Z) => DD / (Z + DD);
+const P = (X, Y, Z) => [VX + X * S0 * kz(Z), VY - (Y - EYE) * S0 * kz(Z)];   // into the room's own coordinates
+const CAM = [0, EYE, -DD];
+
+const roomHead = header(C1, 280, PW, "Holodeck 3", "butter", null);
+L.rect({ x: PX, y: PY, w: PW, h: PH, c: "#000", panel: true });
+const room = L.el("div", "room", L.stage, { left: PX + "px", top: PY + "px", width: PW + "px", height: PH + "px" });
+const svgIn = (parent, w, h, vb) => {
+  const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  s.setAttribute("width", w); s.setAttribute("height", h); s.setAttribute("viewBox", vb || `0 0 ${w} ${h}`);
+  s.style.display = "block"; s.style.overflow = "visible";
+  parent.appendChild(s); return s;
+};
+// the grid, drawn once on its own layer so it can dim under a running program without repainting
+const gridLayer = L.layer({ x: 0, y: 0, w: PW, h: PH }, room);
+{
+  const s = svgIn(gridLayer, PW, PH), GC = "#f5c21b";
+  const line = (a, b, w, o) => L.svg("line", { x1: a[0].toFixed(1), y1: a[1].toFixed(1), x2: b[0].toFixed(1), y2: b[1].toFixed(1),
+    stroke: GC, "stroke-width": w.toFixed(2), "stroke-opacity": o.toFixed(2), "stroke-linecap": "round" }, s);
+  // lines running into the room
+  for (let X = -10; X <= 10; X += 2) { line(P(X, 0, 0), P(X, 0, DEPTH), 3, 0.85); line(P(X, RH, 0), P(X, RH, DEPTH), 3, 0.85); }
+  for (const Y of [2, 4, 6, 8, 10]) { line(P(-10, Y, 0), P(-10, Y, DEPTH), 3, 0.85); line(P(10, Y, 0), P(10, Y, DEPTH), 3, 0.85); }
+  // rings across the room, fainter with distance
+  for (let Z = 2; Z < DEPTH; Z += 2) {
+    const k = kz(Z), w = 1.4 + 1.8 * k, o = 0.42 + 0.45 * k;
+    const c = [P(-10, 0, Z), P(10, 0, Z), P(10, RH, Z), P(-10, RH, Z)];
+    for (let i = 0; i < 4; i++) line(c[i], c[(i + 1) % 4], w, o);
+  }
+  // the back wall
+  const bw = 1.4 + 1.8 * KB, bo = 0.5;
+  for (let X = -8; X <= 8; X += 2) line(P(X, 0, DEPTH), P(X, RH, DEPTH), bw, bo);
+  for (const Y of [2, 4, 6, 8, 10]) line(P(-10, Y, DEPTH), P(10, Y, DEPTH), bw, bo);
+  const c = [P(-10, 0, DEPTH), P(10, 0, DEPTH), P(10, RH, DEPTH), P(-10, RH, DEPTH)];
+  for (let i = 0; i < 4; i++) line(c[i], c[(i + 1) % 4], 2.4, 0.9);
+}
+
+// the arch: the exit, on the back wall, when the room is empty
+const archLayer = L.layer({ x: 0, y: 0, w: PW, h: PH }, room);
+{
+  const s = svgIn(archLayer, PW, PH), pts = [];
+  const AW = 2.3, AH = 4.6, AT = 5.9;                    // half width, wall height, crown
+  pts.push(P(-AW, 0, DEPTH), P(-AW, AH, DEPTH));
+  for (let i = 1; i < 16; i++) { const a = Math.PI * (1 - i / 16); pts.push(P(AW * Math.cos(a), AH + (AT - AH) * Math.sin(a), DEPTH)); }
+  pts.push(P(AW, AH, DEPTH), P(AW, 0, DEPTH));
+  L.svg("polygon", { points: pts.map((p) => p.map((v) => v.toFixed(1)).join(",")).join(" "), fill: "#000", stroke: "#fff3cf", "stroke-width": 5, "stroke-linejoin": "round" }, s);
+  const m0 = P(0, 0, DEPTH), m1 = P(0, AT, DEPTH);
+  L.svg("line", { x1: m0[0], y1: m0[1], x2: m1[0], y2: m1[1], stroke: "#fff3cf", "stroke-width": 3 }, s);
+  const q = [P(3.0, 1.6, DEPTH), P(4.0, 1.6, DEPTH), P(4.0, 3.0, DEPTH), P(3.0, 3.0, DEPTH)];
+  L.svg("polygon", { points: q.map((p) => p.join(",")).join(" "), fill: "#000", stroke: "var(--orange)", "stroke-width": 4 }, s);
+}
+
+// ---------------- building a program's objects: faces, hidden-face culling, painter's order ----------------
+const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const mean = (ps) => [0, 1, 2].map((i) => ps.reduce((a, p) => a + p[i], 0) / ps.length);
+const ringPts = (x, z, r, y, n = 20) => Array.from({ length: n }, (_, i) => [x + r * Math.cos((i / n) * 2 * Math.PI), y, z + r * Math.sin((i / n) * 2 * Math.PI)]);
+const facesOf = (p) => {
+  if (p.k === "box") {
+    const x0 = p.x - p.w / 2, x1 = p.x + p.w / 2, z0 = p.z - p.d / 2, z1 = p.z + p.d / 2, y0 = p.y0, y1 = p.y0 + p.h;
+    return { c: [p.x, (y0 + y1) / 2, p.z], f: [
+      [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]], [[x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]],
+      [[x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0]], [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]],
+      [[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]], [[x1, y0, z0], [x1, y0, z1], [x1, y1, z1], [x1, y1, z0]]] };
+  }
+  if (p.k === "cyl") {
+    const a = ringPts(p.x, p.z, p.r, p.y0), b = ringPts(p.x, p.z, p.r, p.y0 + p.h), f = [a, b];
+    return { c: [p.x, p.y0 + p.h / 2, p.z], f, side: { bot: a, top: b } };
+  }
+  if (p.k === "cone") {
+    const a = ringPts(p.x, p.z, p.r, p.y0);
+    return { c: [p.x, p.y0 + p.h / 3, p.z], f: [a], side: { bot: a, apex: [p.x, p.y0 + p.h, p.z] } };
+  }
+  if (p.k === "pyr") {
+    const x0 = p.x - p.w / 2, x1 = p.x + p.w / 2, z0 = p.z - p.d / 2, z1 = p.z + p.d / 2, y0 = p.y0, top = [p.x, p.y0 + p.h, p.z];
+    const b = [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]], f = [b];
+    for (let i = 0; i < 4; i++) f.push([b[i], b[(i + 1) % 4], top]);
+    return { c: [p.x, p.y0 + p.h / 3, p.z], f };
+  }
+};
+const OBJ = "#fff0c4", OBJFILL = "#0d0a03";
+// the room is drawn 15 m across; the scenes are written at a smaller scale and grown about each group's centre
+const GROW = 1.35;
+const grow = (group) => {
+  const cx = mean(group.map((p) => [p.x, 0, p.z]));
+  return group.map((p) => {
+    const q = { ...p, x: cx[0] + (p.x - cx[0]) * GROW, z: cx[2] + (p.z - cx[2]) * GROW };
+    for (const k of ["w", "d", "h", "r", "y0", "y"]) if (q[k] !== undefined) q[k] *= GROW;
+    if (q.h !== undefined) q.h = Math.min(q.h, RH - q.y0);   // nothing through the ceiling
+    q.x = L.clamp(q.x, -10 + (q.w || 2 * (q.r || 0)) / 2, 10 - (q.w || 2 * (q.r || 0)) / 2);
+    return q;
+  });
+};
+const objects = [];                                    // the layers of the program on the grid
+const buildScene = (prog) => {
+  for (const o of objects) o.e.remove();
+  objects.length = 0;
+  prog.scene.map(grow).forEach((group) => {
+    const items = [];
+    for (const p of group) {
+      if (p.k === "ball") { items.push({ ball: p, d: Math.hypot(...sub([p.x, p.y, p.z], CAM)) }); continue; }
+      const { c, f, side } = facesOf(p);
+      if (side) {                                         // a round side: one outline, with a few faint meridians
+        const a = side.bot, n = a.length;
+        const vis = a.map((q, i) => {
+          const j = (i + 1) % n, top = side.top ? [side.top[i], side.top[j]] : [side.apex];
+          const m = mean([q, a[j], ...top]);
+          let nv = cross(sub(a[j], q), sub(top[0], q));
+          if (dot(nv, sub(m, c)) < 0) nv = nv.map((v) => -v);
+          return dot(nv, sub(CAM, m)) > 0;
+        });
+        let s0 = vis.findIndex((v, i) => v && !vis[(i - 1 + n) % n]);
+        if (s0 < 0 && vis[0]) s0 = 0;
+        if (s0 >= 0) {
+          const idx = [s0]; for (let i = (s0 + 1) % n; vis[(i - 1 + n) % n] && i !== s0; i = (i + 1) % n) idx.push(i);
+          const pts = [...idx.map((i) => a[i]), ...(side.top ? idx.slice().reverse().map((i) => side.top[i]) : [side.apex])];
+          const mer = idx.filter((_, k) => k % 3 === 1 && k < idx.length - 1).map((i) => [a[i], side.top ? side.top[i] : side.apex]);
+          items.push({ pts, mer, d: Math.hypot(...sub(c, CAM)), z: c[2] });
+        }
+      }
+      for (const pts of f) {
+        const m = mean(pts);
+        let n = cross(sub(pts[1], pts[0]), sub(pts[2], pts[0]));
+        if (dot(n, sub(m, c)) < 0) n = n.map((v) => -v);
+        if (dot(n, sub(CAM, m)) <= 0) continue;           // facing away
+        items.push({ pts, d: Math.hypot(...sub(m, CAM)), z: m[2] });
+      }
+    }
+    items.sort((a, b) => b.d - a.d);
+    // the group's extent on screen and in depth
+    let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, zMin = 1e9, zMax = -1e9;
+    const grow = ([x, y]) => { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); };
+    for (const it of items) {
+      if (it.ball) {
+        const b = it.ball, [cx, cy] = P(b.x, b.y, b.z), r = b.r * S0 * kz(b.z);
+        it.scr = [cx, cy, r]; grow([cx - r, cy - r]); grow([cx + r, cy + r]);
+        zMin = Math.min(zMin, b.z - b.r); zMax = Math.max(zMax, b.z + b.r);
+      } else {
+        it.scr = it.pts.map((q) => P(...q)); it.scr.forEach(grow);
+        for (const q of it.pts) { zMin = Math.min(zMin, q[2]); zMax = Math.max(zMax, q[2]); }
+      }
+    }
+    const pad = 8; x0 -= pad; y0 -= pad; x1 += pad; y1 += pad;
+    const e = L.layer({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 }, room);
+    const s = svgIn(e, x1 - x0, y1 - y0, `${x0.toFixed(1)} ${y0.toFixed(1)} ${(x1 - x0).toFixed(1)} ${(y1 - y0).toFixed(1)}`);
+    for (const it of items) {
+      if (it.ball) {
+        const [cx, cy, r] = it.scr, b = it.ball, sw = (1.6 + 2.2 * kz(b.z)).toFixed(2);
+        L.svg("circle", { cx, cy, r, fill: OBJFILL, stroke: OBJ, "stroke-width": sw }, s);
+        // an equator and a meridian, the near halves
+        const eq = ringPts(b.x, b.z, b.r, b.y, 24).filter((q) => q[2] <= b.z + 1e-6).sort((a, c) => a[0] - c[0]).map((q) => P(...q));
+        L.svg("polyline", { points: eq.map((q) => q.join(",")).join(" "), fill: "none", stroke: OBJ, "stroke-width": sw, "stroke-opacity": 0.6 }, s);
+        L.svg("ellipse", { cx, cy, rx: r * 0.36, ry: r, fill: "none", stroke: OBJ, "stroke-width": sw, "stroke-opacity": 0.6 }, s);
+        continue;
+      }
+      const k = kz(mean(it.pts)[2]), sw = (1.6 + 2.2 * k).toFixed(2);
+      L.svg("polygon", { points: it.scr.map((q) => q[0].toFixed(1) + "," + q[1].toFixed(1)).join(" "),
+        fill: OBJFILL, stroke: OBJ, "stroke-width": sw, "stroke-linejoin": "round" }, s);
+      for (const [q0, q1] of it.mer || []) {
+        const [x0, y0] = P(...q0), [x1, y1] = P(...q1);
+        L.svg("line", { x1: x0.toFixed(1), y1: y0.toFixed(1), x2: x1.toFixed(1), y2: y1.toFixed(1), stroke: OBJ, "stroke-width": sw, "stroke-opacity": 0.35 }, s);
+      }
+    }
+    e.style.opacity = 0;
+    objects.push({ e, zMin, zMax, group });
+  });
+  // the far ones first
+  objects.sort((a, b) => b.zMax + b.zMin - a.zMax - a.zMin).forEach((o, i) => (o.e.style.zIndex = 2 + i));
+};
+
+// occupants: a ring on the floor where each stands, and a column of light above it
+const markers = Array.from({ length: 4 }, () => {
+  const ring = L.layer({ x: 0, y: 0, w: 140, h: 140, cls: "ring" }, room);
+  const beam = L.layer({ x: 0, y: 0, w: 12, h: 250, cls: "beam" }, room);
+  ring.style.zIndex = beam.style.zIndex = 60; ring.style.opacity = beam.style.opacity = 0;
+  return { ring, beam, X: 0, Z: 10, from: null, to: null, t0: 0 };
+});
+const placeMarker = (m) => {
+  const k = kz(m.Z), [x, y] = P(m.X, 0, m.Z);
+  const fore = EYE / (m.Z + DD) / (EYE / (13 + DD));      // a circle on the floor flattens with distance
+  const sx = k * 0.9, sy = k * 0.9 * 0.27 * fore;
+  m.ring.style.transform = `translate3d(${(x - 70 * sx).toFixed(2)}px,${(y - 70 * sy).toFixed(2)}px,0) scale(${sx.toFixed(4)},${sy.toFixed(4)})`;
+  m.beam.style.transform = `translate3d(${(x - 6 * k).toFixed(2)}px,${(y - 250 * k).toFixed(2)}px,0) scale(${k.toFixed(4)})`;
+};
+
+// the rez line: the outline of the room at one depth, a ring of four bars scaled about the vanishing point
+const T = 8;
+const sweep = [[0, -T / 2, PW, T], [0, PH - T / 2, PW, T], [-T / 2, 0, T, PH], [PW - T / 2, 0, T, PH]].map(([x, y, w, h]) => {
+  const e = L.layer({ x, y, w, h, cls: "sweep" }, room);
+  e.style.transformOrigin = `${VX - x}px ${VY - y}px`; e.style.zIndex = 70; e.style.opacity = 0;
+  return e;
+});
+
+// ---------------- the phases of a program ----------------
+const LOAD = 4, REZ = 6, RUN = 11, DONE = 33, DEREZ = 35, CYCLE = 40;
+const PHASES = [["Arch", 0], ["Load", LOAD], ["Materialize", REZ], ["Run", RUN], ["End", DONE], ["Exit", DEREZ]];
+const phaseOf = (u) => { let i = 0; while (i + 1 < PHASES.length && u >= PHASES[i + 1][1]) i++; return i; };
+// the phase strip in the room's header
+const PHX = C1 + roomHead + L.GAP, PHW = (C1R - PHX - (PHASES.length - 1) * L.GAP) / PHASES.length;
+const phaseBoxes = PHASES.map(([name], i) => L.box({ x: PHX + i * (PHW + L.GAP), y: 280, w: PHW, h: 56, c: "#3a2c10", label: name, fs: 32, r: i === PHASES.length - 1 ? "r" : null, cls: "pill" }));
+
+// ---------------- status line ----------------
+const stateTxt = L.text({ x: C1, cap: 150, s: 100, c: "butter", txt: "" });
+const stateSub = L.text({ x: 0, base: 222, s: 38, c: "tan", txt: "" });
+const pill = L.box({ x: C3R - 400, y: 150, w: 400, h: 72, c: "gold", label: "", r: "lr", fs: 36 });
+pill.style.willChange = "opacity";
+
+// ---------------- the program library ----------------
+header(C3, 280, C3R - C3, "Program Library", "gold", "orange");
+const LBOX = 140, LX = C3 + LBOX + L.GAP;
+// columns spread evenly across the panel: program, setting, author, saved point, status
+const saved = PROGRAMS.map(() => L.irand(600, 9000));          // where each program was saved, in seconds
+const LCOLS = [["Program", (p) => p.name, 40], ["Setting", (p) => p.setting, 36], ["By", (p) => p.by, 36],
+  ["Saved At", (p, i) => hms(saved[i]), 36], ["Status", () => "Materializing", 36]];
+const lw = LCOLS.map(([h, f, fs]) => Math.max(L.textWidth(h, 36), ...PROGRAMS.map((p, i) => L.textWidth(f(p, i), fs))));
+const lgap = (C3R - LX - lw.reduce((a, b) => a + b, 0)) / (LCOLS.length - 1);
+const lx = []; lw.reduce((x, w) => (lx.push(x), x + w + lgap), LX);
+LCOLS.forEach(([h], j) => L.text({ x: j === 4 ? C3R : lx[j], base: 400, s: 36, c: "orange", txt: h, align: j === 4 ? "r" : undefined }));
+const LROW0 = 428, LP = 70;
+const lib = PROGRAMS.map((p, i) => {
+  const y = LROW0 + i * LP, base = y + 46;
+  return {
+    box: L.box({ x: C3, y, w: LBOX, h: 56, c: "tan", label: p.code, fs: 32, r: "l", cls: "pill" }),
+    name: L.text({ x: lx[0], base, s: 40, c: "butter", txt: p.name }),
+    set: L.text({ x: lx[1], base, s: 36, c: "tan", txt: p.setting }),
+    by: L.text({ x: lx[2], base, s: 36, c: "tan", txt: p.by }),
+    sv: L.text({ x: lx[3], base, s: 36, c: "tan", txt: hms(saved[i]) }),
+    st: L.text({ x: C3R, base, s: 36, c: "tan", txt: "", align: "r" }),
+  };
+});
+
+// ---------------- safety protocols ----------------
+const SY = 1120;
+header(C3, SY, C3R - C3, "Safety Protocols", "orange", "gold");
+const SPW = (C3R - C3 - 2 * 16) / 3;
+const spills = ["Safeties Engaged", "Autonomy Restricted", "Arch Concealed"].map((label, i) =>
+  L.box({ x: C3 + i * (SPW + 16), y: 1232, w: SPW, h: 64, c: ["butter", "tan", "#3a2c10"][i], label, fs: 32, r: i === 0 ? "l" : i === 2 ? "r" : null, cls: "pill" }));
+const GX = C3 + 280, GW = 3560 - GX;
+const gauges = [["Matter Conversion", 0.8, "orange"], ["Force Feedback", 0.75, "gold"], ["Emitter Load", 0.9, "butter"]].map(([name, lim, c], i) => {
+  const base = 1320 + i * 88 + 52.5;
+  L.text({ x: C3, base, s: 40, c: "tan", txt: name });
+  L.rect({ x: GX, y: base - 26, w: GW, h: 26, c: "#2a2010" });
+  const f = fill(GX, base - 26, GW, 26, c);
+  L.rect({ x: GX + lim * GW - 3, y: base - 40, w: 6, h: 54, c: "white", free: true });
+  return { f, v: 0, goal: 0, val: L.text({ x: C3R, base, s: 52, c: "white", txt: "", align: "r" }) };
+});
+
+// ---------------- emitter array: the floor plan ----------------
+const EX = C1, EW = 1170, COLS = 30, ROWS = 6;
+L.box({ x: EX, y: 1620, w: 320, h: 48, c: "gold", label: "Emitter Array", fs: 28, r: "l" });
+L.rect({ x: EX + 320 + L.GAP, y: 1620, w: EW - 320 - L.GAP, h: 48, c: "butter" });
+L.text({ x: EX, base: 1734, s: 40, c: "tan", txt: "Floor Plan  ·  Arch Wall Up" });
+// the key, right-aligned to the panel
+{
+  let x = EX + EW;
+  [["Arch", "orange"], ["Occupant", "white"], ["Matter", "butter"]].forEach(([name, c]) => {
+    const w = L.textWidth(name, 36);
+    L.text({ x, base: 1734, s: 36, c: "tan", txt: name, align: "r" });
+    L.rect({ x: x - w - 20 - 28, y: 1734 - 28, w: 28, h: 28, c, free: true });
+    x -= w + 20 + 28 + 40;
+  });
+}
+const CPX = (EW + 6) / COLS, CPY = (2004 - 1764 + 6) / ROWS;
+const cells = [], plan = L.layer({ x: EX, y: 1764, w: EW, h: 240 });   // its own layer: a cell changing repaints only the plan
+for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+  const e = L.el("div", "cell boot", plan, { left: c * CPX + "px", top: r * CPY + "px", width: CPX - 6 + "px", height: CPY - 6 + "px" });
+  cells.push({ e, r, c, col: "", foot: false, spark: -9 });
+}
+const cellAt = (X, Z) => [L.clamp(Math.floor((DEPTH - Z) / (DEPTH / ROWS)), 0, ROWS - 1), L.clamp(Math.floor((X + 10) / (20 / COLS)), 0, COLS - 1)];
+const gridName = (X, Z) => { const [r, c] = cellAt(X, Z); return `Grid ${"ABCDEF"[r]}-${pad2(c + 1)}`; };
+const ARCH = new Set(); for (let c = 11; c < 19; c++) ARCH.add(c);   // the arch stands over the back row's middle
+
+// ---------------- power distribution ----------------
+const QX = 1560, QR = C1R;
+L.box({ x: QX, y: 1620, w: 360, h: 48, c: "orange", label: "Power Distribution", fs: 28, r: "l" });
+L.rect({ x: QX + 360 + L.GAP, y: 1620, w: QR - QX - 360 - L.GAP, h: 48, c: "gold" });
+L.text({ x: QX, base: 1734, s: 40, c: "tan", txt: "EPS Draw  ·  Holodeck 3" });
+const total = L.text({ x: QR, base: 1734, s: 52, c: "white", txt: "", align: "r" });
+const QBX = QX + 300, QBW = QR - 150 - QBX;
+const power = ["Imaging", "Matter", "Force Fields", "Environment", "Audio"].map((name, i) => {
+  const base = 1788 + i * 54;
+  L.text({ x: QX, base, s: 36, c: "tan", txt: name });
+  L.rect({ x: QBX, y: base - 24, w: QBW, h: 22, c: "#2a2010" });
+  return { f: fill(QBX, base - 24, QBW, 22, i % 2 ? "gold" : "butter"), v: 0, goal: 0,
+    val: L.text({ x: QR, base, s: 36, c: "white", txt: "", align: "r" }) };
+});
+
+// ---------------- arch control ----------------
+const AX = C3;
+L.box({ x: AX, y: 1620, w: 300, h: 48, c: "butter", label: "Arch Control", fs: 28, r: "l" });
+L.rect({ x: AX + 300 + L.GAP, y: 1620, w: C3R - AX - 300 - L.GAP, h: 48, c: "orange" });
+const OPOS = AX + 380, OLIFE = AX + 620;
+[["Present", AX], ["Position", OPOS], ["Lifesigns", OLIFE]].forEach(([txt, x]) => L.text({ x, base: 1734, s: 36, c: "orange", txt }));
+const occRows = Array.from({ length: 4 }, (_, i) => {
+  const base = 1788 + i * 54;
+  return { n: L.text({ x: AX, base, s: 36, c: "white", txt: "" }), p: L.text({ x: OPOS, base, s: 36, c: "butter", txt: "" }),
+           l: L.text({ x: OLIFE, base, s: 36, c: "tan", txt: "" }) };
+});
+const timeLabel = L.text({ x: C3R, base: 1734, s: 36, c: "orange", txt: "", align: "r" });
+const timeBig = L.text({ x: C3R, base: 1896, s: 120, c: "butter", txt: "", align: "r" });
+const CMDS = ["Freeze", "Save", "Resume", "End", "Arch"];
+const CMX = 3300, CBW = (C3R - CMX - 4 * 12) / 5;
+const cmdBoxes = CMDS.map((name, i) => L.box({ x: CMX + i * (CBW + 12), y: 1950, w: CBW, h: 54, c: "#3a2c10", label: name, fs: 28, r: i === 4 ? "r" : null, cls: "pill" }));
+
+// ---------------- the cycle ----------------
+const START = L.irand(0, PROGRAMS.length - 1), OFFSET = 15;   // begin with a program running
+let cur = -1, curPhase = -1, prog = null, foot = new Set(), runT = 0, lastT = 0;
+const lifeOf = ["Normal", "Normal", "Elevated", "Normal"];
+
+const loadProgram = (i) => {
+  prog = PROGRAMS[i];
+  buildScene(prog);
+  foot = new Set();
+  for (const o of objects) {
+    o.cells = new Set();
+    for (const p of o.group) {
+      const r = p.k === "box" || p.k === "pyr" ? [p.w / 2, p.d / 2] : [p.r, p.r];
+      const [ra, ca] = cellAt(p.x - r[0], p.z + r[1]), [rb, cb] = cellAt(p.x + r[0] - 1e-3, p.z - r[1] + 1e-3);
+      for (let rr = ra; rr <= rb; rr++) for (let cc = ca; cc <= cb; cc++) o.cells.add(rr * COLS + cc);
+    }
+    o.cells.forEach((k) => foot.add(k));
+  }
+  markers.forEach((m, j) => {
+    m.on = j < prog.party.length;
+    if (m.on) { [m.X, m.Z] = prog.at[j]; m.from = m.to = null; placeMarker(m); }
+  });
+  runT = saved[i];
+};
+const sweepZ = (u) => {                                  // where the rez line is, and how bright
+  if (u >= REZ && u < RUN) { const k = L.ease(L.clamp((u - REZ - 0.2) / 4.4)); return [L.mix(DEPTH, 1, k), Math.min(1, (u - REZ) / 0.3, (RUN - u) / 0.5)]; }
+  if (u >= DEREZ) { const k = L.ease(L.clamp((u - DEREZ - 0.2) / 3.6)); return [L.mix(1, DEPTH, k), Math.min(1, (u - DEREZ) / 0.3, (DEREZ + 4.1 - u) / 0.5)]; }
+  return [DEPTH, 0];
+};
+const setPhase = (ph) => {
+  curPhase = ph;
+  phaseBoxes.forEach((b, i) => { b.style.background = i === ph ? "var(--butter)" : "#3a2c10"; b.style.color = i === ph ? "#000" : "var(--gold)"; });
+  const p = prog, n = PROGRAMS.length;
+  const words = ["Grid Standby", "Loading Program", "Materializing", "Program Running", "Program Complete", "Ending Program"];
+  stateTxt.textContent = words[ph];
+  stateSub.style.left = C1 + L.textWidth(words[ph], 100) + 40 + "px";
+  stateSub.textContent = [
+    `Holodeck 3  ·  Deck 11  ·  Next  ${p.name}`,
+    `${p.name}  ·  ${p.story}  ·  Resuming saved state`,
+    `${p.name}  ·  ${p.story}  ·  ${p.setting}`,
+    `${p.name}  ·  ${p.story}  ·  ${p.setting}`,
+    `${p.name}  ·  State saved  ·  Arch requested`,
+    `${p.name}  ·  Matter reclaimed  ·  Arch opening`][ph];
+  pill.textContent = `Program ${p.code}`;
+  // the library
+  lib.forEach((r, i) => {
+    const d = (i - cur + n) % n;
+    const st = d === 0 ? (ph === 0 ? "Next" : ["", "Loading", "Materializing", "Running", "Complete", "Saved"][ph]) : d === 1 && ph > 0 ? "Queued" : d === n - 1 ? "Saved" : "Ready";
+    r.st.textContent = st;
+    const live = d === 0 && ph > 0;
+    r.box.style.background = live ? "var(--butter)" : d === 0 || (d === 1 && ph > 0) ? "var(--orange)" : "var(--tan)";
+    r.name.style.color = live ? "var(--white)" : "var(--butter)";
+    r.st.style.color = live ? "var(--white)" : st === "Next" || st === "Queued" ? "var(--orange)" : "var(--tan)";
+  });
+  // safety pills: the arch
+  const archOpen = ph === 0 || ph === 5;
+  spills[2].textContent = archOpen ? "Arch Available" : "Arch Concealed";
+  spills[2].style.background = archOpen ? "var(--orange)" : "#3a2c10";
+  spills[2].style.color = archOpen ? "#000" : "var(--orange)";
+  // arch commands
+  const lit = [["Arch"], ["Resume"], ["Resume"], [], ["Save", "End"], ["Arch"]][ph];
+  cmdBoxes.forEach((b, i) => { const on = lit.includes(CMDS[i]); b.style.background = on ? "var(--orange)" : "#3a2c10"; b.style.color = on ? "#000" : "var(--gold)"; });
+  // power
+  const pw = p.pw, set = [[0.3, 0, 0.2, 0.6, 0.1], [1.6, 0.8, 0.5, 0.8, 0.2], [pw[0] * 1.1, pw[1] * 2.1, pw[2] * 0.6, pw[3], pw[4] * 0.5],
+    pw, pw, [pw[0] * 0.7, pw[1] * 1.5, pw[2] * 0.3, pw[3] * 0.8, 0.2]][ph];
+  power.forEach((q, i) => (q.goal = set[i]));
+  timeLabel.textContent = ph <= 1 ? "Resume Point" : "Program Time";
+  if (ph === 4) { saved[cur] = Math.floor(runT); lib[cur].sv.textContent = hms(saved[cur]); }
+  showOccupants();
+};
+const showOccupants = () => {
+  const p = prog, inside = curPhase >= 1 && curPhase <= 4, live = curPhase >= 2 && curPhase <= 4;
+  occRows.forEach((r, j) => {
+    const cast = p.cast[j - p.party.length];
+    if (j < p.party.length) {
+      r.n.textContent = p.party[j]; r.n.style.color = "var(--white)";
+      r.p.textContent = curPhase === 0 ? "Entering" : curPhase === 5 ? "At the Arch" : gridName(markers[j].X, markers[j].Z);
+      r.l.textContent = inside ? lifeOf[j] : "Normal"; r.l.style.color = "var(--tan)";
+    } else if (cast) {
+      r.n.textContent = cast[0]; r.n.style.color = live ? "var(--butter)" : "var(--tan)";
+      r.p.textContent = live ? gridName(cast[1], cast[2]) : "Not Rendered";
+      r.l.textContent = "Holographic"; r.l.style.color = "var(--orange)";
+    } else r.n.textContent = r.p.textContent = r.l.textContent = "";
+  });
+};
+let lastCellPass = -1;
+L.tick((t) => {
+  const v = t + OFFSET, n = Math.floor(v / CYCLE), u = v - n * CYCLE;
+  const idx = (START + n) % PROGRAMS.length;
+  if (idx !== cur) { cur = idx; loadProgram(idx); curPhase = -1; }
+  const ph = phaseOf(u);
+  if (ph !== curPhase) setPhase(ph);
+  if (ph === 3) runT += t - lastT;
+  lastT = t;
+
+  // the rez line and the objects it leaves behind it
+  const [z, a] = sweepZ(u), k = kz(z);
+  if (a > 0 || sweep.al !== 0) {
+    sweep.forEach((e) => { e.style.opacity = a.toFixed(3); if (a > 0) e.style.transform = `scale(${k.toFixed(4)})`; });
+    sweep.al = a;
+  }
+  for (const o of objects) {
+    let al;
+    if (u < REZ) al = 0;
+    else if (u < RUN) al = L.clamp((o.zMax + 0.5 - z) / (o.zMax - o.zMin + 1.5));
+    else if (u < DEREZ) al = 1;
+    else al = 1 - L.clamp((z - o.zMin + 0.5) / (o.zMax - o.zMin + 1.5));
+    if (o.al !== al) { o.e.style.opacity = al.toFixed(3); o.al = al; }
+  }
+  // the grid dims while a program fills the room, the arch shows while it is empty
+  const gd = u < REZ ? 1 : u < RUN ? 1 - 0.4 * L.clamp((DEPTH - z) / (DEPTH - 1)) : u < DEREZ ? 0.6 : 0.6 + 0.4 * L.clamp((z - 1) / (DEPTH - 1));
+  if (gridLayer.al !== gd) { gridLayer.style.opacity = gd.toFixed(3); gridLayer.al = gd; }
+  const ar = u < LOAD ? 1 : u < LOAD + 1.5 ? 1 - (u - LOAD) / 1.5 : u > CYCLE - 1.5 ? (u - CYCLE + 1.5) / 1.5 : 0;
+  if (archLayer.al !== ar) { archLayer.style.opacity = ar.toFixed(3); archLayer.al = ar; }
+  // occupants: in from the load, out at the end
+  const oc = u < LOAD ? 0 : u < LOAD + 1.2 ? (u - LOAD) / 1.2 : u < DEREZ ? 1 : u < DEREZ + 1.2 ? 1 - (u - DEREZ) / 1.2 : 0;
+  markers.forEach((m) => {
+    const o = m.on ? oc : 0;
+    if (m.al !== o) { m.ring.style.opacity = (0.9 * o).toFixed(3); m.beam.style.opacity = (0.75 * o).toFixed(3); m.al = o; }
+    if (m.to) {
+      const q = L.ease(L.clamp((t - m.t0) / 3.2));
+      m.X = L.mix(m.from[0], m.to[0], q); m.Z = L.mix(m.from[1], m.to[1], q); placeMarker(m);
+      if (q >= 1) { m.to = null; showOccupants(); }
+    }
+  });
+  // power bars and safety gauges ease to where they are going
+  for (const q of power) if (Math.abs(q.goal - q.v) > 0.001 || !q.drawn) { q.v += (q.goal - q.v) * 0.05; q.drawn = true; q.f.style.transform = `scaleX(${(q.v / 6).toFixed(4)})`; }
+  gauges[0].goal = power[1].v / 8; gauges[1].goal = power[2].v / 6;
+  for (const g of gauges) if (Math.abs(g.goal - g.v) > 0.0005 || !g.drawn) { g.v += (g.goal - g.v) * 0.05; g.drawn = true; g.f.style.transform = `scaleX(${g.v.toFixed(4)})`; }
+  pill.style.opacity = (0.8 + 0.2 * Math.sin(t * 1.3)).toFixed(3);
+});
+
+// an occupant walks a few metres now and then, clear of the furniture
+L.every(4500, (t) => {
+  if (curPhase !== 3) return;
+  const live = markers.filter((m) => m.on && !m.to);
+  if (!live.length) return;
+  const m = L.pick(live);
+  for (let tries = 0; tries < 20; tries++) {
+    const X = L.clamp(m.X + L.rand(-3, 3), -8, 8), Z = L.clamp(m.Z + L.rand(-2.5, 2.5), 7, 14);
+    const [r, c] = cellAt(X, Z);
+    if (foot.has(r * COLS + c) || Math.hypot(X - m.X, Z - m.Z) < 1.2) continue;
+    if (markers.some((o) => o !== m && o.on && Math.hypot(o.X - X, o.Z - Z) < 2)) continue;
+    m.from = [m.X, m.Z]; m.to = [X, Z]; m.t0 = t;
+    break;
+  }
+}, 0.3);
+
+// the floor plan: the matter of the program, the occupants, the arch, the rez line passing over
+L.every(150, (t) => {
+  const v = t + OFFSET, u = v - Math.floor(v / CYCLE) * CYCLE, [z, a] = sweepZ(u);
+  const sweepRow = a > 0.2 ? cellAt(0, z)[0] : -1;
+  const occ = new Set();
+  markers.forEach((m) => { if (m.on && m.al > 0.5) { const [r, c] = cellAt(m.X, m.Z); occ.add(r * COLS + c); } });
+  const powered = u >= LOAD;                                    // the array wakes with the load, back row first
+  const loadRow = u < LOAD ? -1 : u < REZ ? Math.floor(((u - LOAD) / (REZ - LOAD)) * ROWS) : ROWS;
+  cells.forEach((cl, i) => {
+    let col;
+    const lit = objects.some((o) => o.al > 0.5 && o.cells.has(i));
+    if (occ.has(i)) col = "var(--white)";
+    else if (cl.r === sweepRow) col = "#fff3cf";
+    else if (lit) col = t - cl.spark < 1.2 ? "#fff0c4" : "var(--butter)";
+    else if (cl.r === 0 && ARCH.has(cl.c) && (u < LOAD + 1 || u > CYCLE - 1.5)) col = "var(--orange)";
+    else if (powered && cl.r < loadRow) col = t - cl.spark < 1.2 ? "#8a6a20" : "#5a4314";
+    else col = "#2c2210";
+    if (col !== cl.col) { cl.e.style.backgroundColor = col; cl.col = col; }
+  });
+}, 0);
+L.every(450, (t) => { for (let i = 0; i < 3; i++) L.pick(cells).spark = t; }, 0.3);
+
+// readouts, a few times a second
+const put = (e, txt) => { if (e.textContent !== txt) e.textContent = txt; };   // a readout repaints only when it changes
+L.every(300, () => {
+  let sum = 0;
+  power.forEach((q) => { put(q.val, q.v.toFixed(1) + " MW"); sum += q.v; });
+  put(total, sum.toFixed(1) + " MW");
+  // the array's load: a little for every emitter awake, much more for each one holding matter or tracking an occupant
+  const awake = cells.filter((c) => c.col !== "#2c2210").length, busy = cells.filter((c) => /butter|white|fff/.test(c.col)).length;
+  gauges[2].goal = L.clamp((0.2 * awake + 0.75 * busy) / cells.length, 0, 0.85);
+  gauges.forEach((g) => put(g.val, Math.round(g.v * 100) + " %"));
+  put(timeBig, hms(runT));
+}, 0);
+// small drift in a running program's draw
+L.every(2500, () => { if (curPhase === 3) power.forEach((q, i) => (q.goal = prog.pw[i] * (1 + L.rand(-0.06, 0.06)))); }, 0.3);
+});
+</script></body></html>

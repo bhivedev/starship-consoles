@@ -1,0 +1,482 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Damage Control</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* text that is swapped fades out and back in; .boot (the start-up cascade) always wins */
+  .fade { transition: opacity .45s ease; }
+  .out:not(.boot) { opacity: 0; }
+  .blk { transition: background-color 1.6s ease; }
+  .pill { transition: background-color 1.2s ease; }
+  .chip { background: var(--white); color: #000; border-radius: 18px; font-size: 28px; line-height: 36px;
+          text-align: center; padding-top: 1px; opacity: 0; transition: opacity .9s ease; }
+  .chip.on { opacity: 1; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame, mirrored: sidebar on the right, title at top left ----------------
+const BAR = 64, TS = BAR / (L.BASELINE - L.CAP_TOP);
+L.box({ x: 40, y: 40, w: 92, h: BAR, c: "orange", r: "l" });
+const TITLE = "Damage Control  •  Repair Coordination";
+const titleEl = L.text({ x: 132 + L.GAP, cap: 40, s: TS, c: "orange", txt: TITLE });
+// (the canvas measures this line wider than the page draws it; use the page's own width)
+const afterTitle = 132 + L.GAP + titleEl.offsetWidth + L.GAP;
+L.rect({ x: afterTitle, y: 40, w: 320, h: BAR, c: "butter" });
+L.rect({ x: afterTitle + 320 + L.GAP, y: 40, w: 2600 - L.GAP - (afterTitle + 320 + L.GAP), h: BAR, c: "orange" });
+L.elbow({ corner: "tr", x: 2600, y: 40, w: 1216, h: 250, bw: 240, bh: BAR, R: 150, r: 60, c: "orange" });
+[[298, 140, "butter", "DC 01"], [446, 70, "sunset", "Deck 36"], [524, 420, "orange", "Work Orders"], [952, 70, "sky", "SIF"],
+ [1030, 300, "peach", "Teams"], [1338, 70, "sunset", "Hull"], [1416, 216, "orange", "Parts"]]
+  .forEach(([y, h, c, label]) => L.box({ x: 3576, y, w: 240, h, c, label }));
+L.elbow({ corner: "br", x: 2600, y: 1640, w: 1216, h: 480, bw: 240, bh: BAR, R: 150, r: 60, c: "sunset" });
+L.text({ x: 3794, base: 1712, s: 40, c: "#000", txt: "Repairs", align: "r", on: true });
+L.box({ x: 40, y: 2056, w: 92, h: BAR, c: "sunset", r: "l" });
+[[132 + L.GAP, 700, "butter"], [132 + L.GAP + 700 + L.GAP, 900, "orange"]].forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
+L.rect({ x: 132 + 3 * L.GAP + 1600, y: 2056, w: 2600 - L.GAP - (132 + 3 * L.GAP + 1600), h: BAR, c: "sunset" });
+
+const header = (x, y, w, label, c1, c2, h = 56, fs = 32) => {
+  const lw = Math.round((L.textWidth(label, fs) + 64) / 10) * 10;
+  L.box({ x, y, w: lw, h, c: c1, label, fs, r: "l" });
+  if (w - lw - L.GAP > 0) L.rect({ x: x + lw + L.GAP, y, w: w - lw - L.GAP, h, c: c2 });
+  return lw;
+};
+const small = (x, y, w, label, c1, c2) => header(x, y, w, label, c1, c2, 48, 28);
+const fill = (x, y, w, h, c, origin = "0 0", parent) => {
+  const f = L.layer({ x, y, w, h }, parent);
+  f.style.background = c.startsWith("#") ? c : `var(--${c})`; f.style.transformOrigin = origin;
+  return f;
+};
+const cls = (e, ...c) => (e.classList.add(...c), e);
+// write only what changed: an unchanged reading costs nothing
+const put = (e, txt) => { if (e.textContent !== txt) e.textContent = txt; };
+const css = (e, k, v) => { if (e.style[k] !== v) e.style[k] = v; };
+const fmt = (n) => Math.round(n).toLocaleString("en");
+const later = (ms, f, jitter) => L.every(ms, (t) => { if (t > 1) f(t); }, jitter);   // not at once: first after a while
+
+// Columns: A 40–1160, B 1220–2340, C 2400–3520. The map spans A and B.
+const AX = 40, AR = 1160, BX = 1220, BR = 2340, CX = 2400, CR = 3520;
+const MIN = 4;                                             // one minute of repair work, in seconds on screen
+const TRACK = "#2c1d0e";                                    // the dark of an empty gauge
+const NOM = "butter", DEG = "sunset", REP = "sky";          // the map's three states
+
+// ---------------- what can go wrong, and what mends it ----------------
+const PARTS = [
+  { name: "EPS Power Couplings", cap: 60 }, { name: "Plasma Conduit Sections", cap: 40 },
+  { name: "Isolinear Chips", cap: 120 }, { name: "Coolant Reserve", cap: 2400, unit: " L" },
+  { name: "Duranium Hull Plates", cap: 80 }, { name: "Field Emitter Modules", cap: 36 },
+];
+const FAULTS = {
+  "EPS conduit fluctuation": [0, "EPS conduit stabilized"], "Power coupling wear": [0, "Power coupling replaced"],
+  "Plasma relay misalignment": [1, "Plasma relay realigned"], "Magnetic constrictor drift": [1, "Constrictors realigned"],
+  "Injector misalignment": [1, "Injectors realigned"], "ODN junction fault": [2, "ODN junction replaced"],
+  "Isolinear chip degradation": [2, "Isolinear chips replaced"], "Sensor calibration drift": [2, "Sensors recalibrated"],
+  "Coolant leak": [3, "Coolant leak sealed"], "Micro-fracture": [4, "Micro-fracture sealed"],
+  "Structural fatigue": [4, "Structural member reinforced"], "Hull plating stress": [4, "Hull plating replaced"],
+  "Emitter phase variance": [5, "Emitter phase corrected"], "Prefire chamber wear": [5, "Prefire chamber replaced"],
+  "Field coil drift": [5, "Field coils retuned"], "Gravity plating drift": [5, "Gravity plating recalibrated"],
+};
+const STRUCTURAL = new Set(["Micro-fracture", "Structural fatigue", "Hull plating stress"]);
+const KINDS = {
+  power: ["EPS conduit fluctuation", "Power coupling wear", "Plasma relay misalignment", "Micro-fracture"],
+  comp: ["ODN junction fault", "Isolinear chip degradation", "EPS conduit fluctuation", "Coolant leak"],
+  sensor: ["Sensor calibration drift", "Emitter phase variance", "Power coupling wear", "ODN junction fault"],
+  warp: ["Magnetic constrictor drift", "Injector misalignment", "Coolant leak", "Plasma relay misalignment"],
+  field: ["Field coil drift", "Coolant leak", "Emitter phase variance", "Micro-fracture"],
+  weapon: ["Emitter phase variance", "Prefire chamber wear", "Power coupling wear", "Coolant leak"],
+  struct: ["Micro-fracture", "Structural fatigue", "Hull plating stress", "Micro-fracture"],
+  life: ["Gravity plating drift", "Coolant leak", "Power coupling wear", "EPS conduit fluctuation"],
+};
+const SECTIONS = ["Saucer", "Stardrive", "Port Nacelle", "Starboard Nacelle", "Deflector"];
+
+// ---------------- status line ----------------
+L.text({ x: 40, cap: 150, s: 100, c: "butter", txt: "Routine Repairs" });
+const stateSub = L.text({ x: 40 + L.textWidth("Routine Repairs", 100) + 40, base: 222, s: 38, c: "peach", txt: "" });
+const cond = L.box({ x: 3120, y: 150, w: 400, h: 72, c: "orange", label: "Condition Green", r: "lr", fs: 36 });
+cond.style.willChange = "opacity";
+L.tick((t) => { cond.style.opacity = (0.8 + 0.2 * Math.sin(t * 1.1)).toFixed(3); });
+// the map's key, ending where the map ends
+{
+  const KEY = [["Nominal", NOM], ["Degraded", DEG], ["Under Repair", REP]];
+  const ws = KEY.map(() => 160);                            // equal pills
+  let kx = BR - ws.reduce((a, b) => a + b, 0) - 16 * (KEY.length - 1);
+  KEY.forEach(([n, c], i) => { L.box({ x: kx, y: 166, w: ws[i], h: 56, c, label: n, fs: 28, r: i === 0 ? "l" : null }); kx += ws[i] + 16; });
+}
+
+// ---------------- the system map: the ship's systems as blocks, filled to their integrity ----------------
+// [column, row, columns spanned, rows spanned, label, full name, location, kind]
+const GROUPS = [
+  { name: "Saucer Section", cols: 4, sec: 0, c1: "orange", c2: "butter", blocks: [
+    [0, 0, 1, 1, "Main Bridge", "Main Bridge", "Deck 1", "comp"],
+    [1, 0, 1, 1, "Computer Core 1", "Computer Core 1", "Deck 5", "comp"],
+    [2, 0, 1, 1, "Computer Core 2", "Computer Core 2", "Deck 12", "comp"],
+    [3, 0, 1, 1, "Lateral Sensors", "Lateral Sensor Array", "Deck 10", "sensor"],
+    [0, 1, 2, 1, "Saucer Impulse Engines", "Saucer Impulse Engines", "Deck 15", "warp"],
+    [2, 1, 1, 1, "Dorsal Phasers", "Dorsal Phaser Array", "Deck 3", "weapon"],
+    [3, 1, 1, 1, "Fwd Shields", "Forward Shield Generator", "Deck 9", "power"],
+    [0, 2, 1, 1, "Life Support", "Saucer Life Support", "Deck 8", "life"],
+    [1, 2, 1, 1, "Transporters", "Transporter Systems", "Deck 6", "power"],
+    [2, 2, 1, 1, "Replicators", "Replicator Systems", "Deck 10", "comp"],
+    [3, 2, 1, 1, "Holodecks", "Holodeck Grid", "Deck 11", "power"],
+    [0, 3, 1, 1, "Docking Latches", "Saucer Docking Latches", "Deck 16", "struct"],
+    [1, 3, 1, 1, "Lifeboats", "Lifeboat Launchers", "Deck 16", "struct"],
+    [2, 3, 2, 1, "Saucer EPS Grid", "Saucer EPS Grid", "Deck 14", "power"]] },
+  { name: "Stardrive Section", cols: 3, sec: 1, c1: "peach", c2: "orange", blocks: [
+    [0, 0, 1, 2, "Warp Core", "Warp Core", "Deck 36", "warp"],
+    [1, 0, 1, 1, "Antimatter Pods", "Antimatter Pods", "Deck 42", "warp"],
+    [2, 0, 1, 1, "Dilithium Chamber", "Dilithium Chamber", "Deck 36", "warp"],
+    [1, 1, 1, 1, "Battle Bridge", "Battle Bridge", "Deck 8", "comp"],
+    [2, 1, 1, 1, "Computer Core 3", "Computer Core 3", "Deck 26", "comp"],
+    [0, 2, 1, 1, "Plasma Conduits", "Main Plasma Conduits", "Deck 29", "power"],
+    [1, 2, 1, 1, "Aft Shields", "Aft Shield Generator", "Deck 33", "power"],
+    [2, 2, 1, 1, "Ventral Phasers", "Ventral Phaser Array", "Deck 39", "weapon"],
+    [0, 3, 1, 1, "Torpedo Launchers", "Torpedo Launchers", "Deck 25", "weapon"],
+    [1, 3, 1, 1, "Shuttlebays", "Shuttlebays 2 and 3", "Deck 13", "struct"],
+    [2, 3, 1, 1, "Tractor Beam", "Aft Tractor Emitter", "Deck 40", "sensor"]] },
+  { name: "Nacelles", cols: 2, sec: 2, c1: "butter", c2: "peach", blocks: [
+    [0, 0, 1, 1, "Port Coils", "Port Warp Coils", "Port Nacelle", "field"],
+    [1, 0, 1, 1, "Stbd Coils", "Starboard Warp Coils", "Starboard Nacelle", "field"],
+    [0, 1, 1, 1, "Port Bussard", "Port Bussard Collector", "Port Nacelle", "field"],
+    [1, 1, 1, 1, "Stbd Bussard", "Starboard Bussard Collector", "Starboard Nacelle", "field"],
+    [0, 2, 1, 1, "Port Injectors", "Port Plasma Injectors", "Port Nacelle", "warp"],
+    [1, 2, 1, 1, "Stbd Injectors", "Starboard Plasma Injectors", "Starboard Nacelle", "warp"],
+    [0, 3, 1, 1, "Port Pylon", "Port Nacelle Pylon", "Deck 33", "struct"],
+    [1, 3, 1, 1, "Stbd Pylon", "Starboard Nacelle Pylon", "Deck 33", "struct"]] },
+  { name: "Deflector", cols: 2, sec: 4, c1: "sky", c2: "ice", blocks: [
+    [0, 0, 2, 1, "Main Deflector Dish", "Main Deflector Dish", "Deck 34", "sensor"],
+    [0, 1, 1, 1, "Graviton Source", "Graviton Polarity Source", "Deck 34", "field"],
+    [1, 1, 1, 1, "Field Amplifier", "Subspace Field Amplifier", "Deck 35", "field"],
+    [0, 2, 2, 1, "Long Range Sensors", "Long Range Sensors", "Deck 33", "sensor"],
+    [0, 3, 1, 1, "Fwd Tractor", "Forward Tractor Emitter", "Deck 34", "sensor"],
+    [1, 3, 1, 1, "Nav Sensors", "Navigational Sensors", "Deck 35", "sensor"]] },
+];
+const MY = 376, BW = 182, BH = 129, G = 16, GG = 62;     // 11 columns and 3 group gaps fill 40–2340 exactly
+const blocks = [];
+let gx = AX;
+for (const g of GROUPS) {
+  const gw = g.cols * BW + (g.cols - 1) * G;
+  header(gx, 280, gw, g.name, g.c1, g.c2);
+  for (const [c, r, cs, rs, label, full, loc, kind] of g.blocks) {
+    const x = gx + c * (BW + G), y = MY + r * (BH + G), w = cs * BW + (cs - 1) * G, h = rs * BH + (rs - 1) * G;
+    L.rect({ x, y, w, h, c: TRACK });
+    const f = cls(fill(x, y, w, h, NOM, "50% 100%"), "blk");
+    L.box({ x, y, w, h, c: "#0000", label, fs: 28 });
+    // the Port and Starboard nacelles are separate sections of the hull
+    const sec = g.sec === 2 && full.startsWith("Starboard") ? 3 : g.sec;
+    blocks.push({ x, y, w, h, label, full, loc, kind, sec, f, v: 1, goal: 1, state: "nom", job: null });
+  }
+  gx += gw + GG;
+}
+const setState = (b, s) => { b.state = s; b.f.style.background = `var(--${s === "nom" ? NOM : s === "deg" ? DEG : REP})`; };
+
+// ---------------- faults ----------------
+let woNum = 5180;
+const makeFault = () => {
+  const free = blocks.filter((b) => b.state === "nom" && !b.reserved);
+  const b = L.pick(free), fault = L.pick(KINDS[b.kind]);
+  const pri = (b.kind === "warp" || b.kind === "life") ? L.pick([1, 1, 2]) : L.pick([2, 2, 3, 3, 3]);
+  const job = { wo: woNum++, b, fault, pri, est: L.irand(14, 36), integ: STRUCTURAL.has(fault) ? L.rand(0.6, 0.82) : L.rand(0.55, 0.86) };
+  b.job = job; b.goal = job.integ; setState(b, "deg");
+  return job;
+};
+const openStructural = (sec) => blocks.some((b) => b.job && b.sec === sec && STRUCTURAL.has(b.job.fault));
+
+// ---------------- damage control teams ----------------
+const TEAMS = [["Lt. R. Barclay", "orange"], ["Ens. S. Gomez", "peach"], ["Chief M. O'Brien", "orange"],
+               ["Ens. Taurik", "peach"], ["Ens. R. Lefler", "orange"], ["Ens. D. Kwan", "peach"]];
+header(CX, 280, CR - CX, "Damage Control Teams", "sky", "orange");
+const TP = 96, TT = 376, TPW = 150, TTX = CX + TPW + L.GAP, TBX = 2800, TBR = 3400;
+const teams = TEAMS.map(([lead, c], i) => {
+  const y = TT + i * TP;
+  L.box({ x: CX, y, w: TPW, h: 84, c, label: `DC ${i + 1}`, fs: 32, r: "l" });
+  const task = cls(L.text({ x: TTX, base: y + 38, s: 40, c: "white", txt: "" }), "fade");
+  const loc = cls(L.text({ x: CR, base: y + 38, s: 40, c: "tan", txt: "", align: "r" }), "fade");
+  L.text({ x: TTX, base: y + 80, s: 36, c: "peach", txt: lead });
+  L.rect({ x: TBX, y: y + 60, w: TBR - TBX, h: 20, c: "#14223c" });
+  const bar = cls(fill(TBX, y + 60, TBR - TBX, 20, REP), "fade");
+  const eta = cls(L.text({ x: CR, base: y + 80, s: 36, c: "white", txt: "", align: "r" }), "fade");
+  const chip = L.layer({ x: 0, y: 0, w: 84, h: 36, cls: "chip" });
+  chip.textContent = `DC ${i + 1}`;
+  return { n: i + 1, lead, task, loc, bar, eta, chip, job: null, prog: 0, shown: -1, state: "idle", swap: null };
+});
+const swapText = (tm, f) => {                                // fade out, change, fade back in
+  [tm.task, tm.loc, tm.eta, tm.bar].forEach((e) => e.classList.add("out"));
+  clearTimeout(tm.swap);
+  tm.swap = setTimeout(() => { f(); [tm.task, tm.loc, tm.eta, tm.bar].forEach((e) => e.classList.remove("out")); }, 480);
+};
+const etaTxt = (tm) => `${Math.max(1, Math.ceil((1 - tm.prog) * tm.job.est))} min`;
+const assign = (tm, job, prog = 0, quiet = false) => {
+  const b = job.b;
+  tm.job = job; tm.state = "work"; b.team = tm; setState(b, "rep");
+  takeParts(job);
+  L.move(tm.chip, b.x + 12, b.y + 12);
+  const show = () => {
+    tm.prog = prog; tm.shown = -1;
+    tm.task.textContent = `${job.fault}  ·  ${b.full}`; tm.loc.textContent = b.loc; tm.eta.textContent = etaTxt(tm);
+    tm.bar.style.transform = `scaleX(${prog.toFixed(4)})`;
+    tm.chip.classList.add("on");
+  };
+  if (quiet) show(); else { tm.prog = prog; swapText(tm, show); }
+};
+
+// ---------------- completed repairs: the log ----------------
+small(AX, 1620, AR - AX, "Completed Repairs", "orange", "butter");
+const logRows = Array.from({ length: 6 }, (_, i) => {
+  const base = 1734 + i * 54;
+  return { sd: L.text({ x: AX, base, s: 36, c: "orange", txt: "" }), tx: L.text({ x: AX + 190, base, s: 36, c: "peach", txt: "" }),
+           tm: L.text({ x: AR, base, s: 36, c: "sky", txt: "", align: "r" }) };
+});
+let stardate = 47783.2, logged = [], doneShift = 11, durations = [24, 31, 19, 28, 22, 34];
+const logLine = (txt, team) => {
+  stardate += 0.1; logged.push([stardate.toFixed(1), txt, team]); if (logged.length > 6) logged.shift();
+  logRows.forEach((r, i) => { const e = logged[i]; put(r.sd, e ? e[0] : ""); put(r.tx, e ? e[1] : ""); put(r.tm, e ? e[2] : ""); });
+};
+
+const complete = (tm) => {
+  const job = tm.job, b = job.b;
+  b.job = null; b.team = null; b.goal = 1; setState(b, "nom");
+  b.reserved = true; setTimeout(() => (b.reserved = false), 30000);   // a mended system is left alone for a while
+  tm.chip.classList.remove("on");
+  logLine(`${FAULTS[job.fault][1]}  ·  ${b.full}`, `DC ${tm.n}`);
+  doneShift++; durations.push(job.est); if (durations.length > 12) durations.shift();
+  tm.state = "done"; tm.job = null;
+  swapText(tm, () => { tm.task.textContent = `Repair complete  ·  ${b.full}`; tm.eta.textContent = "Done"; });
+  waiting.push(tm);
+  showStatus();
+};
+
+// ---------------- repair queue: work orders by priority ----------------
+const QN = 5, QT = 1148, QP = 84, QB = 180;
+header(CX, 1000, CR - CX, "Repair Queue", "sunset", "peach");
+const qInfo = L.text({ x: CX, base: 1120, s: 36, c: "sky", txt: "" });
+const PRI = { 1: "sunset", 2: "orange", 3: "butter" };
+const SYSX = 560;                                            // the system column, from the row's left
+const qrows = Array.from({ length: QN + 1 }, () => {
+  const e = L.layer({ x: CX, y: QT, w: CR - CX, h: 64 });
+  const box = L.box({ x: 0, y: 0, w: QB, h: 64, c: "orange", label: "", fs: 32, r: "l", cls: "pill" }, e);
+  const fault = L.text({ x: QB + L.GAP, base: 52.5, s: 40, c: "white", txt: "" }, e);
+  const sys = L.text({ x: SYSX, base: 52.5, s: 36, c: "tan", txt: "" }, e);
+  const est = L.text({ x: L.W, base: 52.5, s: 40, c: "white", txt: "", align: "r" }, e);   // flush with the row's right edge
+  e.style.opacity = 0;
+  return { e, box, fault, sys, est, job: null, slot: -1, y: 0, tw: null, op: 0, fo: null };
+});
+const setRow = (r, job) => {
+  r.job = job; r.box.textContent = `Priority ${job.pri}`; r.box.style.background = `var(--${PRI[job.pri]})`;
+  r.fault.textContent = job.fault; r.sys.textContent = job.b.full; r.est.textContent = `${job.est} min`;
+};
+const slotY = (s) => s * QP;
+const moveRow = (r, slot, t, dur) => { r.tw = { from: r.y, to: slotY(slot), t0: t, dur }; r.slot = slot; };
+const fadeRow = (r, to, t, dur) => { r.fo = { from: r.op, to, t0: t, dur }; };
+const queue = [];
+const showQueue = () => put(qInfo, `${queue.length} work orders queued  ·  in order of priority  ·  next WO ${woNum}`);
+
+// ---------------- the coordinator: one queue change at a time ----------------
+const waiting = [];
+let phase = "idle", pT = 0, nextOk = 3, pending = null, pause = 2;
+const step = (t) => {
+  const u = t - pT;
+  if (phase === "idle") {
+    if (!waiting.length || t < nextOk) return;
+    const top = qrows.find((r) => r.slot === 0);
+    fadeRow(top, 0, t, 0.8); phase = "take"; pT = t;
+  } else if (phase === "take" && u >= 0.9) {                // the top order goes to the team that is free
+    const tm = waiting.shift(), job = queue.shift(), top = qrows.find((r) => r.slot === 0);
+    top.slot = -1;
+    qrows.forEach((r) => { if (r.slot > 0) moveRow(r, r.slot - 1, t, 1.2); });
+    assign(tm, job);
+    phase = "settle"; pT = t; pause = 1.2 + L.rand(1.5, 3); showQueue(); showStatus();
+  } else if (phase === "settle" && u >= pause) {   // then, elsewhere, a new minor fault
+    const job = makeFault();
+    let p = queue.findIndex((j) => j.pri > job.pri); if (p < 0) p = queue.length;
+    queue.splice(p, 0, job);
+    const moved = qrows.filter((r) => r.slot >= p);
+    moved.forEach((r) => moveRow(r, r.slot + 1, t, 1.0));
+    pending = qrows.find((r) => r.slot === -1);
+    setRow(pending, job); pending.slot = p; pending.y = slotY(p); pending.tw = null; L.move(pending.e, 0, pending.y);
+    phase = "room"; pT = t - (moved.length ? 0 : 1.0); showQueue(); showStatus();
+  } else if (phase === "room" && u >= 1.0) {
+    fadeRow(pending, 1, t, 0.9); phase = "arrive"; pT = t;
+  } else if (phase === "arrive" && u >= 0.9) {
+    phase = "idle"; nextOk = t + 1.5;
+  }
+};
+
+// ---------------- structural integrity field ----------------
+const RT = (i) => 1148 + i * 84, RB = (i) => RT(i) + 52.5;  // the second band's rows: tops and baselines
+header(AX, 1000, AR - AX, "Structural Integrity Field", "orange", "sunset");
+const SBX = AX + 300, SBR = AR - 180, HBX = BX + 300, HBR = BR - 180;
+[["Section", AX, "l"], ["Field Strength", SBX, "l"], ["Output", AR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: 1120, s: 36, c: "sky", txt, align }));
+const sif = SECTIONS.map((name, i) => {
+  L.text({ x: AX, base: RB(i), s: 40, c: "peach", txt: name });
+  L.rect({ x: SBX, y: RB(i) - 26, w: SBR - SBX, h: 26, c: TRACK });
+  const bar = fill(SBX, RB(i) - 26, SBR - SBX, 26, i % 2 ? "orange" : "butter");
+  L.rect({ x: SBX + Math.round(((SBR - SBX) * 100) / 110) - 2, y: RB(i) - 36, w: 4, h: 46, c: "white", free: true });   // 100%
+  const val = L.text({ x: AR, base: RB(i), s: 52, c: "white", txt: "", align: "r" });
+  return { bar, val, v: 100, goal: 100, drift: 0, shown: -1 };
+});
+
+// ---------------- hull stress ----------------
+header(BX, 1000, BR - BX, "Hull Stress", "peach", "orange");
+[["Section", BX, "l"], ["Last 40 Minutes", HBX, "l"], ["Of Tolerance", BR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: 1120, s: 36, c: "sky", txt, align }));
+const NS = 81, HSPAN = 18, BASE = [11, 14, 18, 18, 9];
+const stressAt = (i, k) => BASE[i] + 2.4 * Math.sin(k * 0.11 + i * 1.7) + 1.3 * Math.sin(k * 0.37 + i * 0.6) + L.rand(-0.5, 0.5);
+const hull = SECTIONS.map((name, i) => {
+  L.text({ x: BX, base: RB(i), s: 40, c: "peach", txt: name });
+  const c = L.canvas({ x: HBX, y: RT(i), w: HBR - HBX, h: 64 });
+  const val = L.text({ x: BR, base: RB(i), s: 52, c: "white", txt: "", align: "r" });
+  const h = { c, val, k: 0, s: [] };
+  for (let k = 0; k < NS; k++) h.s.push(stressAt(i, k));
+  h.k = NS;
+  const draw = () => {
+    const g = c.g, w = c.w, ht = c.h, dx = w / (NS - 1), lo = BASE[i] - 6, Y = (v) => ht - 6 - ((v - lo) / HSPAN) * (ht - 12);
+    g.clearRect(0, 0, w, ht);
+    g.fillStyle = "#2c1d0e";
+    for (const f of [0.25, 0.5, 0.75]) g.fillRect(0, Math.round(ht * f) - 1, w, 2);
+    g.beginPath(); g.moveTo(0, ht);
+    h.s.forEach((v, k) => g.lineTo(k * dx, Y(v)));
+    g.lineTo(w, ht); g.closePath(); g.fillStyle = "rgba(255,156,26,0.18)"; g.fill();
+    g.beginPath(); h.s.forEach((v, k) => (k ? g.lineTo(k * dx, Y(v)) : g.moveTo(0, Y(v))));
+    g.lineWidth = 3; g.lineJoin = "round"; g.strokeStyle = "#ff9c1a"; g.stroke();
+    g.fillStyle = "#f2f2ff"; g.beginPath(); g.arc(w - 5, Y(h.s[NS - 1]), 5, 0, 7); g.fill();
+    put(val, h.s[NS - 1].toFixed(1) + "%");
+  };
+  c.onResize = draw; h.draw = draw;
+  return h;
+});
+later(2200, () => hull.forEach((h, i) => {                // one new sample per section, now and then
+  const last = h.s[NS - 1], target = stressAt(i, h.k++) + (openStructural(i) ? 6 : 0);
+  h.s.shift(); h.s.push(last * 0.55 + target * 0.45); h.draw();
+}), 0);
+
+// ---------------- spare parts and replication ----------------
+small(BX, 1620, BR - BX, "Spare Parts  ·  Replication", "peach", "orange");
+PARTS.forEach((p, i) => {
+  const base = 1734 + i * 54;
+  p.name_ = L.text({ x: BX, base, s: 36, c: "peach", txt: p.name });
+  L.rect({ x: HBX, y: base - 22, w: HBR - HBX, h: 22, c: TRACK });
+  p.bar = fill(HBX, base - 22, HBR - HBX, 22, i % 2 ? "orange" : "butter");
+  p.val = L.text({ x: BR, base, s: 36, c: "white", txt: "", align: "r" });
+  p.n = Math.round(p.cap * L.rand(0.5, 0.9)); p.u = p.n / p.cap; p.making = false;
+});
+const showParts = () => PARTS.forEach((p) => {
+  put(p.val, `${fmt(p.n)} / ${fmt(p.cap)}${p.unit || ""}`);
+  css(p.name_, "color", p.making ? "var(--sky)" : "var(--peach)");
+});
+function takeParts(job) {
+  const p = PARTS[FAULTS[job.fault][0]], k = p.unit ? L.irand(3, 8) * 40 : Math.max(1, Math.round(p.cap * L.rand(0.04, 0.1)));
+  p.n = Math.max(0, p.n - k); showParts();
+}
+later(1500, () => {                                        // the industrial replicators restock whatever is lowest
+  const low = PARTS.reduce((a, p) => (p.n / p.cap < a.n / a.cap ? p : a));
+  PARTS.forEach((p) => (p.making = p === low && p.n / p.cap < 0.92));
+  if (low.making) low.n = Math.min(low.cap, low.n + (low.unit ? 20 : low.cap > 100 ? 2 : 1));
+  showParts();
+}, 0.2);
+
+// ---------------- summary ----------------
+small(CX, 1620, CR - CX, "Repair Summary", "sky", "peach");
+const SW = (CR - CX - 120) / 2;
+const STATS = ["Ship Integrity", "Open Faults", "Teams Deployed", "Repairs This Shift", "Mean Repair", "Replicator Load"];
+const statVals = STATS.map((name, i) => {
+  const x = CX + (i % 2) * (SW + 120), base = 1734 + Math.floor(i / 2) * 135;   // first and last rows on the log's first and last lines
+  L.text({ x, base, s: 40, c: "peach", txt: name });
+  return L.text({ x: x + SW, base, s: 52, c: "white", txt: "", align: "r" });
+});
+
+const showStatus = () => {
+  const busy = teams.filter((tm) => tm.state === "work").length, nom = blocks.filter((b) => b.state === "nom").length;
+  put(stateSub, `${busy} teams at work  ·  ${queue.length} faults queued  ·  ${nom} of ${blocks.length} systems nominal`);
+  const integ = (100 * blocks.reduce((a, b) => a + b.v, 0)) / blocks.length;
+  const making = PARTS.some((p) => p.making);
+  [integ.toFixed(1) + "%", String(queue.length + busy), `${busy} of ${teams.length}`, String(doneShift),
+   Math.round(durations.reduce((a, b) => a + b, 0) / durations.length) + " min", making ? "64%" : "38%"]
+    .forEach((v, i) => put(statVals[i], v));
+};
+
+// ---------------- a guard: every name fits its place ----------------
+{
+  const bad = [];
+  const fits = (txt, s, w, where) => { if (L.textWidth(txt, s) > w) bad.push(`${where}: "${txt}" ${Math.round(L.textWidth(txt, s))}>${Math.round(w)}`); };
+  for (const b of blocks) {
+    fits(b.full, 36, (CR - CX) - SYSX - 140, "queue system");
+    for (const f of KINDS[b.kind]) {
+      fits(f, 40, SYSX - QB - L.GAP - 30, "queue fault");
+      fits(`${f}  ·  ${b.full}`, 40, CR - TTX - L.textWidth(b.loc, 40) - 40, "team task");
+      fits(`${FAULTS[f][1]}  ·  ${b.full}`, 36, AR - AX - 190 - 120, "log");
+    }
+  }
+  if (bad.length) setTimeout(() => { throw new Error("damage-control: " + bad.join(" | ")); });
+}
+
+// ---------------- the starting state ----------------
+for (const tm of teams) assign(tm, makeFault(), L.rand(0.08, 0.85), true);
+for (let i = 0; i < QN; i++) {
+  const job = makeFault();
+  let p = queue.findIndex((j) => j.pri > job.pri); if (p < 0) p = queue.length;
+  queue.splice(p, 0, job);
+}
+queue.forEach((job, i) => { const r = qrows[i]; setRow(r, job); r.slot = i; r.y = slotY(i); r.op = 1; L.move(r.e, 0, r.y); r.e.style.opacity = 1; });
+blocks.forEach((b) => (b.v = b.state === "rep" ? b.job.integ + (1 - b.job.integ) * b.team.prog : b.goal));
+[["Coolant leak sealed  ·  Antimatter Pods", 4], ["Sensors recalibrated  ·  Lateral Sensor Array", 1],
+ ["Power coupling replaced  ·  Transporter Systems", 6], ["Micro-fracture sealed  ·  Port Nacelle Pylon", 3],
+ ["ODN junction replaced  ·  Battle Bridge", 2], ["Field coils retuned  ·  Starboard Warp Coils", 5]]
+  .forEach(([txt, n]) => logLine(txt, `DC ${n}`));
+sif.forEach((s, i) => { s.goal = 100 + (openStructural(i) ? 5.5 : 0) + L.rand(-0.4, 0.4); s.v = s.goal; });
+showQueue(); showParts(); showStatus();
+
+// ---------------- the clock ----------------
+let tPrev = null;
+L.tick((t) => {
+  const dt = tPrev === null ? 0 : Math.min(0.1, t - tPrev); tPrev = t;
+  for (const tm of teams) {                                // the work
+    if (tm.state !== "work") continue;
+    tm.prog = Math.min(1, tm.prog + dt / (tm.job.est * MIN));
+    const b = tm.job.b; b.goal = tm.job.integ + (1 - tm.job.integ) * tm.prog;
+    if (Math.abs(tm.prog - tm.shown) > 0.0008) { tm.shown = tm.prog; tm.bar.style.transform = `scaleX(${tm.prog.toFixed(4)})`; }
+    if (tm.prog >= 1) complete(tm);
+  }
+  for (const b of blocks) {                                // the map's gauges follow their systems
+    const d = b.goal - b.v;
+    if (Math.abs(d) > 0.0004 || !b.drawn) {
+      b.v += d * Math.min(1, dt * 1.6); b.drawn = true;
+      b.f.style.transform = `scaleY(${b.v.toFixed(4)})`;
+    }
+    if (b.state === "rep") css(b.f, "opacity", (0.86 + 0.14 * Math.cos(t * 1.6 + b.x * 0.01)).toFixed(2));
+    else css(b.f, "opacity", "1");
+  }
+  for (const r of qrows) {                                 // queue rows slide and fade
+    if (r.tw) {
+      const k = L.ease(L.clamp((t - r.tw.t0) / r.tw.dur));
+      r.y = L.mix(r.tw.from, r.tw.to, k); L.move(r.e, 0, r.y);
+      if (k >= 1) r.tw = null;
+    }
+    if (r.fo) {
+      const k = L.clamp((t - r.fo.t0) / r.fo.dur);
+      r.op = L.mix(r.fo.from, r.fo.to, k); r.e.style.opacity = r.op.toFixed(3);
+      if (k >= 1) r.fo = null;
+    }
+  }
+  for (const s of sif) {
+    if (Math.abs(s.goal - s.v) < 0.002 && s.shown >= 0) continue;
+    s.v += (s.goal - s.v) * Math.min(1, dt * 0.8); s.shown = s.v;
+    s.bar.style.transform = `scaleX(${(s.v / 110).toFixed(4)})`;
+  }
+  for (const p of PARTS) {
+    const goal = p.n / p.cap;
+    if (Math.abs(goal - p.u) < 0.0005 && p.drawn) continue;
+    p.u += (goal - p.u) * Math.min(1, dt * 1.5); p.drawn = true;
+    p.bar.style.transform = `scaleX(${p.u.toFixed(4)})`;
+  }
+  step(t);
+});
+L.every(500, () => {
+  teams.forEach((tm) => { if (tm.state === "work" && !tm.task.classList.contains("out")) put(tm.eta, etaTxt(tm)); });
+  sif.forEach((s) => put(s.val, s.v.toFixed(1) + "%"));
+  showStatus();
+}, 0);
+later(3000, () => sif.forEach((s, i) => {                  // the field drifts a little; a section with a structural fault is reinforced
+  s.drift = L.clamp(s.drift + L.rand(-0.25, 0.25), -0.6, 0.6);
+  s.goal = 100 + s.drift + (openStructural(i) ? 5.5 : 0);
+}), 0.2);
+});
+</script></body></html>

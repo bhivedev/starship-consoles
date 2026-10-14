@@ -1,0 +1,373 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Counselor's Office</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* swapped text dips and comes back; .boot (the start-up cascade) always wins */
+  .sw { transition: opacity .6s ease, background-color 1.2s ease, color 1.2s ease; }
+  .out:not(.boot) { opacity: .15; }
+  .pill { transition: background-color 1.2s ease; }
+  .dot { border-radius: 50%; background: var(--white); }
+  .disc { border-radius: 50%; background: radial-gradient(circle, var(--pink) 0%, var(--lilac) 45%, var(--plum) 100%); }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: a bracket, title centred ----------------
+L.frame({ type: "C", title: "Counselor's Office  •  Crew Wellness", c: "lilac", c2: "plum", accent: "peach", foot: "Counselor",
+  side: [[140, "plum", "Med 08"], [70, "peach", "0815"], [420, "lilac", "Wellness"], [70, "plum", "47"], [300, "pink", "Indices"],
+         [70, "peach", "07"], [216, "lilac", "Trends"]],
+  side2: [[140, "pink", "Deck 08"], [70, "plum", "2291"], [420, "lilac", "Schedule"], [70, "peach", "14"], [300, "plum", "Programs"],
+          [70, "pink", "P5"], [216, "lilac", "Pacer"]] });
+
+// Two equal columns: the indices on the left, the schedule on the right; the strip splits under them.
+const LX = 220, LR = 1880, RX = 1960, RR = 3620;
+const ROW0 = 428, PITCH = 88, rowBase = (i) => ROW0 + i * PITCH + 52.5;   // rows of 64 on an 88 grid
+const MID = (i) => 1236 + i * 76;                                           // the middle band's baselines
+const STRIP = (i) => 1734 + i * 54;                                         // the bottom strip's
+const TRACK = "#25172f";
+const fill = (x, y, w, h, c, origin = "0 0") => {
+  const f = L.layer({ x, y, w, h });
+  f.style.background = c.startsWith("#") ? c : `var(--${c})`; f.style.transformOrigin = origin;
+  return f;
+};
+const cls = (e, ...c) => (e.classList.add(...c), e);
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const fg = (e, c) => { const v = `var(--${c})`; if (e._fg !== v) { e._fg = v; e.style.color = v; } };
+const bg = (e, c) => { const v = `var(--${c})`; if (e._bg !== v) { e._bg = v; e.style.background = v; } };
+const swap = (els, f) => { els.forEach((e) => e.classList.add("out")); setTimeout(() => { f(); els.forEach((e) => e.classList.remove("out")); }, 620); };
+const later = (ms, f, jitter) => L.every(ms, (t) => { if (t > 1) f(t); }, jitter);
+const pad2 = (n) => String(n).padStart(2, "0");
+const hhmm = (m) => pad2(Math.floor(m / 60) % 24) + pad2(m % 60);
+let seed = 47815;
+const drand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+
+// ---------------- ship's time: the Mac's own clock ----------------
+const minutes = () => { const d = new Date(); return d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60; };
+const stardate = () => 47780 + (minutes() / 1440) * 2.74;
+
+// ---------------- the day's schedule: one slot always open, so the office is never blank ----------------
+// [start (hhmm), session, kind, place, state word]. No names, no private details: the kind of session only.
+const SCHED = [
+  ["0000", "Gamma watch drop-in", "Open door", "Counselor's Office", "Office Hours"],
+  ["0130", "Duty counselor on call", "Comm badge", "Deck 8", "On Call"],
+  ["0600", "Sleep clinic review", "Group", "Sickbay", "In Session"],
+  ["0700", "Office hours", "Open door", "Counselor's Office", "Office Hours"],
+  ["0800", "Individual session", "Confidential", "Counselor's Office", "In Session"],
+  ["0900", "Senior staff briefing", "Consultation", "Observation Lounge", "In Session"],
+  ["0930", "Individual session", "Confidential", "Counselor's Office", "In Session"],
+  ["1030", "Mediation", "Confidential", "Counselor's Office", "In Session"],
+  ["1130", "Family session", "Confidential", "Counselor's Office", "In Session"],
+  ["1230", "Office hours", "Open door", "Ten Forward", "Office Hours"],
+  ["1400", "Stress management workshop", "Group", "Holodeck 4", "In Session"],
+  ["1500", "Individual session", "Confidential", "Counselor's Office", "In Session"],
+  ["1600", "Beta watch drop-in", "Open door", "Counselor's Office", "Office Hours"],
+  ["1700", "Young persons' group", "Group", "School, Deck 10", "In Session"],
+  ["1800", "Bereavement group", "Group", "Arboretum", "In Session"],
+  ["1900", "Individual session", "Confidential", "Counselor's Office", "In Session"],
+  ["2000", "Evening office hours", "Open door", "Counselor's Office", "Office Hours"],
+  ["2200", "Duty counselor on call", "Comm badge", "Deck 8", "On Call"],
+].map(([t, name, kind, place, word]) => ({ m: +t.slice(0, 2) * 60 + +t.slice(2), t, name, kind, place, word }));
+const slotAt = (m) => { let k = 0; SCHED.forEach((s, i) => { if (s.m <= m) k = i; }); return k; };
+const slotEnd = (k) => (k + 1 < SCHED.length ? SCHED[k + 1].m : 1440);
+
+// ---------------- departments: anonymous, aggregate wellness indices (50–100) ----------------
+const DEPTS = [
+  ["Command", 81.4, 80.6], ["Operations", 78.2, 78.9], ["Engineering", 73.8, 72.6], ["Science", 84.1, 83.0],
+  ["Medical", 77.0, 77.9], ["Security", 79.5, 78.4], ["Civilians", 86.3, 85.8],
+].map(([name, v, mean]) => ({ name, v, goal: v, base: v, mean, u: -1, status: "" }));
+const shipwide = () => DEPTS.reduce((a, d) => a + d.v, 0) / DEPTS.length;
+const stressOf = (w) => (100 - w) * 1.35;               // the stress index the trend chart plots
+const STATUS = [["Thriving", "lilac", 82], ["Steady", "peach", 75], ["Support", "butter", 0]];
+const statusOf = (d) => {                                // with a little hysteresis, so a word never flickers
+  const cur = STATUS.findIndex((s) => s[0] === d.status);
+  let k = STATUS.findIndex((s) => d.v >= s[2]);
+  if (cur >= 0 && k !== cur) {
+    const edge = k < cur ? STATUS[k][2] : STATUS[cur][2];
+    if (Math.abs(d.v - edge) < 0.3) k = cur;
+  }
+  return STATUS[k];
+};
+
+// ---------------- status line ----------------
+const WORDS = ["In Session", "Office Hours", "On Call"];
+const SUBX = LX + Math.max(...WORDS.map((w) => L.textWidth(w, 100))) + 56;
+const state = cls(L.text({ x: LX, cap: 150, s: 100, c: "lilac", txt: "" }), "sw");
+const stateSub = cls(L.text({ x: SUBX, base: 222, s: 38, c: "peach", txt: "" }), "sw");
+L.text({ x: RX, base: 222, s: 40, c: "lilac", txt: "Shipwide Wellness" });
+const shipBig = L.text({ x: RX + L.textWidth("Shipwide Wellness", 40) + 36, cap: 150, s: 100, c: "white", txt: "" });
+L.text({ x: 2560, base: 222, s: 40, c: "lilac", txt: "Sessions Today" });
+const sessBig = L.text({ x: 2560 + L.textWidth("Sessions Today", 40) + 36, cap: 150, s: 100, c: "white", txt: "" });
+L.box({ x: RR - 480, y: 150, w: 480, h: 72, c: "plum", label: "Aggregate  ·  Anonymous", r: "lr", fs: 36 });
+
+// ---------------- wellness index by department ----------------
+const BX0 = LX + 300 + L.GAP, BX1 = 1280, VX = 1440, DX = 1600, PX = 1640, PW = LR - PX;
+const bx = (v) => BX0 + ((v - 50) / 50) * (BX1 - BX0);
+L.header({ x: LX, y: 280, w: LR - LX, label: "Wellness Index  ·  By Department", c1: "lilac", c2: "plum" });
+L.text({ x: LX, base: 400, s: 36, c: "peach", txt: "Department" });
+[50, 75, 100].forEach((v, i) => L.text({ x: bx(v), base: 400, s: 30, c: "lilac", txt: v, align: i === 0 ? "l" : i === 2 ? "r" : "c", w: 80, legend: true }));
+L.text({ x: VX, base: 400, s: 36, c: "peach", txt: "Index", align: "r" });
+L.text({ x: DX, base: 400, s: 36, c: "peach", txt: "30 Day", align: "r" });
+L.text({ x: PX, base: 400, s: 36, c: "peach", txt: "Status" });
+DEPTS.forEach((d, i) => {
+  const y = ROW0 + i * PITCH, base = rowBase(i);
+  L.box({ x: LX, y, w: 300, h: 64, c: i % 2 ? "plum" : "lilac", label: d.name, fs: 32, r: "l" });
+  L.rect({ x: BX0, y: base - 26, w: BX1 - BX0, h: 26, c: TRACK });
+  L.rect({ x: bx(75) - 1, y: base - 26, w: 2, h: 26, c: "#3d2a4c", free: true });
+  d.bar = fill(BX0, base - 26, BX1 - BX0, 26, i % 2 ? "plum" : "lilac");
+  L.rect({ x: bx(d.mean) - 2, y: base - 38, w: 4, h: 38, c: "white", free: true });   // the 30-day mean
+  d.val = L.text({ x: VX, base, s: 52, c: "white", txt: "", align: "r" });
+  d.diff = L.text({ x: DX, base, s: 40, c: "lilac", txt: "", align: "r" });
+  d.pill = L.box({ x: PX, y, w: PW, h: 64, c: "lilac", label: "", fs: 32, r: "lr", cls: "pill" });
+});
+L.tick(() => DEPTS.forEach((d) => {                      // indices drift slowly towards their goals
+  d.v += (d.goal - d.v) * 0.01;
+  const k = L.clamp((d.v - 50) / 50);
+  if (Math.abs(k - d.u) > 0.0003) { d.u = k; tf(d.bar, `scaleX(${k.toFixed(4)})`); }
+}));
+later(6000, () => {
+  const d = L.pick(DEPTS);
+  d.goal = L.clamp(d.goal + L.rand(-0.9, 0.9) + (d.base - d.goal) * 0.3, d.base - 3, d.base + 3);
+}, 0.3);
+
+// ---------------- the schedule: seven rows, the current session third ----------------
+const TB = 160, TRX = RX + TB + L.GAP, NROW = 7, CUR = 2;
+L.header({ x: RX, y: 280, w: RR - RX, label: "Session Schedule  ·  Today", c1: "plum", c2: "lilac" });
+L.text({ x: RX, base: 400, s: 36, c: "peach", txt: "Time" });
+L.text({ x: TRX + 48, base: 400, s: 36, c: "peach", txt: "Session" });
+L.text({ x: RR, base: 400, s: 36, c: "peach", txt: "Place", align: "r" });
+const TRE = RR - 330;                                  // the tracks stop short of the place column
+for (let i = 0; i < NROW; i++) L.rect({ x: TRX, y: ROW0 + i * PITCH, w: TRE - TRX, h: 64, c: TRACK });
+const progress = fill(TRX, ROW0 + CUR * PITCH, TRE - TRX, 64, "#4b2d5e");
+const srows = Array.from({ length: NROW }, (_, i) => {
+  const base = rowBase(i);
+  return {
+    box: cls(L.box({ x: RX, y: ROW0 + i * PITCH, w: TB, h: 64, c: "lilac", label: "", fs: 32, r: "l" }), "sw"),
+    name: cls(L.text({ x: TRX + 48, base, s: 40, c: "white", txt: "", on: true }), "sw"),
+    kind: cls(L.text({ x: 0, base, s: 36, c: "lilac", txt: "", on: true }), "sw"),
+    place: cls(L.text({ x: RR, base, s: 36, c: "lilac", txt: "", align: "r" }), "sw"),
+  };
+});
+const showSchedule = (k) => srows.forEach((r, i) => {
+  const s = SCHED[(k + i - CUR + SCHED.length) % SCHED.length], when = i < CUR ? 0 : i === CUR ? 1 : 2;
+  L.set(r.box, s.t);
+  L.set(r.name, s.name);
+  L.set(r.place, s.place);
+  L.set(r.kind, "·  " + s.kind);
+  r.kind.style.left = TRX + 48 + L.textWidth(s.name, 40) + 22 + "px";
+  bg(r.box, ["plum", "pink", "lilac"][when]);
+  fg(r.name, ["plum", "white", "white"][when]);
+  fg(r.kind, ["plum", "pink", "lilac"][when]);
+  fg(r.place, ["plum", "pink", "lilac"][when]);
+});
+
+// ---------------- stress trends: thirty days, drawn once; today follows the indices ----------------
+const CX0 = 300, CX1 = LR, CT = 1210, CB = 1500, VMAX = 60;
+const cxd = (d) => CX0 + (d / 30) * (CX1 - CX0), cyv = (v) => CB - (v / VMAX) * (CB - CT);
+L.header({ x: LX, y: 1064, w: LR - LX, label: "Stress Trends  ·  30 Days", c1: "plum", c2: "lilac" });
+L.text({ x: LX, base: 1176, s: 36, c: "peach", txt: "Shipwide stress index  ·  Range across departments shaded" });
+const todayTxt = L.text({ x: LR, base: 1176, s: 40, c: "white", txt: "", align: "r" });
+[0, 20, 40, 60].forEach((v) => {
+  L.rect({ x: CX0, y: cyv(v) - 1, w: CX1 - CX0, h: 2, c: v ? "#2c1d38" : "#4a3560", free: true });
+  L.text({ x: CX0 - 24, base: cyv(v) + 11, s: 30, c: "lilac", txt: v, align: "r", legend: true });
+});
+[[0, "30 Days Ago"], [10, "20 Days"], [20, "10 Days"], [30, "Today"]].forEach(([d, txt], i) =>
+  L.text({ x: cxd(d), base: MID(4), s: 30, c: "lilac", txt, align: i === 0 ? "l" : i === 3 ? "r" : "c", w: 120, legend: true }));
+for (let d = 1; d < 30; d++) L.rect({ x: cxd(d) - 1, y: CB, w: 2, h: d % 10 ? 8 : 14, c: "#4a3560", free: true });
+// the history: a calm month, the Typhon Expanse (the déjà vu reports), shore leave on Risa, a border patrol
+const TODAY0 = stressOf(shipwide());
+const HIST = [], SPREAD = [];
+for (let d = 0; d < 30; d++) {
+  let v = 29 + 2.2 * Math.sin(d * 0.71) + 1.4 * Math.sin(d * 1.9 + 1) + (drand() - 0.5) * 2;
+  v += 11 * Math.exp(-((d - 6) ** 2) / 2.2) + 4 * Math.exp(-((d - 8) ** 2) / 3);
+  v -= 10 * Math.exp(-((d - 17.5) ** 2) / 3);
+  v += 6 * Math.exp(-((d - 24) ** 2) / 2.5);
+  HIST.push(v); SPREAD.push(5 + 1.5 * Math.sin(d * 1.3) + 0.25 * Math.abs(v - 29));
+}
+const shift = TODAY0 + (drand() - 0.5) * 2 - HIST[29];
+for (let d = 25; d < 30; d++) HIST[d] += shift * (d - 24) / 5;   // the last days run into today's reading
+const ptsOf = (vals, off) => vals.map((v, d) => `${cxd(d).toFixed(1)},${cyv(v + off(d)).toFixed(1)}`);
+L.svg("polygon", { points: [...ptsOf(HIST, (d) => SPREAD[d]), ...ptsOf(HIST, (d) => -SPREAD[d]).reverse()].join(" "), fill: "#4b2d5e", opacity: 0.75, class: "boot" });
+L.svg("polyline", { points: ptsOf(HIST, () => 0).join(" "), fill: "none", stroke: "var(--lilac)", "stroke-width": 5, "stroke-linejoin": "round", class: "boot" });
+const todayBand = L.svg("polygon", { points: "", fill: "#4b2d5e", opacity: 0.75, class: "boot" });
+const todayLine = L.svg("line", { x1: cxd(29), y1: cyv(HIST[29]), x2: cxd(30), y2: cyv(HIST[29]), stroke: "var(--pink)", "stroke-width": 5, "stroke-linecap": "round", class: "boot" });
+[[6, "Typhon Expanse  ·  Déjà vu reports"], [17.5, "Shore leave  ·  Risa"], [24, "Cardassian border patrol"]].forEach(([d, txt]) => {
+  for (let y = CT + 8; y < CB - 8; y += 22) L.rect({ x: cxd(d) - 1, y, w: 2, h: 12, c: "peach", free: true });
+  L.text({ x: cxd(d) + 14, base: CT + 34, s: 30, c: "peach", txt, legend: true });
+});
+const dot = cls(L.layer({ x: cxd(30) - 12, y: 0, w: 24, h: 24 }), "dot");
+let todayV = -1;
+const showToday = () => {
+  const v = stressOf(shipwide());
+  if (Math.abs(v - todayV) < 0.02) return;
+  todayV = v;
+  const y = cyv(v), sp = SPREAD[29];
+  todayLine.setAttribute("y2", y.toFixed(1));
+  todayBand.setAttribute("points", `${cxd(29)},${cyv(HIST[29] + sp)} ${cxd(30)},${cyv(v + sp)} ${cxd(30)},${cyv(v - sp)} ${cxd(29)},${cyv(HIST[29] - sp)}`);
+  tf(dot, `translate3d(0,${(y - 12).toFixed(1)}px,0)`);
+};
+L.tick((t) => { dot.style.opacity = (0.75 + 0.25 * Math.sin(t * 1.2)).toFixed(3); });
+
+// ---------------- programme activity: this week's sign-ups ----------------
+const NX = RX, LDX = 2330, GX0 = 2800, GX1 = 3380;
+L.header({ x: RX, y: 1064, w: RR - RX, label: "Program Activity  ·  This Week", c1: "lilac", c2: "plum" });
+L.text({ x: NX, base: 1176, s: 36, c: "peach", txt: "Program" });
+L.text({ x: LDX, base: 1176, s: 36, c: "peach", txt: "Led by  ·  Where" });
+L.text({ x: RR, base: 1176, s: 36, c: "peach", txt: "Attending", align: "r" });
+const PROGS = [
+  ["Mok'bara", "Lt. Worf  ·  Gymnasium", 24, 17, "lilac"],
+  ["Dance class", "Dr. Crusher  ·  Holodeck 2", 20, 12, "pink"],
+  ["Stress workshop", "Counselor  ·  Holodeck 4", 16, 11, "lilac"],
+  ["Arboretum walk", "Botany  ·  Arboretum", 30, 19, "plum"],
+  ["Parents' circle", "Counselor  ·  School, Deck 10", 14, 8, "pink"],
+].map(([name, lead, cap, n, c], i) => {
+  const base = MID(i);
+  L.text({ x: NX, base, s: 40, c: "white", txt: name });
+  L.text({ x: LDX, base, s: 36, c: "lilac", txt: lead });
+  L.rect({ x: GX0, y: base - 26, w: GX1 - GX0, h: 26, c: TRACK });
+  return { name, where: lead.split("  ·  ")[1], cap, n, shown: n, u: -1, bar: fill(GX0, base - 26, GX1 - GX0, 26, c), v: L.text({ x: RR, base, s: 40, c: "white", txt: "", align: "r" }) };
+});
+L.tick(() => PROGS.forEach((p) => {
+  p.shown += (p.n - p.shown) * 0.05;
+  const k = Math.round(p.shown) / p.cap;                 // the bar shows the count beside it, exactly
+  if (Math.abs(k - p.u) > 0.0001) { p.u = k; tf(p.bar, `scaleX(${k.toFixed(4)})`); L.set(p.v, `${Math.round(p.shown)} / ${p.cap}`); }
+}));
+later(29000, () => {                                     // someone signs up; now and then someone cancels
+  const open = PROGS.filter((p) => p.n < p.cap), free = PROGS.filter((p) => p.n > p.cap * 0.4);
+  if (open.length && (Math.random() < 0.5 || !free.length)) { const p = L.pick(open); p.n++; logLine(`${p.name}: one more signed up`, p.where, "Program"); }
+  else { const p = L.pick(free); p.n--; logLine(`${p.name}: a place came free`, p.where, "Program"); }
+}, 0.3);
+
+// ---------------- bottom strip: the office log ----------------
+L.header({ x: LX, y: 1620, w: LR - LX, label: "Office Log", c1: "lilac", c2: "plum", h: 48 });
+const LWX = 1180;
+const logRows = Array.from({ length: 6 }, (_, i) => ({
+  sd: L.text({ x: LX, base: STRIP(i), s: 36, c: "peach", txt: "" }),
+  tx: L.text({ x: LX + 180, base: STRIP(i), s: 36, c: "lilac", txt: "" }),
+  wh: L.text({ x: LWX, base: STRIP(i), s: 36, c: "pink", txt: "" }),
+  by: L.text({ x: LR, base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }) }));
+const logged = [];
+let logReady = false;
+function logLine(txt, where, by, sd = stardate()) {               // newest at the foot; always in time order
+  if (logged.length && sd < logged[logged.length - 1][4]) sd = logged[logged.length - 1][4];
+  logged.push([sd.toFixed(1), txt, where, by, sd]); if (logged.length > logRows.length) logged.shift();
+  if (logReady) logRows.forEach((r, i) => { const e = logged[i] || ["", "", "", ""]; L.set(r.sd, e[0]); L.set(r.tx, e[1]); L.set(r.wh, e[2]); L.set(r.by, e[3]); });
+}
+const ROUTINE = [["Wellness survey returns logged", "Shipwide", "Survey"], ["Referral received", "Sickbay", "Referral"],
+  ["Follow-up appointment booked", "Counselor's Office", "Booking"], ["Session notes sealed", "Counselor's Office", "Records"],
+  ["Relaxation program booked", "Holodeck 4", "Booking"], ["Drop-in visit", "Counselor's Office", "Visit"],
+  ["Crew evaluation input sent", "Main Bridge", "Command"], ["Shore leave recommendations filed", "Main Bridge", "Command"],
+  ["Sleep clinic referral", "Sickbay", "Referral"], ["Social hour posted", "Ten Forward", "Program"],
+  ["Mediation agreed by both parties", "Counselor's Office", "Mediation"], ["Quarterly wellness summary sent", "Starfleet Medical", "Report"]];
+let routineDeck = [];
+const routine = (sd) => { if (!routineDeck.length) routineDeck = ROUTINE.slice().sort(() => Math.random() - 0.5); logLine(...routineDeck.pop(), sd); };
+
+// ---------------- shipwide indicators ----------------
+const IX0 = RX, IX1 = 2880, IB0 = IX0 + 300, IB1 = IX1 - 140;
+L.header({ x: IX0, y: 1620, w: IX1 - IX0, label: "Shipwide Indicators", c1: "plum", c2: "lilac", h: 48 });
+const IND = [["Sleep Quality", 83, 100, "%", "lilac"], ["Recreation Use", 46, 100, "%", "lilac"], ["Ten Forward", 61, 100, "%", "pink"],
+  ["Holodeck Bookings", 72, 100, "%", "pink"], ["Survey Response", 68, 100, "%", "plum"], ["Open Referrals", 4, 12, "", "plum"]]
+  .map(([name, v, max, unit, c], i) => {
+    L.text({ x: IX0, base: STRIP(i), s: 36, c: "lilac", txt: name });
+    L.rect({ x: IB0, y: STRIP(i) - 22, w: IB1 - IB0, h: 22, c: TRACK });
+    return { name, v, goal: v, base: v, max, unit, u: -1, bar: fill(IB0, STRIP(i) - 22, IB1 - IB0, 22, c), e: L.text({ x: IX1, base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }) };
+  });
+L.tick(() => IND.forEach((g) => {
+  g.v += (g.goal - g.v) * 0.02;
+  const shown = g.unit ? g.v : Math.round(g.v), k = L.clamp(shown / g.max);
+  if (Math.abs(k - g.u) > 0.0003) { g.u = k; tf(g.bar, `scaleX(${k.toFixed(4)})`); }
+}));
+later(5000, () => {
+  const g = L.pick(IND);
+  if (g.unit) g.goal = L.clamp(g.goal + L.rand(-1.5, 1.5) + (g.base - g.goal) * 0.3, g.base - 6, g.base + 6);
+  else if (Math.random() < 0.3) g.goal = L.clamp(g.goal + L.pick([-1, 1]), 2, 7);
+}, 0.3);
+
+// ---------------- relaxation pacer: a breath, in four parts ----------------
+const QX0 = 2960, QX1 = 3290, RCX = RR - 146, RCY = 1846, RAD = 146;
+L.header({ x: QX0, y: 1620, w: RR - QX0, label: "Relaxation Pacer", c1: "pink", c2: "plum", h: 48 });
+L.svg("circle", { cx: RCX, cy: RCY, r: RAD - 2, fill: "none", stroke: "var(--lilac)", "stroke-width": 4, class: "boot" });
+L.svg("circle", { cx: RCX, cy: RCY, r: RAD * 0.42, fill: "none", stroke: "#4a3560", "stroke-width": 3, "stroke-dasharray": "10 8", class: "boot" });
+const disc = cls(L.layer({ x: RCX - RAD + 10, y: RCY - RAD + 10, w: 2 * RAD - 20, h: 2 * RAD - 20 }), "disc");
+const BREATH = [["Breathe In", 4], ["Hold", 4], ["Breathe Out", 6], ["Rest", 2]], CYCLE = 16, BREATHS = 20;
+const phaseTxt = cls(L.text({ x: QX0, base: STRIP(0), s: 52, c: "pink", txt: "" }), "sw");
+const pRow = (i, label) => { L.text({ x: QX0, base: STRIP(i), s: 36, c: "lilac", txt: label }); return L.text({ x: QX1, base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }); };
+const pLeft = pRow(1, "Phase Ends In"), pCount = pRow(2, "Breath"), pPattern = pRow(3, "Pattern"), pWho = pRow(5, "Taking Part");
+L.set(pRow(4, "Where"), "Holodeck 4");
+L.set(pPattern, "4 · 4 · 6 · 2");
+let people = L.irand(4, 8), lastBreath = -1, lastPhase = -1;
+L.tick((t) => {
+  const c = t % CYCLE, n = Math.floor(t / CYCLE);
+  let a = 0, ph = 0;
+  while (c >= a + BREATH[ph][1]) a += BREATH[ph++][1];
+  const k = (c - a) / BREATH[ph][1];
+  const s = ph === 0 ? L.mix(0.42, 1, L.ease(k)) : ph === 1 ? 1 : ph === 2 ? L.mix(1, 0.42, L.ease(k)) : 0.42;
+  tf(disc, `scale(${s.toFixed(4)})`);
+  disc.style.opacity = (0.55 + 0.35 * (s - 0.42) / 0.58).toFixed(3);
+  if (ph !== lastPhase) {
+    const first = lastPhase < 0; lastPhase = ph;
+    const f = () => L.set(phaseTxt, BREATH[ph][0]);
+    if (first) f(); else swap([phaseTxt], f);
+  }
+  L.set(pLeft, Math.ceil(BREATH[ph][1] * (1 - k) - 1e-6) + " s");
+  const b = n % BREATHS;
+  if (b !== lastBreath) {
+    if (b === 0 && lastBreath >= 0) people = L.irand(4, 8);
+    lastBreath = b; L.set(pCount, `${b + 1} of ${BREATHS}`); L.set(pWho, people);
+  }
+});
+
+// ---------------- the clock: schedule, status line, readings ----------------
+let lastSlot = -1;
+const showClock = () => {
+  const m = minutes(), k = slotAt(m), s = SCHED[k], end = slotEnd(k), left = Math.max(0, Math.ceil(end - m));
+  tf(progress, `scaleX(${L.clamp((m - s.m) / (end - s.m)).toFixed(4)})`);
+  const sub = () => {
+    const where = s.word === "On Call" ? "Duty counselor  ·  Deck 8" : `${s.name}  ·  ${s.place}`;
+    L.set(stateSub, `${where}  ·  ${s.t} – ${hhmm(end)}  ·  ${left} min left`);
+  };
+  if (k !== lastSlot) {
+    const first = lastSlot < 0; lastSlot = k;
+    const f = () => {
+      L.set(state, s.word); sub(); showSchedule(k);
+      const sess = SCHED.filter((x) => x.word === "In Session");
+      L.set(sessBig, `${sess.filter((x) => x.m < s.m || x === s).length} / ${sess.length}`);
+    };
+    if (first) f();
+    else {
+      swap([state, stateSub, ...srows.flatMap((r) => [r.box, r.name, r.kind, r.place])], f);
+      { const p = SCHED[(k - 1 + SCHED.length) % SCHED.length]; logLine(`${p.name} concluded`, p.place, "Schedule"); }
+    }
+  } else sub();
+};
+L.every(250, () => {
+  const w = shipwide();
+  L.set(shipBig, w.toFixed(1));
+  DEPTS.forEach((d) => {
+    L.set(d.val, d.v.toFixed(1));
+    const diff = d.v - d.mean;
+    L.set(d.diff, (diff >= 0 ? "+" : "−") + Math.abs(diff).toFixed(1));
+    const st = statusOf(d);
+    if (st[0] !== d.status) {
+      const was = d.status; d.status = st[0];
+      L.set(d.pill, st[0]); bg(d.pill, st[1]);
+      if (was) logLine(`${d.name} index ${st[0] === "Support" ? "below 75, support offered" : st[0] === "Thriving" ? "above 82" : "steady"}`, d.name, "Indices");
+    }
+  });
+  showToday();
+  L.set(todayTxt, "Today  " + stressOf(w).toFixed(1));
+  IND.forEach((g) => L.set(g.e, g.unit ? Math.round(g.v) + g.unit : Math.round(g.v)));
+}, 0);
+
+// the log starts with the last hour or so of the office's day, in time order
+{
+  const sd0 = stardate();
+  for (let i = 5; i >= 1; i--) routine(sd0 - 0.06 * i);
+  logReady = true; logLine("Wellness indices refreshed", "Shipwide", "Indices", sd0);
+}
+later(23000, () => routine(), 0.3);
+showClock();
+L.every(1000, showClock, 0);
+});
+</script></body></html>

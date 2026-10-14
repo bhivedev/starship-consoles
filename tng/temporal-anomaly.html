@@ -1,0 +1,385 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Temporal Anomaly</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .clip { position: absolute; overflow: hidden; }
+  .tip { width: 0; height: 0; border-left: 14px solid transparent; border-right: 14px solid transparent; border-top: 18px solid var(--white); }
+  .dot { border-radius: 50%; }
+  .sw { transition: background-color 1s ease, color 1s ease; }
+  .cell { position: absolute; border-radius: 6px; transition: background-color 0.9s ease; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: wide, no sidebars — the timeline is the screen ----------------
+L.frame({ type: "D", title: "Temporal Anomaly  •  Causality Monitor", c: "lilac", c2: "butter", accent: "plum" });
+
+const PANEL = "#1a1122", TRACK = "#2c1f36", GRID = "#33253f", DIM = "#2a1f33";
+const col = (c) => (c.startsWith("#") ? c : `var(--${c})`);
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const op = (e, v) => { v = v.toFixed(2); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const bg = (e, c) => { if (e._bg !== c) { e._bg = c; e.style.background = col(c); } };
+const fg = (e, c) => { if (e._fg !== c) { e._fg = c; e.style.color = col(c); } };
+const fmt = (n) => Math.round(n).toLocaleString("en");
+const pad2 = (n) => String(n).padStart(2, "0");
+const unboot = (e) => e.querySelectorAll(".boot").forEach((x) => x.classList.remove("boot"));
+
+// Columns: the timeline's track names 40–340, the timeline 364–3816; below it three columns 64 apart.
+const X0 = 40, X1 = 3816, TX = 364, TR = 3816, NSLOT = 6, SW = (TR - TX) / NSLOT;
+const COLS = [[40, 1256], [1320, 2536], [2600, 3816]];
+const VX = 420;                                            // values and gauges start 420 into a column
+const Y = { iter: 368, dek: 448, evt: 752, echo: 904 }, HT = { iter: 56, dek: 280, evt: 128, echo: 56 };
+const AXIS = 1008;                                         // the ship's-hours scale under the tracks
+const MID = 1068, midB = (i) => MID + 120 + i * 54;        // the middle row of panels
+const STRIP = (i) => 1734 + i * 54;                        // the bottom strip
+
+// ---------------- the loop ----------------
+// The Enterprise in the Typhon Expanse: each iteration runs 16 h 04 m of ship's time and ends in a
+// collision with the U.S.S. Bozeman. Iteration 26 is the last: Data's dekyon message ("three") gets
+// through, Riker's suggestion is taken and the loop breaks — 17.4 days after it began. Then time runs
+// on, and the record replays.
+const PERIOD = 16 + 4 / 60;                                // hours of ship's time per iteration
+const ITER_S = 24;                                         // seconds of screen time per iteration
+const FIRST = 21, LAST = 26, PAST0 = FIRST - 4, LIN = 3;
+const kind = (seq) => (seq < LAST ? "loop" : seq === LAST ? "final" : "lin");
+const ekind = () => (kind(cur) === "final" && !msgGot ? "loop" : kind(cur));   // the last iteration looks like the rest until the message
+const echoOf = (seq) => (kind(seq) === "lin" ? 0 : Math.round(seq * 3.5));    // déjà vu builds, iteration on iteration
+const F = { poker: 0.06, voices: 0.3, distort: 0.62, emerge: 0.84, decomp: 0.87, collide: 0.9 };
+const bump = (f, c, w) => Math.exp(-(((f - c) / w) ** 2));
+const noise = (f) => 0.035 * Math.sin(f * 2 * Math.PI * 7 + 0.6) + 0.024 * Math.sin(f * 2 * Math.PI * 13 + 2.1) + 0.014 * Math.sin(f * 2 * Math.PI * 29 + 4);
+// dekyon emission, 0–1: the same every iteration — that is the loop — but for the echo of the last
+const dekyon = (seq, f, k = kind(seq)) => {
+  if (k === "lin") return 0.1 + 0.6 * noise(f);
+  let v = 0.16 + noise(f) + 0.36 * (echoOf(seq) / 100) * bump(f, 0.025, 0.03) + 0.14 * bump(f, F.voices, 0.04) + 0.2 * bump(f, F.distort, 0.05);
+  if (k === "final") v += 0.46 * bump(f, F.voices, 0.012) + 0.26 * bump(f, F.collide, 0.02) + (f > F.collide ? 0.08 * Math.exp(-(f - F.collide) / 0.015) : 0);
+  else v += 0.6 * bump(f, F.collide, 0.022) + (f > F.collide ? 0.34 * Math.exp(-(f - F.collide) / 0.03) : 0) + 0.1 * bump(f, F.emerge, 0.03);
+  return L.clamp(v, 0, 0.97);
+};
+const distortion = (seq, f) => {
+  const k = kind(seq);
+  if (k === "lin") return 0.01;
+  return 0.02 + 0.3 * bump(f, F.distort, 0.06) + (k === "final" ? (f < F.decomp ? 0.9 * bump(f, F.collide, 0.06) : 0.3 * bump(f, F.collide, 0.03)) : 0.9 * bump(f, F.collide, 0.06));
+};
+const EVENTS = {
+  loop: [[F.poker, "Poker Game", 0, "lilac"], [F.voices, "Voices", 1, "lilac"], [F.distort, "Distortion", 0, "lilac"], [F.collide, "Collision", 1, "mars", "r"]],
+  final: [[F.poker, "Poker Game", 0, "lilac"], [F.voices, "Message  ·  3", 1, "butter"], [F.distort, "Distortion", 0, "lilac"], [F.collide, "Bozeman Clear", 1, "butter", "r"]],
+  lin: [[[0.12, "Bozeman Hailed", 0, "peach"], [0.5, "Capt. Bateson", 1, "peach"]],
+        [[0.2, "Date Corrected", 0, "peach"], [0.58, "17.4 Days Lost", 1, "peach"]],
+        [[0.3, "Background Only", 0, "peach"]]],
+};
+const AT = /[?&]it=(\d+)(?:&f=([\d.]+))?/.exec(location.search);   // dev: ?it=26&f=0.3 starts there
+
+// ---------------- status line ----------------
+const stateTxt = L.text({ x: X0, cap: 150, s: 100, c: "lilac", txt: "" });
+const stateSub = L.text({ x: 0, base: 222, s: 38, c: "butter", txt: "" });
+const setState = (word, sub) => { L.set(stateTxt, word); stateSub.style.left = X0 + L.textWidth(word, 100) + 40 + "px"; L.set(stateSub, sub); };
+const pill = L.box({ x: TR - 400, y: 150, w: 400, h: 72, c: "pink", label: "", r: "lr", fs: 36, cls: "sw" });
+const SDR = TR - 400 - 48;
+const sdVal = L.text({ x: SDR, base: 222, s: 52, c: "white", txt: "", align: "r" });
+L.text({ x: SDR - L.textWidth("45000.0", 52) - 28, base: 222, s: 40, c: "lilac", txt: "Stardate", align: "r" });
+
+// ---------------- the timeline ----------------
+L.header({ x: X0, y: 280, w: X1 - X0, label: "Causality Loop Detector  ·  U.S.S. Enterprise", c1: "lilac", c2: "butter" });
+L.box({ x: X0, y: Y.iter, w: 300, h: HT.iter, c: "lilac", label: "Iteration", fs: 32, r: "l" });
+L.box({ x: X0, y: Y.dek, w: 300, h: HT.dek, c: "plum", label: "Dekyon Field", fs: 32 });
+L.box({ x: X0, y: Y.evt, w: 300, h: HT.evt, c: "lilac", label: "Ship Events", fs: 32 });
+L.box({ x: X0, y: Y.echo, w: 300, h: HT.echo, c: "butter", label: "Echo Index", fs: 32, r: "l" });
+L.text({ x: X0, base: AXIS, s: 36, c: "lilac", txt: "Ship's Hours" });
+L.rect({ x: TX, y: Y.dek, w: TR - TX, h: HT.dek, c: PANEL });
+L.rect({ x: TX, y: Y.evt, w: TR - TX, h: HT.evt, c: PANEL });
+[0.25, 0.5, 0.75].forEach((u) => L.rect({ x: TX, y: Y.dek + HT.dek * u - 1, w: TR - TX, h: 2, c: GRID, free: true }));
+
+const CY = 340, CH = AXIS + 12 - CY;                       // the clipped window the iterations slide through
+const clip = L.el("div", "clip boot", L.stage, { left: TX + "px", top: CY + "px", width: TR - TX + "px", height: CH + "px" });
+const ry = (y) => y - CY;
+const veil = L.layer({ x: 0, y: ry(Y.iter), w: TR - TX + SW, h: Y.echo + HT.echo - Y.iter }, clip);   // what has not happened yet
+veil.style.background = "rgba(0,0,0,0.58)";
+const nowLine = L.layer({ x: 0, y: ry(Y.iter) - 4, w: 4, h: Y.echo + HT.echo - Y.iter + 8 }, clip);
+nowLine.style.background = "var(--white)";
+const nowTip = L.layer({ x: 0, y: 4, cls: "tip" }, clip);
+const cursor = L.layer({ x: 0, y: 0, w: 20, h: 20, cls: "dot" }, clip);
+cursor.style.background = "var(--white)";
+
+// one iteration: a layer of its own, built once and slid along
+const slots = new Map();
+let cur = FIRST, broken = false, msgGot = false;
+const NS = "http://www.w3.org/2000/svg";
+const build = (s) => {
+  const when = s.seq < cur ? "past" : s.seq === cur ? "now" : "next";
+  // a projection only repeats the loop — until the message gets through
+  const k0 = kind(s.seq), e = s.el;
+  const k = (k0 === "final" && (when === "next" || !msgGot)) || (when === "next" && s.seq === LAST + 1 && !msgGot) ? "loop" : k0;
+  s.when = when;
+  e.textContent = "";
+  const div = (x, y, w, h, c) => L.el("div", "", e, { position: "absolute", left: x + "px", top: y + "px", width: w + "px", height: h + "px", background: col(c) });
+  // the reset that began it
+  if (k === "lin") div(2, ry(Y.iter), 2, Y.echo + HT.echo - Y.iter, "#4a3a58");
+  else div(0, ry(Y.iter), 6, Y.echo + HT.echo - Y.iter, "pink");
+  // its name
+  const lin = s.seq - LAST - 1;
+  const label = k === "lin" ? (when === "next" ? "Projected  ·  Linear" : `Linear  ·  Day ${17 + lin + 1}`)
+    : when === "next" ? `Projected  ·  ${s.seq}` : k === "final" && (when === "past" || broken) ? `Iteration ${s.seq}  ·  Loop Broken` : `Iteration ${s.seq}`;
+  const c = when === "now" ? "butter" : when === "next" ? "plum" : k === "lin" ? "peach" : k === "final" ? "butter" : "lilac";
+  s.box = L.box({ x: 14, y: ry(Y.iter), w: SW - 22, h: HT.iter, c, label, fs: 32, cls: "sw" }, e);
+  // the dekyon trace, with the hours ruled through it
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("width", SW); svg.setAttribute("height", HT.dek);
+  Object.assign(svg.style, { position: "absolute", left: "0px", top: ry(Y.dek) + "px" });
+  const yv = (v) => (HT.dek - 14 - v * (HT.dek - 28)).toFixed(1);
+  let line = "";
+  for (let i = 0; i <= 160; i++) { const f = i / 160; line += `${i ? "L" : "M"}${(f * SW).toFixed(1)},${yv(dekyon(s.seq, f, k))}`; }
+  const ink = k === "lin" ? "var(--peach)" : when === "now" ? "var(--butter)" : "var(--lilac)";
+  const hours = [4, 8, 12].map((h) => `<rect x="${(h / PERIOD) * SW - 1}" y="0" width="2" height="${HT.dek}" fill="${GRID}"/>`).join("");
+  svg.innerHTML = `${hours}<path d="${line}L${SW},${HT.dek}L0,${HT.dek}Z" fill="${ink}" fill-opacity=".16"/>` +
+    `<path d="${line}" fill="none" stroke="${ink}" stroke-width="3.5" stroke-linejoin="round"/>`;
+  e.appendChild(svg);
+  // what happens in it
+  const evs = k === "lin" ? EVENTS.lin[Math.min(lin, 2)] : EVENTS[k];
+  evs.forEach(([f, txt, row, ec, side]) => {
+    const x = f * SW;
+    div(x - 2, ry(Y.evt) + 8, 4, HT.evt - 16, ec);
+    const base = ry(Y.evt) + (row ? 108 : 50);
+    if (side === "r") L.text({ x: x - 16, base, s: 36, c: ec === "mars" ? "mars" : ec, txt, align: "r", rightIn: true }, e);
+    else L.text({ x: x + 16, base, s: 36, c: ec, txt }, e);
+  });
+  // how strongly the crew remember the last one
+  const ep = k === "lin" ? 0 : Math.round(s.seq * 3.5), BW = SW - 22 - 120;
+  div(14, ry(Y.echo) + 15, BW, 26, TRACK);
+  if (ep) div(14, ry(Y.echo) + 15, BW * ep / 100, 26, k === "final" ? "butter" : "lilac");
+  L.text({ x: SW - 8, base: ry(Y.echo) + 48, s: 40, c: ep ? "white" : "lilac", txt: ep ? ep + "%" : "—", align: "r", rightIn: true }, e);
+  // the ship's hours
+  [4, 8, 12].forEach((h) => L.text({ x: (h / PERIOD) * SW, base: ry(AXIS), s: 34, c: "lilac", txt: pad2(h) + ":00", align: "c", w: 120, legend: true }, e));
+  unboot(e);
+};
+const addSlot = (seq) => {
+  const el = L.layer({ x: 0, y: 0, w: SW, h: CH });
+  clip.insertBefore(el, veil);
+  const s = { seq, el, vis: 1 };
+  slots.set(seq, s);
+  build(s);
+  return s;
+};
+
+// ---------------- dekyon emissions · anti-time · temporal rift ----------------
+const gauge = (x, i, name, c) => {
+  const base = midB(i), r = x + 1216 - 230;
+  L.text({ x, base, s: 36, c: "lilac", txt: name });
+  L.rect({ x: x + VX, y: base - 20, w: r - (x + VX), h: 20, c: TRACK });
+  const bar = L.layer({ x: x + VX, y: base - 20, w: r - (x + VX), h: 20 });
+  bar.style.background = col(c); bar.style.transformOrigin = "0 50%";
+  return { bar, v: L.text({ x: x + 1216, base, s: 40, c: "white", txt: "", align: "r" }), u: -1 };
+};
+const showBar = (g, k) => { k = L.clamp(k); if (Math.abs(k - g.u) > 0.001) { g.u = k; tf(g.bar, `scaleX(${k.toFixed(3)})`); } };
+const row = (x, base, name, txt, c = "white") => {
+  L.text({ x, base, s: 36, c: "lilac", txt: name });
+  return L.text({ x: x + VX, base, s: 40, c, txt });
+};
+const [C1, C2, C3] = COLS.map((c) => c[0]);
+L.header({ x: C1, y: MID, w: 1216, label: "Dekyon Emissions  ·  Typhon Expanse", c1: "plum", c2: "lilac" });
+L.header({ x: C2, y: MID, w: 1216, label: "Anti-Time  ·  Devron System", c1: "lilac", c2: "butter" });
+L.header({ x: C3, y: MID, w: 1216, label: "Temporal Rift  ·  Narendra III", c1: "butter", c2: "plum" });
+const dk = {
+  flux: gauge(C1, 0, "Dekyon Flux", "butter"), coh: gauge(C1, 1, "Field Coherence", "lilac"), dist: gauge(C1, 2, "Spatial Distortion", "pink"),
+  bear: row(C1, midB(3), "Distortion Bearing", "318 Mark 004"),
+  vessel: row(C1, midB(4), "Vessel Detected", ""),
+};
+row(C1, midB(5), "Bozeman Missing Since", "2278  ·  Soyuz Class  ·  NCC-1941");
+row(C1, midB(6), "Commanding Officer", "Capt. Morgan Bateson");
+// the anomaly in the Devron system is largest in the past: it grows as it goes back in time
+const at = [
+  [gauge(C2, 0, "Anomaly  ·  2364", "lilac"), 0.96, 1.62],
+  [gauge(C2, 1, "Anomaly  ·  2370", "lilac"), 0.42, 0.71],
+  [gauge(C2, 2, "Anomaly  ·  2395", "butter"), 0.07, 0.12],
+];
+row(C2, midB(3), "Tachyon Pulse", "Inverse  ·  Main Deflector");
+const atFlux = row(C2, midB(4), "Anti-Time Flux", "");
+row(C2, midB(5), "Pulse Sources", "3 Enterprises  ·  Converging");
+row(C2, midB(6), "Location", "Romulan Neutral Zone");
+const rift = [
+  [gauge(C3, 0, "Chroniton Residue", "butter"), 0.22, (u) => (u * 0.1).toFixed(3) + " ppm"],
+  [gauge(C3, 1, "Subspace Shear", "lilac"), 0.13, (u) => (u * 10).toFixed(2) + " mc"],
+  [gauge(C3, 2, "Timeline Coherence", "lilac"), 0.993, (u) => (u * 100).toFixed(1) + "%"],
+];
+row(C3, midB(3), "Vessel", "Enterprise-C  ·  NCC-1701-C");
+row(C3, midB(4), "Commanding Officer", "Capt. Rachel Garrett");
+row(C3, midB(5), "Rift Opened", "2344  ·  Klingon Outpost");
+const riftSt = row(C3, midB(6), "Rift Status", "Sealed  ·  Timeline Restored");
+
+// ---------------- bottom strip: log · analysis · the message ----------------
+L.header({ x: C1, y: 1620, w: 1216, label: "Loop Log", c1: "lilac", c2: "plum", h: 48 });
+L.header({ x: C2, y: 1620, w: 1216, label: "Loop Analysis", c1: "butter", c2: "lilac", h: 48 });
+L.header({ x: C3, y: 1620, w: 1216, label: "Dekyon Message", c1: "plum", c2: "butter", h: 48 });
+const logRows = Array.from({ length: 6 }, (_, i) => ({
+  d: L.text({ x: C1, base: STRIP(i), s: 36, c: "butter", txt: "" }),
+  tx: L.text({ x: C1 + 190, base: STRIP(i), s: 36, c: "lilac", txt: "" }),
+}));
+let logged = [];
+const days = (seq, f) => ((seq - 1 + f) * PERIOD) / 24;
+const log = (txt, d) => {
+  logged.push([`Day ${d.toFixed(1)}`, txt]); if (logged.length > 6) logged.shift();
+  logRows.forEach((r, i) => {
+    const e = logged[i] || ["", ""];
+    L.set(r.d, e[0]); L.set(r.tx, e[1]);
+    fg(r.tx, i === logged.length - 1 ? "white" : "lilac");
+  });
+};
+const an = ["Iterations Logged", "Loop Period", "Time Elapsed", "Echo Index", "Projected Outcome", "Next Reset"]
+  .map((name, i) => row(C2, STRIP(i), name, i === 1 ? "16 h 04 m" : ""));
+// the message: a 5 × 7 matrix that resolves into a three
+const THREE = ["01110", "10001", "00001", "00110", "00001", "10001", "01110"];
+const MT = STRIP(0) - 0.72 * 36, MB = STRIP(5), CP = (MB - MT - 35) / 6;
+const cells = [];
+for (let r = 0; r < 7; r++) for (let c = 0; c < 5; c++) {
+  const e = L.el("div", "cell boot", L.stage, { left: C3 + c * CP + "px", top: MT + r * CP + "px", width: "35px", height: "35px", background: DIM });
+  cells.push({ e, on: THREE[r][c] === "1", r });
+}
+const MX = C3 + 300;
+const msgRows = ["Carrier", "Sender", "Received By", "Content", "Clue", "Action"].map((name, i) => {
+  L.text({ x: MX, base: STRIP(i), s: 36, c: "lilac", txt: name });
+  return L.text({ x: MX + 260, base: STRIP(i), s: 40, c: "white", txt: "" });
+});
+let shown = "";
+const showMessage = (state, t) => {                         // "wait": scanning, "got": the three
+  if (state === "wait") {
+    const scan = Math.floor(t * 2.5) % 9;
+    cells.forEach((c) => bg(c.e, c.r === scan ? "#4a3560" : DIM));
+  } else if (shown !== "got") cells.forEach((c) => bg(c.e, c.on ? "butter" : DIM));
+  if (state === shown) return;
+  shown = state;
+  const got = state === "got";
+  [["Dekyon Field", "white"], ["Lt. Cmdr. Data", "white"], ["Lt. Cmdr. Data", "white"], [got ? "Three" : "Pending", got ? "butter" : "lilac"],
+   [got ? "Three Pips  ·  Cmdr. Riker" : "—", got ? "white" : "lilac"], [got ? "Decompress Main Shuttlebay" : "—", got ? "white" : "lilac"]]
+    .forEach(([txt, c], i) => { L.set(msgRows[i], txt); fg(msgRows[i], c); });
+};
+
+// ---------------- the clock of the loop ----------------
+let inT0 = -9, curT0 = 0, scroll = 0, from = 0, to = 0, slideT0 = -9, fade = null, fired = new Set();
+const setup = (seq, f, t) => {
+  slots.forEach((s) => s.el.remove()); slots.clear();
+  cur = seq; broken = seq > LAST; msgGot = seq > LAST; curT0 = t - f * ITER_S; fired = new Set();
+  scroll = from = to = seq - 4; slideT0 = -9;
+  for (let q = seq - 4; q <= seq + 1; q++) addSlot(q);
+  logged = [];
+  const d0 = days(seq, 0);
+  if (seq <= LAST) {
+    log(`Collision  ·  iteration ${seq - 2} reset`, days(seq - 1, 0) - 0.01);
+    log("Distortion  ·  all stop", days(seq - 1, F.distort));
+    log("Vessel emerging  ·  U.S.S. Bozeman", days(seq - 1, F.emerge));
+    log(`Collision  ·  iteration ${seq - 1} reset`, d0);
+  }
+  place(true);
+};
+const place = (all) => {
+  slots.forEach((s) => {
+    const pos = s.seq - scroll;
+    if (all || s.moving) L.move(s.el, (pos * SW).toFixed(2), 0);
+    op(s.el, (pos < -0.01 || pos > NSLOT - 0.99 ? 0 : s.vis ?? 1) * (fade ? fade.k : 1));
+  });
+};
+const advance = (t) => {
+  const was = cur, k = kind(was);
+  if (k !== "lin" && !broken) log(`Collision  ·  iteration ${was} reset`, days(was + 1, 0));
+  cur++; curT0 += ITER_S; fired = new Set();
+  if (cur > LAST + LIN) { fade = { t0: t, k: 1, phase: "out" }; return; }
+  build(slots.get(was)); build(slots.get(cur));
+  if (kind(cur) === "lin" && cur === LAST + 1) log("Linear time  ·  Stardate corrected", days(cur, 0));
+  addSlot(cur + 1).vis = 0;                                // it fades in once the slide is done
+  from = scroll; to = cur - 4; slideT0 = t; inT0 = t + 0.5;   // the new projection fades in as it slides into view, so the end never stands empty
+  slots.forEach((s) => (s.moving = true));
+};
+const happen = (key, f, fn) => { if (!fired.has(key) && fn) { fired.add(key); fn(); } };
+
+L.tick((t) => {
+  if (fade) {                                              // the record ends: fade out, start it again, fade in
+    const u = L.clamp((t - fade.t0) / 0.9);
+    fade.k = fade.phase === "out" ? 1 - u : u;
+    if (u >= 1 && fade.phase === "out") { fade = { t0: t, k: 0, phase: "in" }; setup(FIRST, 0, t); log("Loop record replay  ·  iteration 21", days(FIRST, 0)); }
+    else if (u >= 1) fade = null;
+    [veil, nowLine, nowTip, cursor].forEach((e) => op(e, fade ? fade.k : 1));
+    place(false);
+    if (fade && fade.phase === "out") return;
+  }
+  let f = (t - curT0) / ITER_S;
+  if (f >= 1) { advance(t); if (fade) return; f = (t - curT0) / ITER_S; }
+  if (slideT0 > 0) {                                       // slide one iteration left, gently
+    const k = L.ease(L.clamp((t - slideT0) / 1.6));
+    scroll = L.mix(from, to, k);
+    place(false);
+    if (k >= 1) {
+      slideT0 = -9; scroll = to;
+      slots.forEach((s) => { s.moving = false; if (s.seq - scroll <= -1) { s.el.remove(); slots.delete(s.seq); } });
+    }
+  }
+  // the oldest iteration fades out before it slides off the edge; the new projection fades in after
+  const old = slots.get(cur - 4), nxt = slots.get(cur + 1);
+  if (old && slideT0 < 0) { const v = L.clamp(((1 - f) * ITER_S) / 0.6); if (v !== old.vis) { old.vis = v; place(false); } }
+  if (nxt && nxt.vis < 1 && inT0 > 0 && t >= inT0) { nxt.vis = L.clamp((t - inT0) / 1.0); place(false); }
+  const x = (cur - scroll + f) * SW;
+  tf(nowLine, `translate3d(${(x - 2).toFixed(2)}px,0,0)`);
+  tf(nowTip, `translate3d(${(x - 14).toFixed(2)}px,0,0)`);
+  tf(veil, `translate3d(${(x + 2).toFixed(2)}px,0,0)`);
+  tf(cursor, `translate3d(${(x - 10).toFixed(2)}px,${(ry(Y.dek) + HT.dek - 14 - dekyon(cur, f, ekind()) * (HT.dek - 28) - 10).toFixed(2)}px,0)`);
+  // what happens, as it happens
+  const k = kind(cur), d = (key) => days(cur, F[key]);
+  if (k === "loop" || k === "final") {
+    if (f > F.poker) happen("poker", f, () => log("Poker game  ·  Cmdr. Riker's quarters", d("poker")));
+    if (f > F.voices - (k === "final" ? 0.04 : 0)) happen("voices", f, () => {
+      log(k === "final" ? "Dekyon message received  ·  three" : "Dr. Crusher hears voices  ·  Deck 8", d("voices"));
+      if (k === "final") { msgGot = true; build(slots.get(cur)); build(slots.get(cur + 1)); }
+    });
+    if (f > F.distort) happen("distort", f, () => log("Distortion  ·  all stop", d("distort")));
+    if (f > F.emerge) happen("emerge", f, () => log("Vessel emerging  ·  U.S.S. Bozeman", d("emerge")));
+    if (k === "final" && f > F.decomp) happen("decomp", f, () => log("Main shuttlebay decompressed", d("decomp")));
+    if (k === "final" && f > F.collide) happen("clear", f, () => { broken = true; L.set(slots.get(cur).box, `Iteration ${cur}  ·  Loop Broken`); log("Bozeman clear  ·  causality loop broken", d("collide")); });
+  } else {
+    const j = cur - LAST - 1, d = days(cur, f);
+    if (j === 0 && f > 0.12) happen("hail", f, () => log("Bozeman hailed  ·  Capt. Morgan Bateson", d));
+    if (j === 1 && f > 0.2) happen("date", f, () => log("Bozeman displaced 90 years  ·  2278", d));
+    if (j === 2 && f > 0.3) happen("bg", f, () => log("Dekyon emissions at background", d));
+  }
+});
+
+// ---------------- readings, a few times a second ----------------
+const hm = (h) => `${Math.floor(h)} h ${pad2(Math.floor((h % 1) * 60))} m`;
+L.every(300, (t) => {
+  if (fade && fade.phase === "out") return;
+  const f = L.clamp((t - curT0) / ITER_S, 0, 0.999), k = kind(cur), d = days(cur, f), v = dekyon(cur, f, ekind());
+  const msg = k === "lin" || msgGot;
+  // status
+  if (k === "lin") setState("Timeline Linear", `Typhon Expanse  ·  Bozeman alongside  ·  ${d.toFixed(1)} days since the loop began`);
+  else if (broken) setState("Loop Broken", `Typhon Expanse  ·  U.S.S. Bozeman clear  ·  17.4 days elapsed  ·  Iteration ${LAST}`);
+  else if (msg) setState("Message Received", `Dekyon field  ·  Lt. Cmdr. Data  ·  "Three"  ·  Iteration ${cur}`);
+  else setState("Causality Loop", `Typhon Expanse  ·  Iteration ${cur}  ·  reset in ${hm((1 - f) * PERIOD)}  ·  Echo ${echoOf(cur)}%`);
+  const [pl, pc] = k === "lin" ? ["Time Stable", "lilac"] : broken ? ["Loop Broken", "butter"] : msg ? ["Clue Decoded", "white"] : ["Loop Active", "pink"];
+  L.set(pill, pl); bg(pill, pc);
+  // the crew's stardate runs round with the loop; once it breaks, the true date
+  L.set(sdVal, (45652.1 + (k === "lin" ? d : (f * PERIOD) / 24) * 2.738).toFixed(1));
+  // dekyon emissions follow the trace under the cursor
+  showBar(dk.flux, v); L.set(dk.flux.v, fmt(Math.round(v * 9000 / 10) * 10) + " / s");
+  const coh = 0.94 - 0.5 * v;
+  showBar(dk.coh, coh); L.set(dk.coh.v, Math.round(coh * 100) + "%");
+  const dd = distortion(cur, f);
+  showBar(dk.dist, dd); L.set(dk.dist.v, dd.toFixed(2) + " Cochrane");
+  const seen = k === "lin" || f > F.emerge;
+  L.set(dk.vessel, seen ? (k === "lin" || broken ? "U.S.S. Bozeman  ·  Alongside" : "U.S.S. Bozeman  ·  Closing") : "None");
+  fg(dk.vessel, seen && !broken && k !== "lin" ? "mars" : "white");
+  // anti-time and the rift: slow, small drift
+  at.forEach(([g, u, au]) => { const w = 1 + 0.004 * Math.sin(t * 0.21 + u * 9); showBar(g, u * w); L.set(g.v, (au * w).toFixed(2) + " AU"); });
+  L.set(atFlux, (0.0047 + 0.0002 * Math.sin(t * 0.13)).toFixed(4) + "  ·  Decaying");
+  rift.forEach(([g, u, fm]) => { const w = u * (1 + 0.01 * Math.sin(t * 0.17 + u * 7)); showBar(g, Math.min(w, 1)); L.set(g.v, fm(Math.min(w, 1))); });
+  // the analysis agrees with the timeline
+  L.set(an[0], k === "lin" ? `${LAST}  ·  Final` : `${cur}`);
+  L.set(an[2], `${d.toFixed(1)} days`);
+  L.set(an[3], `${echoOf(cur)}%`);
+  L.set(an[4], k === "lin" ? "Linear Time" : broken ? "Clear of Bozeman" : "Collision  ·  U.S.S. Bozeman");
+  fg(an[4], k === "lin" || broken ? "white" : "mars");
+  L.set(an[5], k === "lin" || broken ? "None" : `in ${hm((1 - f) * PERIOD)}`);
+  showMessage(msg ? "got" : "wait", t);
+}, 0);
+
+const start0 = AT ? +AT[1] : L.irand(FIRST, LAST - 1);
+setup(start0, AT && AT[2] ? +AT[2] : L.rand(0, 0.7), 0);
+});
+</script></body></html>

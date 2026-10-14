@@ -1,0 +1,526 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Guest Quarters</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* swapped text dips and comes back; .boot (the start-up cascade) always wins */
+  .sw { transition: opacity .6s ease, background-color 1.2s ease, color 1.2s ease; }
+  .out:not(.boot) { opacity: .15; }
+  .pill, .bar6 { transition: background-color 1.2s ease; }
+  .dot { border-radius: 50%; }
+  .lamp { border-radius: 50%; transition: background-color 1.2s ease; }
+  .cell { transition: background-color 1.2s ease; }
+  .mark { transition: transform 1.4s ease; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: a bracket, title centred ----------------
+L.frame({ type: "C", title: "Guest Quarters  •  VIP Accommodations", c: "peach", c2: "lilac", accent: "plum", foot: "Quarters",
+  side: [[140, "lilac", "Deck 06"], [70, "plum", "0601"], [420, "peach", "Quarters"], [70, "lilac", "10"], [300, "plum", "Climate"],
+         [70, "peach", "05"], [216, "lilac", "Log"]],
+  side2: [[140, "plum", "VIP"], [70, "peach", "4412"], [420, "lilac", "Arrivals"], [70, "plum", "18"], [300, "peach", "Species"],
+          [70, "lilac", "P2"], [216, "plum", "Protocol"]] });
+
+// Two equal columns; the bottom strip splits under them.
+const LX = 220, LR = 1880, RX = 1960, RR = 3620;
+const ROW0 = 428, PITCH = 88, rowBase = (i) => ROW0 + i * PITCH + 52.5;   // rows of 64 on an 88 grid
+const MID = (i) => 1236 + i * 76;                                           // the middle band's baselines
+const STRIP = (i) => 1734 + i * 54;                                         // the bottom strip's
+const TRACK = "#2b1f24";
+const fill = (x, y, w, h, c, origin = "0 0") => {
+  const f = L.layer({ x, y, w, h });
+  f.style.background = c.startsWith("#") ? c : `var(--${c})`; f.style.transformOrigin = origin;
+  return f;
+};
+const cls = (e, ...c) => (e.classList.add(...c), e);
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const fg = (e, c) => { const v = `var(--${c})`; if (e._fg !== v) { e._fg = v; e.style.color = v; } };
+const bg = (e, c) => { const v = c.startsWith("#") ? c : `var(--${c})`; if (e._bg !== v) { e._bg = v; e.style.background = v; } };
+const swap = (els, f) => { els.forEach((e) => e.classList.add("out")); setTimeout(() => { f(); els.forEach((e) => e.classList.remove("out")); }, 620); };
+const later = (ms, f, jitter) => L.every(ms, (t) => { if (t > 1) f(t); }, jitter);
+const pad2 = (n) => String(n).padStart(2, "0");
+const hhmm = (m) => pad2(Math.floor(m / 60) % 24) + pad2(Math.floor(m) % 60);
+const mins = (s) => +s.slice(0, 2) * 60 + +s.slice(2);
+
+// ---------------- ship's time: the Mac's own clock ----------------
+const minutes = () => { const d = new Date(); return d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60; };
+// just after The Drumhead: Sarek alive, Gowron chancellor, Satie aboard
+const stardate = () => 44780 + (minutes() / 1440) * 2.74;
+const until = (m, from = minutes()) => (m - from + 1440) % 1440;     // minutes until a time of day
+
+// ---------------- what each species asks of its quarters ----------------
+// [species, atmosphere, gravity (G), pressure (kPa), temperature (°C), humidity (%), lighting (% of standard)]
+const SPECIES = [
+  ["Human", "Nitrogen-Oxygen", 1.00, 101.3, 22.0, 45, 100],
+  ["Vulcan", "Nitrogen-Oxygen", 1.30, 88.0, 38.0, 15, 125],
+  ["Klingon", "Nitrogen-Oxygen", 1.20, 104.0, 27.0, 60, 70],
+  ["Betazoid", "Nitrogen-Oxygen", 1.00, 101.3, 23.5, 55, 100],
+  ["Ferengi", "Nitrogen-Oxygen", 0.95, 103.0, 29.0, 85, 60],
+  ["Bolian", "Nitrogen-Oxygen", 1.05, 102.0, 25.0, 65, 90],
+  ["Benzite", "Benzite Mix", 1.05, 108.0, 20.0, 70, 85],
+  ["Cardassian", "Nitrogen-Oxygen", 1.10, 99.0, 34.0, 30, 65],
+  ["Andorian", "Nitrogen-Oxygen", 0.90, 97.0, 8.0, 35, 110],
+  ["Tellarite", "Oxygen-Rich", 1.10, 105.0, 18.0, 50, 95],
+].map(([name, atmos, ...env]) => ({ name, atmos, env }));
+const SP = Object.fromEntries(SPECIES.map((s) => [s.name, s]));
+const STD = SP.Human.env;                                            // Federation standard
+// the five channels environmental control drives: range, rate of change per second, display
+const CH = [
+  { name: "Gravity", lo: 0.5, hi: 1.5, rate: 0.006, f: (v) => v.toFixed(2) + " G" },
+  { name: "Pressure", lo: 80, hi: 110, rate: 0.3, f: (v) => v.toFixed(1) + " kPa" },
+  { name: "Temperature", lo: 0, hi: 40, rate: 0.4, f: (v) => v.toFixed(1) + " °C" },
+  { name: "Humidity", lo: 0, hi: 100, rate: 0.8, f: (v) => Math.round(v) + "%" },
+  { name: "Lighting", lo: 0, hi: 150, rate: 1.0, f: (v) => Math.round(v) + "%" },
+];
+const atTarget = (i, v, t) => CH[i].f(v) === CH[i].f(t);
+
+// ---------------- the suites, and the day's arrivals and departures ----------------
+// [suite, party (schedule), party (plan), species, guests, arrives, arrives via, departs, departs via]
+const SUITES = [
+  ["0601", "Ambassador Sarek & party", "Amb. Sarek", "Vulcan", 4],
+  ["0602", "Klingon delegation", "Chancellor Gowron", "Klingon", 6, "1400", "Transporter Room 3", "0215", "Transporter Room 3"],
+  ["0603", "Lwaxana Troi & Mr. Homn", "Lwaxana Troi", "Betazoid", 2, "0930", "Transporter Room 3", "2115", "Transporter Room 3"],
+  ["0604", "Ferengi trade mission", "DaiMon Goss", "Ferengi", 3, "1630", "Shuttlebay 2", "0445", "Shuttlebay 2"],
+  ["0605", "Bolian delegation", "Bolian Mission", "Bolian", 5, "1900", "Transporter Room 6", "0700", "Shuttlebay 2"],
+  ["0606", "Benzite exchange officers", "Benzite Officers", "Benzite", 2, "0545", "Shuttlebay 2", "1745", "Shuttlebay 2"],
+  ["0607", "Gul Lemec & aides", "Gul Lemec", "Cardassian", 3, "2030", "Shuttlebay 2", "0830", "Shuttlebay 2"],
+  ["0608", "Andorian envoy", "Andorian Envoy", "Andorian", 2, "1130", "Transporter Room 3", "2330", "Transporter Room 6"],
+  ["0609", "Tellarite delegation", "Tellarite Mission", "Tellarite", 4, "2230", "Main Shuttlebay", "1015", "Main Shuttlebay"],
+  ["0610", "Admiral Satie & staff", "Adm. Satie", "Human", 3, "0315", "Shuttlebay 2", "1530", "Shuttlebay 2"],
+].map(([id, party, short, sp, n, a, av, d, dv], i) => ({ i, id, party, short, sp, n, A: a ? mins(a) : null, D: d ? mins(d) : null, av, dv, ready: false }));
+const EVENTS = SUITES.filter((s) => s.A !== null)
+  .flatMap((s) => [{ m: s.A, kind: "A", s, via: s.av }, { m: s.D, kind: "D", s, via: s.dv }])
+  .sort((a, b) => a.m - b.m);
+const occupiedAt = (s, m) => {                                       // the suite's last event, round the clock
+  if (s.A === null) return true;
+  return until(m, s.A) < until(m, s.D);                               // arrived more recently than it left
+};
+const occupied = (s) => occupiedAt(s, minutes());
+const reserved = (s) => !occupied(s) && until(s.A) <= 480;           // an arrival within eight hours
+const stateOf = (s) => occupied(s) ? "Occupied" : reserved(s) ? (s.ready ? "Ready" : "Reserved") : "Vacant";
+const nextEvent = (m = minutes()) => { let k = EVENTS.findIndex((e) => e.m > m); return k < 0 ? 0 : k; };
+
+// how each suite is set when the screen comes on
+{
+  const m = minutes();
+  SUITES.forEach((s) => {
+    const p = SP[s.sp].env;
+    s.env = STD.slice();
+    if (occupied(s)) s.env = p.map((v, i) => v + [0, 0.3, 0.5, 2, 0][i] * (Math.random() * 2 - 1));
+    else if (until(m, s.D) < 60) s.env = p.slice();                  // left within the hour: not yet reset
+    else if (reserved(s) && until(s.A) <= 45) { s.env = p.slice(); s.ready = true; }
+    s.drift = s.env.slice();
+  });
+}
+const STATE_C = { Occupied: "lilac", Ready: "pink", Reserved: "peach", Preparing: "butter", Vacant: "plum" };
+
+// ---------------- status line ----------------
+const WORDS = ["Preparing", "Verifying", "Resetting", "Suite Ready", "Within Limits", "Reset Complete"];
+const SUBX = LX + Math.max(...WORDS.map((w) => L.textWidth(w, 100))) + 56;
+const state = cls(L.text({ x: LX, cap: 150, s: 100, c: "peach", txt: "" }), "sw");
+const stateSub = cls(L.text({ x: SUBX, base: 222, s: 38, c: "lilac", txt: "" }), "sw");
+L.text({ x: RX, base: 222, s: 40, c: "peach", txt: "Guests Aboard" });
+const guestsBig = L.text({ x: RX + L.textWidth("Guests Aboard", 40) + 36, cap: 150, s: 100, c: "white", txt: "" });
+L.text({ x: 2560, base: 222, s: 40, c: "peach", txt: "Suites Occupied" });
+const occBig = L.text({ x: 2560 + L.textWidth("Suites Occupied", 40) + 36, cap: 150, s: 100, c: "white", txt: "" });
+L.box({ x: RR - 480, y: 150, w: 480, h: 72, c: "plum", label: "Deck 06  ·  VIP Section", r: "lr", fs: 36 });
+
+// ---------------- the quarters: a plan of the section ----------------
+L.header({ x: LX, y: 280, w: LR - LX, label: "VIP Quarters  ·  Deck 06  ·  Section A", c1: "peach", c2: "lilac" });
+{
+  const keys = ["Occupied", "Ready", "Reserved", "Preparing", "Vacant"];
+  let x = LX;
+  keys.forEach((k) => {
+    L.text({ x, base: 400, s: 36, c: "peach", txt: k });
+    x += L.textWidth(k, 36) + 18;
+    L.rect({ x, y: 400 - 28, w: 28, h: 28, c: STATE_C[k], free: true });
+    x += 28 + 72;
+  });
+}
+const SX0 = LX + 120 + L.GAP, SW = 284, SG = 24, BODY = 184, BARH = 48;
+const CORY = 692, CORH = 64, CORC = CORY + CORH / 2;
+L.box({ x: LX, y: ROW0, w: 120, h: 1020 - ROW0, c: "peach", label: "Lift", fs: 30 });
+L.rect({ x: SX0, y: CORY, w: LR - SX0, h: CORH, c: TRACK });
+for (let x = SX0 + 40; x < LR - 40; x += 48) L.rect({ x, y: CORC - 2, w: 20, h: 4, c: "#4a3438", free: true });
+const sx = (k) => SX0 + k * (SW + SG);
+SUITES.forEach((s) => {
+  const col = s.i % 5, up = s.i < 5, x = sx(col);
+  const by = up ? ROW0 : 780 + BARH + 8, bary = up ? ROW0 + BODY + 8 : 780;
+  L.rect({ x, y: by, w: SW, h: BODY, c: TRACK, panel: true });
+  s.bar = cls(L.box({ x, y: bary, w: SW, h: BARH, c: "lilac", label: "", fs: 28 }), "bar6");
+  s.l1 = L.text({ x: x + 24, base: by + 58, s: 40, c: "white", txt: "" });
+  s.l2 = L.text({ x: x + 24, base: by + 110, s: 36, c: "lilac", txt: "" });
+  s.l3 = L.text({ x: x + 24, base: by + 160, s: 36, c: "peach", txt: "" });
+  s.door = x + SW / 2;
+  L.rect({ x: s.door - 36, y: up ? CORY : CORY + CORH - 8, w: 72, h: 8, c: "#6a4c52", free: true });
+  s.lit = fill(s.door - 36, up ? CORY : CORY + CORH - 8, 72, 8, "butter");
+  s.lit.style.opacity = 0;
+});
+const showSuite = (s) => {
+  const st = job && job.s === s && job.kind === "Preparing" && !job.done ? "Preparing" : stateOf(s);
+  L.set(s.bar, `${s.id}  ·  ${st}`); bg(s.bar, STATE_C[st]);
+  if (st === "Vacant") { L.set(s.l1, "Vacant"); fg(s.l1, "plum"); L.set(s.l2, sameEnv(s.env, STD) ? "Federation Standard" : "Reset Pending"); }
+  else {
+    L.set(s.l1, s.short); fg(s.l1, "white");
+    L.set(s.l2, st === "Occupied" ? s.sp : `${s.sp}  ·  Due ${hhmm(s.A)}`);
+  }
+  L.set(s.l3, `${CH[0].f(s.env[0])}  ·  ${CH[2].f(s.env[2])}`);
+};
+const sameEnv = (a, b) => a.every((v, i) => atTarget(i, v, b[i]));
+
+// people walking the corridor: arriving parties, departing ones, stewards
+const walkers = [];
+const walk = (x0, x1, c, delay = 0) => {
+  const e = cls(L.layer({ x: 0, y: CORC - 11, w: 22, h: 22 }), "dot");
+  e.style.background = `var(--${c})`; e.style.opacity = 0;
+  walkers.push({ e, x0, x1, t0: L.t + delay, dur: 2.5 + Math.abs(x1 - x0) / 140 });
+};
+L.tick((t) => {
+  for (let i = walkers.length - 1; i >= 0; i--) {
+    const w = walkers[i], k = (t - w.t0) / w.dur;
+    if (k < 0) continue;
+    if (k >= 1) { w.e.remove(); walkers.splice(i, 1); continue; }
+    tf(w.e, `translate3d(${(L.mix(w.x0, w.x1, L.ease(k)) - 11).toFixed(1)}px,0,0)`);
+    w.e.style.opacity = Math.min(1, k * 8, (1 - k) * 6).toFixed(3);
+  }
+});
+const LIFTX = SX0 + 24;
+
+// ---------------- arrivals and departures: seven rows, the next one third ----------------
+const TB = 160, TRX = RX + TB + L.GAP, NROW = 7, CUR = 2, TRE = RR - 330, TKE = TRE - 150;
+L.header({ x: RX, y: 280, w: RR - RX, label: "Arrivals  ·  Departures  ·  Today", c1: "lilac", c2: "peach" });
+L.text({ x: RX, base: 400, s: 36, c: "peach", txt: "Time" });
+L.text({ x: TRX + 48, base: 400, s: 36, c: "peach", txt: "Guest Party" });
+L.text({ x: TRE, base: 400, s: 36, c: "peach", txt: "Suite", align: "r" });
+L.text({ x: RR, base: 400, s: 36, c: "peach", txt: "Via", align: "r" });
+for (let i = 0; i < NROW; i++) L.rect({ x: TRX, y: ROW0 + i * PITCH, w: TKE - TRX, h: 64, c: TRACK });
+const progress = fill(TRX, ROW0 + CUR * PITCH, TKE - TRX, 64, "#4a3036");
+const srows = Array.from({ length: NROW }, (_, i) => {
+  const base = rowBase(i);
+  return {
+    box: cls(L.box({ x: RX, y: ROW0 + i * PITCH, w: TB, h: 64, c: "lilac", label: "", fs: 32, r: "l" }), "sw"),
+    name: cls(L.text({ x: TRX + 48, base, s: 40, c: "white", txt: "", on: true }), "sw"),
+    kind: cls(L.text({ x: 0, base, s: 36, c: "lilac", txt: "", on: true }), "sw"),
+    suite: cls(L.text({ x: TRE, base, s: 36, c: "peach", txt: "", align: "r" }), "sw"),
+    via: cls(L.text({ x: RR, base, s: 36, c: "lilac", txt: "", align: "r" }), "sw"),
+  };
+});
+const showSchedule = (k) => srows.forEach((r, i) => {
+  const e = EVENTS[(k + i - CUR + EVENTS.length) % EVENTS.length], when = i < CUR ? 0 : i === CUR ? 1 : 2;
+  L.set(r.box, hhmm(e.m));
+  L.set(r.name, e.s.party);
+  L.set(r.kind, "·  " + (e.kind === "A" ? "Arrives" : "Departs"));
+  L.set(r.suite, e.s.id);
+  L.set(r.via, e.via);
+  r.kind.style.left = TRX + 48 + L.textWidth(e.s.party, 40) + 22 + "px";
+  bg(r.box, ["plum", e.kind === "A" ? "pink" : "peach", "lilac"][when]);
+  fg(r.name, ["plum", "white", "white"][when]);
+  fg(r.kind, ["plum", e.kind === "A" ? "pink" : "peach", e.kind === "A" ? "lilac" : "peach"][when]);
+  fg(r.suite, ["plum", "white", "peach"][when]);
+  fg(r.via, ["plum", "pink", "lilac"][when]);
+});
+
+// ---------------- suite environment: the suite being worked on ----------------
+const NX = LX, BX0 = 500, BX1 = 1120, AX = 1340, TX = 1530, PX = 1590, PW = LR - PX;
+L.header({ x: LX, y: 1064, w: LR - LX, label: "Suite Environment  ·  Control", c1: "lilac", c2: "peach" });
+const envCap = cls(L.text({ x: LX, base: 1176, s: 36, c: "peach", txt: "" }), "sw");
+L.text({ x: AX, base: 1176, s: 36, c: "peach", txt: "Actual", align: "r" });
+L.text({ x: TX, base: 1176, s: 36, c: "peach", txt: "Target", align: "r" });
+L.text({ x: PX, base: 1176, s: 36, c: "peach", txt: "State" });
+const crows = CH.map((ch, i) => {
+  const base = MID(i);
+  L.text({ x: NX, base, s: 40, c: "lilac", txt: ch.name });
+  L.rect({ x: BX0, y: base - 26, w: BX1 - BX0, h: 26, c: TRACK });
+  [0.25, 0.5, 0.75].forEach((k) => L.rect({ x: BX0 + k * (BX1 - BX0) - 1, y: base - 26, w: 2, h: 26, c: "#45333a", free: true }));
+  const bar = cls(fill(BX0, base - 26, BX1 - BX0, 26, i % 2 ? "lilac" : "peach"), "sw");
+  const mark = cls(L.layer({ x: BX0 - 2, y: base - 40, w: 4, h: 40 }), "mark", "sw");
+  mark.style.background = "var(--white)";
+  return {
+    bar, mark, u: -1,
+    val: cls(L.text({ x: AX, base, s: 52, c: "white", txt: "", align: "r" }), "sw"),
+    tgt: cls(L.text({ x: TX, base, s: 40, c: "lilac", txt: "", align: "r" }), "sw"),
+    pill: cls(L.box({ x: PX, y: base - 45, w: PW, h: 56, c: "peach", label: "", fs: 30, r: "lr" }), "pill", "sw"),
+  };
+});
+const norm = (i, v) => L.clamp((v - CH[i].lo) / (CH[i].hi - CH[i].lo));
+
+// ---------------- preferences by species: two pages of five ----------------
+const SPX = RX, SPW = 240, ATX = RX + SPW + 48, COLS = [2900, 3110, 3270, 3440, RR];
+const PG = 80;
+L.header({ x: RX, y: 1064, w: RR - RX - 2 * (PG + L.GAP), label: "Environmental Preferences  ·  By Species", c1: "peach", c2: "lilac" });
+const pageBox = [0, 1].map((p) => L.box({ x: RR - (2 - p) * PG - (1 - p) * L.GAP, y: 1064, w: PG, h: 56, c: "plum", label: pad2(p + 1), fs: 32, cls: "pill" }));
+L.text({ x: SPX, base: 1176, s: 36, c: "peach", txt: "Species" });
+L.text({ x: ATX, base: 1176, s: 36, c: "peach", txt: "Atmosphere" });
+["Gravity", "Pressure", "Temp", "Humidity", "Light"].forEach((txt, i) => L.text({ x: COLS[i], base: 1176, s: 36, c: "peach", txt, align: "r" }));
+const prow = Array.from({ length: 5 }, (_, i) => {
+  const base = MID(i);
+  return {
+    box: cls(L.box({ x: SPX, y: base - 45, w: SPW, h: 56, c: "peach", label: "", fs: 30, r: "l" }), "sw", "pill"),
+    atmos: cls(L.text({ x: ATX, base, s: 36, c: "lilac", txt: "" }), "sw"),
+    vals: COLS.map((x) => cls(L.text({ x, base, s: 40, c: "white", txt: "", align: "r" }), "sw")),
+  };
+});
+let page = -1;
+const showPage = (p) => {
+  page = p;
+  pageBox.forEach((b, i) => bg(b, i === p ? "peach" : "plum"));
+  prow.forEach((r, i) => {
+    const s = SPECIES[p * 5 + i];
+    L.set(r.box, s.name);
+    L.set(r.atmos, s.atmos);
+    r.vals.forEach((e, j) => L.set(e, CH[j].f(s.env[j])));
+  });
+  markSpecies();
+};
+const markSpecies = () => prow.forEach((r, i) => {
+  const s = SPECIES[page * 5 + i], on = job && job.sp === s.name;
+  bg(r.box, on ? "butter" : i % 2 ? "lilac" : "peach");
+  fg(r.atmos, on ? "butter" : "lilac");
+  r.vals.forEach((e) => fg(e, on ? "butter" : "white"));
+});
+
+// ---------------- bottom strip: the guest services log ----------------
+L.header({ x: LX, y: 1620, w: LR - LX, label: "Guest Services Log", c1: "peach", c2: "lilac", h: 48 });
+const LWX = 1320;
+const logRows = Array.from({ length: 6 }, (_, i) => ({
+  sd: L.text({ x: LX, base: STRIP(i), s: 36, c: "peach", txt: "" }),
+  tx: L.text({ x: LX + 180, base: STRIP(i), s: 36, c: "lilac", txt: "" }),
+  wh: L.text({ x: LWX, base: STRIP(i), s: 36, c: "pink", txt: "" }),
+  by: L.text({ x: LR, base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }) }));
+const logged = [];
+let logReady = false;
+function logLine(txt, where, by, sd = stardate()) {               // newest at the foot; always in time order
+  if (logged.length && sd < logged[logged.length - 1][4]) sd = logged[logged.length - 1][4];
+  logged.push([sd.toFixed(1), txt, where, by, sd]); if (logged.length > logRows.length) logged.shift();
+  if (logReady) logRows.forEach((r, i) => { const e = logged[i] || ["", "", "", ""]; L.set(r.sd, e[0]); L.set(r.tx, e[1]); L.set(r.wh, e[2]); L.set(r.by, e[3]); });
+}
+// small requests from the guests in residence, by species
+const REQUESTS = {
+  Vulcan: [["Meditation lamp requested", "Steward"], ["Replicator: plomeek broth", "Replicator"]],
+  Klingon: [["Replicator: gagh, served live", "Replicator"], ["Bloodwine sent up, two casks", "Steward"], ["Lighting dimmed on request", "Environment"]],
+  Betazoid: [["Floral arrangement delivered", "Steward"], ["Replicator: chocolate, assorted", "Replicator"]],
+  Ferengi: [["Replicator: tube grubs", "Replicator"], ["Holodeck rates queried", "Guest Services"]],
+  Bolian: [["Luggage delivered", "Steward"], ["Ten Forward table reserved", "Guest Services"]],
+  Benzite: [["Atmosphere filter serviced", "Environment"], ["Respirator recharged", "Steward"]],
+  Cardassian: [["Replicator: kanar", "Replicator"], ["Lighting dimmed on request", "Environment"]],
+  Andorian: [["Replicator: Andorian ale", "Replicator"], ["Climate check requested", "Environment"]],
+  Tellarite: [["Complaint filed: corridor noise", "Guest Services"], ["Replicator: mushroom broth", "Replicator"]],
+  Human: [["Observation lounge booked", "Guest Services"], ["Replicator: tea, Earl Grey", "Replicator"]],
+};
+
+// ---------------- the protocol for the next arrival ----------------
+const QX0 = RX, QX1 = 2880;
+L.header({ x: QX0, y: 1620, w: QX1 - QX0, label: "Arrival Protocol", c1: "lilac", c2: "peach", h: 48 });
+const qParty = L.text({ x: QX0, base: STRIP(0), s: 40, c: "white", txt: "" });
+const qWhen = L.text({ x: QX1, base: STRIP(0), s: 36, c: "pink", txt: "", align: "r" });
+const PROTO = [["Replicator Menus", 240], ["Universal Translator", 180], ["Security Detail", 60], ["Suite Environment", -1], ["Greeting Party", 20]]
+  .map(([name, lead], i) => {
+    const lamp = cls(L.layer({ x: QX0, y: STRIP(i + 1) - 28, w: 28, h: 28 }), "lamp");
+    L.text({ x: QX0 + 48, base: STRIP(i + 1), s: 36, c: "lilac", txt: name });
+    return { name, lead, lamp, st: L.text({ x: QX1, base: STRIP(i + 1), s: 36, c: "white", txt: "", align: "r" }), done: null };
+  });
+
+// ---------------- section status: one cell per suite ----------------
+const OX0 = 2960, OC0 = 3140, OCW = 26, OCG = 8;
+L.header({ x: OX0, y: 1620, w: RR - OX0, label: "Section Status", c1: "peach", c2: "plum", h: 48 });
+const OSTATES = ["Occupied", "Ready", "Reserved", "Vacant"];
+const orows = OSTATES.map((name, i) => {
+  L.text({ x: OX0, base: STRIP(i), s: 36, c: "lilac", txt: name });
+  const cells = SUITES.map((s, j) => cls(L.layer({ x: OC0 + j * (OCW + OCG), y: STRIP(i) - 28, w: OCW, h: 28 }), "cell"));
+  return { name, cells, v: L.text({ x: RR, base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }) };
+});
+L.text({ x: OX0, base: STRIP(4), s: 36, c: "lilac", txt: "Next Arrival" });
+const nextArr = L.text({ x: RR, base: STRIP(4), s: 36, c: "white", txt: "", align: "r" });
+L.text({ x: OX0, base: STRIP(5), s: 36, c: "lilac", txt: "Next Departure" });
+const nextDep = L.text({ x: RR, base: STRIP(5), s: 36, c: "white", txt: "", align: "r" });
+
+// ---------------- environmental control: one suite at a time ----------------
+// Preparing a reserved suite comes first (soonest arrival first), then resetting a vacated one to
+// Federation standard, and otherwise a round of the occupied suites, trimming what has drifted.
+let job = null, lastVerified = 0;
+const pickJob = () => {
+  const prep = SUITES.filter((s) => reserved(s) && !s.ready).sort((a, b) => until(a.A) - until(b.A));
+  if (prep.length) return { s: prep[0], kind: "Preparing", sp: prep[0].sp, target: SP[prep[0].sp].env };
+  const reset = SUITES.find((s) => !occupied(s) && !reserved(s) && !sameEnv(s.env, STD));
+  if (reset) return { s: reset, kind: "Resetting", sp: "Human", target: STD };
+  for (let k = 1; k <= SUITES.length; k++) {
+    const s = SUITES[(lastVerified + k) % SUITES.length];
+    if (occupied(s)) { lastVerified = s.i; return { s, kind: "Verifying", sp: s.sp, target: SP[s.sp].env }; }
+  }
+  return { s: SUITES[0], kind: "Verifying", sp: SUITES[0].sp, target: SP[SUITES[0].sp].env };
+};
+const DONE = { Preparing: "Suite Ready", Verifying: "Within Limits", Resetting: "Reset Complete" };
+const subText = () => {
+  const s = job.s;
+  const what = job.kind === "Resetting" ? "To Federation Standard" : job.kind === "Preparing" ? `${s.sp}  ·  Due ${hhmm(s.A)}` : `${s.sp}  ·  In residence`;
+  return `Suite ${s.id}  ·  ${s.short}  ·  ${what}`;
+};
+const envEls = () => [envCap, ...crows.flatMap((r) => [r.bar, r.mark, r.val, r.tgt, r.pill])];
+const startJob = (first) => {
+  const prev = job;
+  const f = () => {
+    job = pickJob(); job.done = false; job.t0 = L.t;
+    if (job.kind !== "Verifying") logLine(`${job.kind} for ${job.kind === "Resetting" ? "standard" : job.s.sp.toLowerCase() + " guests"}`, `Suite ${job.s.id}`, "Environment");
+    L.set(state, job.kind); L.set(stateSub, subText());
+    L.set(envCap, `Suite ${job.s.id}  ·  ${job.s.short}`);
+    crows.forEach((r, i) => { L.set(r.tgt, CH[i].f(job.target[i])); tf(r.mark, `translate3d(${(norm(i, job.target[i]) * (BX1 - BX0)).toFixed(1)}px,0,0)`); });
+    showEnv(true);
+    if (prev) showSuite(prev.s);
+    showSuite(job.s); markSpecies();
+    const sp = SPECIES.findIndex((x) => x.name === job.sp);
+    if (Math.floor(sp / 5) !== page) turnPage(Math.floor(sp / 5));
+  };
+  if (first) f(); else swap([state, stateSub, ...envEls()], f);
+};
+const showEnv = (all) => {
+  const s = job.s;
+  let n = 0;
+  crows.forEach((r, i) => {
+    const ok = atTarget(i, s.env[i], job.target[i]); n += ok;
+    L.set(r.val, CH[i].f(s.env[i]));
+    if (all || r.ok !== ok) { r.ok = ok; L.set(r.pill, ok ? "Holding" : "Adjusting"); bg(r.pill, ok ? "lilac" : "peach"); }
+  });
+  return n;
+};
+L.tick((t) => {                                          // the bars follow the suite's own readings
+  if (!job) return;
+  crows.forEach((r, i) => {
+    const k = norm(i, job.s.env[i]);
+    if (Math.abs(k - r.u) > 0.0002) { r.u = k; tf(r.bar, `scaleX(${k.toFixed(4)})`); }
+  });
+});
+let lastT = null;
+L.tick((t) => {                                          // the plant drives the suite towards its target
+  const dt = lastT === null ? 0 : Math.min(0.1, t - lastT); lastT = t;
+  if (!job || job.done) return;
+  const s = job.s;
+  s.env = s.env.map((v, i) => {
+    const d = job.target[i] - v, step = d * (1 - Math.exp(-0.45 * dt)), max = CH[i].rate * dt;
+    return v + L.clamp(step, -max, max);
+  });
+  s.drift = s.env.slice();
+});
+// occupied suites drift a little when nobody is trimming them: guests open doors, adjust things
+L.tick((t) => {
+  const dt = 1 / 30;
+  SUITES.forEach((s) => {
+    if (job && job.s === s) return;
+    s.env = s.env.map((v, i) => v + L.clamp(s.drift[i] - v, -0.15 * CH[i].rate * dt, 0.15 * CH[i].rate * dt));
+  });
+});
+later(9000, () => {
+  const s = L.pick(SUITES.filter((s) => occupied(s) && (!job || job.s !== s)));
+  if (!s) return;
+  const p = SP[s.sp].env;
+  s.drift = p.map((v, i) => v + [0, 0.4, 0.8, 4, 0][i] * (Math.random() * 2 - 1));
+}, 0.3);
+
+L.every(250, (t) => {
+  if (!job) return;
+  const n = showEnv(false);
+  L.set(envCap, `Suite ${job.s.id}  ·  ${job.s.short}  ·  ${n} of 5 at target`);
+  if (!job.done && n === 5) {
+    job.done = true; job.tDone = t;
+    job.s.env = job.target.slice(); job.s.drift = job.s.env.slice();
+    if (job.kind === "Preparing") { job.s.ready = true; logLine(`Suite ready for ${job.s.party.split(" & ")[0].replace(/ (delegation|mission|envoy|officers|exchange officers|trade mission)$/i, "")}`, `Suite ${job.s.id}`, "Environment"); }
+    if (job.kind === "Resetting") logLine("Reset to Federation standard", `Suite ${job.s.id}`, "Environment");
+    swap([state], () => L.set(state, DONE[job.kind]));
+    showSuite(job.s);
+  }
+  if (job.done && !job.leaving && t - job.tDone > 9) { job.leaving = true; startJob(false); }
+}, 0);
+
+// ---------------- species pages ----------------
+const turnPage = (p) => swap(prow.flatMap((r) => [r.box, r.atmos, ...r.vals]), () => showPage(p));
+later(24000, () => {                                      // the other page now and then; back for the next job
+  const sp = SPECIES.findIndex((x) => x.name === job.sp), home = Math.floor(sp / 5);
+  turnPage(page === home ? 1 - home : home);
+}, 0.2);
+
+// ---------------- the clock: schedule, protocol, section status ----------------
+let lastK = -1;
+const showClock = () => {
+  const m = minutes(), k = nextEvent(m), e = EVENTS[k], prev = EVENTS[(k - 1 + EVENTS.length) % EVENTS.length];
+  const span = until(e.m, prev.m) || 1440;
+  tf(progress, `scaleX(${L.clamp(until(m, prev.m) / span).toFixed(4)})`);
+  if (k !== lastK) {
+    const first = lastK < 0; lastK = k;
+    if (first) showSchedule(k);
+    else {
+      swap(srows.flatMap((r) => [r.box, r.name, r.kind, r.suite, r.via]), () => showSchedule(k));
+      const s = prev.s;                                   // the event that has just happened
+      if (prev.kind === "A") {
+        logLine(`${s.party} aboard, ${prev.via}`, `Suite ${s.id}`, "Schedule");
+        for (let j = 0; j < Math.min(6, s.n); j++) walk(LIFTX, s.door, j ? "lilac" : "pink", j * 0.7);
+      } else {
+        s.ready = false;
+        logLine(`${s.party} departed, ${prev.via}`, `Suite ${s.id}`, "Schedule");
+        for (let j = 0; j < Math.min(6, s.n); j++) walk(s.door, LIFTX, "lilac", j * 0.7);
+      }
+    }
+  }
+  // the next arrival's protocol
+  const ak = EVENTS.findIndex((x, j) => x.kind === "A" && j >= k), a = EVENTS[ak >= 0 ? ak : EVENTS.findIndex((x) => x.kind === "A")];
+  const tta = until(a.m, m);
+  L.set(qParty, `${a.s.party}`);
+  L.set(qWhen, `${hhmm(a.m)}  ·  Suite ${a.s.id}`);
+  PROTO.forEach((p) => {
+    let txt, c;
+    if (p.lead < 0) { const st = stateOf(a.s); txt = st === "Ready" ? "Ready" : job && job.s === a.s && !job.done ? "Preparing" : "Queued"; c = st === "Ready" ? "lilac" : "butter"; }
+    else if (tta <= p.lead) { txt = "Complete"; c = "lilac"; }
+    else { txt = `At T−${p.lead} min`; c = "peach"; }
+    L.set(p.st, txt); bg(p.lamp, c); fg(p.st, c === "lilac" ? "white" : c);
+  });
+  // section status and the plan
+  const counts = {};
+  OSTATES.forEach((n) => (counts[n] = 0));
+  SUITES.forEach((s) => { counts[stateOf(s)]++; showSuite(s); });
+  orows.forEach((r) => {
+    r.cells.forEach((c, j) => bg(c, stateOf(SUITES[j]) === r.name ? STATE_C[r.name] : TRACK));
+    L.set(r.v, counts[r.name]);
+  });
+  const ttaStr = (x) => (x >= 60 ? `${Math.floor(x / 60)} h ${pad2(Math.floor(x % 60))} min` : `${Math.ceil(x)} min`);
+  L.set(nextArr, `${hhmm(a.m)}  ·  in ${ttaStr(tta)}`);
+  const d = EVENTS.slice(k).concat(EVENTS).find((x) => x.kind === "D");
+  L.set(nextDep, `${hhmm(d.m)}  ·  in ${ttaStr(until(d.m, m))}`);
+  L.set(guestsBig, SUITES.filter(occupied).reduce((n, s) => n + s.n, 0));
+  L.set(occBig, `${counts.Occupied} / ${SUITES.length}`);
+  if (job) L.set(stateSub, subText());
+};
+
+// the active suite's door glows gently
+L.tick((t) => SUITES.forEach((s) => {
+  const on = job && job.s === s;
+  const o = on ? (0.55 + 0.45 * Math.sin(t * 2.2)).toFixed(2) : "0";
+  if (s.lit._o !== o) { s.lit._o = o; s.lit.style.opacity = o; }
+}));
+
+// stewards, and the guests' small requests
+let reqDeck = [];
+const nextRequest = () => {
+  if (!reqDeck.length) reqDeck = SUITES.filter(occupied).flatMap((s) => REQUESTS[s.sp].map((r) => [s, ...r])).sort(() => Math.random() - 0.5);
+  while (reqDeck.length && !occupied(reqDeck[reqDeck.length - 1][0])) reqDeck.pop();
+  return reqDeck.pop();
+};
+later(21000, () => {
+  const r = nextRequest();
+  if (!r) return;
+  const [s, txt, by] = r;
+  logLine(txt, `Suite ${s.id}`, by);
+  if (by === "Steward") walk(LIFTX, s.door, "butter");
+}, 0.3);
+
+// the log starts with the last hour or so, in time order
+{
+  const sd0 = stardate();
+  for (let i = 5; i >= 1; i--) { const r = nextRequest(); if (r) logLine(r[1], `Suite ${r[0].id}`, r[2], sd0 - 0.05 * i); }
+  logReady = true;
+}
+showPage(0);
+startJob(true);
+showClock();
+L.every(1000, showClock, 0);
+});
+</script></body></html>

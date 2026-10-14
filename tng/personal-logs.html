@@ -1,0 +1,444 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Personal Logs</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .clip { position: absolute; overflow: hidden; }
+  .sw { transition: background-color 1.2s ease, color 1.2s ease; }
+  .fl { transform-origin: 0 0; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame, mirrored: sidebar on the right, title at top left ----------------
+L.frame({ type: "B", title: "Personal Logs  •  Crew Archive", c: "lilac", c2: "pink", accent: "plum", foot: "Archive",
+  side: [[140, "plum", "Logs 02"], [70, "pink", "Crew"], [420, "lilac", "Personal Logs"], [70, "butter", "1014"],
+         [300, "plum", "Archive"], [70, "pink", "Sealed"], [216, "lilac", "Private"]] });
+
+// Two columns: the index on the left, the recording on the right. Both sit on one 72px grid of
+// baselines from 480, so the index rows and the recording panel's rows share baselines.
+// The bottom strip splits into three under them, the right one under the recording column.
+const LX = 40, LR = 2140, RX = 2200, RR = 3520;
+const ROW = (k) => 480 + 72 * k;
+const BCAP = 1716, BROW = (i) => 1776 + i * 54;
+const TRACK = "#2a1a30", PANEL = "#150c1c", GRID = "#3a2848";
+const col = (c) => (c.startsWith("#") ? c : `var(--${c})`);
+const pad2 = (n) => String(n).padStart(2, "0");
+const mss = (s) => `${Math.floor(s / 60)}:${pad2(Math.floor(s % 60))}`;
+const fmt = (n) => Math.round(n).toLocaleString("en");
+const later = (ms, f, jitter) => L.every(ms, (t) => { if (t > 1) f(t); }, jitter);
+const bad = [];                                           // words that would not fit their places
+const fits = (txt, s, w, where) => { if (L.textWidth(txt, s) > w) bad.push(`${where}: "${txt}"`); };
+const fill = (x, y, w, h, c, parent) => {
+  const f = L.layer({ x, y, w, h, cls: "fl" }, parent);
+  f.style.background = col(c); f.style.transform = "scaleX(0)";
+  return f;
+};
+const showBar = (g, k) => { k = L.clamp(k); if (Math.abs(k - g.u) > 0.0004) { g.u = k; g.bar.style.transform = `scaleX(${k.toFixed(4)})`; } };
+
+// ---------------- the stardate: from the Mac's clock, then running on ----------------
+const SD0 = (() => { const d = new Date(); return 47520 + ((d.getHours() * 60 + d.getMinutes()) / 1440) * 2.74; })();
+const stardate = (t) => SD0 + t / 3600 / 8.766;            // a unit of stardate is about 8.8 hours
+
+// ---------------- the crew who keep logs ----------------
+// [full name (index), short name (panels), department, division, where it is recorded, deck]
+const CREW = [
+  ["Lt. Cmdr. Data", "Lt. Cmdr. Data", "Operations", "Operations", "Quarters", 2],
+  ["Lt. Worf", "Lt. Worf", "Security", "Operations", "Quarters", 7],
+  ["Dr. Beverly Crusher", "Dr. Crusher", "Medical", "Sciences", "Sickbay", 12],
+  ["Counselor Deanna Troi", "Counselor Troi", "Counseling", "Sciences", "Quarters", 8],
+  ["Lt. Cmdr. Geordi La Forge", "Lt. Cmdr. La Forge", "Engineering", "Operations", "Main Engineering", 36],
+  ["Cmdr. William Riker", "Cmdr. Riker", "Command", "Command", "Quarters", 8],
+  ["Lt. Reginald Barclay", "Lt. Barclay", "Engineering", "Operations", "Quarters", 9],
+  ["Ens. Sito Jaxa", "Ens. Sito", "Security", "Operations", "Quarters", 31],
+  ["Ens. Sam Lavelle", "Ens. Lavelle", "Conn", "Operations", "Quarters", 24],
+  ["Ens. Taurik", "Ens. Taurik", "Engineering", "Operations", "Quarters", 30],
+  ["Lt. Alyssa Ogawa", "Lt. Ogawa", "Medical", "Sciences", "Quarters", 19],
+  ["Ens. Ro Laren", "Ens. Ro", "Conn", "Command", "Quarters", 10],
+  ["Dr. Selar", "Dr. Selar", "Medical", "Sciences", "Quarters", 17],
+  ["Lt. Sariel Rager", "Lt. Rager", "Conn", "Command", "Quarters", 22],
+  ["Guinan", "Guinan", "Ten Forward", "Civilians", "Ten Forward", 10],
+  ["Alexander Rozhenko", "Alexander", "Civilian", "Civilians", "Quarters", 7],
+  ["Crewman Simon Tarses", "Crewman Tarses", "Medical", "Sciences", "Quarters", 33],
+  ["Dr. Marta Lindqvist", "Dr. Lindqvist", "Botany", "Civilians", "Arboretum", 14],
+].map(([name, short, dept, div, where, deck]) => ({ name, short, dept, div, where, deck, place: `${where}  ·  Deck ${deck}` }));
+const ACCESS = { Private: ["lilac", "#000"], Sealed: ["plum", "#000"], Family: ["peach", "#000"],
+                 Recording: ["butter", "#000"], Encrypting: ["pink", "#000"] };
+
+// ---------------- the archive: divisions, entries and storage ----------------
+const KQ_PER_S = 0.042;                                   // kiloquads a second of a voice log
+const DIVS = [
+  ["Command", 1962, 5880, 8000, "pink"], ["Operations", 6214, 18603, 24000, "lilac"],
+  ["Sciences", 4870, 14622, 20000, "plum"], ["Civilians", 2318, 6951, 10000, "peach"],
+].map(([name, n, kq, cap, c]) => ({ name, n, kq, cap, c }));
+const DIV = Object.fromEntries(DIVS.map((d) => [d.name, d]));
+const total = () => DIVS.reduce((a, d) => a + d.n, 0);
+const totalKq = () => DIVS.reduce((a, d) => a + d.kq, 0);
+const totalCap = () => DIVS.reduce((a, d) => a + d.cap, 0);
+
+// ---------------- status line ----------------
+const stateTxt = L.text({ x: LX, cap: 150, s: 100, c: "butter", txt: "Recording" });
+const stateSub = L.text({ x: 0, base: 222, s: 38, c: "peach", txt: "" });
+const setState = (word, c) => {
+  if (stateTxt.textContent !== word) { stateTxt.textContent = word; stateTxt.style.color = col(c); }
+  stateSub.style.left = LX + stateTxt.offsetWidth + 40 + "px";
+};
+L.box({ x: RR - 400, y: 150, w: 400, h: 72, c: "plum", label: "Privacy Lock Engaged", r: "lr", fs: 36 });
+
+// =====================================================================================
+// THE LOG INDEX: the last fifteen entries, newest at the foot. No content: who, when, how long.
+// =====================================================================================
+const IX = { no: 0, crew: 174, dept: 520, at: 780, sd: 1250, len: 1470, kq: 1640, bar: 1680, barR: 1880, pill: 1920 };
+const PW = LR - LX - IX.pill;                               // the access pill runs to the column's edge
+L.header({ x: LX, y: 280, w: LR - LX, label: "Log Index  ·  Last Fifteen Entries", c1: "lilac", c2: "plum" });
+[["Entry", IX.no, "l"], ["Crew Member", IX.crew, "l"], ["Department", IX.dept, "l"], ["Recorded At", IX.at, "l"],
+ ["Stardate", IX.sd, "l"], ["Length", IX.len, "r"], ["Size", IX.kq, "r"], ["0 – 5 Min", IX.barR, "r"], ["Access", LR - LX, "r"]]
+  .forEach(([txt, x, align]) => L.text({ x: LX + x, base: 400, s: 36, c: "lilac", txt, align }));
+
+const N = 15, PITCH = 72;
+const clip = L.el("div", "clip", L.stage, { left: LX + "px", top: ROW(0) - 54 + "px", width: LR - LX + "px", height: N * PITCH + "px" });
+const rows = Array.from({ length: N }, (_, i) => {
+  const e = L.layer({ x: 0, y: 0, w: LR - LX, h: PITCH }, clip);
+  const box = L.box({ x: IX.no, y: 54 - 44.56, w: 150, h: 56, c: "lilac", label: "", fs: 32, r: "l", cls: "sw" }, e);
+  const crew = L.text({ x: IX.crew, base: 54, s: 40, c: "white", txt: "" }, e);
+  const dept = L.text({ x: IX.dept, base: 54, s: 36, c: "lilac", txt: "" }, e);
+  const at = L.text({ x: IX.at, base: 54, s: 36, c: "peach", txt: "" }, e);
+  const sd = L.text({ x: IX.sd, base: 54, s: 36, c: "orange", txt: "" }, e);
+  const len = L.text({ x: IX.len, base: 54, s: 40, c: "white", txt: "", align: "r", rightIn: true }, e);
+  const kq = L.text({ x: IX.kq, base: 54, s: 36, c: "lilac", txt: "", align: "r", rightIn: true }, e);
+  L.el("div", "", e, { position: "absolute", left: IX.bar + "px", top: 54 - 26 + "px", width: IX.barR - IX.bar + "px", height: "26px", background: TRACK });
+  const bar = L.el("div", "fl", e, { position: "absolute", left: IX.bar + "px", top: 54 - 26 + "px", width: IX.barR - IX.bar + "px", height: "26px", background: "var(--lilac)", transform: "scaleX(0)" });
+  const pill = L.box({ x: IX.pill, y: 54 - 44.56, w: PW, h: 56, c: "lilac", label: "", fs: 28, r: "lr", cls: "sw" }, e);
+  const r = { e, slot: i };
+  r.fill = (d) => {
+    r.d = d;
+    L.set(box, String(d.no)); L.set(crew, d.who.name); L.set(dept, d.who.dept); L.set(at, d.who.place); L.set(sd, d.sd.toFixed(1));
+    box.style.background = col(d.who === null ? "lilac" : DIV[d.who.div].c);
+    r.show();
+  };
+  r.show = () => {                                         // the parts that change while it records
+    const d = r.d;
+    L.set(len, mss(d.len)); L.set(kq, (Math.floor(d.len) * KQ_PER_S).toFixed(2));
+    const k = L.clamp(d.len / 300).toFixed(4);
+    if (r._k !== k) { r._k = k; bar.style.transform = `scaleX(${k})`; }
+    L.set(pill, d.access);
+    const [bg, fg] = ACCESS[d.access];
+    if (r._a !== d.access) { r._a = d.access; pill.style.background = col(bg); pill.style.color = fg; bar.style.background = col(d.access === "Recording" || d.access === "Encrypting" ? bg : "lilac"); }
+  };
+  L.move(e, 0, i * PITCH);
+  return r;
+});
+// a new entry: everything slides up one place, the oldest fades away, the new one fades in at the foot
+let slide = null;
+const pushRow = (d, t) => { slide = { d, t0: t, landed: null }; };
+L.tick((t) => {
+  if (!slide) return;
+  const u = t - slide.t0;
+  if (!slide.landed) {
+    const top = rows.find((r) => r.slot === 0), k = L.ease(L.clamp(u / 1.1));
+    rows.forEach((r) => L.move(r.e, 0, (r.slot - k) * PITCH));
+    top.e.style.opacity = (1 - L.clamp(u / 0.7)).toFixed(3);
+    if (k < 1) return;
+    rows.forEach((r) => (r.slot = r.slot === 0 ? N - 1 : r.slot - 1));
+    top.fill(slide.d); L.move(top.e, 0, (N - 1) * PITCH); slide.landed = top; slide.t1 = t;
+  } else {
+    const a = L.clamp((t - slide.t1) / 0.8);
+    slide.landed.e.style.opacity = a.toFixed(3);
+    if (a >= 1) slide = null;
+  }
+});
+const newest = () => rows.find((r) => r.slot === N - 1);
+
+// =====================================================================================
+// THE RECORDING
+// =====================================================================================
+L.header({ x: RX, y: 280, w: RR - RX, label: "Voice Recording", c1: "pink", c2: "lilac" });
+const recWord = L.text({ x: RX, base: 400, s: 36, c: "butter", txt: "", cls: "sw" });
+L.text({ x: RR - 196, base: 400, s: 36, c: "lilac", txt: "Stardate", align: "r" });
+const sdVal = L.text({ x: RR, base: 400, s: 36, c: "white", txt: "", align: "r" });
+
+// three tiles on rows 0–2: who, where, how long
+const TILE = [[RX, 560, "Crew Member", "pink"], [RX + 608, 380, "Location", "lilac"], [RX + 1036, RR - RX - 1036, "Elapsed", "butter"]];
+const tiles = TILE.map(([x, w, label, c]) => {
+  L.rect({ x, y: ROW(0) - 29, w: 12, h: ROW(2) - ROW(0) + 29, c });
+  L.text({ x: x + 36, base: ROW(0), s: 40, c: "lilac", txt: label });
+  return { w: w - 36, v: L.text({ x: x + 36, base: ROW(1), s: 52, c: "white", txt: "" }), d: L.text({ x: x + 36, base: ROW(2), s: 36, c: "peach", txt: "" }) };
+});
+
+// the waveform: 12 seconds, the newest at the right edge
+const WX = RX, WY = 692, WW = RR - RX, WH = 308, SECS = 12, SPEED = WW / SECS, BP = 10, BW = 6;
+L.rect({ x: WX, y: WY, w: WW, h: WH, c: PANEL });
+for (let s = 3; s < SECS; s += 3) L.rect({ x: Math.round(WX + WW - s * SPEED) - 1, y: WY, w: 2, h: WH, c: GRID, free: true });
+L.rect({ x: WX, y: WY + WH / 2 - 1, w: WW, h: 2, c: GRID, free: true });
+for (let s = 0; s <= SECS; s += 3) {
+  const x = WX + WW - s * SPEED;
+  L.text({ x, base: ROW(8) - 12, s: 30, c: "lilac", txt: s ? `−${s} s` : "Now", align: s === SECS ? "l" : s === 0 ? "r" : "c", w: 120, legend: true });
+}
+// syllables of speech, in screen time: [centre, width, loudness]
+const syl = [];
+const speak = (t0, t1) => {
+  let tt = t0 + 0.5;
+  while (tt < t1 - 0.6) {
+    const phrase = Math.min(t1 - 0.6, tt + L.rand(1.2, 3.6));
+    while (tt < phrase) { syl.push([tt, L.rand(0.06, 0.1), L.rand(0.35, 1)]); tt += L.rand(0.15, 0.27); }
+    tt += L.rand(0.35, 0.95);                                // a breath between phrases
+  }
+};
+const amp = (tt) => {
+  let a = 0;
+  for (const [c, w, k] of syl) if (Math.abs(tt - c) < 0.3) a = Math.max(a, k * Math.exp(-(((tt - c) / w) ** 2)));
+  return a;
+};
+const jit = (k) => { const s = Math.sin(k * 12.9898) * 43758.5453; return 0.72 + 0.28 * (s - Math.floor(s)); };
+// two canvas tiles slid as layers (as in Sickbay); each frame draws only the newest bars
+const strip = L.el("div", "clip boot", L.stage, { left: WX + "px", top: WY + "px", width: WW + "px", height: WH + "px" });
+const wtiles = [0, 1].map((k) => {
+  const c = L.canvas({ x: 0, y: 0, w: WW + 8, h: WH }, strip);   // 8px of overlap: no hairline seam
+  c.cv.style.willChange = "transform"; c.idx = k;
+  return c;
+});
+let written = 0, origin = 0, filled = false, nextBar = 0;   // strip position = (time − origin) × SPEED
+const drawTo = (end) => {
+  for (const tile of wtiles) if (end >= (tile.idx + 2) * WW) { tile.idx += 2; tile.g.clearRect(0, 0, WW + 8, WH); }
+  while (nextBar * BP <= end) {
+    const s = nextBar * BP, tt = origin + s / SPEED, a = amp(tt), live = a > 0.02;
+    const h = Math.max(2, Math.round(a * jit(nextBar) * (WH / 2 - 20)));
+    for (const tile of wtiles) {
+      const x = s - tile.idx * WW - BW / 2;
+      if (x < -BW || x > WW + 8) continue;
+      tile.g.fillStyle = live ? "#c7a0d8" : "#6a4a80";
+      tile.g.fillRect(x, WH / 2 - h, BW, 2 * h);
+    }
+    nextBar++;
+  }
+  written = end;
+};
+const placeTiles = () => wtiles.forEach((tile) => (tile.cv.style.transform = `translate3d(${(tile.idx * WW - (written - WW)).toFixed(2)}px,0,0)`));
+wtiles.forEach((c) => (c.onResize = () => { filled = false; }));   // a resize wipes the canvases: refill them
+L.tick((t) => {
+  if (!filled) {                                           // start with the window already full
+    filled = true; origin = t - SECS; written = 0; nextBar = 0;
+    wtiles[0].idx = 0; wtiles[1].idx = 1;
+    wtiles.forEach((c) => c.g.clearRect(0, 0, WW + 8, WH));
+  }
+  drawTo((t - origin) * SPEED);
+  placeTiles();
+  while (syl.length && syl[0][0] < t - SECS - 2) syl.shift();
+});
+
+// gauges on rows 9–12
+const gauge = (base, name, c) => {
+  L.text({ x: RX, base, s: 40, c: "lilac", txt: name });
+  L.rect({ x: RX + 300, y: base - 26, w: RR - 200 - (RX + 300), h: 26, c: TRACK });
+  return { bar: fill(RX + 300, base - 26, RR - 200 - (RX + 300), 26, c), v: L.text({ x: RR, base, s: 52, c: "white", txt: "", align: "r" }), u: -1 };
+};
+const G = { voice: gauge(ROW(9), "Voiceprint", "pink"), level: gauge(ROW(10), "Signal Level", "lilac"),
+            size: gauge(ROW(11), "Recorded", "plum"), enc: gauge(ROW(12), "Encryption", "butter") };
+
+// the day so far, on rows 13–14
+const pair = (x, base, label) => {
+  L.text({ x, base, s: 40, c: "lilac", txt: label });
+  return L.text({ x: x + Math.ceil(L.textWidth(label, 40)) + 24, base, s: 52, c: "white", txt: "" });
+};
+// three columns, under the three tiles
+const stat = { today: pair(TILE[0][0], ROW(13), "Entries Today"), crewToday: pair(TILE[1][0], ROW(13), "Crew Today"),
+               avg: pair(TILE[2][0], ROW(13), "Average"), used: pair(TILE[0][0], ROW(14), "Archive Used"),
+               free: pair(TILE[1][0], ROW(14), "Free"), held: pair(TILE[2][0], ROW(14), "Retained") };
+
+// =====================================================================================
+// THE BOTTOM STRIP: storage, retained records, the access log
+// =====================================================================================
+const AX0 = LX, AX1 = 1060, BX0 = 1120, BX1 = LR, CX0 = RX, CX1 = RR;
+
+// ---------------- archive storage by division ----------------
+L.header({ x: AX0, y: 1620, w: AX1 - AX0, label: "Archive Storage", c1: "pink", c2: "lilac", h: 48 });
+const SC = { n: AX0 + 470, bar: AX0 + 500, barR: AX1 - 210 };
+[["Division", AX0, "l"], ["Entries", SC.n, "r"], ["Allocation", SC.bar, "l"], ["Kiloquads", AX1, "r"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: BCAP, s: 36, c: "lilac", txt, align }));
+const storeRow = (i, name, c, nc) => {
+  const base = BROW(i);
+  L.text({ x: AX0, base, s: 36, c: nc, txt: name });
+  L.rect({ x: SC.bar, y: base - 24, w: SC.barR - SC.bar, h: 24, c: TRACK });
+  return { bar: fill(SC.bar, base - 24, SC.barR - SC.bar, 24, c), n: L.text({ x: SC.n, base, s: 36, c: "white", txt: "", align: "r" }),
+           kq: L.text({ x: AX1, base, s: 36, c: "white", txt: "", align: "r" }), u: -1 };
+};
+DIVS.forEach((d, i) => Object.assign(d, { row: storeRow(i, d.name, d.c, "peach") }));
+const totalRow = storeRow(4, "All Divisions", "butter", "butter");
+const showStore = () => {
+  DIVS.forEach((d) => { showBar(d.row, d.kq / d.cap); L.set(d.row.n, fmt(d.n)); L.set(d.row.kq, fmt(d.kq)); });
+  showBar(totalRow, totalKq() / totalCap()); L.set(totalRow.n, fmt(total())); L.set(totalRow.kq, fmt(totalKq()));
+  L.set(stat.used, (100 * totalKq() / totalCap()).toFixed(1) + "%");
+  L.set(stat.free, fmt(totalCap() - totalKq()) + " kq");
+};
+
+// ---------------- records under retention: held beyond the owner's control ----------------
+L.header({ x: BX0, y: 1620, w: BX1 - BX0, label: "Retained Records", c1: "plum", c2: "pink", h: 48 });
+const RC = { sd: BX0, rec: BX0 + 150, by: BX0 + 600 };
+[["Stardate", RC.sd, "l"], ["Record", RC.rec, "l"], ["Held By", RC.by, "l"], ["Status", BX1, "r"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: BCAP, s: 36, c: "lilac", txt, align }));
+const HELD = [
+  ["42523.7", "Hearing Record  ·  Lt. Cmdr. Data", "JAG Office  ·  Starbase 173", "Sealed", "butter"],
+  ["43657.0", "Personal Logs  ·  Lal", "Lt. Cmdr. Data", "Retained", "lilac"],
+  ["44002.3", "Statements  ·  Wolf 359", "Starfleet Command", "Sealed", "plum"],
+  ["44769.2", "Records Request  ·  Satie", "Starfleet Command", "Refused", "pink"],
+  ["45944.1", "Personal Log  ·  Kataan Probe", "Capt. Picard", "Retained", "lilac"],
+];
+HELD.forEach(([sd, rec, by, st, c], i) => {
+  L.text({ x: RC.sd, base: BROW(i), s: 36, c: "orange", txt: sd });
+  L.text({ x: RC.rec, base: BROW(i), s: 36, c: i === 0 ? "white" : "peach", txt: rec });
+  L.text({ x: RC.by, base: BROW(i), s: 36, c: "lilac", txt: by });
+  L.text({ x: BX1, base: BROW(i), s: 36, c, txt: st, align: "r" });
+  fits(rec, 36, RC.by - RC.rec - 30, "record"); fits(by, 36, BX1 - RC.by - L.textWidth("Retained", 36) - 40, "held by");
+});
+
+// ---------------- the access log: newest at the foot, always in time order ----------------
+L.header({ x: CX0, y: 1620, w: CX1 - CX0, label: "Access Log", c1: "lilac", c2: "plum", h: 48 });
+const AC = { sd: CX0, tx: CX0 + 150 };
+[["Stardate", AC.sd, "l"], ["Event", AC.tx, "l"], ["Source", CX1, "r"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: BCAP, s: 36, c: "lilac", txt, align }));
+const logRows = Array.from({ length: 5 }, (_, i) => ({
+  sd: L.text({ x: AC.sd, base: BROW(i), s: 36, c: "orange", txt: "" }),
+  tx: L.text({ x: AC.tx, base: BROW(i), s: 36, c: "white", txt: "" }),
+  by: L.text({ x: CX1, base: BROW(i), s: 36, c: "pink", txt: "", align: "r" }),
+}));
+const logged = [];
+const showLog = () => logRows.forEach((r, i) => {
+  const e = logged[i] || ["", "", ""];
+  L.set(r.sd, e[0] === "" ? "" : e[0].toFixed(1)); L.set(r.tx, e[1]); L.set(r.by, e[2]);
+});
+const logLine = (sd, tx, by) => {
+  fits(tx, 36, CX1 - AC.tx - L.textWidth(by, 36) - 40, "log");
+  logged.push([Math.max(sd, logged.length ? logged[logged.length - 1][0] : 0), tx, by]);
+  while (logged.length > logRows.length) logged.shift();
+  showLog();
+};
+
+// =====================================================================================
+// RUNNING IT
+// =====================================================================================
+let crewDeck = [], lastWho = null;
+const nextCrew = () => {
+  if (!crewDeck.length) crewDeck = CREW.slice().sort(() => Math.random() - 0.5);
+  let w = crewDeck.pop();
+  if (w === lastWho && crewDeck.length) { crewDeck.unshift(w); w = crewDeck.pop(); }
+  return (lastWho = w);
+};
+const accessFor = (who) => (who.div === "Civilians" ? L.pick(["Private", "Family"]) : L.pick(["Private", "Private", "Private", "Sealed", "Family"]));
+
+// the fifteen entries before this one, already filed
+let sdBack = stardate(0);
+const hist = [];
+for (let i = 0; i < N - 1; i++) {
+  sdBack -= L.rand(0.02, 0.07);
+  const who = nextCrew();
+  hist.unshift({ who, len: L.irand(48, 250), access: accessFor(who) });
+}
+hist.forEach((d, i) => { d.no = total() - (N - 2) + i; });
+{ let sd = stardate(0); for (let i = hist.length - 1; i >= 0; i--) { sd -= L.rand(0.02, 0.07); hist[i].sd = sd; } }
+hist.forEach((d, i) => rows[i].fill(d));
+
+let entriesToday = 23, lenSum = 23 * 131, crewToday = new Set(CREW.slice(0, 12).map((c) => c.name));
+hist.slice(-5).forEach((d) => crewToday.add(d.who.name));
+const showToday = () => {
+  L.set(stat.today, String(entriesToday)); L.set(stat.crewToday, String(crewToday.size));
+  L.set(stat.avg, mss(lenSum / entriesToday));
+};
+
+// one recording: [start, end] in screen time; then encryption, filing and a pause before the next
+let rec = null, phase = "rec";
+const ENC = 4, FILE = 1.2;
+const begin = (t0, dur, t) => {
+  const who = nextCrew();
+  rec = { who, t0, t1: t0 + dur, no: total() + 1, sd: stardate(t0), voice: L.rand(98.6, 99.9), access: accessFor(who) };
+  rec.d = { who, no: rec.no, sd: rec.sd, len: Math.max(0, t - t0), access: "Recording" };
+  speak(t0, rec.t1);
+  L.set(tiles[0].v, who.short); L.set(tiles[0].d, `${who.dept}  ·  ${who.div}`);
+  L.set(tiles[1].v, `Deck ${who.deck}`); L.set(tiles[1].d, who.where);
+  L.set(tiles[2].d, `Entry ${rec.no}`);
+  showBar(G.enc, 0); L.set(G.enc.v, "0%");
+  phase = "rec";
+};
+const sub = () => `Entry ${rec.no}  ·  ${rec.who.name}  ·  ${rec.who.where}, Deck ${rec.who.deck}`;
+
+// the screen opens part-way through a recording
+{
+  const into = L.rand(16, 30), dur = into + L.rand(30, 55);
+  begin(-into, dur, 0);
+  rows[N - 1].fill(rec.d);
+  logLine(stardate(-into - 40), `Integrity check  ·  Memory Core 2  ·  No errors`, "Computer");
+  logLine(hist[N - 3].sd, `Entry ${hist[N - 3].no} filed  ·  ${mss(hist[N - 3].len)}  ·  ${hist[N - 3].access}`, hist[N - 3].who.short);
+  logLine(hist[N - 2].sd, `Entry ${hist[N - 2].no} filed  ·  ${mss(hist[N - 2].len)}  ·  ${hist[N - 2].access}`, hist[N - 2].who.short);
+  logLine(stardate(-into - 10), `Archive mirrored to Memory Core 3`, "Computer");
+  logLine(rec.sd, `Entry ${rec.no} opened  ·  Voiceprint verified`, rec.who.short);
+}
+let level = 0, nextStart = 0;
+L.tick((t) => {
+  const d = rec.d;
+  if (phase === "rec") {
+    d.len = L.clamp(t - rec.t0, 0, rec.t1 - rec.t0);
+    if (t >= rec.t1) { phase = "enc"; rec.te = t; d.access = "Encrypting"; }
+  } else if (phase === "enc") {
+    const k = L.clamp((t - rec.te) / ENC);
+    showBar(G.enc, L.ease(k));
+    if (k >= 1) {                                          // sealed: into the archive
+      phase = "idle"; d.access = rec.access;
+      const dv = DIV[rec.who.div]; dv.n++; dv.kq += (rec.t1 - rec.t0) * KQ_PER_S;
+      entriesToday++; lenSum += rec.t1 - rec.t0; crewToday.add(rec.who.name);
+      showStore(); showToday();
+      logLine(stardate(t), `Entry ${rec.no} filed  ·  ${mss(rec.t1 - rec.t0)}  ·  ${rec.access}`, rec.who.short);
+      nextStart = t + L.rand(7, 11);
+    }
+  } else if (phase === "idle" && t >= nextStart) {         // the next crew member begins a log
+    begin(t, L.rand(42, 88), t);
+    pushRow(rec.d, t);
+    logLine(rec.sd, `Entry ${rec.no} opened  ·  Voiceprint verified`, rec.who.short);
+  }
+  const a = phase === "rec" ? amp(t) : 0;                  // the signal level: a slow average of the voice
+  level += (a - level) * 0.04;
+});
+const encPct = () => Math.round(100 * (G.enc.u < 0 ? 0 : G.enc.u)) + "%";
+L.every(250, (t) => {
+  const d = rec.d, el = d.len;
+  const n = rows.find((r) => r.d === d); if (n) n.show();
+  L.set(tiles[2].v, mss(el));
+  // voiceprint: analysed over the first three seconds, then held
+  const vk = L.clamp((t - rec.t0) / 3);
+  showBar(G.voice, L.ease(vk) * rec.voice / 100);
+  L.set(G.voice.v, vk < 1 ? "Analyzing" : rec.voice.toFixed(1) + "%");
+  showBar(G.level, level * 1.25); L.set(G.level.v, Math.round(L.clamp(level * 1.25) * 100) + "%");
+  const kq = Math.floor(el) * KQ_PER_S; showBar(G.size, kq / 4); L.set(G.size.v, kq.toFixed(2) + " kq");
+  if (phase === "enc") L.set(G.enc.v, encPct());
+  if (phase === "idle") L.set(G.enc.v, "100%");
+  const words = { rec: ["Recording", "butter"], enc: ["Encrypting", "pink"], idle: ["Standing By", "lilac"] }[phase];
+  setState(...words);
+  L.set(recWord, phase === "rec" ? "Recording  ·  Audio Pickup Open" : phase === "enc" ? "Encrypting  ·  Owner Key" : "Standing By  ·  Entry Sealed");
+  recWord.style.color = col(words[1]);
+  L.set(stateSub, phase === "idle" ? `Last entry ${rec.no}  ·  ${rec.who.name}  ·  Encrypted  ·  Access ${rec.access}` : sub());
+  L.set(sdVal, stardate(t).toFixed(1));
+}, 0);
+
+// routine archive work between recordings
+const ROUTINE = [
+  () => ["Integrity check  ·  Memory Core 2  ·  No errors", "Computer"],
+  () => ["Archive mirrored to Memory Core 3", "Computer"],
+  () => { const w = L.pick(CREW); return ["Retrieval  ·  Own entries  ·  Voiceprint verified", w.short]; },
+  () => { const w = L.pick(CREW); return ["Family copy relayed  ·  Starbase 74", w.short]; },
+  () => ["Retention review  ·  No entries due", "Computer"],
+];
+later(23000, (t) => { if (phase !== "idle") return; logLine(stardate(t), ...L.pick(ROUTINE)()); }, 0.3);
+
+// ---------------- a guard: every line of words fits its place ----------------
+CREW.forEach((c) => {
+  fits(c.name, 40, IX.dept - IX.crew - 30, "crew"); fits(c.dept, 36, IX.at - IX.dept - 30, "dept"); fits(c.place, 36, IX.sd - IX.at - 30, "place");
+  fits(c.short, 52, tiles[0].w, "tile crew"); fits(`${c.dept}  ·  ${c.div}`, 36, tiles[0].w, "tile dept"); fits(c.where, 36, tiles[1].w, "tile where");
+  fits(`Last entry 99999  ·  ${c.name}  ·  Encrypted  ·  Access Private`, 38, RR - 400 - 40 - (LX + L.textWidth("Standing By", 100) + 40), "subtitle");
+  fits(`Entry 99999  ·  ${c.name}  ·  ${c.where}, Deck ${c.deck}`, 38, RR - 400 - 40 - (LX + L.textWidth("Encrypting", 100) + 40), "subtitle");
+});
+Object.keys(ACCESS).forEach((k) => fits(k, 28, PW - 60, "pill"));
+if (bad.length) setTimeout(() => { throw new Error("personal-logs: " + bad.join(" | ")); });
+
+L.set(stat.held, String(HELD.length));
+showStore(); showToday();
+});
+</script></body></html>

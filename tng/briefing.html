@@ -1,0 +1,477 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Mission Briefing</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* colors change slowly; .boot (the start-up cascade) always wins */
+  .sw { transition: background-color 1s ease, color 1s ease; }
+  .tip { width: 0; height: 0; border-left: 14px solid transparent; border-right: 14px solid transparent; border-bottom: 18px solid var(--white); }
+  .dot { border-radius: 50%; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: mirrored, sidebar on the right ----------------
+L.frame({ type: "B", title: "Observation Lounge  •  Mission Briefing", c: "gold", c2: "butter", accent: "orange", foot: "Briefing",
+  side: [[140, "orange", "Obs 01"], [70, "butter", "Deck 1"], [420, "gold", "Briefing"], [70, "orange", "46357"],
+         [300, "butter", "Staff"], [70, "gold", "Intel"], [216, "orange", "Celtris"]] });
+
+const DARK = "#2b2110", PANEL = "#17110a", MAPBG = "#1f170b";
+const col = (c) => (c.startsWith("#") ? c : `var(--${c})`);
+const fill = (x, y, w, h, c, origin = "0 0", parent) => {
+  const f = L.layer({ x, y, w, h }, parent);
+  f.style.background = col(c); f.style.transformOrigin = origin;
+  return f;
+};
+const pad2 = (n) => String(n).padStart(2, "0");
+const later = (ms, f, jitter) => L.every(ms, (t) => { if (t > 1) f(t); }, jitter);   // not at once: first after a while
+
+// Columns: agenda 40–340, slide 364–2080, staff and actions 2140–3520. Rows of 56 on a 72 grid from 428.
+const AX = 40, AW = 300, SX = 364, SR = 2080, RX = 2140, RR = 3520;
+const ROW0 = 428, PITCH = 72, RH = 56, RB = 45.24;          // RB: the baseline of a 56-high button's label (fs 28)
+const MAIN_B = 1536;                                       // the main panels' common bottom edge
+
+// ---------------- status line ----------------
+const STATE = "Briefing in Session";
+L.text({ x: 40, cap: 150, s: 100, c: "butter", txt: STATE });
+L.text({ x: 40 + L.textWidth(STATE, 100) + 40, base: 222, s: 38, c: "gold", txt: "Celtris III  ·  Starfleet Intelligence  ·  Classified" });
+const prio = L.box({ x: RR - 400, y: 150, w: 400, h: 72, c: "orange", label: "Priority One", r: "lr", fs: 36 });
+prio.style.willChange = "opacity";
+L.tick((t) => { prio.style.opacity = (0.82 + 0.18 * Math.sin(t * 1.1)).toFixed(3); });
+
+// ---------------- the people ----------------
+// [rank, name, post]
+const STAFF = [
+  ["Vice Adm.", "Nechayev", "Starfleet Command"],
+  ["Captain", "Jean-Luc Picard", "Commanding Officer"],
+  ["Captain", "Edward Jellico", "U.S.S. Cairo"],
+  ["Commander", "William T. Riker", "First Officer"],
+  ["Lt. Cmdr.", "Data", "Second Officer"],
+  ["Lt. Cmdr.", "Geordi La Forge", "Chief Engineer"],
+  ["Lieutenant", "Worf", "Chief of Security"],
+  ["Commander", "Beverly Crusher", "Chief Medical Officer"],
+  ["Lt. Cmdr.", "Deanna Troi", "Ship's Counselor"],
+];
+
+// ---------------- the slides, and who presents them ----------------
+const DECK = [
+  { name: "Objectives", by: 0, title: "Vice Admiral Nechayev" },
+  { name: "Situation", by: 4, title: "Lt. Commander Data" },
+  { name: "Personnel", by: 1, title: "Captain Picard" },
+  { name: "Risks", by: 6, title: "Lieutenant Worf" },
+];
+const DUR = 14;                                            // seconds a slide is up
+
+// ---------------- the briefing: header, agenda, slide panel ----------------
+L.header({ x: AX, y: 280, w: SR - AX, label: "Mission Briefing", c1: "gold", c2: "butter", lw: AW });
+L.text({ x: AX, base: 400, s: 36, c: "peach", txt: "Agenda" });
+const slideInfo = L.text({ x: SX, base: 400, s: 36, c: "peach", txt: "" });
+const slideBy = L.text({ x: SR, base: 400, s: 36, c: "peach", txt: "", align: "r" });
+[slideInfo, slideBy].forEach((e) => (e.style.willChange = "opacity"));
+
+// the agenda: four tall buttons, one per slide; the slide being shown fills as it runs
+const AH = (MAIN_B - ROW0 - 3 * 8) / 4;                    // 271
+const agenda = DECK.map((d, i) => {
+  const y = ROW0 + i * (AH + 8);
+  L.rect({ x: AX, y, w: AW, h: AH, c: "gold" });
+  const f = fill(AX, y, AW, AH, "butter", "50% 100%");
+  f.style.transform = "scaleY(0)";
+  const b = L.box({ x: AX, y, w: AW, h: AH, c: DARK, label: `${pad2(i + 1)}  ${d.name}`, fs: 36, cls: "sw" });
+  b.style.color = "var(--gold)";
+  return { f, b, state: "next" };
+});
+const showAgenda = (cur) => agenda.forEach((a, i) => {
+  const s = i < cur ? "done" : i === cur ? "now" : "next";
+  if (s === a.state) return;
+  a.state = s;
+  a.b.style.background = s === "next" ? DARK : s === "done" ? "#8a6a2a" : "transparent";
+  a.b.style.color = s === "next" ? "var(--gold)" : "#000";
+  if (s !== "now") a.f.style.transform = "scaleY(0)";
+});
+
+L.rect({ x: SX, y: ROW0, w: SR - SX, h: MAIN_B - ROW0, c: PANEL, panel: true });
+const SW = SR - SX, SH = MAIN_B - ROW0, M = 56;            // a slide: 1716 × 1108, margins 56
+const rowB = (k) => k * PITCH + RB;                       // slide rows share the page's 72 grid
+const slides = [];
+const mkSlide = (title, note) => {
+  const el = L.el("div", "", L.stage, { position: "absolute", left: SX + "px", top: ROW0 + "px", width: SW + "px", height: SH + "px", display: "none" });
+  L.text({ x: M, cap: 56, s: 72, c: "butter", txt: title }, el);
+  L.text({ x: SW - M, base: 56 + 0.72 * 72, s: 36, c: "orange", txt: note, align: "r", rightIn: true }, el);
+  const s = { el, items: [], tick: null, enter: null };
+  slides.push(s);
+  return s;
+};
+// a row that arrives a little after the slide, so the slide builds as it is shown
+const item = (s, y, h, d) => {
+  const e = L.el("div", "", s.el, { position: "absolute", left: "0px", top: y + "px", width: SW + "px", height: h + "px", opacity: 0 });
+  s.items.push({ e, d });
+  return e;
+};
+const div = (parent, x, y, w, h, c, extra = {}) =>
+  L.el("div", "", parent, Object.assign({ position: "absolute", left: x + "px", top: y + "px", width: w + "px", height: h + "px", background: col(c) }, extra));
+const footer = (s, txt) => {
+  div(s.el, M, 968, SW - 2 * M, 6, "#3a2c14");
+  L.text({ x: M, base: rowB(14), s: 36, c: "peach", txt }, s.el);
+};
+// a header inside a slide: a rounded box and a bar to the slide's margin
+const subHeader = (parent, y, label, c1, c2, x = M, lw = 200) => {
+  L.box({ x, y, w: lw, h: RH, c: c1, label, fs: 28, r: "l" }, parent);
+  div(parent, x + lw + L.GAP, y, SW - M - (x + lw + L.GAP), RH, c2);
+};
+
+// ---- slide 1: objectives ----
+{
+  const s = mkSlide("Mission Objectives", "Starfleet Intelligence  ·  Eyes Only");
+  [["Confirm the threat", "Establish whether the Celtris III facility is developing a metagenic weapon"],
+   ["Destroy the facility", "The laboratory, its stock of the agent, and every research record"],
+   ["Leave no trace", "No Starfleet equipment, uniforms or insignia aboard"],
+   ["Return to the rendezvous", "Withdraw the team inside the extraction window, T+30 to T+40"]]
+    .forEach(([head, line], k) => {
+      const e = item(s, 2 * PITCH + k * 3 * PITCH, 128, 0.25 + k * 0.3);
+      L.box({ x: M, y: 0, w: 128, h: 128, c: k === 0 ? "butter" : "gold", label: pad2(k + 1), fs: 52 }, e);
+      L.text({ x: M + 128 + 32, base: 113.2 - PITCH, s: 52, c: "white", txt: head }, e);
+      L.text({ x: M + 128 + 32, base: 113.2, s: 40, c: "tan", txt: line }, e);
+    });
+  // the target, beside the objectives
+  const KX = 1112;
+  subHeader(item(s, 2 * PITCH, RH, 0.4), 0, "Target", "orange", "gold", KX, 160);
+  [["Planet", "Celtris III"], ["Facility", "Underground"], ["Approach", "Cave System"], ["Signature", "Theta-Band"],
+   ["Garrison", "Unknown"], ["Team", "3 Officers"], ["Transport", "Civilian"], ["Insignia", "None"]]
+    .forEach(([name, v], i) => {
+      const e = item(s, (3 + i) * PITCH, RH, 0.55 + i * 0.1);
+      L.text({ x: KX, base: RB, s: 40, c: "tan", txt: name }, e);
+      L.text({ x: SW - M, base: RB, s: 52, c: i === 0 ? "butter" : "white", txt: v, align: "r", rightIn: true }, e);
+    });
+  L.box({ x: KX, y: 0, w: SW - M - KX, h: RH, c: "butter", label: "Approved  ·  Starfleet Command", fs: 28, r: "lr" }, item(s, 12 * PITCH, RH, 1.5));
+  footer(s, "Authorized  ·  Vice Admiral Nechayev, Starfleet Command  ·  Stardate 46357.4");
+}
+
+// ---- slide 2: the situation map ----
+let shipsTxt;
+{
+  const s = mkSlide("Situation  ·  Cardassian Border", "Long Range Sensors  ·  Intelligence Composite");
+  const MX = M, MY = 2 * PITCH, MW = 1000, MH = 12 * PITCH + RH - MY;   // the map: rows 2 to 12
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("viewBox", `0 0 ${MW} ${MH}`); svg.setAttribute("width", MW); svg.setAttribute("height", MH);
+  Object.assign(svg.style, { position: "absolute", left: MX + "px", top: MY + "px" });
+  s.el.appendChild(svg);
+  const BORDER = [[580, 0], [555, 140], [600, 300], [545, 470], [510, 640], [545, MH]];
+  const ENT = [200, 560], CROSS = [518, 600], CEL = [820, 630], MK = [390, 250], NEB = [730, 330];
+  const pts = (a) => a.map((p) => p.join(",")).join(" ");
+  let grid = "";
+  for (let x = 100; x < MW; x += 100) grid += `<line x1="${x}" y1="0" x2="${x}" y2="${MH}"/>`;
+  for (let y = 100; y < MH; y += 100) grid += `<line x1="0" y1="${y}" x2="${MW}" y2="${y}"/>`;
+  svg.innerHTML = `
+    <defs><radialGradient id="neb"><stop offset="0" stop-color="#c7a0d8" stop-opacity=".42"/>
+      <stop offset=".6" stop-color="#9c6fb4" stop-opacity=".18"/><stop offset="1" stop-color="#9c6fb4" stop-opacity="0"/></radialGradient></defs>
+    <rect width="${MW}" height="${MH}" fill="${MAPBG}"/>
+    <g stroke="#30260f" stroke-width="2">${grid}</g>
+    <polygon points="${pts(BORDER)} ${MW},${MH} ${MW},0" fill="#e2631b" fill-opacity=".12"/>
+    <polyline points="${pts(BORDER)}" fill="none" stroke="var(--sunset)" stroke-width="5" stroke-dasharray="20 12"/>
+    <ellipse cx="${NEB[0]}" cy="${NEB[1]}" rx="190" ry="120" fill="url(#neb)"/>
+    <polyline points="${pts([ENT, CROSS, CEL])}" fill="none" stroke="var(--butter)" stroke-width="4" stroke-dasharray="12 10"/>
+    <circle cx="${MK[0]}" cy="${MK[1]}" r="26" fill="none" stroke="var(--butter)" stroke-width="3" stroke-opacity=".55"/>
+    <circle cx="${MK[0]}" cy="${MK[1]}" r="14" fill="var(--butter)"/>
+    <circle cx="${CEL[0]}" cy="${CEL[1]}" r="30" fill="none" stroke="var(--orange)" stroke-width="3" stroke-opacity=".6"/>
+    <circle cx="${CEL[0]}" cy="${CEL[1]}" r="16" fill="var(--orange)"/>
+    <polygon points="${ENT[0] + 24},${ENT[1]} ${ENT[0] - 16},${ENT[1] - 18} ${ENT[0] - 6},${ENT[1]} ${ENT[0] - 16},${ENT[1] + 18}" fill="var(--white)"/>
+    <rect x="24" y="${MH - 48}" width="160" height="8" fill="var(--gold)"/>
+    <rect x="24" y="${MH - 60}" width="4" height="32" fill="var(--gold)"/><rect x="180" y="${MH - 60}" width="4" height="32" fill="var(--gold)"/>`;
+  const at = (p) => [MX + p[0], MY + p[1]];
+  L.text({ x: MX + 24, base: MY + 56, s: 40, c: "gold", txt: "Federation" }, s.el);
+  L.text({ x: MX + MW - 24, base: MY + 56, s: 40, c: "sunset", txt: "Cardassian Union", align: "r", rightIn: true }, s.el);
+  L.text({ x: at(MK)[0] - 40, base: at(MK)[1] + 13, s: 36, c: "butter", txt: "Minos Korva", align: "r", rightIn: true }, s.el);
+  L.text({ x: at(ENT)[0] - 30, base: at(ENT)[1] + 66, s: 36, c: "white", txt: "U.S.S. Enterprise" }, s.el);
+  L.text({ x: at(NEB)[0], base: at(NEB)[1] - 128, s: 36, c: "lilac", txt: "McAllister C-5 Nebula", align: "c", w: 500 }, s.el);
+  L.text({ x: at(CEL)[0], base: at(CEL)[1] + 76, s: 40, c: "orange", txt: "Celtris III", align: "c", w: 400 }, s.el);
+  L.text({ x: MX + 24, base: MY + MH - 76, s: 36, c: "gold", txt: "0.5 Light Years" }, s.el);
+  // live: the Cardassian ships in the nebula breathe; a target ring rises from Celtris III; the route is walked
+  const fleet = L.layer({ x: at(NEB)[0] - 90, y: at(NEB)[1] - 40, w: 180, h: 80 }, s.el);
+  fleet.innerHTML = `<svg width="180" height="80" viewBox="0 0 180 80">${[[30, 34], [90, 52], [150, 28]]
+    .map(([x, y]) => `<polygon points="${x - 16},${y - 12} ${x + 16},${y} ${x - 16},${y + 12} ${x - 8},${y}" fill="var(--mars)"/>`).join("")}</svg>`;
+  const ring = L.layer({ x: at(CEL)[0] - 30, y: at(CEL)[1] - 30, w: 60, h: 60, cls: "dot" }, s.el);
+  ring.style.border = "3px solid var(--orange)";
+  const walker = L.layer({ x: 0, y: 0, w: 20, h: 20, cls: "dot" }, s.el);
+  walker.style.background = "var(--white)";
+  const route = [at(ENT), at(CROSS), at(CEL)];
+  const seg = route.slice(1).map((p, i) => Math.hypot(p[0] - route[i][0], p[1] - route[i][1]));
+  const total = seg[0] + seg[1];
+  s.tick = (t, a) => {
+    fleet.style.opacity = (0.6 + 0.4 * (0.5 + 0.5 * Math.sin(t * 1.3))).toFixed(3);
+    const r = (t % 3.2) / 3.2;
+    ring.style.transform = `scale(${(1 + 1.6 * L.ease(r)).toFixed(3)})`; ring.style.opacity = (0.85 * (1 - r)).toFixed(3);
+    const u = L.clamp((a - 0.8) / 9);                       // the team's route, walked once per showing
+    let d = L.ease(u) * total, k = d > seg[0] ? 1 : 0;
+    if (k) d -= seg[0];
+    const p0 = route[k], p1 = route[k + 1], f = d / seg[k];
+    L.move(walker, L.mix(p0[0], p1[0], f) - 10, L.mix(p0[1], p1[1], f) - 10);
+    walker.style.opacity = L.clamp(Math.min((a - 0.6) / 0.4, (12.6 - a) / 0.6)).toFixed(3);
+  };
+  // the key and the readings, right of the map
+  const KX = MX + MW + 56;                                  // 1112
+  [["Federation Space", "gold"], ["Cardassian Space", "sunset"], ["Away Team Route", "butter"], ["Cardassian Vessels", "mars"]]
+    .forEach(([name, c], i) => {
+      const e = item(s, (2 + i) * PITCH, RH, 0.3 + i * 0.12);
+      div(e, KX, RB - 36, 36, 36, c);
+      L.text({ x: KX + 60, base: RB, s: 40, c: "tan", txt: name }, e);
+    });
+  { const e = item(s, 7 * PITCH, RH, 0.8); subHeader(e, 0, "Sensors", "orange", "gold", KX, 160); }
+  [["Celtris III Range", "1.6 ly"], ["Transit at Warp 8", "14 h"], ["Cardassian Ships", "11"],
+   ["Theta-Band Carrier", "Detected"], ["Patrol Interval", "6.5 h"]]
+    .forEach(([name, v], i) => {
+      const e = item(s, (8 + i) * PITCH, RH, 0.95 + i * 0.12);
+      L.text({ x: KX, base: RB, s: 40, c: "tan", txt: name }, e);
+      const val = L.text({ x: SW - M, base: RB, s: 52, c: i === 3 ? "butter" : "white", txt: v, align: "r", rightIn: true }, e);
+      if (i === 2) shipsTxt = val;
+    });
+  footer(s, "Composite of long range scans and Starfleet Intelligence reports  ·  Cardassian forces gathering near the border");
+}
+
+// ---- slide 3: personnel assigned ----
+{
+  const s = mkSlide("Personnel Assigned", "Effective at T-0");
+  const NX = M + 200 + 24, RX2 = 620, DX = 980;
+  const group = (k0, label, c1, c2, rows, d0) => {
+    subHeader(item(s, k0 * PITCH, RH, d0), 0, label, c1, c2);
+    rows.forEach(([rank, name, role, duty], i) => {
+      const e = item(s, (k0 + 1 + i) * PITCH, RH, d0 + 0.15 + i * 0.12);
+      L.box({ x: M, y: 0, w: 200, h: RH, c: c1 === "butter" ? "gold" : "tan", label: rank, fs: 28, r: "l" }, e);
+      L.text({ x: NX, base: RB, s: 40, c: "white", txt: name }, e);
+      L.text({ x: RX2, base: RB, s: 40, c: "butter", txt: role }, e);
+      L.text({ x: DX, base: RB, s: 36, c: "tan", txt: duty }, e);
+    });
+  };
+  group(2, "Away Team", "butter", "gold", [
+    ["Captain", "Jean-Luc Picard", "Mission Commander", "Leads the team into the Celtris III caves"],
+    ["Commander", "Beverly Crusher", "Medical Officer", "Theta-band detection  ·  metagenic agents"],
+    ["Lieutenant", "Worf", "Tactical Officer", "Security and demolition charges"]], 0.25);
+  group(7, "Enterprise", "orange", "tan", [
+    ["Captain", "Edward Jellico", "Commanding Officer", "Negotiations with Gul Lemec"],
+    ["Commander", "William T. Riker", "First Officer", "Ship's readiness  ·  four-shift rotation"],
+    ["Lt. Cmdr.", "Data", "Second Officer", "Sensor watch on the Cardassian border"],
+    ["Lt. Cmdr.", "Geordi La Forge", "Chief Engineer", "Engineering changes to the captain's orders"],
+    ["Lt. Cmdr.", "Deanna Troi", "Ship's Counselor", "Assessment of the Cardassian delegation"]], 0.85);
+  footer(s, "Command of the U.S.S. Enterprise passes to Captain Jellico on the team's departure");
+}
+
+// ---- slide 4: risks ----
+{
+  const s = mkSlide("Risk Assessment", "Prepared by Security  ·  Lieutenant Worf");
+  const BX = 1000, BW = 260, VX = 1380, PX = 1420, PW = SW - M - PX;
+  { const e = item(s, 2 * PITCH, RH, 0.2);
+    [["Risk", M], ["Likelihood", BX], ["Severity", PX]].forEach(([txt, x]) => L.text({ x, base: RB, s: 36, c: "peach", txt }, e)); }
+  const SEV = { Severe: "mars", High: "orange", Moderate: "butter", Low: "tan" };
+  const bars = [];
+  [["Detection by Cardassian patrols", 0.6, "High", "Civilian transport  ·  no Starfleet signatures aboard"],
+   ["Release of the metagenic agent", 0.25, "Severe", "Tricorders screen for the agent before demolition"],
+   ["Descent of the cave system", 0.45, "Moderate", "Cave exercises on the holodeck before departure"],
+   ["Missed extraction window", 0.3, "High", "A second rendezvous is held twelve hours later"],
+   ["Capture of the team", 0.35, "Severe", "No identification or Starfleet equipment carried"]]
+    .forEach(([risk, p, sev, mit], i) => {
+      const d = 0.4 + i * 0.25, e = item(s, (3 + 2 * i) * PITCH, RH + PITCH, d);
+      L.text({ x: M, base: RB, s: 40, c: "white", txt: risk }, e);
+      div(e, BX, RB - 26, BW, 26, DARK);
+      const f = div(e, BX, RB - 26, BW, 26, SEV[sev], { transformOrigin: "0 0", transform: "scaleX(0)" });
+      L.text({ x: VX, base: RB, s: 40, c: "white", txt: Math.round(p * 100) + "%", align: "r", rightIn: true }, e);
+      L.box({ x: PX, y: 0, w: PW, h: RH, c: SEV[sev], label: sev, fs: 28, r: "lr" }, e);
+      L.text({ x: M, base: PITCH + RB, s: 36, c: "tan", txt: mit }, e);
+      bars.push({ f, p, d });
+    });
+  footer(s, "Overall assessment  ·  High  ·  mission approved by Starfleet Command");
+  s.tick = (t, a) => { if (a < 4.5) bars.forEach((b) => (b.f.style.transform = `scaleX(${(b.p * L.ease(L.clamp((a - b.d - 0.3) / 1.4))).toFixed(4)})`)); };
+}
+
+// ---------------- senior staff ----------------
+L.header({ x: RX, y: 280, w: RR - RX, label: "Senior Staff", c1: "butter", c2: "gold", lw: 220 });
+const NAMEX = RX + 220 + 24, POSTX = 2760, PILLX = 3280, PILLW = RR - PILLX;
+[["Rank", RX], ["Officer", NAMEX], ["Post", POSTX], ["Status", PILLX]].forEach(([txt, x]) => L.text({ x, base: 400, s: 36, c: "peach", txt }));
+const staff = STAFF.map(([rank, name, post], i) => {
+  const y = ROW0 + i * PITCH;
+  const box = L.box({ x: RX, y, w: 220, h: RH, c: "gold", label: rank, fs: 28, r: "l", cls: "sw" });
+  L.text({ x: NAMEX, base: y + RB, s: 40, c: "white", txt: name });
+  L.text({ x: POSTX, base: y + RB, s: 36, c: "tan", txt: post });
+  const pill = L.box({ x: PILLX, y, w: PILLW, h: RH, c: "tan", label: "", fs: 28, r: "lr", cls: "sw" });
+  pill.style.willChange = "opacity";
+  return { box, pill };
+});
+let presenter = -1;
+const showStaff = (by) => {
+  presenter = by;
+  staff.forEach((p, i) => {
+    const s = i === by ? "Presenting" : i === 0 ? "Presiding" : "Present";
+    L.set(p.pill, s);
+    p.pill.style.background = col(s === "Presenting" ? "butter" : s === "Presiding" ? "orange" : "tan");
+    p.box.style.background = col(i === by ? "butter" : "gold");
+    if (i !== by) p.pill.style.opacity = "1";
+  });
+};
+L.tick((t) => { if (presenter >= 0) staff[presenter].pill.style.opacity = (0.8 + 0.2 * (0.5 + 0.5 * Math.cos(t * 2.2))).toFixed(3); });
+
+// ---------------- action items ----------------
+const AIY = 1116, AROW = 1264;
+L.header({ x: RX, y: AIY, w: RR - RX, label: "Action Items", c1: "orange", c2: "butter", lw: 220 });
+const ASGX = 3000;
+[["Item", RX], ["Action", NAMEX], ["Assigned", ASGX], ["Status", PILLX]].forEach(([txt, x]) => L.text({ x, base: AIY + 120, s: 36, c: "peach", txt }));
+const ACTIONS = [
+  ["Calibrate tricorders for theta-band carriers", "Crusher"],
+  ["Cave descent exercise, Holodeck 3", "Worf"],
+  ["Civilian transport to the border", "Picard"],
+  ["Duty roster to a four-shift rotation", "Riker"],
+  ["Watch on Cardassian fleet movements", "Data"],
+  ["Reassign engineering duty sections", "La Forge"],
+  ["Profile of the Cardassian delegation", "Troi"],
+  ["Minos Korva defense contingency", "Nechayev"],
+  ["Transfer of command codes", "Picard"],
+  ["Demolition charges, theta-shielded", "Worf"],
+  ["Ready room handed over to the captain", "Riker"],
+  ["Diplomatic protocol for Gul Lemec", "Jellico"],
+];
+const ASTATE = [["Open", "tan"], ["In Progress", "orange"], ["Complete", "butter"]];
+let actionDeck = [], actionNo = 14;
+const nextAction = () => { if (!actionDeck.length) actionDeck = ACTIONS.slice().sort(() => Math.random() - 0.5); return actionDeck.pop(); };
+const actions = Array.from({ length: 4 }, (_, j) => {
+  const y = AROW + j * PITCH;
+  const r = {
+    no: L.box({ x: RX, y, w: 220, h: RH, c: "gold", label: "", fs: 28, r: "l" }),
+    tx: L.text({ x: NAMEX, base: y + RB, s: 40, c: "white", txt: "" }),
+    who: L.text({ x: ASGX, base: y + RB, s: 36, c: "tan", txt: "" }),
+    pill: L.box({ x: PILLX, y, w: PILLW, h: RH, c: "tan", label: "", fs: 28, r: "lr", cls: "sw" }),
+    state: 0, phase: "show", t0: 0, doneAt: 0,
+  };
+  r.els = [r.no, r.tx, r.who, r.pill];
+  return r;
+});
+const setAction = (r, st) => {
+  const [txt, who] = nextAction();
+  L.set(r.no, `A-${pad2(actionNo++)}`); L.set(r.tx, txt); L.set(r.who, who);
+  r.state = st; L.set(r.pill, ASTATE[st][0]); r.pill.style.background = col(ASTATE[st][1]);
+};
+[1, 0, 2, 1].forEach((st, j) => setAction(actions[j], st));
+actions[2].doneAt = 3;
+const showAState = (r) => { L.set(r.pill, ASTATE[r.state][0]); r.pill.style.background = col(ASTATE[r.state][1]); };
+later(8000, (t) => {                                       // work moves on: an item advances
+  const open = actions.filter((r) => r.state < 2 && r.phase === "show");
+  if (!open.length) return;
+  const r = L.pick(open);
+  r.state++; showAState(r);
+  if (r.state === 2) r.doneAt = t;
+}, 0.3);
+L.tick((t) => actions.forEach((r) => {                    // a completed item stays a while, then gives way to a new one
+  if (r.phase === "show" && r.state === 2 && t - r.doneAt > 12) { r.phase = "out"; r.t0 = t; r.els.forEach((e) => (e.style.willChange = "opacity")); }
+  if (r.phase === "out") {
+    const k = L.clamp((t - r.t0) / 0.6);
+    r.els.forEach((e) => (e.style.opacity = (1 - k).toFixed(3)));
+    if (k >= 1) { setAction(r, 0); r.phase = "in"; r.t0 = t; }
+  } else if (r.phase === "in") {
+    const k = L.clamp((t - r.t0) / 0.8);
+    r.els.forEach((e) => (e.style.opacity = k.toFixed(3)));
+    if (k >= 1) { r.phase = "show"; r.els.forEach((e) => { e.style.opacity = ""; e.style.willChange = ""; }); }
+  }
+}));
+
+// ---------------- mission timeline: 48 hours, departure at T-0 ----------------
+const TY = 1620, TX = SX, TR = RR, H0 = -8, H1 = 40, PXH = (TR - TX) / (H1 - H0);
+const TRK1 = 1728, TRK2 = 1808, TH = 64;
+L.header({ x: AX, y: TY, w: RR - AX, label: "Mission Timeline", c1: "gold", c2: "butter", h: 48, lw: AW });
+const hx = (h) => TX + (h - H0) * PXH;
+for (let h = H0; h <= H1; h += 4) {                        // the ends sit flush with the timeline's edges
+  const txt = h < 0 ? `T-${-h}` : h === 0 ? "T-0" : `T+${h}`;
+  L.text({ x: hx(h), base: 1712, s: 34, c: "peach", txt, align: h === H0 ? "l" : h === H1 ? "r" : "c", w: 120, legend: true });
+}
+L.box({ x: AX, y: TRK1, w: AW, h: TH, c: "gold", label: "Away Team", fs: 32, r: "l" });
+L.box({ x: AX, y: TRK2, w: AW, h: TH, c: "tan", label: "Enterprise", fs: 32, r: "l" });
+const segX = (h0, h1) => { const x0 = hx(h0) + (h0 > H0 ? 3 : 0), x1 = hx(h1) - (h1 < H1 ? 3 : 0); return [x0, x1 - x0]; };
+const phases = [];
+const track = (y, list, c) => list.forEach(([h0, h1, label]) => {
+  const [x, w] = segX(h0, h1);
+  phases.push({ h0, h1, c, e: L.box({ x, y, w, h: TH, c, label, fs: 28, cls: "sw" }) });
+});
+track(TRK1, [[-8, -5, "Briefing"], [-5, 0, "Training  ·  Outfitting"], [0, 14, "Transit  ·  Civilian Transport"], [14, 20, "Border Crossing"],
+             [20, 26, "Insertion  ·  Celtris III"], [26, 30, "Objective"], [30, 40, "Extraction  ·  Rendezvous"]], "gold");
+track(TRK2, [[-8, 0, "Change of Command"], [0, 6, "Cardassian Envoy"], [6, 28, "Negotiations  ·  Gul Lemec"], [28, 40, "Patrol  ·  Minos Korva"]], "tan");
+const nowLine = fill(0, TRK1 - 6, 4, TRK2 + TH - TRK1 + 6, "white");
+const nowTip = L.layer({ x: 0, y: TRK2 + TH + 4, cls: "tip" });
+// readouts, each set under the start of a phase above it
+const READ = [[AX, "Ship's Time"], [segX(0, 14)[0], "Departure"], [segX(14, 20)[0], "Briefing Elapsed"], [segX(26, 30)[0], "Stardate"]]
+  .map(([x, label]) => {
+    L.text({ x, base: 1972, s: 40, c: "tan", txt: label });
+    return L.text({ x: x + L.textWidth(label, 40) + 28, base: 1972, s: 52, c: "white", txt: "" });
+  });
+// The briefing runs three hours on the Mac's own clock, then begins again: "now" walks across it.
+const BRIEF = 3 * 3600;
+const elapsed = () => { const d = new Date(); return (d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds() + d.getMilliseconds() / 1000) % BRIEF; };
+let nowX = null;
+L.tick(() => {
+  const goal = hx(H0 + elapsed() / 3600);
+  const was = nowX;
+  nowX = nowX === null || Math.abs(goal - nowX) < 0.5 ? goal : nowX + (goal - nowX) * 0.08;   // a new briefing: glide back
+  if (was !== null && Math.abs(nowX - was) < 0.02) { nowX = was; return; }                // it creeps: move only when it shows
+  L.move(nowLine, (nowX - 2).toFixed(2), 0); L.move(nowTip, (nowX - 14).toFixed(2), 0);
+});
+let litPhase = null;
+const showClock = () => {
+  const e = elapsed(), h = H0 + e / 3600, d = new Date();
+  L.set(READ[0], `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`);
+  const left = Math.ceil(-h * 3600);
+  L.set(READ[1], `T-${pad2(Math.floor(left / 3600))}:${pad2(Math.floor(left / 60) % 60)}:${pad2(left % 60)}`);
+  L.set(READ[2], `${Math.floor(e / 3600)} h ${pad2(Math.floor(e / 60) % 60)} m`);
+  L.set(READ[3], (46357.4 + e / 31557.6).toFixed(1));     // a stardate is 1/1000 of a year
+  const lit = phases.filter((p) => h >= p.h0 && h < p.h1).map((p) => p.e).join();
+  if (lit !== litPhase) { litPhase = lit; phases.forEach((p) => (p.e.style.background = col(h >= p.h0 && h < p.h1 ? "butter" : p.c))); }
+};
+showClock();
+L.every(1000, showClock, 0);
+
+// the Cardassian ships counted in the nebula: a slow drift, one at a time
+let ships = 11;
+later(23000, () => { ships = L.clamp(ships + L.pick([-1, 1]), 9, 13); L.set(shipsTxt, ships); }, 0.3);
+
+// ---------------- the slide cycle ----------------
+let cur = -1, curT0 = 0, prev = -1, prevT0 = 0, infoSet = true;
+const show = (i, t) => {
+  if (cur >= 0) { prev = cur; prevT0 = t; Object.assign(slides[prev].el.style, { willChange: "transform, opacity" }); }
+  cur = i; curT0 = t + (prev >= 0 ? 0.35 : 0);
+  const s = slides[i];
+  Object.assign(s.el.style, { display: "block", opacity: 0, willChange: "transform, opacity" });
+  s.items.forEach((it) => { it.e.style.opacity = 0; it.e.style.willChange = "transform, opacity"; });
+  s.live = true; infoSet = false;
+  showAgenda(i); showStaff(DECK[i].by);
+};
+L.tick((t) => {
+  if (cur < 0) { if (t > 1.2) show(0, t); else return; }
+  if (t - curT0 >= DUR) show((cur + 1) % slides.length, t);
+  if (prev >= 0) {                                         // the old slide steps back and fades
+    const k = L.ease(L.clamp((t - prevT0) / 0.6)), st = slides[prev].el.style;
+    st.opacity = (1 - k).toFixed(3); st.transform = `translate3d(${(-32 * k).toFixed(2)}px,0,0)`;
+    if (k >= 1) { st.display = "none"; st.willChange = ""; st.transform = ""; prev = -1; }
+  }
+  const s = slides[cur], a = t - curT0;
+  // the line above the slide: out with the old slide, in with the new
+  const ik = a < 0 ? 1 - L.clamp((t - prevT0) / 0.3) : L.clamp(a / 0.4);
+  if (!infoSet && a >= 0) {
+    infoSet = true;
+    L.set(slideInfo, `Slide ${cur + 1} of ${slides.length}  ·  ${DECK[cur].name}`);
+    L.set(slideBy, `Presenting  ·  ${DECK[cur].title}`);
+  }
+  if (a < 1) [slideInfo, slideBy].forEach((e) => (e.style.opacity = ik.toFixed(3)));
+  if (a < 0) return;
+  if (a < 1.2) {                                           // the new slide arrives from the right
+    const k = L.ease(L.clamp(a / 0.8));
+    s.el.style.opacity = k.toFixed(3); s.el.style.transform = `translate3d(${(32 * (1 - k)).toFixed(2)}px,0,0)`;
+  } else if (s.el.style.willChange) { s.el.style.willChange = ""; s.el.style.transform = ""; s.el.style.opacity = ""; }
+  if (s.live) {                                            // its rows build in turn
+    let busy = false;
+    s.items.forEach((it) => {
+      const k = L.ease(L.clamp((a - it.d) / 0.7));
+      it.e.style.opacity = k.toFixed(3); it.e.style.transform = k < 1 ? `translate3d(${(24 * (1 - k)).toFixed(2)}px,0,0)` : "";
+      if (k < 1) busy = true;
+    });
+    if (!busy) { s.live = false; s.items.forEach((it) => (it.e.style.willChange = "")); }
+  }
+  agenda[cur].f.style.transform = `scaleY(${L.clamp(a / DUR).toFixed(4)})`;
+  if (s.tick) s.tick(t, a);
+});
+});
+</script></body></html>

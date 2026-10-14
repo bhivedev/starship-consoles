@@ -1,0 +1,511 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Starfleet Orders</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .pill { transition: background-color 1.2s ease; }
+  .sw { transition: background-color 1.2s ease, color 1.2s ease; }
+  .mk { border-radius: 10px; display: flex; align-items: center; justify-content: center; color: #000;
+        font-size: 30px; line-height: 1; padding-top: 3px; transition: background-color 1.2s ease, box-shadow 1.2s ease; }
+  .mk.on { box-shadow: 0 0 0 5px #000, 0 0 0 9px var(--white); }
+  .ring { border-radius: 50%; border: 4px solid var(--ice); }
+  .ent svg { display: block; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame, mirrored: sidebar on the right, title at top left ----------------
+L.frame({ type: "B", title: "Starfleet Command  •  Orders", c: "sky", c2: "ice", accent: "blue", foot: "Starfleet",
+  side: [[140, "ice", "SFC 01"], [70, "blue", "Orders"], [420, "sky", "Command"], [70, "butter", "4738"],
+         [300, "ice", "Fleet"], [70, "blue", "Relay"], [216, "sky", "Sectors"]] });
+
+// columns: orders, active order and standing orders, acknowledgements 40–2140; map and relays 2200–3520
+const LX = 40, LR = 2140, MX = 2200, MR = 3520, SX = 1300;
+const TRACK = "#0f1c33";
+const pad2 = (n) => String(n).padStart(2, "0");
+const col = (c) => (c.startsWith("#") ? c : `var(--${c})`);
+const later = (ms, f, jitter) => L.every(ms, (t) => { if (t > 1) f(t); }, jitter);
+const fill = (x, y, w, h, c, parent) => {
+  const f = L.layer({ x, y, w, h }, parent);
+  f.style.background = col(c); f.style.transformOrigin = "0 50%";
+  return f;
+};
+const bad = [];                                           // words too long for their places (reported in the console)
+const fits = (txt, s, w, where) => { if (L.textWidth(txt, s) > w) bad.push(`${where}: "${txt}"`); };
+
+// ---------------- the stardate: the Mac's own clock ----------------
+const minutes = () => { const d = new Date(); return d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60; };
+const stardate = () => 47780 + (minutes() / 1440) * 2.74;
+
+// ---------------- the sector map's places (map coordinates; the map is 1320 × 1180) ----------------
+const MY = 360, MW = MR - MX, MH = 1180, CW = MW / 6, CH = MH / 5;
+const sectorOf = (x, y) => `21${4 + Math.floor(y / CH)}0${Math.floor(x / CW)}`;
+const PLACES = {
+  narendra: { x: 300, y: 330, name: "Narendra III", c: "white" },
+  arigulon: { x: 840, y: 150, name: "Gamma Arigulon", c: "white" },
+  argolis:  { x: 1080, y: 330, name: "Argolis Cluster", c: "white", left: true },
+  sb74:     { x: 170, y: 620, name: "Starbase 74", c: "ice", base: true },
+  sb133:    { x: 560, y: 820, name: "Starbase 133", c: "ice", base: true },
+  phoenix:  { x: 1180, y: 620, name: "Last Contact  ·  Phoenix", c: "white", left: true },
+  minos:    { x: 960, y: 860, name: "Minos Korva", c: "white" },
+  pentarus: { x: 560, y: 1040, name: "Pentarus V", c: "white" },
+};
+for (const k in PLACES) PLACES[k].sector = sectorOf(PLACES[k].x, PLACES[k].y);
+
+// ---------------- the orders ----------------
+// standing orders: [code, words]
+const STANDING = [
+  ["GO 1", "Prime Directive  ·  non-interference"],
+  ["SO 12", "Cardassian border  ·  yellow alert in force"],
+  ["SO 19", "Romulan Neutral Zone  ·  no entry without orders"],
+  ["SO 24", "Borg contact  ·  report to Starfleet at once"],
+  ["SO 31", "Temporal anomalies  ·  log, report, keep clear"],
+  ["SO 36", "Klingon vessels  ·  allied courtesy and aid"],
+  ["SO 40", "Subspace check-in  ·  every twelve hours"],
+];
+// orders: priority, directive, issued by, where, which standing orders bear on it, the order's words (original)
+const ORDERS = [
+  { pri: 1, dir: "Locate U.S.S. Phoenix", by: "Adm. Haden", at: "phoenix", so: [1],
+    txt: "The U.S.S. Phoenix, Captain Benjamin Maxwell commanding, has stopped answering hails near the Cardassian border. Find her and make contact, and keep the peace with the Cardassian Union while you do. A Cardassian observer will be aboard throughout." },
+  { pri: 1, dir: "Arbiter of Succession", by: "Adm. Nakamura", at: "arigulon", so: [5],
+    txt: "Chancellor K'mpec has asked that Captain Picard serve as Arbiter of Succession to the Klingon High Council, and Starfleet has agreed. Rendezvous with the Chancellor's flagship. The succession is a matter for the Empire alone: observe its forms exactly." },
+  { pri: 2, dir: "Narendra III memorial", by: "Adm. Nechayev", at: "narendra", so: [5, 4],
+    txt: "The Klingon High Council will honor the crew of the Enterprise-C, lost defending the outpost at Narendra III. The Enterprise attends for the Federation, with an honor guard in dress uniform. Their sacrifice is the reason the alliance stands." },
+  { pri: 2, dir: "Border patrol, Minos Korva", by: "Adm. Nechayev", at: "minos", so: [1],
+    txt: "Cardassian ship movements along the border have increased. Patrol the Minos Korva sector at warp five with shields at standby, and report every contact to Starfleet Command. Do not enter Cardassian space under any circumstances." },
+  { pri: 1, dir: "Reinforce Minos Korva", by: "Adm. Nechayev", at: "minos", so: [1],
+    txt: "Long range sensors show Cardassian ships gathering opposite the Minos Korva sector. Take up position on the border and hold it. You are authorized to defend Federation space; you are not authorized to cross the border." },
+  { pri: 3, dir: "Survey, Argolis Cluster", by: "Adm. Kennelly", at: "argolis", so: [4],
+    txt: "Complete the stellar survey of the Argolis Cluster for the Federation Science Council. Chart the cluster's protostars and log every subspace anomaly in full, however small. Survey teams may use Shuttlebay 2 at the science officer's discretion." },
+  { pri: 3, dir: "Crew rotation, Starbase 74", by: "Adm. Nakamura", at: "sb74", so: [6],
+    txt: "Proceed to Starbase 74 for crew rotation and the scheduled refit of the main computer. Shore leave is approved for one third of the crew at a time. The starbase's engineers will need the computer core for some forty hours." },
+  { pri: 2, dir: "Mediation, Pentarus V", by: "Adm. Hanson", at: "pentarus", so: [0],
+    txt: "The miners of Pentarus V have asked the Federation to mediate their dispute. Carry the Federation's mediator to the surface and keep the talks on neutral ground. Pentarus is not a member world; the Prime Directive applies in full." },
+  { pri: 3, dir: "Cadet cruise, Starbase 133", by: "Adm. Brand", at: "sb133", so: [6],
+    txt: "Embark twelve Starfleet Academy cadets at Starbase 133 for a six week training cruise. Assign each to a department head and report on every one of them at its end. Their evaluations go to the Superintendent of the Academy." },
+];
+const PRI = { 1: ["Priority 1", "orange", "One"], 2: ["Priority 2", "ice", "Two"], 3: ["Priority 3", "sky", "Three"] };
+const STATE = { received: ["Received", "sky"], ack: ["Acknowledged", "ice"], active: ["In Progress", "butter"], done: ["Complete", "sand"] };
+let orderNo = 3374;
+
+// ---------------- status line ----------------
+const stateTxt = L.text({ x: LX, cap: 150, s: 100, c: "orange", txt: "" });
+const subX = LX + Math.max(...Object.values(PRI).map((p) => L.textWidth("Priority " + p[2], 100))) + 40;
+const stateSub = L.text({ x: subX, base: 222, s: 38, c: "ice", txt: "" });
+const link = L.box({ x: MR - 400, y: 150, w: 400, h: 72, c: "ice", label: "Subspace Link Secure", r: "lr", fs: 36 });
+link.style.willChange = "opacity";
+L.tick((t) => { link.style.opacity = (0.82 + 0.18 * Math.sin(t * 1.1)).toFixed(3); });
+
+// =====================================================================================
+// ORDERS QUEUE
+// =====================================================================================
+const ROW0 = 428, PITCH = 88, QN = 6;
+const Q = { no: 300, dir: 560, by: SX, sec: 1820, st: 1860 };
+L.header({ x: LX, y: 280, w: LR - LX, label: "Orders Queue", c1: "sky", c2: "ice" });
+[["Priority", LX, "l"], ["Order", Q.no, "l"], ["Directive", Q.dir, "l"], ["Issued By", Q.by, "l"], ["Sector", Q.sec, "r"], ["Status", Q.st, "l"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: 400, s: 36, c: "sky", txt, align }));
+for (let i = 0; i < QN; i++) L.rect({ x: Q.no - 24, y: ROW0 + i * PITCH, w: Q.st - 24 - (Q.no - 24), h: 64, c: i ? "#08111f" : TRACK, panel: true, noalign: true });
+const rows = Array.from({ length: QN }, (_, i) => {
+  const e = L.layer({ x: LX, y: ROW0, w: LR - LX, h: 64 });
+  const r = { e, slot: i,
+    pri: L.box({ x: 0, y: 0, w: 220, h: 64, c: "sky", label: "", fs: 32, r: "l", cls: "sw" }, e),
+    no: L.text({ x: Q.no - LX, base: 52.5, s: 40, c: "ice", txt: "" }, e),
+    dir: L.text({ x: Q.dir - LX, base: 52.5, s: 40, c: "white", txt: "" }, e),
+    by: L.text({ x: Q.by - LX, base: 52.5, s: 40, c: "sky", txt: "" }, e),
+    sec: L.text({ x: Q.sec - LX, base: 52.5, s: 52, c: "white", txt: "", align: "r", rightIn: true }, e),
+    st: L.box({ x: Q.st - LX, y: 0, w: LR - Q.st, h: 64, c: "sky", label: "", fs: 32, r: "lr", cls: "pill" }, e) };
+  L.move(e, 0, i * PITCH);
+  return r;
+});
+const showState = (r) => { L.set(r.st, STATE[r.state][0]); r.st.style.background = col(STATE[r.state][1]); };
+const setOrder = (r, o, state) => {
+  r.o = o; r.state = state; r.no2 = `47-${orderNo++}`;
+  L.set(r.pri, PRI[o.pri][0]); r.pri.style.background = col(PRI[o.pri][1]);
+  L.set(r.no, r.no2); L.set(r.dir, o.dir); L.set(r.by, o.by); L.set(r.sec, PLACES[o.at].sector);
+  showState(r);
+};
+ORDERS.forEach((o) => { fits(o.dir, 40, Q.by - Q.dir - 40, "directive"); fits(o.by, 40, Q.sec - 140 - Q.by, "issued by"); });
+const bySlot = () => rows.slice().sort((a, b) => a.slot - b.slot);
+// the next order: one whose place is not already in the queue
+let deck = [];
+const nextOrder = () => {
+  const busy = new Set(rows.filter((r) => r.o).map((r) => r.o.at));
+  if (!deck.length) deck = ORDERS.slice().sort(() => Math.random() - 0.5);
+  const i = deck.findIndex((o) => !busy.has(o.at));
+  if (i >= 0) return deck.splice(i, 1)[0];
+  return ORDERS.find((o) => !busy.has(o.at));
+};
+
+// =====================================================================================
+// ACTIVE ORDER
+// =====================================================================================
+const AR = 1240, GRID = (k) => 1124 + 64 * k;            // the lower panels share a 64px grid of baselines
+L.header({ x: LX, y: 1000, w: AR - LX, label: "Active Order", c1: "butter", c2: "sky" });
+const aDir = L.text({ x: LX, base: GRID(0), s: 52, c: "white", txt: "" });
+const aNo = L.text({ x: AR, base: GRID(0), s: 40, c: "butter", txt: "", align: "r" });
+const aBy = L.text({ x: LX, base: GRID(1), s: 36, c: "sky", txt: "" });
+const aLines = [2, 3, 4].map((k) => L.text({ x: LX, base: GRID(k), s: 40, c: "ice", txt: "" }));
+const wrap = (txt, s, w) => {
+  const out = []; let line = "";
+  for (const word of txt.split(" ")) {
+    const next = line ? line + " " + word : word;
+    if (L.textWidth(next, s) <= w || !line) line = next; else { out.push(line); line = word; }
+  }
+  if (line) out.push(line);
+  return out;
+};
+ORDERS.forEach((o) => { if (wrap(o.txt, 40, AR - LX).length > 3) bad.push(`order text over three lines: ${o.dir}`); });
+const PROG = "Mission Progress", PX = LX + Math.ceil(L.textWidth(PROG, 40)) + 40, PW = AR - 150 - PX;
+L.text({ x: LX, base: GRID(5), s: 40, c: "sky", txt: PROG });
+L.rect({ x: PX, y: GRID(5) - 26, w: PW, h: 26, c: TRACK });
+const pFill = fill(PX, GRID(5) - 26, PW, 26, "butter");
+const pPct = L.text({ x: AR, base: GRID(5), s: 52, c: "white", txt: "", align: "r" });
+const aWhere = L.text({ x: LX, base: GRID(6), s: 40, c: "butter", txt: "" });
+const aEta = L.text({ x: AR, base: GRID(6), s: 40, c: "white", txt: "", align: "r" });
+
+// =====================================================================================
+// STANDING ORDERS
+// =====================================================================================
+L.header({ x: SX, y: 1000, w: LR - SX, label: "Standing Orders", c1: "ice", c2: "blue" });
+const STX = SX + 140;
+const standing = STANDING.map(([code, words], k) => {
+  const b = L.box({ x: SX, y: GRID(k) - 42, w: 116, h: 48, c: "#1a2c4c", label: code, fs: 28, r: "l", cls: "sw" });
+  b.style.color = "var(--sky)";
+  fits(words, 40, LR - STX, "standing order");
+  return { b, t: L.text({ x: STX, base: GRID(k), s: 40, c: "sky", txt: words, cls: "sw" }) };
+});
+const lightStanding = (so) => standing.forEach((s, k) => {
+  const on = so.includes(k);
+  s.b.style.background = on ? "var(--butter)" : "#1a2c4c"; s.b.style.color = on ? "#000" : "var(--sky)";
+  s.t.style.color = on ? "var(--white)" : "var(--sky)";
+});
+
+// =====================================================================================
+// THE SECTOR MAP
+// =====================================================================================
+L.header({ x: MX, y: 280, w: MR - MX, label: "Sector Map  ·  Assignments", c1: "ice", c2: "sky" });
+L.rect({ x: MX, y: MY, w: MW, h: MH, c: "#020818", panel: true });
+const map = L.svg("g", { class: "boot", transform: `translate(${MX},${MY})` });
+const defs = L.svg("defs", {}, map);
+L.svg("clipPath", { id: "soClip" }, defs).appendChild(L.svg("rect", { x: 0, y: 0, width: MW, height: MH }, defs));
+const inner = L.svg("g", { "clip-path": "url(#soClip)" }, map);
+const seeded = (s) => () => { s = (s + 0x6d2b79f5) | 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+{ // stars
+  const rnd = seeded(1701);
+  const cols = ["#8fd3ff", "#5c7dff", "#c9d6ff", "#ffffff"];
+  for (let k = 0; k < 260; k++) L.svg("circle", { cx: (rnd() * MW).toFixed(1), cy: (rnd() * MH).toFixed(1), r: (0.9 + rnd() ** 3 * 2).toFixed(2),
+    fill: cols[Math.floor(rnd() * cols.length)], opacity: (0.25 + rnd() * 0.5).toFixed(2) }, inner);
+}
+// the Klingon Empire to the north-west, the Cardassian Union to the south-east
+const KB = "M0,250 Q380,236 700,0", CB = `M720,${MH} Q1000,1010 ${MW},820`;
+L.svg("path", { d: `${KB} L0,0 Z`, fill: "#d94a3a", opacity: 0.1 }, inner);
+L.svg("path", { d: `${CB} L${MW},${MH} Z`, fill: "#bdb497", opacity: 0.1 }, inner);
+L.svg("path", { d: KB, stroke: "var(--mars)", "stroke-width": 3, "stroke-dasharray": "10 10", fill: "none", opacity: 0.85 }, inner);
+L.svg("path", { d: CB, stroke: "var(--sand)", "stroke-width": 3, "stroke-dasharray": "10 10", fill: "none", opacity: 0.85 }, inner);
+// the sector grid, each sector numbered
+let gd = "";
+for (let c = 1; c < 6; c++) gd += `M${c * CW},0V${MH}`;
+for (let r = 1; r < 5; r++) gd += `M0,${r * CH}H${MW}`;
+L.svg("path", { d: gd, stroke: "#1d3cc4", "stroke-width": 2, "stroke-dasharray": "3 9", fill: "none", opacity: 0.9 }, inner);
+for (let r = 0; r < 5; r++) for (let c = 0; c < 6; c++)
+  L.text({ x: MX + c * CW + 20, base: MY + r * CH + 46, s: 30, c: "#4a72b8", txt: `21${4 + r}0${c}`, legend: true });
+L.text({ x: MX + 24, base: MY + 102, s: 36, c: "mars", txt: "Klingon Empire" });
+L.text({ x: MR - 24, base: MY + MH - 30, s: 36, c: "sand", txt: "Cardassian Union", align: "r" });
+L.text({ x: MX + 24, base: MY + MH - 30, s: 36, c: "sky", txt: "United Federation of Planets" });
+// toward Earth, off the western edge
+L.svg("path", { d: "M18,430 L46,412 L46,448 Z", fill: "var(--ice)" }, map);
+L.text({ x: MX + 62, base: MY + 443, s: 36, c: "ice", txt: "Sector 001  ·  Earth" });
+// places
+for (const k in PLACES) {
+  const p = PLACES[k];
+  if (p.base) {
+    L.svg("circle", { cx: p.x, cy: p.y, r: 20, fill: "none", stroke: "var(--ice)", "stroke-width": 4 }, map);
+    L.svg("circle", { cx: p.x, cy: p.y, r: 8, fill: "var(--ice)" }, map);
+  } else {
+    L.svg("circle", { cx: p.x, cy: p.y, r: 13, fill: "var(--sky)" }, map);
+    L.svg("circle", { cx: p.x, cy: p.y, r: 24, fill: "none", stroke: "var(--sky)", "stroke-width": 2, opacity: 0.6 }, map);
+  }
+  L.text({ x: MX + p.x + (p.left ? -38 : 38), base: MY + p.y + 13, s: 36, c: p.c, txt: p.name, align: p.left ? "r" : "l" });
+}
+// the rest of the fleet, on their own assignments, and the relay
+const FLEET = [{ x: 330, y: 860, name: "U.S.S. Hood" }, { x: 720, y: 420, name: "U.S.S. Excalibur" }];
+FLEET.forEach((f) => {
+  L.svg("path", { d: `M${f.x},${f.y - 16} L${f.x + 14},${f.y + 12} L${f.x - 14},${f.y + 12} Z`, fill: "var(--sky)" }, map);
+  L.text({ x: MX + f.x + 32, base: MY + f.y + 13, s: 36, c: "sky", txt: f.name });
+});
+const RELAY47 = { x: 560, y: 600 };
+L.svg("rect", { x: RELAY47.x - 11, y: RELAY47.y - 11, width: 22, height: 22, fill: "var(--blue)", transform: `rotate(45 ${RELAY47.x} ${RELAY47.y})` }, map);
+L.text({ x: MX + RELAY47.x + 32, base: MY + RELAY47.y + 13, s: 36, c: "sky", txt: "Relay 47" });
+
+// the route the Enterprise is flying: its own layer, so fading it never repaints the map
+const routeL = L.layer({ x: MX, y: MY, w: MW, h: MH });
+routeL.style.opacity = 0;
+const routeSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+routeSvg.setAttribute("width", MW); routeSvg.setAttribute("height", MH);
+routeL.appendChild(routeSvg);
+const route = L.svg("path", { d: "", stroke: "var(--white)", "stroke-width": 4, "stroke-dasharray": "14 12", fill: "none", opacity: 0.8 }, routeSvg);
+
+// order markers: the queue position, beside each order's place
+const markers = rows.map(() => {
+  const e = L.layer({ x: 0, y: 0, w: 44, h: 44, cls: "mk" });
+  e.style.opacity = 0;
+  return e;
+});
+const markAt = (p) => [MX + p.x + (p.left ? 52 : -52) - 22, MY + p.y - 22];
+// a ring that spreads from a place when an order for it arrives
+const ring = L.layer({ x: 0, y: 0, w: 120, h: 120, cls: "ring" });
+ring.style.opacity = 0;
+let ringAt = null, ringT = -99;
+// the Enterprise
+const ent = L.layer({ x: 0, y: 0, w: 56, h: 56, cls: "ent" });
+ent.innerHTML = '<svg width="56" height="56" viewBox="0 0 56 56"><path d="M28,4 L50,50 L28,38 L6,50 Z" fill="var(--white)"/></svg>';
+const entRing = L.layer({ x: 0, y: 0, w: 96, h: 96, cls: "ring" });
+entRing.style.borderColor = "var(--white)";
+const parked = (p) => [p.x, p.y + 54];
+const ship = { x: 0, y: 0, from: null, to: null, t0: -99, dur: 1, moving: false };
+const placeShip = (x, y, ang) => {
+  ship.x = x; ship.y = y;
+  L.move(ent, MX + x - 28, MY + y - 28, ang);
+  L.move(entRing, MX + x - 48, MY + y - 48);
+};
+
+// =====================================================================================
+// ACKNOWLEDGEMENTS
+// =====================================================================================
+L.header({ x: LX, y: 1620, w: AR - LX, label: "Acknowledgements", c1: "ice", c2: "sky", h: 48 });
+const LOGB = (i) => 1734 + i * 54;
+const logRows = Array.from({ length: 6 }, (_, i) => ({
+  sd: L.text({ x: LX, base: LOGB(i), s: 36, c: "butter", txt: "" }),
+  tx: L.text({ x: 230, base: LOGB(i), s: 36, c: "ice", txt: "" }),
+  who: L.text({ x: AR, base: LOGB(i), s: 36, c: "sky", txt: "", align: "r" }),
+}));
+const logged = [];
+let backdate = 0;                                         // the opening entries are a little older
+const log = (txt, who) => {
+  fits(txt, 36, AR - 200 - 230, "acknowledgement");
+  logged.push([(stardate() - backdate).toFixed(1), txt, who]);
+  backdate = Math.max(0, backdate - 0.1);
+  if (logged.length > logRows.length) logged.shift();
+  logRows.forEach((r, i) => { const e = logged[i]; L.set(r.sd, e ? e[0] : ""); L.set(r.tx, e ? e[1] : ""); L.set(r.who, e ? e[2] : ""); });
+};
+
+// =====================================================================================
+// FLEET ASSIGNMENTS
+// =====================================================================================
+L.header({ x: SX, y: 1620, w: LR - SX, label: "Fleet Assignments", c1: "sky", c2: "ice", h: 48 });
+const FA = SX + 240;
+const FLEETROWS = [
+  ["U.S.S. Enterprise", "", ""],
+  ["U.S.S. Hood", "Patrol  ·  Federation interior", sectorOf(FLEET[0].x, FLEET[0].y)],
+  ["U.S.S. Excalibur", "Convoy escort", sectorOf(FLEET[1].x, FLEET[1].y)],
+  ["U.S.S. Phoenix", "Border patrol", PLACES.phoenix.sector],
+  ["U.S.S. Bozeman", "Refit  ·  Starbase 74", PLACES.sb74.sector],
+  ["U.S.S. Ajax", "Resupply  ·  Starbase 133", PLACES.sb133.sector],
+].map(([ship, job, sec], i) => {
+  fits(ship, 36, FA - SX - 30, "fleet ship");
+  return { ship: L.text({ x: SX, base: LOGB(i), s: 36, c: i ? "ice" : "white", txt: ship }),
+           job: L.text({ x: FA, base: LOGB(i), s: 36, c: i ? "sky" : "butter", txt: job }),
+           sec: L.text({ x: LR, base: LOGB(i), s: 36, c: "white", txt: sec, align: "r" }) };
+});
+const showFleet = () => {
+  const o = active().o;
+  L.set(FLEETROWS[0].job, o.dir); L.set(FLEETROWS[0].sec, PLACES[o.at].sector);
+  L.set(FLEETROWS[3].job, o.at === "phoenix" ? "Out of contact" : "Border patrol");
+  FLEETROWS[3].job.style.color = o.at === "phoenix" ? "var(--orange)" : "var(--sky)";
+};
+
+// =====================================================================================
+// SUBSPACE RELAYS
+// =====================================================================================
+L.header({ x: MX, y: 1620, w: MR - MX, label: "Subspace Relays", c1: "sky", c2: "blue", h: 48 });
+const RELAYS = [
+  { name: "Starfleet Command  ·  Earth", x: -1500, y: 430, base: 40 },
+  { ...PLACES.sb74, name: "Starbase 74", base: 6 },
+  { ...PLACES.sb133, name: "Starbase 133", base: 6 },
+  { ...RELAY47, name: "Relay 47", base: 2 },
+  { ...FLEET[0], name: "U.S.S. Hood", base: 4 },
+  { ...PLACES.narendra, name: "Klingon Relay  ·  Narendra", base: 14 },
+];
+const RB0 = MX + Math.ceil(Math.max(...RELAYS.map((r) => L.textWidth(r.name, 36)))) + 48;
+const RBW = MR - 200 - RB0;
+RELAYS.forEach((r, i) => {
+  L.text({ x: MX, base: LOGB(i), s: 36, c: "ice", txt: r.name });
+  L.rect({ x: RB0, y: LOGB(i) - 22, w: RBW, h: 22, c: TRACK });
+  r.f = fill(RB0, LOGB(i) - 22, RBW, 22, i ? "sky" : "ice");
+  r.d = L.text({ x: MR, base: LOGB(i), s: 36, c: "white", txt: "", align: "r" });
+  r.s = r.goal = L.rand(0.55, 0.9); r.drawn = false;
+});
+const delayOf = (r) => r.base + Math.hypot(r.x - ship.x, r.y - ship.y) * 0.09;   // minutes
+const showRelays = () => RELAYS.forEach((r) => {
+  const m = Math.round(delayOf(r));
+  L.set(r.d, m >= 60 ? `${Math.floor(m / 60)} h ${pad2(m % 60)} m` : `${m} m`);
+});
+L.tick(() => RELAYS.forEach((r) => {
+  if (Math.abs(r.goal - r.s) < 0.0005 && r.drawn) return;
+  r.s += (r.goal - r.s) * 0.02; r.drawn = true;
+  r.f.style.transform = `scaleX(${r.s.toFixed(4)})`;
+}));
+later(6000, () => { const r = L.pick(RELAYS); r.goal = L.clamp(r.goal + L.rand(-0.12, 0.12), 0.45, 0.96); }, 0.3);
+
+// =====================================================================================
+// THE ORDER CYCLE
+// =====================================================================================
+const WHO = ["Capt. Picard", "Capt. Picard", "Cmdr. Riker"];
+let phase = "travel", pT0 = 0, prog = 0, workDur = 50, lastT = null;
+const active = () => rows.find((r) => r.slot === 0);
+const showMarkers = () => rows.forEach((r, i) => {
+  const m = markers[i], p = PLACES[r.o.at];
+  L.set(m, r.slot + 1);
+  m.style.background = col(PRI[r.o.pri][1]);
+  m.classList.toggle("on", r.slot === 0);
+  const [x, y] = markAt(p); L.move(m, x, y);
+});
+const showActive = () => {
+  const r = active(), o = r.o, p = PLACES[o.at];
+  L.set(stateTxt, "Priority " + PRI[o.pri][2]); stateTxt.style.color = col(o.pri === 1 ? "orange" : "ice");
+  L.set(aDir, o.dir); L.set(aNo, "Order " + r.no2);
+  L.set(aBy, `Issued by ${o.by}  ·  Starfleet Command  ·  Sector ${p.sector}`);
+  const lines = wrap(o.txt, 40, AR - LX);
+  aLines.forEach((e, i) => L.set(e, lines[i] || ""));
+  lightStanding(o.so);
+};
+const showSub = () => {
+  const r = active();
+  L.set(stateSub, `Order ${r.no2}  ·  U.S.S. Enterprise  ·  NCC-1701-D  ·  ${QN} orders held  ·  Stardate ${stardate().toFixed(1)}`);
+};
+// the Enterprise sets course for the active order
+const setCourse = (t) => {
+  const p = PLACES[active().o.at], [x, y] = parked(p);
+  ship.from = [ship.x, ship.y]; ship.to = [x, y]; ship.t0 = t;
+  const d = Math.hypot(x - ship.x, y - ship.y);
+  ship.dur = 5 + d / 120; ship.hours = 0.4 + d / 260;
+  ship.ang = (Math.atan2(x - ship.x, -(y - ship.y)) * 180) / Math.PI;
+  route.setAttribute("d", `M${ship.x.toFixed(1)},${ship.y.toFixed(1)} L${x},${y}`);
+  phase = "travel"; pT0 = t; prog = 0;
+  log(`Course laid in for ${p.name.replace("Last Contact  ·  ", "")}  ·  warp ${active().o.pri === 1 ? 8 : 6}`, "Ens. Ro");
+};
+const smooth = (k) => k * k * k * (k * (k * 6 - 15) + 10);
+
+// a new order arrives at the foot of the queue
+const arrive = (r, t) => {
+  setOrder(r, nextOrder(), "received");
+  r.recvT = t;
+  log(`Order ${r.no2} received  ·  ${r.o.by}`, "Lt. Worf");
+  const p = PLACES[r.o.at]; ringAt = p; ringT = t;
+};
+
+L.tick((t) => {
+  const dt = lastT === null ? 0 : Math.min(0.1, t - lastT); lastT = t;
+  const r0 = active();
+  if (phase === "travel") {
+    const k = smooth(L.clamp((t - ship.t0) / ship.dur));
+    const x = L.mix(ship.from[0], ship.to[0], k), y = L.mix(ship.from[1], ship.to[1], k);
+    L.move(ent, MX + x - 28, MY + y - 28, ship.ang); L.move(entRing, MX + x - 48, MY + y - 48);
+    ship.x = x; ship.y = y;
+    routeL.style.opacity = (0.9 * L.clamp((t - ship.t0) / 0.8) * (1 - L.clamp((t - ship.t0 - ship.dur) / 1))).toFixed(3);
+    if (t - ship.t0 >= ship.dur + 1) {
+      phase = "work"; routeL.style.opacity = 0;
+      L.move(ent, MX + x - 28, MY + y - 28, ship.ang);
+      log(`On station  ·  ${PLACES[r0.o.at].name.replace("Last Contact  ·  ", "")}`, "Lt. Cmdr. Data");
+    }
+  } else if (phase === "work") {
+    prog = Math.min(1, prog + dt / workDur);
+    if (prog >= 1) {
+      phase = "done"; pT0 = t; r0.state = "done"; showState(r0);
+      log(`Order ${r0.no2} complete  ·  report filed`, "Cmdr. Riker");
+    }
+  } else if (phase === "done" && t - pT0 > 3) {           // the finished order fades
+    const k = L.clamp((t - pT0 - 3) / 0.8);
+    r0.e.style.opacity = (1 - k).toFixed(3); markers[rows.indexOf(r0)].style.opacity = (1 - k).toFixed(3);
+    if (k >= 1) { phase = "slide"; pT0 = t; }
+  } else if (phase === "slide") {                          // the rest move up one place
+    const k = L.ease(L.clamp((t - pT0) / 1.2));
+    rows.forEach((r) => { if (r.slot > 0) L.move(r.e, 0, (r.slot - k) * PITCH); });
+    if (k >= 1) {
+      const gone = r0;
+      rows.forEach((r) => (r.slot = r.slot === 0 ? QN - 1 : r.slot - 1));
+      L.move(gone.e, 0, (QN - 1) * PITCH);
+      const next = active();
+      next.state = "active"; showState(next);
+      arrive(gone, t);
+      showMarkers(); showActive(); showSub(); showFleet();
+      gone.e.style.opacity = 0; gone.fadeT = t;
+      workDur = L.rand(45, 60);
+      setCourse(t);
+    }
+  }
+  // the new arrival fades in; its marker with it
+  rows.forEach((r, i) => {
+    if (r.fadeT === undefined) return;
+    const k = L.clamp((t - r.fadeT) / 0.9);
+    r.e.style.opacity = k.toFixed(3); markers[i].style.opacity = (0.92 * k).toFixed(3);
+    if (k >= 1) r.fadeT = undefined;
+  });
+  // progress
+  const shown = phase === "travel" ? 0 : phase === "work" ? prog : 1;
+  pFill.style.transform = `scaleX(${shown.toFixed(4)})`;
+  // the ring where a new order points, and the Enterprise's own beacon
+  const u = t - ringT;
+  if (ringAt && u < 2.4) {
+    const k = u / 2.4;
+    L.move(ring, MX + ringAt.x - 60, MY + ringAt.y - 60, 0, 0.3 + 1.2 * k);
+    ring.style.opacity = (0.9 * (1 - k)).toFixed(3);
+  } else if (ring.style.opacity !== "0") ring.style.opacity = 0;
+  const b = (t % 3) / 3;
+  entRing.style.transform = `translate3d(${MX + ship.x - 48}px,${MY + ship.y - 48}px,0) scale(${(0.5 + 0.7 * b).toFixed(3)})`;
+  entRing.style.opacity = (0.7 * (1 - b)).toFixed(3);
+});
+
+// readouts a few times a second
+L.every(250, () => {
+  const p = PLACES[active().o.at], name = p.name.replace("Last Contact  ·  ", "");
+  if (phase === "travel") {
+    const left = Math.max(0, 1 - (L.t - ship.t0) / ship.dur) * ship.hours * 60;
+    L.set(aWhere, `En route to ${name}  ·  warp ${active().o.pri === 1 ? 8 : 6}`);
+    L.set(aEta, `ETA ${Math.floor(left / 60)} h ${pad2(Math.floor(left % 60))} m`);
+    L.set(pPct, "0%");
+  } else {
+    const done = Math.round((phase === "work" ? prog : 1) * 100), hrs = (phase === "work" ? prog : 1) * workDur * 0.4;
+    L.set(aWhere, phase === "work" ? `On station  ·  ${name}` : `Orders carried out  ·  ${name}`);
+    L.set(aEta, `On station ${Math.floor(hrs)} h ${pad2(Math.floor((hrs % 1) * 60))} m`);
+    L.set(pPct, done + "%");
+  }
+  showRelays();
+}, 0);
+L.every(5000, showSub, 0);
+
+// orders received are acknowledged in turn, after a while
+later(4000, (t) => {
+  const r = bySlot().find((r) => r.state === "received" && t - (r.recvT || 0) > 7);
+  if (!r) return;
+  r.state = "ack"; showState(r);
+  log(`Order ${r.no2} acknowledged  ·  ${r.o.dir}`, L.pick(WHO));
+}, 0.4);
+// routine traffic
+later(21000, () => {
+  const r = L.pick(RELAYS.slice(1));
+  log(`Subspace check-in sent  ·  ${r.name}`, "Lt. Worf");
+}, 0.3);
+
+// ---------------- the opening state ----------------
+rows.forEach((r) => setOrder(r, nextOrder(), r.slot === 0 ? "active" : r.slot < 4 ? "ack" : "received"));
+rows.forEach((r) => (r.recvT = -L.rand(0, 6)));
+{
+  const p = PLACES[active().o.at], [x, y] = parked(p);
+  placeShip(x, y, 0);
+  ship.from = ship.to = [x, y]; ship.t0 = -99; ship.dur = 1; ship.hours = 1;
+  phase = "work"; prog = L.rand(0.15, 0.45); workDur = L.rand(45, 60);
+}
+backdate = 0.5;
+log(`Order ${rows[QN - 2].no2} received  ·  ${rows[QN - 2].o.by}`, "Lt. Worf");
+log(`Order ${rows[1].no2} acknowledged  ·  ${rows[1].o.dir}`, "Capt. Picard");
+log(`Order ${rows[QN - 1].no2} received  ·  ${rows[QN - 1].o.by}`, "Lt. Worf");
+log("Subspace check-in sent  ·  Starbase 74", "Lt. Worf");
+log(`Course laid in for ${PLACES[active().o.at].name.replace("Last Contact  ·  ", "")}  ·  warp 6`, "Ens. Ro");
+log(`On station  ·  ${PLACES[active().o.at].name.replace("Last Contact  ·  ", "")}`, "Lt. Cmdr. Data");
+showMarkers(); markers.forEach((m) => (m.style.opacity = 0.92));
+showActive(); showSub(); showRelays(); showFleet();
+if (bad.length) console.warn("Starfleet Orders: " + bad.join("; "));
+});
+</script></body></html>

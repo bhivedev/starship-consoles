@@ -1,0 +1,528 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Stellar Observation</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* swapped text dips and comes back; colors change slowly; .boot (the start-up cascade) always wins */
+  .sw { transition: opacity .45s ease, color 1.2s ease; }
+  .out:not(.boot) { opacity: .15; }
+  .clip { position: absolute; overflow: hidden; }
+  .xf { transition: opacity .9s ease; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: sidebar left, title top right ----------------
+L.frame({ type: "A", title: "Stellar Observation  •  Neutron Star", c: "ice", c2: "navy", accent: "sky",
+  side: [[140, "sky", "Sci 02"], [70, "navy", ""], [420, "ice", "Astrophysics"], [70, "blue", "4471"],
+         [300, "sky", "Pulsar"], [70, "navy", ""], [216, "ice", "Sensors"]] });
+
+// Three columns: 330–1050 | 1114–3032 | 3096–3816 (64 apart). Rows on an 80 grid from 360:
+// the two tables at left and the geometry table at right share every baseline.
+const X0 = 330, LR = 1050, MX = 1114, MR = 3032, RX = 3096, X1 = 3816;
+const GR = (k) => 360 + 80 * k;
+const PANEL = "#06112e", GRID = "#14275a", DIM = "#2a4a8c", TRACK = "#0c1c44";
+const INK = { ice: "#8fd3ff", sky: "#5c9dff", blue: "#3a6fff", navy: "#1f3fd6", white: "#f2f2ff" };
+const cls = (e, ...c) => (e.classList.add(...c), e);
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const op = (e, v) => { v = v < 0.005 ? "0" : v > 0.995 ? "1" : v.toFixed(2); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const zi = (e, v) => { if (e._z !== v) { e._z = v; e.style.zIndex = v; } };
+const fg = (e, c) => { if (e._fg !== c) { e._fg = c; e.style.color = `var(--${c})`; } };
+const swap = (els, f) => { els.forEach((e) => e.classList.add("out")); setTimeout(() => { f(); els.forEach((e) => e.classList.remove("out")); }, 460); };
+const pad4 = (n) => String(n).padStart(4, "0");
+const fmt = (n) => Math.round(n).toLocaleString("en-US");
+const sgn = (v) => (v < 0 ? "−" : "+") + Math.abs(v).toFixed(2);
+const gauss = () => Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(2 * Math.PI * Math.random());
+const bad = [];                                            // words that would not fit their places
+const fits = (txt, s, w, where) => { if (L.textWidth(txt, s) > w) bad.push(`${where}: "${txt}"`); };
+const NS = "http://www.w3.org/2000/svg";
+const svgIn = (parent, w, h, vb) => {
+  const s = document.createElementNS(NS, "svg");
+  s.setAttribute("width", w); s.setAttribute("height", h); s.setAttribute("viewBox", vb);
+  s.style.position = "absolute"; s.style.left = "0px"; s.style.top = "0px"; s.style.overflow = "visible";
+  parent.appendChild(s);
+  return s;
+};
+
+// ---------------- the star ----------------
+// An orthogonal rotator: the magnetic axis lies 84.2° from the spin axis and the ship looks in 87.6°
+// from it, so the main pole's beam passes 3.4° from the line of sight and the opposite pole's beam,
+// 9.8° wide, just grazes it 8.2° away — a strong main pulse and a faint interpulse half a turn later.
+const P = 5.0942183, PDOT = 2.87e-14;                      // s; s/s
+const ALPHA = 84.2, ZETA = 87.6, RHO = 9.8, IP_SEP = 179.4, IP_AMP = 0.31;
+const RLC = (299792.458 * P) / (2 * Math.PI);              // light cylinder, km
+const BFIELD = 3.2e19 * Math.sqrt(P * PDOT) / 1e4;         // tesla at the pole
+const AGE = P / (2 * PDOT) / 3.15576e7;                    // characteristic age, years
+const PER = 8;                                             // pulses folded into each time of arrival
+const SN1 = 52;                                            // signal to noise of one pulse
+const MAIN = 90;                                           // the main pulse's rotational phase, degrees
+// the standard profile: a double main pulse and a single interpulse
+const template = (ph) => {
+  const g = (x, m, s) => { let d = ((x - m + 540) % 360) - 180; return Math.exp(-0.5 * (d / s) ** 2); };
+  return 0.84 * g(ph, MAIN - 2.6, 2.3) + 0.98 * g(ph, MAIN + 2.2, 2.5) + IP_AMP * g(ph, MAIN + IP_SEP, 3.4);
+};
+const TMAX = (() => { let m = 0; for (let x = 80; x < 100; x += 0.05) m = Math.max(m, template(x)); return m; })();
+const prof = (ph) => template(ph) / TMAX;
+
+// ---------------- time ----------------
+const S0 = 47634.42 + Math.random() * 0.04;
+const stardate = (t = L.t) => S0 + (t * 0.114) / 3600;
+const PH0 = Math.random() * 360;
+const turns = (t) => (PH0 + (360 * t) / P) / 360;          // rotations since the page began, plus a fraction
+const phaseAt = (t) => (turns(t) % 1) * 360;
+
+let toas = 140;                                            // times of arrival fitted so far
+const n0 = L.irand(1, PER - 1);                            // pulses already folded into this one
+let rot = toas * PER + n0;                                  // rotations observed
+let folded = n0;
+
+// ---------------- status line ----------------
+const state = cls(L.text({ x: X0, cap: 150, s: 100, c: "ice", txt: "Integrating" }), "sw");
+const sub = cls(L.text({ x: 0, base: 222, s: 38, c: "sky", txt: "" }), "sw");
+const placeSub = () => { sub.style.left = X0 + state.offsetWidth + 40 + "px"; };
+placeSub();
+L.box({ x: X1 - 400, y: 150, w: 400, h: 72, c: "sky", label: "Phase Locked", r: "lr", fs: 36 });
+
+// =====================================================================================
+// TABLES: the star (top left), its spin (bottom left), the beam geometry (bottom right)
+// =====================================================================================
+const table = (x, k0, rows) => rows.map(([label, val, cap, c], i) => {
+  const y = GR(k0 + i), base = y + 44.56;
+  L.box({ x, y, w: 220, h: 56, c, label, fs: 32, r: "l" });
+  const v = L.text({ x: x + 244, base, s: 52, c: "white", txt: val });
+  L.text({ x: x + 720, base, s: 36, c: "sky", txt: cap, align: "r" });
+  fits(label, 32, 220 - 22 - 24, "box");
+  fits((val || "000,000") + "  " + cap, 52, 720 - 244 - 24, "row");
+  return v;
+});
+L.header({ x: X0, y: 280, w: LR - X0, label: "Neutron Star", c1: "ice", c2: "navy" });
+table(X0, 0, [
+  ["Designation", "J0917-3842", "Radio Pulsar", "ice"],
+  ["Location", "Kavis Alpha", "Sector", "sky"],
+  ["Range", "0.38", "Light-Years", "ice"],
+  ["Mass", "1.44", "Solar Masses", "blue"],
+  ["Radius", "11.6 km", "Equatorial", "ice"],
+  ["Surface Field", (BFIELD / 1e9).toFixed(2), "Gigatesla", "sky"],
+  ["Age", (AGE / 1e6).toFixed(2), "Million Years", "ice"],
+]);
+L.header({ x: X0, y: GR(8), w: LR - X0, label: "Spin and Timing", c1: "sky", c2: "navy" });
+const spin = table(X0, 9, [
+  ["Period", P.toFixed(7).replace(/(\.\d{3})/, "$1 "), "Seconds", "ice"],
+  ["Frequency", (1 / P).toFixed(7).replace(/(\.\d{3})/, "$1 "), "Hertz", "sky"],
+  ["Spin-Down", (PDOT * 1e15).toFixed(1), "fs per Second", "ice"],
+  ["Light Cylinder", fmt(RLC), "Kilometers", "blue"],
+  ["Rotations", "", "Observed", "ice"],
+  ["TOAs", "", "Fitted", "sky"],
+]);
+const vRot = spin[4], vToa = spin[5];
+L.header({ x: RX, y: GR(8), w: X1 - RX, label: "Beam Geometry", c1: "sky", c2: "navy" });
+table(RX, 9, [
+  ["Inclination", ALPHA.toFixed(1) + "°", "Magnetic Axis", "ice"],
+  ["Viewing Angle", ZETA.toFixed(1) + "°", "Line of Sight", "sky"],
+  ["Main Pole", (ZETA - ALPHA).toFixed(1) + "°", "Impact Angle", "ice"],
+  ["Opposite Pole", Math.abs(180 - ALPHA - ZETA).toFixed(1) + "°", "Impact Angle", "blue"],
+  ["Beam Width", RHO.toFixed(1) + "°", "Half-Opening", "ice"],
+  ["Interpulse", IP_SEP.toFixed(1) + "°", "Separation", "sky"],
+]);
+
+// =====================================================================================
+// THE POLAR VIEW: looking down the spin axis, the beams sweep round like a lighthouse
+// =====================================================================================
+L.header({ x: MX, y: 280, w: MR - MX, label: "Polar View  ·  Beam Sweep", c1: "ice", c2: "navy" });
+const PY0 = GR(0), PY1 = GR(14) + 56, CX = (MX + MR) / 2, CY = (PY0 + PY1) / 2;   // 360–1536; centre 2073, 948
+L.rect({ x: MX, y: PY0, w: MR - MX, h: PY1 - PY0, c: PANEL, panel: true });
+const RL = 480, KM = RL / RLC;                            // the light cylinder, 480 px
+// distance rings, their scale in a gap at the top; the light cylinder dashed, outermost
+const ringLabels = [];                                     // drawn over the turning layer, each on a plate
+[100000, 150000, 200000].forEach((km) => {
+  const r = km * KM, txt = `${fmt(km)} km`, hw = L.textWidth(txt, 34) / 2 + 18, g = (Math.asin(hw / r) * 180) / Math.PI;
+  L.svg("path", { d: L.arc(CX, CY, r - 1.5, r + 1.5, g, 360 - g), fill: DIM });
+  ringLabels.push([r, txt, "sky", hw]);
+});
+{
+  const txt = `Light Cylinder  ·  ${fmt(RLC)} km`, hw = L.textWidth(txt, 34) / 2 + 18, g = (Math.asin(hw / RL) * 180) / Math.PI;
+  for (let a = g; a < 360 - g - 0.1; a += 4) L.svg("path", { d: L.arc(CX, CY, RL - 2, RL + 2, a, Math.min(a + 2.4, 360 - g)), fill: INK.sky });
+  ringLabels.push([RL, txt, "ice", hw]);
+}
+// rotational phase, ticked round the outside every 10°
+for (let a = 10; a < 360; a += 10) {
+  const s = Math.sin((a * Math.PI) / 180), c = -Math.cos((a * Math.PI) / 180), r0 = RL + 22, r1 = RL + (a % 30 ? 34 : 46);
+  L.svg("line", { x1: CX + r0 * s, y1: CY + r0 * c, x2: CX + r1 * s, y2: CY + r1 * c, stroke: a % 90 ? DIM : INK.sky, "stroke-width": a % 30 ? 3 : 4 });
+}
+// the line of sight, out to the ship
+const LOS0 = CX + RL + 64, LOS1 = MR - 64;
+L.rect({ x: LOS0, y: CY - 2, w: LOS1 - LOS0, h: 4, c: DIM, free: true });
+L.svg("path", { d: `M${LOS1 + 26},${CY} L${LOS1 - 4},${CY - 16} L${LOS1 - 4},${CY + 16} Z`, fill: INK.sky });
+const losLit = L.layer({ x: LOS0, y: CY - 3, w: LOS1 - LOS0 + 26, h: 6 });
+losLit.style.background = `linear-gradient(to right, rgba(143,211,255,0) 0%, ${INK.ice} 30%, #ffffff 100%)`;
+op(losLit, 0);
+L.text({ x: LOS1 + 26, base: CY - 30, s: 36, c: "ice", txt: "Line of Sight", align: "r" });
+L.text({ x: LOS1 + 26, cap: CY + 30, s: 36, c: "sky", txt: "U.S.S. Enterprise", align: "r" });
+
+// the magnetosphere and the beams, turning with the star: one composited layer, rotated
+const RW = 600;
+const spinL = L.layer({ x: CX - RW, y: CY - RW, w: 2 * RW, h: 2 * RW });
+spinL.style.pointerEvents = "none";
+{
+  const s = svgIn(spinL, 2 * RW, 2 * RW, `${-RW} ${-RW} ${2 * RW} ${2 * RW}`);
+  const defs = L.svg("defs", {}, s);
+  const grad = (id, c, k) => {
+    const g = L.svg("radialGradient", { id, cx: 0, cy: 0, r: 590, gradientUnits: "userSpaceOnUse" }, defs);
+    [[0, 0.95 * k], [0.35, 0.6 * k], [0.7, 0.26 * k], [0.88, 0.08 * k], [1, 0]].forEach(([o, a]) => L.svg("stop", { offset: o, "stop-color": c, "stop-opacity": a }, g));
+  };
+  grad("so-main", INK.ice, 1); grad("so-ip", INK.sky, 0.75);
+  // field lines of a dipole, r = L sin²θ from the magnetic axis: closed loops inside the light
+  // cylinder (the last one touches it), open lines from the polar caps out through it
+  const RS = 30;
+  const line = (Lr, open, side, sx) => {
+    const t0 = Math.asin(Math.sqrt(RS / Lr)), t1 = open ? Math.asin(Math.sqrt(RL / Lr)) : Math.PI - t0;
+    const pts = [];
+    for (let i = 0; i <= 80; i++) {
+      const th = t0 + ((t1 - t0) * i) / 80, r = Lr * Math.sin(th) ** 2;
+      pts.push([sx * r * Math.cos(th), side * r * Math.sin(th)]);
+    }
+    return pts.map(([x, y], i) => `${i ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`).join("");
+  };
+  let closed = "", open = "";
+  for (const f of [0.16, 0.28, 0.44, 0.62, 0.81]) for (const side of [1, -1]) closed += line(f * RL, false, side, 1);
+  for (const f of [1.2, 2.2, 6]) for (const side of [1, -1]) for (const sx of [1, -1]) open += line(f * RL, true, side, sx);
+  L.svg("path", { d: closed, fill: "none", stroke: "#2c56b4", "stroke-width": 3 }, s);
+  L.svg("path", { d: line(RL, false, 1, 1) + line(RL, false, -1, 1), fill: "none", stroke: INK.sky, "stroke-width": 3.5 }, s);   // last closed
+  L.svg("path", { d: open, fill: "none", stroke: "#4f86e8", "stroke-width": 2.5, "stroke-dasharray": "10 8", opacity: 0.8 }, s);
+  // the beams: cones of the main pole's half-width, from the polar caps outward
+  const wedge = (deg, fillId) => {
+    const h = Math.tan((RHO * Math.PI) / 180) * 590;
+    L.svg("path", { d: `M${RS},-${(RS * h) / 590} L590,-${h} L590,${h} L${RS},${(RS * h) / 590} Z`, fill: `url(#${fillId})`, transform: `rotate(${deg})` }, s);
+  };
+  wedge(0, "so-main"); wedge(IP_SEP, "so-ip");
+}
+for (const [r, txt, c, hw] of ringLabels) {
+  L.el("div", "boot", L.stage, { position: "absolute", left: CX - hw + 6 + "px", top: CY - r - 22 + "px", width: 2 * hw - 12 + "px", height: "44px",
+    background: PANEL, borderRadius: "22px" });
+  L.text({ x: CX, base: CY - r + 12, s: 34, c, txt, align: "c", w: 700, legend: true });
+}
+// the star itself, and its glow when a beam is on us
+const glow = L.layer({ x: CX - 150, y: CY - 150, w: 300, h: 300 });
+glow.style.background = "radial-gradient(circle closest-side, rgba(200,235,255,.75) 0%, rgba(143,211,255,.32) 34%, rgba(92,157,255,0) 100%)";
+glow.style.borderRadius = "50%";
+const star = L.layer({ x: CX - 30, y: CY - 30, w: 60, h: 60 });
+star.style.borderRadius = "50%";
+star.style.background = "radial-gradient(circle at 42% 40%, #ffffff 0%, #d6f0ff 30%, #8fd3ff 62%, #3a6fff 100%)";
+
+// the corner readings, printed on the panel
+const corner = (x, align, top, label) => {
+  const lb = top ? PY0 + 48 + 26 : PY1 - 48 - 62;
+  L.text({ x, base: lb, s: 36, c: "sky", txt: label, align });
+  return L.text({ x, base: lb + 62, s: 52, c: "white", txt: "", align });
+};
+const cSweep = corner(MX + 48, "l", true, "Sweep Rate");
+const cSN = corner(MR - 48, "r", true, "Signal to Noise");
+const cLight = corner(MX + 48, "l", false, "Light-Travel Time");
+const cNext = corner(MR - 48, "r", false, "Next Main Pulse");
+L.set(cSweep, (360 / P).toFixed(2) + "°/s");
+L.set(cLight, ((0.38 * 365.25)).toFixed(1) + " Days");
+// the key, at the left
+{
+  const KEY = [["Main Pulse Beam", INK.ice, 14], ["Interpulse Beam", INK.sky, 14], ["Last Closed Field Line", INK.sky, 4],
+               ["Closed Field Lines", "#2c56b4", 4], ["Open Field Lines", "#4f86e8", 4]];
+  KEY.forEach(([txt, c, h], i) => {
+    const base = CY - 112 + 56 * i;
+    L.rect({ x: MX + 48, y: base - 13 - h / 2, w: 48, h, c, free: true });
+    L.text({ x: MX + 48 + 72, base, s: 36, c: "ice", txt });
+  });
+}
+
+// =====================================================================================
+// MAGNETIC GEOMETRY: the same star seen side-on — spin axis up, the magnetic axis swinging round it
+// =====================================================================================
+L.header({ x: RX, y: 280, w: X1 - RX, label: "Magnetic Geometry", c1: "sky", c2: "navy" });
+const GY0 = GR(0), GY1 = GR(6) + 56;                       // 360–896
+L.rect({ x: RX, y: GY0, w: X1 - RX, h: GY1 - GY0, c: PANEL, panel: true });
+const SX = 3416, SY = 626, SR = 200, TILT = (14 * Math.PI) / 180;   // seen from 14° above the equator
+const rad = (d) => (d * Math.PI) / 180;
+const ca = Math.cos(rad(ALPHA)), sa = Math.sin(rad(ALPHA));
+// the spin axis
+L.svg("line", { x1: SX, y1: SY + 196, x2: SX, y2: GY0 + 64, stroke: INK.ice, "stroke-width": 4, "stroke-dasharray": "14 10" });
+L.svg("path", { d: `M${SX},${GY0 + 44} L${SX - 14},${GY0 + 72} L${SX + 14},${GY0 + 72} Z`, fill: INK.ice });
+L.text({ x: SX - 36, cap: GY0 + 44, s: 36, c: "ice", txt: "Spin Axis", align: "r" });
+// the paths the two poles trace round it
+for (const k of [1, -1]) L.svg("ellipse", { cx: SX, cy: SY - k * SR * ca * Math.cos(TILT), rx: SR * sa, ry: SR * sa * Math.sin(TILT),
+  fill: "none", stroke: k > 0 ? DIM : GRID, "stroke-width": 3, "stroke-dasharray": "8 8" });
+// the line of sight, and its angle from the spin axis
+const zl = Math.cos(rad(ZETA)) * Math.cos(TILT), zx = Math.sin(rad(ZETA)), zn = Math.hypot(zl, zx);
+const LX1 = X1 - 64, lyEnd = SY - ((LX1 - SX) * zl) / zx;
+L.svg("line", { x1: SX + 40, y1: SY - (40 * zl) / zx, x2: LX1, y2: lyEnd, stroke: DIM, "stroke-width": 4 });
+L.svg("path", { d: `M${LX1 + 26},${lyEnd - 0.9} L${LX1 - 4},${lyEnd - 16} L${LX1 - 4},${lyEnd + 16} Z`, fill: INK.sky });
+L.text({ x: LX1 + 26, base: lyEnd - 30, s: 36, c: "ice", txt: "Line of Sight", align: "r" });
+{
+  const ang = Math.atan2(zx, zl), r = 120;                 // from straight up, clockwise
+  L.svg("path", { d: L.arc(SX, SY, r - 2, r + 2, 0, (ang * 180) / Math.PI), fill: INK.sky });
+  L.text({ x: SX + 150, base: SY - 120, s: 36, c: "sky", txt: ZETA.toFixed(1) + "°" });
+}
+// the moving parts sit in their own stacking context, under the labels
+const geo = L.el("div", "", L.stage, { position: "absolute", left: "0px", top: "0px", width: "0px", height: "0px", zIndex: 0 });
+const HL = SR + 120, HH = 2 * Math.ceil(Math.tan(rad(RHO)) * HL) + 8;
+const half = (c, k) => {
+  const e = L.layer({ x: SX, y: SY - HH / 2, w: HL, h: HH }, geo);
+  e.style.transformOrigin = `0px ${HH / 2}px`;
+  const s = svgIn(e, HL, HH, `0 ${-HH / 2} ${HL} ${HH}`);
+  const id = "so-half-" + k, g = L.svg("linearGradient", { id, x1: 0, y1: 0, x2: HL, y2: 0, gradientUnits: "userSpaceOnUse" }, L.svg("defs", {}, s));
+  [[0, 0.85], [0.55, 0.45], [1, 0]].forEach(([o, a]) => L.svg("stop", { offset: o, "stop-color": c, "stop-opacity": a }, g));
+  const h = Math.tan(rad(RHO)) * HL;
+  L.svg("path", { d: `M24,${(-24 * h) / HL} L${HL},${-h} L${HL},${h} L24,${(24 * h) / HL} Z`, fill: `url(#${id})` }, s);
+  L.svg("rect", { x: 0, y: -2.5, width: SR, height: 5, fill: c }, s);
+  return e;
+};
+const hMain = half(INK.ice, 0), hOpp = half(INK.sky, 1);
+const sStar = L.layer({ x: SX - 28, y: SY - 28, w: 56, h: 56 }, geo);
+sStar.style.borderRadius = "50%"; sStar.style.zIndex = 2;
+sStar.style.background = "radial-gradient(circle at 42% 40%, #ffffff 0%, #d6f0ff 30%, #8fd3ff 62%, #3a6fff 100%)";
+// the key, along the bottom
+{
+  let x = RX + 48;
+  for (const [txt, c] of [["Main Pole", INK.ice], ["Opposite Pole", INK.sky]]) {
+    L.rect({ x, y: GY1 - 48 - 13 - 7, w: 48, h: 14, c, free: true });
+    L.text({ x: x + 72, base: GY1 - 48, s: 36, c: "ice", txt });
+    x += 72 + L.textWidth(txt, 36) + 56;
+  }
+  L.text({ x: X1 - 48, base: GY1 - 48, s: 36, c: "sky", txt: "Pole Paths", align: "r" });
+  const w = L.textWidth("Pole Paths", 36);
+  L.svg("line", { x1: X1 - 48 - w - 24 - 48, y1: GY1 - 48 - 13, x2: X1 - 48 - w - 24, y2: GY1 - 48 - 13, stroke: DIM, "stroke-width": 3, "stroke-dasharray": "8 8" });
+}
+
+// =====================================================================================
+// THE PULSE PROFILE: pulses folded at the spin period, eight to each time of arrival
+// =====================================================================================
+L.header({ x: MX, y: 1620, w: MR - MX, label: "Pulse Profile  ·  Folded", c1: "ice", c2: "navy", h: 48 });
+const FY0 = 1692, FY1 = 1956;
+L.rect({ x: MX, y: FY0, w: MR - MX, h: FY1 - FY0, c: PANEL, panel: true });
+const FX0 = MX + 48, FX1 = MR - 48, FB = 1928, FT = 1786;   // phase 0–360 across; the peak reaches FT
+const fx = (ph) => FX0 + ((FX1 - FX0) * ph) / 360;
+for (let a = 0; a <= 360; a += 45) {
+  L.rect({ x: fx(a) - 1, y: FT - 18, w: 2, h: FB - FT + 30, c: GRID, free: true });
+  L.text({ x: fx(a), base: 2004, s: 30, c: "sky", txt: a + "°", align: "c", w: 120, legend: true });
+}
+L.rect({ x: FX0, y: FB - 1, w: FX1 - FX0, h: 2, c: GRID, free: true });
+const intTxt = L.text({ x: FX0, base: 1748, s: 36, c: "ice", txt: "" });
+{
+  let x = FX1;
+  for (const [txt, c, dash] of [["Standard Template", "blue", true], ["Folded Profile", "ice", false]]) {
+    L.text({ x, base: 1748, s: 36, c, txt, align: "r" });
+    x -= L.textWidth(txt, 36) + 24 + 48;
+    if (dash) L.svg("line", { x1: x, y1: 1735, x2: x + 48, y2: 1735, stroke: INK.blue, "stroke-width": 4, "stroke-dasharray": "10 6" });
+    else L.rect({ x, y: 1728, w: 48, h: 14, c: INK.ice, free: true });
+    x -= 48;
+  }
+}
+// the profile: two canvases, crossfaded, redrawn once a turn (and on a resize)
+const PW = FX1 - FX0, PH = FB - FT + 26, PTOP = FT - 14;
+const pbox = L.el("div", "boot", L.stage, { position: "absolute", left: FX0 + "px", top: PTOP + "px", width: PW + "px", height: PH + "px" });
+const NB = 720;                                            // half-degree bins
+const noise = new Float32Array(NB);
+const pcv = [0, 1].map(() => {
+  const c = L.canvas({ x: 0, y: 0, w: PW, h: PH }, pbox);
+  c.cv.classList.remove("boot"); c.cv.classList.add("xf"); c.cv.style.opacity = "0";
+  c.prof = null;
+  c.onResize = () => { if (c.prof) drawProfile(c); };
+  return c;
+});
+const yOf = (v) => FB - PTOP - (FB - FT) * v;
+function drawProfile(c) {
+  const g = c.g, d = c.prof;
+  g.clearRect(0, 0, PW, PH);
+  // the folded pulses, filled, under the template
+  g.beginPath(); g.moveTo(0, yOf(0));
+  for (let i = 0; i < NB; i++) g.lineTo((PW * (i + 0.5)) / NB, Math.max(2, Math.min(PH - 2, yOf(d[i]))));
+  g.lineTo(PW, yOf(0)); g.closePath();
+  g.fillStyle = "rgba(92,157,255,0.30)"; g.fill();
+  g.beginPath();
+  for (let i = 0; i < NB; i++) g[i ? "lineTo" : "moveTo"]((PW * (i + 0.5)) / NB, Math.max(2, Math.min(PH - 2, yOf(d[i]))));
+  g.strokeStyle = INK.ice; g.lineWidth = 3; g.lineJoin = "round"; g.stroke();
+  g.beginPath();
+  for (let i = 0; i <= 1440; i++) { const ph = (360 * i) / 1440; g[i ? "lineTo" : "moveTo"]((PW * i) / 1440, yOf(prof(ph))); }
+  g.setLineDash([10, 6]); g.strokeStyle = INK.blue; g.lineWidth = 3; g.stroke(); g.setLineDash([]);
+}
+let front = 0;
+const showProfile = (n, first) => {
+  // the noise falls as the square root of the pulses folded
+  const raw = Array.from({ length: NB }, () => gauss());
+  for (let i = 0; i < NB; i++) noise[i] = (raw[(i + NB - 2) % NB] + 2 * raw[(i + NB - 1) % NB] + 3 * raw[i] + 2 * raw[(i + 1) % NB] + raw[(i + 2) % NB]) / 9 * 2.3;
+  const sig = 0.24 / Math.sqrt(n);
+  const d = new Float32Array(NB);
+  for (let i = 0; i < NB; i++) d[i] = prof((360 * (i + 0.5)) / NB) + sig * noise[i];
+  const back = pcv[1 - front];
+  back.prof = d; drawProfile(back);
+  back.cv.style.opacity = "1";
+  if (!first) pcv[front].cv.style.opacity = "0";
+  front = 1 - front;
+};
+// the cursor: where the star is in its turn now
+const CUR = L.layer({ x: FX0 - 2, y: FT - 18, w: 4, h: FB - FT + 30 });
+CUR.style.background = INK.white;
+
+// =====================================================================================
+// TIMING RESIDUALS: each time of arrival against the timing model
+// =====================================================================================
+L.header({ x: X0, y: 1620, w: LR - X0, label: "Timing Residuals", c1: "sky", c2: "navy", h: 48 });
+const TY0 = 1692, TY1 = 1956, TMID = (TY0 + TY1) / 2, MS = 46;   // 46 px per millisecond
+L.rect({ x: X0, y: TY0, w: LR - X0, h: TY1 - TY0, c: PANEL, panel: true });
+[-2, -1, 0, 1, 2].forEach((v) => L.rect({ x: X0 + 112, y: TMID - v * MS - 1, w: LR - X0 - 112 - 24, h: 2, c: v ? GRID : DIM, free: true }));
+[-2, 0, 2].forEach((v) => L.text({ x: X0 + 24, base: TMID - v * MS + 0.36 * 30, s: 30, c: "sky", txt: (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v) + " ms", legend: true }));
+const NSLOT = 16, SL0 = X0 + 152, SL1 = LR - 48, SDX = (SL1 - SL0) / (NSLOT - 1);
+const SIGMA = 113 / (SN1 * Math.sqrt(PER));                // the TOA uncertainty, ms
+const tclip = L.el("div", "clip boot", L.stage, { left: X0 + 104 + "px", top: TY0 + 8 + "px", width: LR - X0 - 104 - 16 + "px", height: TY1 - TY0 - 16 + "px" });
+const CL = X0 + 104, CT = TY0 + 8;
+const points = [];
+const mkPoint = (v) => {
+  const e = L.layer({ x: 0, y: 0, w: 20, h: TY1 - TY0 }, tclip);
+  const bar = L.el("div", "", e, { position: "absolute", left: "8.5px", width: "3px", background: INK.sky });
+  const dot = L.el("div", "", e, { position: "absolute", left: "2px", width: "16px", height: "16px", borderRadius: "50%", background: INK.ice });
+  const p = { e, v, slot: 0 };
+  p.set = (v) => {
+    p.v = v;
+    const y = TMID - v * MS - CT, eb = SIGMA * MS;
+    bar.style.top = y - eb + "px"; bar.style.height = 2 * eb + "px"; dot.style.top = y - 8 + "px";
+  };
+  p.set(v);
+  return p;
+};
+const placePoint = (p, slot) => tf(p.e, `translate3d(${(SL0 + slot * SDX - 10 - CL).toFixed(2)}px,0,0)`);
+const resid = () => Math.max(-2.3, Math.min(2.3, gauss() * SIGMA));
+for (let i = 0; i < NSLOT; i++) { const p = mkPoint(i === NSLOT - 1 ? 0.31 : resid()); p.slot = i; placePoint(p, i); points.push(p); }
+const rmsTxt = L.text({ x: X0, base: 2004, s: 36, c: "ice", txt: "" });
+L.text({ x: LR, base: 2004, s: 36, c: "sky", txt: `Post-Fit  ·  Last ${NSLOT} TOAs`, align: "r" });
+const showRms = () => L.set(rmsTxt, `RMS  ${Math.sqrt(points.reduce((a, p) => a + p.v * p.v, 0) / points.length).toFixed(2)} ms`);
+showRms();
+let slide = null;
+const addPoint = (v, t) => { slide = { t0: t, v }; };
+L.tick((t) => {
+  if (!slide) return;
+  const u = t - slide.t0;
+  if (!slide.landed) {                                     // all step left one place; the oldest fades away
+    const k = L.ease(L.clamp(u / 1.2));
+    for (const p of points) {
+      tf(p.e, `translate3d(${(SL0 + (p.slot - k) * SDX - 10 - CL).toFixed(2)}px,0,0)`);
+      if (p.slot === 0) op(p.e, 1 - L.clamp(u / 0.8));
+    }
+    if (k < 1) return;
+    const old = points.shift();                            // it becomes the newest, at the right
+    points.forEach((p, i) => (p.slot = i));
+    old.set(slide.v); old.slot = NSLOT - 1; placePoint(old, NSLOT - 1); op(old.e, 0);
+    points.push(old); slide.landed = old; slide.t1 = t;
+    showRms();
+  } else {
+    const a = L.clamp((t - slide.t1) / 0.8);
+    op(slide.landed.e, a);
+    if (a >= 1) slide = null;
+  }
+});
+
+// =====================================================================================
+// OBSERVATION LOG: the record in order; new entries are added at the bottom
+// =====================================================================================
+L.header({ x: RX, y: 1620, w: X1 - RX, label: "Observation Log", c1: "ice", c2: "navy", h: 48 });
+const DB = (k) => 1734 + 54 * k;
+const LOGW = X1 - RX, LOG_TX = 156;
+const HIST = [
+  ["47633.6", "Standoff range reached  ·  0.38 light-years"],
+  ["47633.7", "Lateral sensor array on target"],
+  ["47633.8", "Phase lock acquired  ·  5.0942 s"],
+  ["47633.9", "Interpulse confirmed  ·  179.4° separation"],
+  ["47634.1", "Kavis Alpha survey data loaded"],
+  ["47634.2", "Dekyon background nominal"],
+  ["47634.3", `TOA ${pad4(toas)} fitted  ·  ${sgn(0.31)} ms`],
+];
+HIST.forEach(([, w]) => fits(w, 36, LOGW - LOG_TX, "log"));
+const logClip = L.el("div", "clip", L.stage, { left: RX + "px", top: DB(0) - 40 + "px", width: LOGW + "px", height: 6 * 54 + 8 + "px" });
+const logRows = Array.from({ length: 6 }, (_, i) => {
+  const e = L.layer({ x: 0, y: 0, w: LOGW, h: 54 }, logClip);
+  const sd = L.text({ x: 0, base: 40, s: 36, c: "sky", txt: "" }, e);
+  const tx = L.text({ x: LOG_TX, base: 40, s: 36, c: "ice", txt: "" }, e);
+  L.move(e, 0, i * 54);
+  return { e, slot: i, fill: (d) => { L.set(sd, d[0]); L.set(tx, d[1]); } };
+});
+HIST.slice(-6).forEach((d, i) => logRows[i].fill(d));
+const logQ = [];
+let logAnim = null;
+const log = (txt) => { fits(txt, 36, LOGW - LOG_TX, "log"); logQ.push([stardate().toFixed(1), txt]); };
+L.tick((t) => {
+  if (!logAnim) { if (logQ.length) logAnim = { t0: t, d: logQ.shift() }; else return; }
+  const u = t - logAnim.t0;
+  if (!logAnim.landed) {                                   // all slide up one place; the top row fades away
+    const top = logRows.find((r) => r.slot === 0), k = L.ease(L.clamp(u / 1.1));
+    logRows.forEach((r) => L.move(r.e, 0, (r.slot - k) * 54));
+    op(top.e, 1 - L.clamp(u / 0.7));
+    if (k < 1) return;
+    logRows.forEach((r) => (r.slot = r.slot === 0 ? 5 : r.slot - 1));
+    top.fill(logAnim.d); L.move(top.e, 0, 5 * 54); op(top.e, 0); logAnim.landed = top; logAnim.t1 = t;
+  } else {
+    const a = L.clamp((t - logAnim.t1) / 0.8);
+    op(logAnim.landed.e, a);
+    if (a >= 1) logAnim = null;
+  }
+});
+
+// =====================================================================================
+// RUNNING IT
+// =====================================================================================
+let fitted = false;                                        // the last turn completed a time of arrival
+const showCounts = () => {
+  L.set(vRot, fmt(rot)); L.set(vToa, fmt(toas));
+  L.set(intTxt, fitted ? `Integration ${pad4(toas)}  ·  ${PER} of ${PER} Pulses Folded  ·  TOA Fitted`
+                       : `Integration ${pad4(toas + 1)}  ·  ${folded} of ${PER} Pulses Folded`);
+  L.set(cSN, (SN1 * Math.sqrt(folded)).toFixed(1));
+};
+const setState = (word) => {
+  if (state.textContent === word) return;
+  swap([state], () => { L.set(state, word); fg(state, word === "Integrating" ? "ice" : "sky"); placeSub(); });
+};
+showCounts();
+showProfile(folded, true);
+let seen = Math.floor(turns(0));
+const NOTES = ["Phase connected  ·  no glitch", "Subspace noise filtered", "Sensor gain trimmed  ·  band 4", "Scintillation steady"];
+let noteK = 0;
+L.tick((t) => {
+  // one turn completed: one more pulse folded in; every eighth, a time of arrival
+  const k = Math.floor(turns(t));
+  if (k > seen) {
+    seen = k; rot++;
+    if (fitted) { fitted = false; folded = 0; setState("Integrating"); }
+    folded++;
+    if (folded === PER) {
+      toas++; fitted = true;
+      const v = resid();
+      addPoint(v, t);
+      log(`TOA ${pad4(toas)} fitted  ·  ${sgn(v)} ms`);
+      if (toas % 3 === 0) log(NOTES[noteK++ % NOTES.length]);
+      setState("TOA Fitted");
+    }
+    showProfile(folded, false);
+    showCounts();
+  }
+  // the star turns: counter-clockwise, seen from above its north pole
+  const ph = phaseAt(t), r = MAIN - ph;                    // the main beam's direction, clockwise from the line of sight
+  tf(spinL, `translate3d(0,0,0) rotate(${r.toFixed(3)}deg)`);
+  // light reaches us while a beam crosses the line of sight
+  const near = (d) => { d = ((d % 360) + 540) % 360 - 180; return Math.exp(-0.5 * (d / (RHO * 0.55)) ** 2); };
+  const lit = Math.max(near(r), 0.45 * near(r + IP_SEP));
+  op(losLit, lit); op(glow, 0.3 + 0.7 * lit);
+  // the cursor on the profile, faded at the ends of its run
+  tf(CUR, `translate3d(${((FX1 - FX0) * ph / 360).toFixed(2)}px,0,0)`);
+  op(CUR, Math.min(1, ph / 6, (360 - ph) / 6));
+  // side-on: the main pole's direction, seen from 14° above the equator
+  const rr = rad(r), x = sa * Math.cos(rr), d = -sa * Math.sin(rr), y = ca * Math.cos(TILT) - d * Math.sin(TILT);
+  const f = Math.hypot(x, y), a = (Math.atan2(-y, x) * 180) / Math.PI;
+  tf(hMain, `translate3d(0,0,0) rotate(${a.toFixed(2)}deg) scaleX(${f.toFixed(4)})`);
+  tf(hOpp, `translate3d(0,0,0) rotate(${(a + 180).toFixed(2)}deg) scaleX(${f.toFixed(4)})`);
+  zi(hMain, d > 0 ? "3" : "1"); zi(hOpp, d > 0 ? "1" : "3");
+});
+L.every(250, (t) => {
+  const ph = phaseAt(t);
+  L.set(cNext, ((((MAIN - ph + 360) % 360) / 360) * P).toFixed(1) + " s");
+}, 0);
+L.every(1000, (t) => L.set(sub, `PSR J0917-3842  ·  Kavis Alpha Sector  ·  Stardate ${stardate(t).toFixed(1)}`), 0);
+
+if (bad.length) setTimeout(() => { throw new Error("stellar-observation: " + bad.join(" | ")); });
+});
+</script></body></html>

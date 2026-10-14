@@ -1,0 +1,521 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Genetics</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* swapped text dips and comes back; colors change slowly; .boot (the start-up cascade) always wins */
+  .sw { transition: opacity .45s ease, background-color 1.2s ease, color 1.2s ease; }
+  .out:not(.boot) { opacity: .15; }
+  .clip { position: absolute; overflow: hidden; }
+  .head { position: absolute; border: 4px solid var(--butter); border-radius: 10px; pointer-events: none; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: sidebar left, title top right ----------------
+L.frame({ type: "A", title: "Genetics  •  Sequence Analysis", c: "pink", c2: "lilac", accent: "plum", foot: "GEN",
+  side: [[140, "lilac", "Sickbay"], [70, "plum", "04"], [420, "pink", "Genetics"], [70, "butter", "4559"],
+         [300, "lilac", "Sequencer"], [70, "plum", "G2"], [216, "pink", "Medical"]] });
+
+// Six columns, 531 wide and 60 apart (330–3816); the panels below split on column four.
+const X0 = 330, X1 = 3816, CP = 591, CW = 531, COL = (i) => X0 + i * CP;
+const MID = COL(3), LEFT_R = MID - 60;                     // 2103; 2043
+const LANE = "#1c1224", TRACK = "#2c1c34", GRID = "#3a2848";
+const INK = { pink: "#f4b6e6", lilac: "#c7a0d8", plum: "#9c6fb4", butter: "#ffcc66", peach: "#ffb070", mars: "#ff5a3c" };
+const fmt = (v, dp = 0) => v.toLocaleString("en-US", { minimumFractionDigits: dp, maximumFractionDigits: dp });
+const cls = (e, ...c) => (e.classList.add(...c), e);
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const op = (e, v) => { v = v < 0.005 ? "0" : v > 0.995 ? "1" : v.toFixed(2); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const fg = (e, c) => { if (e._fg !== c) { e._fg = c; e.style.color = `var(--${c})`; } };
+const swap = (els, f) => { els.forEach((e) => e.classList.add("out")); setTimeout(() => { f(); els.forEach((e) => e.classList.remove("out")); }, 460); };
+const bad = [];                                            // words that would not fit their places
+const fits = (txt, s, w, where) => { if (L.textWidth(txt, s) > w) bad.push(`${where}: "${txt}"`); };
+const minutes = () => { const d = new Date(); return d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60; };
+const stardate = () => 45587 + (minutes() / 1440) * 2.74;
+const clockAgo = (s) => { const d = new Date(Date.now() - s * 1000), p = (n) => String(n).padStart(2, "0"); return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; };
+
+// =====================================================================================
+// THE GENOME: a deterministic sequence, so every base drawn twice is drawn the same
+// =====================================================================================
+const hash = (i, s) => {
+  let x = (Math.imul(i, 0x9e3779b1) ^ Math.imul(s + 1, 0x85ebca6b)) >>> 0;
+  x ^= x >>> 16; x = Math.imul(x, 0x7feb352d); x ^= x >>> 15; x = Math.imul(x, 0x846ca68b); x ^= x >>> 16;
+  return (x >>> 0) / 4294967296;
+};
+const BASES = "ATGC", COMP = { A: "T", T: "A", G: "C", C: "G" }, TRANSITION = { A: "G", G: "A", C: "T", T: "C" };
+const BASEC = { A: INK.pink, T: INK.plum, G: INK.butter, C: INK.peach };
+const ref = (i) => { const u = hash(i, 1); return u < 0.295 ? "A" : u < 0.59 ? "T" : u < 0.795 ? "G" : "C"; };   // 41% GC
+const cand = (i) => hash(i, 2) < 1 / 30;
+const varMemo = new Map();
+const isVar = (i) => {                                      // never two variants within 16 bases
+  if (varMemo.has(i)) return varMemo.get(i);
+  let v = cand(i);
+  for (let j = i - 16; v && j < i; j++) if (cand(j)) v = false;
+  varMemo.set(i, v);
+  return v;
+};
+const alt = (i) => {
+  const r = ref(i);
+  if (hash(i, 3) < 0.67) return TRANSITION[r];
+  const others = BASES.split("").filter((b) => b !== r && b !== TRANSITION[r]);
+  return others[hash(i, 4) < 0.5 ? 0 : 1];
+};
+const sample = (i) => (isVar(i) ? alt(i) : ref(i));
+const POS0 = 48210400;                                      // base 0 on chromosome 9
+const pos = (i) => POS0 + i;
+
+// genes along the strand: exons and introns, made in order as they are needed
+const GENE_NAMES = ["Vertebral 3A", "Spinal Cord 7", "Neural Crest 5", "Collagen 9B", "Osteoblast 4",
+                    "Synaptic 12", "Brak'lul 2", "Myelin 6", "Cartilage 2C", "Neural Tube 8"];
+const genes = [];
+let rngState = 0x2f6e2b1;
+const rnd = () => { rngState = (rngState + 0x6d2b79f5) | 0; let t = rngState; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+const ensureGenes = (iMax) => {
+  while (!genes.length || genes[genes.length - 1].e < iMax + 400) {
+    const prevEnd = genes.length ? genes[genes.length - 1].e : 0, k = genes.length;
+    const s = prevEnd + 26 + Math.floor(rnd() * 40), len = 170 + Math.floor(rnd() * 130), n = 3 + Math.floor(rnd() * 3);
+    // n exons, 14–34 bases each, spread through the gene with introns between
+    const ex = Array.from({ length: n }, () => 14 + Math.floor(rnd() * 21));
+    const intr = len - ex.reduce((a, b) => a + b, 0), cuts = Array.from({ length: n - 1 }, () => 0.5 + rnd());
+    const cs = cuts.reduce((a, b) => a + b, 0);
+    const exons = []; let x = s;
+    ex.forEach((w, j) => { exons.push([x, x + w]); x += w; if (j < n - 1) x += Math.round((intr * cuts[j]) / cs); });
+    genes.push({ k, s, e: x, exons, name: GENE_NAMES[k % GENE_NAMES.length],
+                 hom: { Human: 86.2 + rnd() * 6.4, Romulan: 83.1 + rnd() * 5.8, Vulcan: 84.0 + rnd() * 6.0 } });
+  }
+};
+const regionAt = (i) => {
+  ensureGenes(i);
+  for (const g of genes) {
+    if (i < g.s) return { kind: "inter", gene: null };
+    if (i < g.e) {
+      const xn = g.exons.findIndex(([a, b]) => i >= a && i < b);
+      return xn >= 0 ? { kind: "exon", gene: g, exon: xn + 1 } : { kind: "intron", gene: g };
+    }
+  }
+  return { kind: "inter", gene: null };
+};
+const variantInfo = (i) => {
+  const r = regionAt(i), u = hash(i, 5);
+  let effect, status;
+  if (r.kind === "exon") { effect = u < 0.5 ? "Missense" : "Synonymous"; status = effect === "Synonymous" ? "Benign" : hash(i, 6) < 0.4 ? "Review" : "Known"; }
+  else if (r.kind === "intron") { effect = "Intronic"; status = u < 0.7 ? "Benign" : "Known"; }
+  else { effect = "Intergenic"; status = "Benign"; }
+  return { i, pos: pos(i), ref: ref(i), alt: alt(i), gene: r.gene ? r.gene.name : "None", effect, status };
+};
+
+// ---------------- status line ----------------
+const state = cls(L.text({ x: X0, cap: 150, s: 100, c: "pink", txt: "Sequence Aligned" }), "sw");
+const sub = cls(L.text({ x: 0, base: 222, s: 38, c: "lilac", txt: "" }), "sw");
+const placeSub = () => { sub.style.left = X0 + state.offsetWidth + 40 + "px"; };
+placeSub();
+L.box({ x: X1 - 400, y: 150, w: 400, h: 72, c: "pink", label: "Reference Locked", r: "lr", fs: 36 });
+
+// =====================================================================================
+// THE SEQUENCE: genes, the reference, the sample's helix and its read-out, scrolling past a read head
+// =====================================================================================
+L.header({ x: X0, y: 280, w: X1 - X0, label: "Sequence Alignment  ·  Chromosome 9  ·  Sample Against Klingon Reference", c1: "pink", c2: "lilac" });
+const GT = 352, GB = 424, RT = 440, RB = 496, HT = 512, HB = 776, ST = 792, SB = 848, UT = 864, UB = 924;
+const SX = X0 + 240 + L.GAP, SW = X1 - SX, SH = UB - GT;     // the strip: 594 → 3816
+const P = 30, LAMBDA = 10.5 * P, HMID = (HT + HB) / 2, AMP = 100, RW = 14;   // 10.5 base pairs to a turn
+[[GT, GB, "plum", "Genes"], [RT, RB, "pink", "Reference"], [HT, HB, "lilac", "Helix"], [ST, SB, "pink", "Sample"], [UT, UB - 16, "plum", "Locus"]]
+  .forEach(([y0, y1, c, label]) => L.box({ x: X0, y: y0, w: 240, h: y1 - y0, c, label, fs: 32 }));
+[[GT, GB], [RT, RB], [HT, HB], [ST, SB]].forEach(([y0, y1]) => L.rect({ x: SX, y: y0, w: SW, h: y1 - y0, c: LANE }));
+
+const strip = L.el("div", "boot", L.stage, { position: "absolute", left: SX + "px", top: GT + "px", width: SW + "px", height: SH + "px", overflow: "hidden" });
+// nothing is cut in half at the strip's ends: it fades out over the last 72px
+strip.style.webkitMaskImage = strip.style.maskImage = "linear-gradient(90deg, transparent 0, #000 72px, #000 calc(100% - 72px), transparent 100%)";
+const HX = 2060;                                            // the read head, from the strip's left edge
+const SPEED = 2 * P;                                        // two base pairs a second
+const head = L.el("div", "head boot", L.stage, { left: SX + HX - P / 2 - 8 + "px", top: RT - 10 + "px", width: P + 16 + "px", height: SB - RT + 20 + "px" });
+
+// what is known ahead of the head: genes, the reference, the coordinates, the helix unlit
+const drawStatic = (g, xa, xb) => {
+  const i0 = Math.floor(xa / P) - 1, i1 = Math.ceil(xb / P) + 1;
+  ensureGenes(i1);
+  // genes: introns a thin line, exons blocks, the name at the gene's start
+  for (const ge of genes) {
+    if (ge.e * P < xa - 10 || ge.s * P - 400 > xb) continue;
+    g.fillStyle = INK.plum; g.fillRect(ge.s * P, 405, (ge.e - ge.s) * P, 6);
+    g.fillStyle = INK.pink;
+    for (const [a, b] of ge.exons) g.fillRect(a * P + 2, 394, (b - a) * P - 4, 28);
+    g.font = '30px "LCARS"'; g.textAlign = "left"; g.fillStyle = INK.lilac;
+    g.fillText(ge.name.toUpperCase(), ge.s * P + 2, 383);
+  }
+  g.font = '40px "LCARS"'; g.textAlign = "center";
+  for (let i = i0; i <= i1; i++) {
+    const cx = i * P + P / 2, b = ref(i);
+    g.fillStyle = BASEC[b]; g.fillText(b, cx, 482);
+    // the coordinate ruler: a tick every base, longer every five and ten, the number every ten
+    const p = pos(i);
+    g.fillStyle = p % 10 === 0 ? INK.lilac : GRID;
+    g.fillRect(cx - 1.5, UT, 3, p % 10 === 0 ? 20 : p % 5 === 0 ? 14 : 8);
+  }
+  g.font = '30px "LCARS"'; g.fillStyle = INK.lilac;
+  for (let i = i0 - 4; i <= i1 + 4; i++) if (pos(i) % 10 === 0) g.fillText(fmt(pos(i)), i * P + P / 2, 914);
+  helix(g, xa, xb, false);
+};
+// the helix: the back strand, the rungs, the front strand
+const strandY = (x, s) => HMID + (s ? 1 : -1) * AMP * Math.cos((2 * Math.PI * x) / LAMBDA);
+const front = (x, s) => (s ? -1 : 1) * Math.sin((2 * Math.PI * x) / LAMBDA) > 0;
+const STRAND = { lit: [[INK.pink, "#7e5874"], [INK.lilac, "#5e4c70"]], dim: [["#4e3a56", "#33263a"], ["#4e3a56", "#33263a"]] };
+const strandPass = (g, xa, xb, lit, wantFront) => {
+  g.lineWidth = 10; g.lineCap = "round"; g.lineJoin = "round";
+  for (const s of [0, 1]) {
+    g.strokeStyle = STRAND[lit ? "lit" : "dim"][s][wantFront ? 0 : 1];
+    g.beginPath();
+    let on = false;
+    for (let x = xa - 6; x <= xb + 6; x += 3) {
+      const f = front(x, s) === wantFront;
+      if (f && !on) { g.moveTo(x, strandY(x, s)); on = true; }
+      else if (f) g.lineTo(x, strandY(x, s));
+      else on = false;
+    }
+    g.stroke();
+  }
+};
+function helix(g, xa, xb, lit) {
+  const i0 = Math.floor(xa / P) - 1, i1 = Math.ceil(xb / P) + 1;
+  if (lit) for (let i = i0; i <= i1; i++) if (isVar(i)) { g.fillStyle = "#3e1418"; g.fillRect(i * P, HT, P, HB - HT); }
+  strandPass(g, xa, xb, lit, false);
+  for (let i = i0; i <= i1; i++) {
+    const cx = i * P + P / 2, y0 = strandY(cx, 0), y1 = strandY(cx, 1), b = sample(i);
+    const a = Math.min(y0, HMID), bb = Math.max(y0, HMID), c = Math.min(y1, HMID), d = Math.max(y1, HMID);
+    g.fillStyle = lit ? BASEC[b] : "#2e2236";
+    if (bb - a > 12) g.fillRect(cx - RW / 2, y0 < HMID ? a + 3 : a + 2, RW, bb - a - 5);
+    g.fillStyle = lit ? BASEC[COMP[b]] : "#2e2236";
+    if (d - c > 12) g.fillRect(cx - RW / 2, y1 < HMID ? c + 3 : c + 2, RW, d - c - 5);
+  }
+  strandPass(g, xa, xb, lit, true);
+  if (!lit) return;
+  // the sample, read out: a variant is a red block with the base in black
+  g.font = '40px "LCARS"'; g.textAlign = "center";
+  for (let i = i0; i <= i1; i++) {
+    const cx = i * P + P / 2, b = sample(i);
+    if (isVar(i)) {
+      g.fillStyle = INK.mars; g.beginPath(); g.roundRect(cx - 13, ST + 6, 26, SB - ST - 12, 6); g.fill();
+      g.fillStyle = "#000";
+    } else g.fillStyle = BASEC[b];
+    g.fillText(b, cx, 834);
+  }
+}
+
+// two canvas tiles, slid as layers; a tile that leaves the view is moved to the far end and
+// redrawn whole BEFORE anything is drawn into it (tng/sickbay.html). The head lights what it has
+// read: each frame, the sliver it passed is cleared and drawn lit, clipped to whole device pixels.
+let written = 0, lastLit = 0, headI = 0;
+const pxFloor = (tile, x) => { const o = tile.n * SW, k = tile.k || 1; return Math.floor((x - o) * k) / k + o; };
+const litSliver = (tile, xa, xb) => {
+  const o = tile.n * SW;
+  xa = Math.max(xa, o - 4); xb = Math.min(xb, o + SW + 12);
+  if (xb <= xa) return;
+  const c0 = pxFloor(tile, xa), c1 = pxFloor(tile, xb);
+  if (c1 <= c0) return;
+  const g = tile.g;
+  g.save(); g.translate(-o, -GT);
+  g.beginPath(); g.rect(c0, HT, c1 - c0, SB - HT); g.clip();
+  g.clearRect(c0, HT, c1 - c0, SB - HT);
+  helix(g, c0, c1, true);
+  g.restore();
+};
+const redraw = (tile) => {
+  const g = tile.g, o = tile.n * SW;
+  g.clearRect(0, 0, SW + 8, SH);
+  g.save(); g.translate(-o, -GT); drawStatic(g, o, o + SW + 8); g.restore();
+  if (lastLit > o) litSliver(tile, o - 4, lastLit);
+};
+const tiles = [0, 1].map((n) => {
+  const c = L.canvas({ x: 0, y: 0, w: SW + 8, h: SH }, strip);   // 8px of overlap: no hairline seam
+  c.cv.style.willChange = "transform"; c.n = n;
+  c.onResize = () => redraw(c);                             // a resize wipes the canvas: refill it
+  return c;
+});
+const place = () => tiles.forEach((tile) => tf(tile.cv, `translate3d(${(tile.n * SW - (written - SW)).toFixed(2)}px,0,0)`));
+
+// =====================================================================================
+// THE READINGS UNDER THE STRIP: six, one to a column
+// =====================================================================================
+const TILE_L = 1000, TILE_V = 1066;
+const tile = (i, label, c) => {
+  const x = COL(i);
+  L.rect({ x, y: TILE_L - 29, w: 12, h: TILE_V - TILE_L + 29, c });
+  L.text({ x: x + 36, base: TILE_L, s: 40, c: "lilac", txt: label });
+  fits(label, 40, CW - 36, "tile");
+  return cls(L.text({ x: x + 36, base: TILE_V, s: 52, c: "white", txt: "" }), "sw");
+};
+const vLocus = tile(0, "Locus", "pink");
+const vGene = tile(1, "Gene", "plum");
+const vIdent = tile(2, "Identity  ·  Last 500 bp", "lilac");
+const vVars = tile(3, "Variants Flagged", "butter");
+const vDepth = tile(4, "Read Depth", "pink");
+const vAcc = tile(5, "Call Accuracy", "lilac");
+vGene.classList.remove("sw");
+GENE_NAMES.forEach((n) => fits(n, 52, CW - 36, "gene tile"));
+
+// =====================================================================================
+// VARIANT FLAGS (left) and REFERENCE COMPARISON (right), on shared rows
+// =====================================================================================
+const MY = 1132, MROW = (k) => 1252 + 72 * k;
+L.header({ x: X0, y: MY, w: LEFT_R - X0, label: "Variant Flags", c1: "lilac", c2: "pink" });
+L.header({ x: MID, y: MY, w: X1 - MID, label: "Reference Comparison", c1: "pink", c2: "plum" });
+
+// a stack of rows in a clipped window: a new row comes in at the bottom, the rest move up one, the
+// top one fades away. Pushes queue, so the record stays in order.
+const slider = ({ x, top, w, n, pitch, build }) => {
+  const c = L.el("div", "clip boot", L.stage, { left: x + "px", top: top + "px", width: w + "px", height: n * pitch + 12 + "px" });
+  const rows = Array.from({ length: n }, (_, i) => {
+    const e = L.layer({ x: 0, y: 0, w, h: pitch }, c);
+    const r = build(e); r.e = e; r.slot = i; L.move(e, 0, i * pitch);
+    return r;
+  });
+  const st = { rows, queue: [], t0: -1 };
+  st.push = (d) => st.queue.push(d);
+  L.tick((t) => {
+    if (st.t0 < 0) { if (!st.queue.length) return; st.t0 = t; st.pending = st.queue.shift(); st.landed = null; }
+    const u = t - st.t0;
+    if (!st.landed) {
+      const topRow = rows.find((r) => r.slot === 0), k = L.ease(L.clamp(u / 1.1));
+      rows.forEach((r) => L.move(r.e, 0, (r.slot - k) * pitch));
+      topRow.e.style.opacity = (1 - L.clamp(u / 0.7)).toFixed(3);
+      if (k < 1) return;
+      rows.forEach((r) => (r.slot = r.slot === 0 ? n - 1 : r.slot - 1));
+      topRow.fill(st.pending); L.move(topRow.e, 0, (n - 1) * pitch); topRow.e.style.opacity = 0; st.landed = topRow; st.t1 = t;
+    } else {
+      const a = L.clamp((t - st.t1) / 0.8);
+      st.landed.e.style.opacity = a.toFixed(3);
+      if (a >= 1) { st.t0 = -1; st.landed = null; }
+    }
+  });
+  return st;
+};
+
+// ---- variant flags ----
+const V = { pos: 0, gene: 330, chg: 770, eff: 1010, pill: LEFT_R - X0 - 240 };
+[["Position", V.pos], ["Gene", V.gene], ["Change", V.chg], ["Effect", V.eff], ["Status", V.pill]]
+  .forEach(([txt, x]) => L.text({ x: X0 + x, base: MROW(0), s: 36, c: "lilac", txt }));
+const STATUS_C = { Benign: "lilac", Known: "plum", Review: "butter" };
+const varTable = slider({ x: X0, top: MROW(1) - 56, w: LEFT_R - X0, n: 4, pitch: 72, build: (e) => {
+  const p = L.text({ x: V.pos, base: 56, s: 40, c: "white", txt: "" }, e);
+  const gn = L.text({ x: V.gene, base: 56, s: 36, c: "pink", txt: "" }, e);
+  const r0 = L.text({ x: V.chg, base: 56, s: 40, c: "white", txt: "" }, e);
+  const ar = L.text({ x: V.chg + 36, base: 56, s: 40, c: "lilac", txt: ">" }, e);
+  const r1 = L.text({ x: V.chg + 80, base: 56, s: 40, c: "white", txt: "" }, e);
+  const ef = L.text({ x: V.eff, base: 56, s: 36, c: "lilac", txt: "" }, e);
+  const pill = L.box({ x: V.pill, y: 56 - 44.56, w: 240, h: 56, c: "lilac", label: "", fs: 28, r: "lr" }, e);
+  [p, gn, r0, ar, r1, ef, pill].forEach((x) => x.classList.remove("boot"));   // made inside a clip that boots as one
+  return { fill: (v) => {
+    L.set(p, fmt(v.pos)); L.set(gn, v.gene); L.set(r0, v.ref); L.set(r1, v.alt); L.set(ef, v.effect);
+    r0.style.color = BASEC[v.ref]; r1.style.color = BASEC[v.alt];
+    L.set(pill, v.status); pill.style.background = `var(--${STATUS_C[v.status]})`;
+  } };
+} });
+GENE_NAMES.forEach((n) => fits(n, 36, V.chg - V.gene - 40, "variant gene"));
+["Synonymous", "Intergenic"].forEach((n) => fits(n, 36, V.pill - V.eff - 40, "effect"));
+
+// ---- reference comparison: the sample's gene against four genomes ----
+const RC = { name: MID, bar: MID + 440, barR: X1 - 300 };
+L.text({ x: RC.name, base: MROW(0), s: 36, c: "lilac", txt: "Genome" });
+const homHead = L.text({ x: RC.bar, base: MROW(0), s: 36, c: "lilac", txt: "" });
+L.text({ x: RC.barR, base: MROW(0), s: 36, c: "plum", txt: "Scale 80 – 100%", align: "r" });
+L.text({ x: X1, base: MROW(0), s: 36, c: "lilac", txt: "Identity", align: "r" });
+const GENOMES = [["Klingon  ·  Baseline", "pink"], ["Human", "lilac"], ["Romulan", "lilac"], ["Vulcan", "lilac"]];
+const hom = GENOMES.map(([name, c], k) => {
+  const base = MROW(k + 1);
+  L.text({ x: RC.name, base, s: 40, c: k ? "white" : "pink", txt: name });
+  fits(name, 40, RC.bar - RC.name - 40, "genome");
+  L.rect({ x: RC.bar, y: base - 26, w: RC.barR - RC.bar, h: 26, c: TRACK });
+  const bar = L.layer({ x: RC.bar, y: base - 26, w: RC.barR - RC.bar, h: 26 });
+  bar.style.background = `var(--${c})`; bar.style.transformOrigin = "0 0";
+  const v = L.text({ x: X1, base, s: 52, c: "white", txt: "", align: "r" });
+  return { name: name.split(" ")[0], bar, v, goal: 90, shown: 90 };
+});
+[85, 90, 95].forEach((p) => L.rect({ x: RC.bar + ((RC.barR - RC.bar) * (p - 80)) / 20 - 1, y: MROW(1) - 34, w: 2, h: MROW(4) - MROW(1) + 42, c: GRID, free: true }));
+GENE_NAMES.forEach((n) => fits("Homology  ·  " + n, 36, RC.barR - RC.bar - L.textWidth("Scale 80 – 100%", 36) - 40, "homology head"));
+
+// =====================================================================================
+// THE BOTTOM STRIP: chromosome 9 · base composition · analysis log
+// =====================================================================================
+const DB = (k) => 1734 + 54 * k;
+const B1 = COL(2) + CW, B2 = COL(3), B2R = COL(3) + CW, B3 = COL(4);   // 2043 | 2103–2634 | 2694–3816
+L.header({ x: X0, y: 1620, w: B1 - X0, label: "Chromosome 9  ·  Ideogram", c1: "plum", c2: "lilac", h: 48 });
+L.header({ x: B2, y: 1620, w: B2R - B2, label: "Base Composition", c1: "pink", c2: "plum", h: 48 });
+L.header({ x: B3, y: 1620, w: X1 - B3, label: "Analysis Log", c1: "lilac", c2: "pink", h: 48 });
+
+// ---- chromosome 9: bands, the centromere, where the strip is ----
+const MBP = 141.2, CEN = 43, KX = (m) => X0 + ((B1 - X0) * m) / MBP;
+const BANDS = [["p24", 0, 4.5], ["p23", 4.5, 9], ["p22", 9, 14.5], ["p21", 14.5, 27], ["p13", 27, 33], ["p12", 33, 36.5], ["p11", 36.5, 43],
+               ["q11", 43, 45], ["q12", 45, 47.5], ["q13", 47.5, 51], ["q21", 51, 72], ["q22", 72, 93], ["q31", 93, 107],
+               ["q32", 107, 115], ["q33", 115, 127], ["q34", 127, MBP]];
+const IT = 1764, IH = 84;
+L.rect({ x: X0, y: IT, w: KX(CEN) - 8 - X0, h: IH, c: "lilac", rx: IH / 2 });
+L.rect({ x: KX(CEN) + 8, y: IT, w: B1 - KX(CEN) - 8, h: IH, c: "lilac", rx: IH / 2, noalign: true });
+L.rect({ x: KX(CEN) - 10, y: IT + IH * 0.3, w: 20, h: IH * 0.4, c: "plum", free: true });
+BANDS.forEach(([, a, b], j) => {
+  const dark = (j < 7 ? j : j - 7) % 2 === 1;
+  if (dark) L.rect({ x: KX(a) + 1, y: IT, w: KX(b) - KX(a) - 2, h: IH, c: j % 4 === 1 ? "plum" : "#6e4f82", free: true });
+});
+const LOCUS_MBP = pos(0) / 1e6;
+const band = BANDS.find(([, a, b]) => LOCUS_MBP >= a && LOCUS_MBP < b)[0];
+["p23", "p21", "p13", "p11", "q13", "q21", "q22", "q31", "q32", "q33", "q34"].forEach((nm) => {
+  const [, a, b] = BANDS.find((x) => x[0] === nm);
+  L.text({ x: KX((a + b) / 2), base: 1900, s: 30, c: nm === band ? "butter" : "lilac", txt: nm, align: "c", w: 80, legend: true });
+});
+const marker = L.layer({ x: KX(LOCUS_MBP) - 4, y: IT - 10, w: 8, h: IH + 20 });
+marker.style.background = "var(--butter)"; marker.style.borderRadius = "4px";
+L.text({ x: X0, base: DB(0), s: 40, c: "lilac", txt: `Chromosome 9  ·  ${MBP} Mbp  ·  Centromere ${CEN} Mbp` });
+const locTxt = L.text({ x: B1, base: DB(0), s: 36, c: "butter", txt: "", align: "r" });
+// the scale, in millions of base pairs
+L.rect({ x: X0, y: 1926, w: B1 - X0, h: 2, c: GRID, free: true });
+[0, 20, 40, 60, 80, 100, 120, 140].forEach((m) => {
+  L.rect({ x: KX(m) - 1, y: 1926, w: 2, h: 16, c: "lilac", free: true });
+  L.text({ x: KX(m), base: DB(5), s: 30, c: "lilac", txt: m === 140 ? "140 Mbp" : String(m), align: m === 140 ? "r" : "c", w: 100, legend: true });
+});
+
+// ---- base composition, over the last 200 bases read ----
+const BC = { bar: B2 + 64, barR: B2R - 150 };
+L.text({ x: B2, base: DB(0), s: 36, c: "lilac", txt: "Last 200 bp Read" });
+const comp = "ATGC".split("").map((b, k) => {
+  const base = DB(k + 1);
+  L.text({ x: B2, base, s: 40, c: "white", txt: b }).style.color = BASEC[b];
+  L.rect({ x: BC.bar, y: base - 26, w: BC.barR - BC.bar, h: 26, c: TRACK });
+  const bar = L.layer({ x: BC.bar, y: base - 26, w: BC.barR - BC.bar, h: 26 });
+  bar.style.background = BASEC[b]; bar.style.transformOrigin = "0 0";
+  const v = L.text({ x: B2R, base, s: 36, c: "white", txt: "", align: "r" });
+  return { b, bar, v, shown: 0.25 };
+});
+L.text({ x: B2, base: DB(5), s: 36, c: "lilac", txt: "GC Content" });
+const vGC = L.text({ x: B2R, base: DB(5), s: 36, c: "butter", txt: "", align: "r" });
+
+// ---- the analysis log ----
+const LG = { msg: 200 };
+const log = slider({ x: B3, top: DB(0) - 42, w: X1 - B3, n: 6, pitch: 54, build: (e) => {
+  const tm = L.text({ x: 0, base: 42, s: 36, c: "peach", txt: "" }, e);
+  const msg = L.text({ x: LG.msg, base: 42, s: 36, c: "white", txt: "" }, e);
+  [tm, msg].forEach((x) => x.classList.remove("boot"));
+  return { fill: (d) => { L.set(tm, d.tm); L.set(msg, d.msg); msg.style.color = `var(--${d.c})`; } };
+} });
+
+// =====================================================================================
+// READING: what happens as each base passes the head
+// =====================================================================================
+const WIN = 500, CWIN = 200;
+const recent = [];                                          // match flags, last 500 read
+const recentB = [];                                         // sample bases, last 200 read
+let mism = 0, varCount = 0, curGene = null, geneRead = 0, geneMis = 0, flaggedAt = -1e9;
+const events = (i) => {                                     // what the log records at base i
+  const out = [];
+  const r = regionAt(i);
+  for (const ge of genes) {
+    if (ge.s === i) out.push({ msg: `Entering ${ge.name}  ·  ${ge.exons.length} Exons`, c: "pink" });
+    if (ge.s > i) break;
+  }
+  if (isVar(i)) { const v = variantInfo(i); out.push({ msg: `Variant ${fmt(v.pos)}  ${v.ref} > ${v.alt}  ·  ${v.effect}`, c: v.status === "Review" ? "butter" : "white" }); }
+  if (r.kind === "exon" && r.gene.exons[r.exon - 1][1] === i + 1)
+    out.push({ msg: `${r.gene.name}  ·  Exon ${r.exon} of ${r.gene.exons.length} Aligned`, c: "lilac" });
+  for (const ge of genes) {
+    if (ge.e - 1 === i && ge.k % 4 === 2) out.push({ msg: `Conserved Humanoid Fragment  ·  cf. Galen Survey`, c: "plum" });
+    if (ge.s > i) break;
+  }
+  if (pos(i) % 250 === 0) out.push({ msg: `Checkpoint ${fmt(pos(i))}  ·  Alignment Verified`, c: "lilac" });
+  return out;
+};
+const readBase = (i, live) => {
+  const m = isVar(i);
+  recent.push(m); if (m) mism++;
+  if (recent.length > WIN && recent.shift()) mism--;
+  recentB.push(sample(i)); if (recentB.length > CWIN) recentB.shift();
+  const r = regionAt(i);
+  if (r.gene && r.gene !== curGene) { curGene = r.gene; geneRead = 0; geneMis = 0; }
+  if (r.gene === curGene && r.gene) { geneRead++; if (m) geneMis++; }
+  if (m) { varCount++; if (live) { varTable.push(variantInfo(i)); flaggedAt = L.t; } }
+  if (live) for (const ev of events(i)) log.push({ tm: clockAgo(0), ...ev });
+};
+
+// the record so far: the strip starts part-way through the locus, with its history filled in
+const I0 = 2600;
+ensureGenes(I0 + 400);
+const history = [];
+for (let i = 0; i <= I0; i++) {
+  readBase(i, false);
+  if (i > I0 - 400) for (const ev of events(i)) history.push({ tm: clockAgo((I0 - i) / 2), ...ev });
+}
+headI = I0;
+const pastVars = [];
+for (let i = I0; i >= 0 && pastVars.length < 4; i--) if (isVar(i)) pastVars.unshift(variantInfo(i));
+varTable.rows.forEach((r, k) => r.fill(pastVars[k]));
+const lastLog = history.slice(-6);
+log.rows.forEach((r, k) => r.fill(lastLog[k]));
+
+written = I0 * P + P / 2 + SW - HX;                         // the head over base I0's centre
+lastLit = written - SW + HX + P / 2;
+tiles[0].n = Math.floor((written - SW) / SW); tiles[1].n = tiles[0].n + 1;
+place();
+
+// =====================================================================================
+// RUNNING IT
+// =====================================================================================
+let flagged = false, lastT = null;
+const setState = (on) => {
+  flagged = on;
+  swap([state, sub], () => { L.set(state, on ? "Variant Flagged" : "Sequence Aligned"); fg(state, on ? "butter" : "pink"); placeSub(); });
+};
+L.tick((t) => {
+  if (lastT === null) { lastT = t; return; }
+  const dt = Math.min(0.1, t - lastT); lastT = t;
+  written += dt * SPEED;
+  for (const tile of tiles) if (written >= (tile.n + 2) * SW) { tile.n += 2; redraw(tile); }
+  const nl = written - SW + HX + P / 2;
+  for (const tile of tiles) litSliver(tile, lastLit, nl);
+  lastLit = nl;
+  place();
+  const ih = Math.floor((written - SW + HX) / P);
+  while (headI < ih) readBase(++headI, true);
+  // the status word agrees with the readings: flagged for a few seconds after a variant is read
+  const want = t - flaggedAt < 6;
+  if (want !== flagged) setState(want);
+  // bars, eased
+  const n = recentB.length;
+  for (const c of comp) {
+    const goal = recentB.filter((b) => b === c.b).length / n;
+    c.shown += (goal - c.shown) * 0.1;
+    tf(c.bar, `scaleX(${c.shown.toFixed(4)})`);
+  }
+  for (const h of hom) {
+    h.shown += (h.goal - h.shown) * 0.06;
+    tf(h.bar, `scaleX(${L.clamp((h.shown - 80) / 20).toFixed(4)})`);
+  }
+  op(marker, 0.75 + 0.25 * Math.sin(t * 1.2));
+});
+// the readings: a few times a second
+const showHom = () => {
+  const g = curGene;
+  if (!g) return;
+  L.set(homHead, `Homology  ·  ${g.name}`);
+  hom[0].goal = geneRead ? (100 * (geneRead - geneMis)) / geneRead : 100;
+  hom[1].goal = g.hom.Human; hom[2].goal = g.hom.Romulan; hom[3].goal = g.hom.Vulcan;
+};
+showHom(); hom.forEach((h) => (h.shown = h.goal));
+L.every(250, () => {
+  L.set(vLocus, fmt(pos(headI)));
+  const r = regionAt(headI);
+  L.set(vGene, r.gene ? r.gene.name : "Intergenic");
+  fg(vGene, r.kind === "exon" ? "pink" : "white");
+  L.set(vIdent, ((100 * (recent.length - mism)) / recent.length).toFixed(2) + "%");
+  L.set(vVars, String(varCount));
+  L.set(locTxt, `Locus 9${band}  ·  ${fmt(pos(headI) / 1e6, 3)} Mbp`);
+  showHom();
+  hom.forEach((h) => L.set(h.v, h.shown.toFixed(2) + "%"));
+  const n = recentB.length;
+  comp.forEach((c) => L.set(c.v, ((100 * c.shown)).toFixed(1) + "%"));
+  L.set(vGC, ((100 * recentB.filter((b) => b === "G" || b === "C").length) / n).toFixed(1) + "%");
+}, 0);
+L.every(3000, (t) => {
+  L.set(vDepth, `${Math.round(46 + 1.4 * Math.sin(t * 0.05))} Reads`);
+  L.set(vAcc, (99.993 + 0.003 * Math.sin(t * 0.031)).toFixed(3) + "%");
+}, 0);
+L.every(1000, () => L.set(sub, `Lt. Worf  ·  Genitronic Replication Survey  ·  Stardate ${stardate().toFixed(1)}`), 0);
+
+if (bad.length) setTimeout(() => { throw new Error("genetics: " + bad.join(" | ")); });
+});
+</script></body></html>

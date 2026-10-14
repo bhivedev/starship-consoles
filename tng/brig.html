@@ -1,0 +1,410 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Brig</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* the cell plans: plain blocks on one dark floor; the forcefield, the people and the sweep are layers */
+  .blk { position: absolute; }
+  .clip { position: absolute; overflow: hidden; }
+  .dot { border-radius: 50%; }
+  /* swapped text dips and comes back; colors change slowly; .boot (the start-up cascade) always wins */
+  .sw { transition: opacity .45s ease; }
+  .out:not(.boot) { opacity: .15; }
+  .pill, .hd { transition: background-color 1.2s ease; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: a bracket, title centred ----------------
+L.frame({ type: "C", title: "Brig  •  Detention Level", c: "red", c2: "slate", accent: "sand", foot: "Security",
+  side: [[140, "sand", "Sec 08"], [70, "red", "4641"], [420, "red", "Detention"], [70, "sand", "06"],
+         [300, "slate", "Cells"], [70, "red", "B2"], [216, "sand", "Visits"]],
+  side2: [[140, "red", "Brig 1"], [70, "sand", "0800"], [420, "slate", "Fields"], [70, "red", "L3"],
+          [300, "sand", "Records"], [70, "slate", "12"], [216, "red", "Power"]] });
+
+const TRACK = "#2a1714", FLOOR = "#12161c", WALL = "#4e5d6c", FURN = "#26303b", FURN2 = "#334050", HALL = "#0b0e12";
+const ICE = "143,211,255";
+const colr = (c) => (c.startsWith("#") ? c : `var(--${c})`);
+const cls = (e, ...c) => (e.classList.add(...c), e);
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const op = (e, v) => { v = L.clamp(v).toFixed(2); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const bg = (e, c) => { if (e._bg !== c) { e._bg = c; e.style.background = colr(c); } };
+const ink = (e, c) => { if (e._ink !== c) { e._ink = c; e.style.color = colr(c); } };
+const swap = (els, f) => { els.forEach((e) => e.classList.add("out")); setTimeout(() => { f(); els.forEach((e) => e.classList.remove("out")); }, 460); };
+const wave = (t, p, ph = 0) => Math.sin((2 * Math.PI * t) / p + ph);   // a slow drift, never a jump
+const pad2 = (n) => String(n).padStart(2, "0");
+
+// ---------------- the grid ----------------
+// Columns: six cells 220–2540 (360 wide, 32 apart), records 2620–3620. One row pitch of 88 for
+// everything above the strip: row k sits on 430 + 88k. Bottom strip rows on 54.
+const AX = 220, AR = 2540, CX = 2620, CR = 3620, TW = 360, TG = 32;
+const cellX = (i) => AX + i * (TW + TG);
+const ROW = (k) => 430 + 88 * k;
+const STRIP = (i) => 1734 + i * 54;
+const P1 = [AX, cellX(2) + TW], P2 = [cellX(3), AR];
+
+// a block (not audited: the plan is one picture)
+const blk = (x, y, w, h, c, rad = 0, parent = L.stage) => {
+  const e = L.el("div", "blk boot", parent, { left: x + "px", top: y + "px", width: w + "px", height: h + "px", borderRadius: rad + "px" });
+  e.style.background = colr(c);
+  return e;
+};
+// a gauge: a name, a dark track and its fill, a value at the column's right edge
+const fill = (x, y, w, h, c) => {
+  const f = L.layer({ x, y, w, h });
+  f.style.background = colr(c); f.style.transformOrigin = "0 0";
+  return f;
+};
+const gauge = (o) => {
+  const { x, r, base, name, c, bx, brw, bh = 22, s = 52, ns = 40 } = o;
+  const n = L.text({ x, base, s: ns, c: o.nc || "sand", txt: name });
+  L.rect({ x: x + bx, y: base - bh, w: r - brw - (x + bx), h: bh, c: TRACK });
+  return { n, bar: fill(x + bx, base - bh, r - brw - (x + bx), bh, c), v: L.text({ x: r, base, s, c: "white", txt: "", align: "r" }), u: -1 };
+};
+const showBar = (g, k) => { k = L.clamp(k); if (Math.abs(k - g.u) > 0.0004) { g.u = k; tf(g.bar, `scaleX(${k.toFixed(4)})`); } };
+
+// ---------------- the story ----------------
+// Ship time runs twelve times fast; Kovar's night in the cells ends at 0800 hours.
+const REL_T = 278, REL_LEN = 18, REL_CELL = 4;                 // the release: 278 s in, cell 5
+const shipSec = (t) => 8 * 3600 + (t - (REL_T + 3)) * 12;      // the field drops on the stroke of 0800
+const hhmm = (s) => { s = ((Math.floor(s / 60) % 1440) + 1440) % 1440; return pad2(Math.floor(s / 60)) + pad2(s % 60); };
+const STARDATE = "46412.4";
+
+const CELLS = [
+  { name: "Kreb", line: "Ferengi  ·  Trader", charge: "Kemocite Smuggling", since: "46405.3", next: "Transfer  ·  Starbase 133", pulse: 88, home: 0,
+    rec: { species: "Ferengi  ·  Cargo Trader", charge: "Smuggling  ·  Unlicensed Kemocite", disp: "Transfer to Starbase 133" } },
+  { since: "46398.7" },
+  { since: "45854.2", reinforced: true },
+  { name: "Capt. M. Dreyer", line: "Human  ·  Freighter Master", charge: "Arms Trafficking", since: "46408.6", next: "Hearing  ·  Starbase 211", pulse: 74, home: 1,
+    rec: { species: "Human  ·  Freighter Alderon", charge: "Arms Trafficking  ·  Minos Korva", disp: "Hearing at Starbase 211" } },
+  { name: "Kovar", line: "Klingon  ·  Passenger", charge: "Disorderly Conduct", since: "46412.1", next: "Release at 0800 Hours", pulse: 96, home: 2, pacer: true,
+    rec: { species: "Klingon  ·  Transport Passenger", charge: "Disorderly Conduct  ·  Ten Forward", disp: "Release at 0800 Hours" } },
+  { since: "46410.2" },
+];
+CELLS.forEach((c) => (c.occ = !!c.name));
+const HUGH = { archive: true, name: "Third of Five  ·  Hugh", species: "Borg Drone  ·  Argolis Cluster", charge: "None  ·  Held for Study",
+  disp: "Returned to Crash Site", cell: 2, sd: "45854.2" };
+const PRIOR = [
+  ["41503.7", "Korris", "Klingon", "Escaped  ·  Killed"],
+  ["43489.2", "Roga Danar", "Angosian", "Escaped  ·  Angosia III"],
+  ["43872.2", "Kivas Fajo", "Zibalian", "Remanded to Custody"],
+  ["45854.2", "Third of Five", "Borg", "Returned to Crash Site"],
+  ["46235.7", "DaiMon Lurin", "Ferengi", "Starfleet Custody"],
+];
+const VISITORS = [["Lt. Worf", "Inspection", 30], ["Nurse Ogawa", "Medical Check", 40], ["Counselor Troi", "Counsel", 45],
+  ["Cmdr. Riker", "Interview", 40], ["Sec. Detail 2", "Meal Service", 25]];
+const PERIOD = 100, DIAG0 = 55, DIAG1 = 75;
+const occupied = (t) => CELLS.map((c, i) => i).filter((i) => CELLS[i].occ && !(i === REL_CELL && t >= REL_T + 8));
+const cycleAt = (t) => {
+  const n = Math.floor(t / PERIOD), ph = t - n * PERIOD, occ = occupied(n * PERIOD);
+  const [who, why, dur] = VISITORS[n % VISITORS.length];
+  const visit = ph < dur ? { cell: occ[n % occ.length], who, why, k: ph / dur, ph, dur } : null;
+  const diag = ph >= DIAG0 && ph < DIAG1 ? { cell: n % 6, k: (ph - DIAG0) / (DIAG1 - DIAG0) } : null;
+  const rel = t >= REL_T && t < REL_T + REL_LEN ? { k: (t - REL_T) / REL_LEN, ph: t - REL_T } : null;
+  return { n, ph, visit, diag, rel, nextCell: occupied((n + 1) * PERIOD)[(n + 1) % occupied((n + 1) * PERIOD).length] };
+};
+
+// ---------------- status line ----------------
+const WORDS = ["Detention Secure", "Visitation", "Field Diagnostic", "Detainee Release"];
+const SUBX = AX + Math.max(...WORDS.map((w) => L.textWidth(w, 100))) + 56;
+const state = cls(L.text({ x: AX, cap: 150, s: 100, c: "red", txt: "" }), "sw");
+const stateSub = cls(L.text({ x: SUBX, base: 222, s: 38, c: "sand", txt: "" }), "sw");
+L.box({ x: CX, y: 158, w: 488, h: 64, c: "red", label: "Detention Level  ·  Deck 8", fs: 32, r: "l" });
+const clockBox = L.box({ x: CX + 488 + L.GAP, y: 158, w: CR - (CX + 488 + L.GAP), h: 64, c: "sand", label: "", fs: 32, r: "r" });
+
+// ---------------- the cells: six plans seen from above, the forcefield across the front ----------------
+// Plan: back wall, side walls, floor with bunk and basin; the field between two emitters; the
+// corridor below it, where visitors stand.
+const PY = 360, PB = 780, FY = 700;                            // plan top, plan bottom, field line
+const tiles = CELLS.map((c, i) => {
+  const x = cellX(i);
+  // header, kept so the cell on record can light up
+  const lw = Math.ceil(L.textWidth(`Cell ${i + 1}`, 32) + 88);
+  const hd = cls(L.box({ x, y: 280, w: lw, h: 56, c: "red", label: `Cell ${i + 1}`, fs: 32, r: "l" }), "hd");
+  L.rect({ x: x + lw + L.GAP, y: 280, w: TW - lw - L.GAP, h: 56, c: i % 2 ? "sand" : "slate" });
+  // the plan
+  L.rect({ x, y: PY, w: TW, h: PB - PY, c: HALL });
+  blk(x, PY, TW, 16, WALL);
+  blk(x, PY, 16, FY - PY, WALL); blk(x + TW - 16, PY, 16, FY - PY, WALL);
+  blk(x + 16, PY + 16, TW - 32, FY - PY - 16, FLOOR);
+  blk(x + 30, PY + 30, 116, 200, FURN, 6); blk(x + 38, PY + 38, 100, 46, FURN2, 4);   // bunk and pillow
+  blk(x + TW - 70, PY + 30, 40, 52, FURN, 6); blk(x + TW - 62, PY + 38, 24, 24, FURN2, 12);   // basin
+  blk(x + TW - 118, PY + 210, 88, 40, FURN, 6);                                        // bench
+  if (c.reinforced) { blk(x + 16, PY + 16, TW - 32, 6, "red"); blk(x + 16, PY + 16, 6, FY - PY - 16, "red"); blk(x + TW - 22, PY + 16, 6, FY - PY - 16, "red"); }
+  blk(x + 6, FY - 14, 26, 34, "red", 4); blk(x + TW - 32, FY - 14, 26, 34, "red", 4);   // emitters
+  blk(x + 40, PB - 10, TW - 80, 4, "#1f2630");                                         // corridor line
+  // the field: a glow and a moving shimmer strip, one layer so it can be lowered
+  const field = cls(L.layer({ x: x + 32, y: FY - 70, w: TW - 64, h: 82 }), "boot");
+  const glow = L.el("div", "", field, { position: "absolute", left: "0", top: "0", width: TW - 64 + "px", height: "64px",
+    background: `linear-gradient(to top, rgba(${ICE},.26), rgba(${ICE},0))` });
+  const clip = L.el("div", "clip", field, { left: "0", top: "64px", width: TW - 64 + "px", height: "12px" });
+  const strip = L.layer({ x: 0, y: 0, w: TW - 64 + 40, h: 12 }, clip);
+  strip.style.background = `repeating-linear-gradient(90deg, rgba(${ICE},.95) 0 22px, rgba(${ICE},.4) 22px 40px)`;
+  // the detainee and a visitor: lifesign markers on internal sensors
+  const mark = (c1, c2) => {
+    const m = cls(L.layer({ x: 0, y: 0, w: 44, h: 44 }), "boot");
+    const ring = L.el("div", "dot", m, { position: "absolute", left: "0", top: "0", width: "44px", height: "44px", border: `5px solid ${colr(c2)}` });
+    L.el("div", "dot", m, { position: "absolute", left: "12px", top: "12px", width: "20px", height: "20px", background: colr(c1) });
+    return m;
+  };
+  const who = mark("white", "red"), vis = mark("white", "sand");
+  op(vis, 0);
+  // the diagnostic sweep: a bright line down the cell
+  const sweep = L.layer({ x: x + 16, y: PY + 16, w: TW - 32, h: 6 });
+  sweep.style.background = `rgb(${ICE})`; sweep.style.boxShadow = `0 0 18px 4px rgba(${ICE},.45)`;
+  op(sweep, 0);
+  // the readings under the plan
+  const nm = cls(L.text({ x, base: ROW(5), s: 52, c: "white", txt: "" }), "sw");
+  const l1 = cls(L.text({ x, base: ROW(6), s: 36, c: "butter", txt: "" }), "sw");
+  const l2 = cls(L.text({ x, base: ROW(7), s: 36, c: "sand", txt: "" }), "sw");
+  const l3 = cls(L.text({ x, base: ROW(8), s: 36, c: "sand", txt: "" }), "sw");
+  const gF = gauge({ x, r: x + TW, base: ROW(9), name: "Field", c: "red", bx: 112, brw: 112, bh: 18, s: 40, ns: 36 });
+  const gP = gauge({ x, r: x + TW, base: ROW(10), name: "Pulse", c: "sand", bx: 112, brw: 112, bh: 18, s: 40, ns: 36 });
+  const l4 = cls(L.text({ x, base: ROW(11), s: 36, c: "butter", txt: "" }), "sw");
+  const pill = cls(L.box({ x, y: ROW(12) - 42, w: TW, h: 48, c: "slate", label: "", fs: 30, r: "lr" }), "pill");
+  // where people stand: rest points inside, the front of the cell, the corridor
+  const P = {
+    bunk: [x + 88, PY + 150], mid: [x + 180, PY + 190], bench: [x + TW - 74, PY + 290], corner: [x + 96, PY + 290],
+    front: [x + 180, FY - 46], hall: [x + 180, PB - 40], hallIn: [x + TW - 40, PB - 40],
+  };
+  const walk = c.pacer ? ["mid", "corner", "bench", "mid", "bunk"] : c.home === 1 ? ["bench", "mid", "bench", "bunk"] : ["bunk", "mid", "bunk", "corner"];
+  return { i, x, c, hd, field, strip, who, vis, sweep, nm, l1, l2, l3, l4, gF, gP, pill, P, walk,
+    pos: P[walk[0]].slice(), from: P[walk[0]].slice(), to: P[walk[0]].slice(), m0: -10, mdur: 6, wi: 0, nextMove: 14 + i * 7,
+    level: c.occ ? 1 : 0.2, out: false };
+});
+const ORDER = { 0: "first", 3: "second", 4: "third" };
+
+// ---------------- detainee record ----------------
+L.header({ x: CX, y: 280, w: CR - CX, label: "Detainee Record", c1: "red", c2: "sand" });
+const recCap = cls(L.text({ x: CX, base: ROW(0), s: 36, c: "butter", txt: "" }), "sw");
+const RVX = CX + 250;
+const recRows = ["Name", "Species", "Charge", "Disposition"].map((n, k) => {
+  L.text({ x: CX, base: ROW(1 + k), s: 40, c: "sand", txt: n });
+  return cls(L.text({ x: RVX, base: ROW(1 + k), s: k === 0 ? 52 : 44, c: k === 0 ? "white" : "butter", txt: "" }), "sw");
+});
+
+// ---------------- prior detentions ----------------
+L.header({ x: CX, y: 896, w: CR - CX, label: "Prior Detentions", c1: "slate", c2: "red" });
+const PCOL = [CX, CX + 170, CX + 420];
+["Stardate", "Detainee", "Species"].forEach((h, j) => L.text({ x: PCOL[j], base: ROW(7), s: 36, c: "butter", txt: h }));
+L.text({ x: CR, base: ROW(7), s: 36, c: "butter", txt: "Disposition", align: "r" });
+const priorRows = PRIOR.map((r, k) => [
+  ...[0, 1, 2].map((j) => L.text({ x: PCOL[j], base: ROW(8 + k), s: 40, c: j === 0 ? "sand" : "white", txt: r[j] })),
+  L.text({ x: CR, base: ROW(8 + k), s: 40, c: "sand", txt: r[3], align: "r" })]);
+
+// ---------------- bottom strip: visitation log, field power, protocols ----------------
+L.header({ x: P1[0], y: 1620, w: P1[1] - P1[0], label: "Visitation Log", c1: "sand", c2: "red", h: 48 });
+const VC = [P1[0], P1[0] + 130, P1[0] + 480];
+const logRows = Array.from({ length: 6 }, (_, i) => ({
+  tm: L.text({ x: VC[0], base: STRIP(i), s: 36, c: "butter", txt: "" }),
+  who: L.text({ x: VC[1], base: STRIP(i), s: 36, c: "white", txt: "" }),
+  cell: L.text({ x: VC[2], base: STRIP(i), s: 36, c: "sand", txt: "" }),
+  why: L.text({ x: P1[1], base: STRIP(i), s: 36, c: "sand", txt: "", align: "r" }) }));
+const logged = [];
+const drawLog = () => logRows.forEach((r, i) => {
+  const e = logged[i] || ["", "", "", ""];
+  L.set(r.tm, e[0]); L.set(r.who, e[1]); L.set(r.cell, e[2]); L.set(r.why, e[3]);
+  ink(r.why, e[3] === "In Progress" ? "white" : "sand");
+});
+const logLine = (e) => { logged.push(e); if (logged.length > logRows.length) logged.shift(); drawLog(); return e; };
+// the night so far, in time order
+[["0215", "Lt. Worf", "Cell 5", "Admission  ·  18 min"], ["0236", "Dr. Crusher", "Cell 5", "Medical Check  ·  9 min"],
+ ["0610", "Sec. Detail 2", "Cells 1, 4, 5", "Meal Service  ·  14 min"], ["0627", "Nurse Ogawa", "Cell 4", "Medical Check  ·  11 min"], ["0641", "Cmdr. Riker", "Cell 1", "Interview  ·  16 min"]].forEach(logLine);
+
+L.header({ x: P2[0], y: 1620, w: P2[1] - P2[0], label: "Field Power", c1: "red", c2: "slate", h: 48 });
+const pg = (i, n, c) => gauge({ x: P2[0], r: P2[1], base: STRIP(i), name: n, c, bx: 330, brw: 220, bh: 22, s: 36, ns: 36 });
+const PWR = { gen: pg(0, "Primary Generator", "red"), back: pg(1, "Backup Generator", "slate"), full: pg(2, "Cells at Full Field", "red"),
+  load: pg(3, "Emitter Load", "sand"), inhib: pg(4, "Transporter Inhibitor", "sand"), res: pg(5, "Power Reserve", "slate") };
+
+L.header({ x: CX, y: 1620, w: CR - CX, label: "Detention Protocols", c1: "slate", c2: "sand", h: 48 });
+const PROTO = [
+  ["Transporter Lock-out", "Lt. Worf", "Active"],
+  ["Internal Sensors", "Security", "Continuous"],
+  ["Weapons Scan", "Admission", "Clear"],
+  ["Replicator Menu", "Brig Galley", "Restricted"],
+  ["Communications", "Operations", "Monitored"],
+  ["Diagnostics  ·  This Watch", "Brig Officer", ""],
+];
+const protoV = PROTO.map(([a, b, c], i) => {
+  L.text({ x: CX, base: STRIP(i), s: 36, c: "sand", txt: a });
+  L.text({ x: CX + 470, base: STRIP(i), s: 36, c: "white", txt: b });
+  return L.text({ x: CR, base: STRIP(i), s: 36, c: "butter", txt: c, align: "r" });
+});
+
+// ---------------- the running state ----------------
+let last = null, phaseKey = "", lastT = 0, diags = 7, released = false, recIx = -1, recKey = "", visitEntry = null;
+const sm = { load: 0.41, gen: 1.84 };
+const records = () => [...occupied(L.t).map((i) => ({ cell: i, ...CELLS[i] })), HUGH];
+
+const showCell = (tl, mode) => {                              // the words under a plan
+  const c = tl.c;
+  if (c.occ && !tl.out) {
+    ink(tl.nm, "white"); L.set(tl.nm, c.name); L.set(tl.l1, c.line); L.set(tl.l2, c.charge);
+    L.set(tl.l3, `Held since ${c.since}`); L.set(tl.l4, c.next);
+  } else if (tl.out) {
+    ink(tl.nm, "sand"); L.set(tl.nm, "Vacant"); L.set(tl.l1, "Released at 0800"); L.set(tl.l2, "Field at Standby");
+    L.set(tl.l3, "Cleared by Lt. Worf"); L.set(tl.l4, "Ready for Admission");
+  } else {
+    ink(tl.nm, "sand"); L.set(tl.nm, "Vacant");
+    L.set(tl.l1, c.reinforced ? "Reinforced Cell" : "Standard Cell");
+    L.set(tl.l2, "Field at Standby");
+    L.set(tl.l3, c.reinforced ? `Last held ${c.since}` : `Sterile since ${c.since}`);
+    L.set(tl.l4, c.reinforced ? "Borg-rated Emitters" : "Ready for Admission");
+  }
+};
+const showPill = (tl, mode) => {
+  const occ = tl.c.occ && !tl.out;
+  const [lab, col] = mode === "visit" ? ["Visitor Present", "sand"] : mode === "diag" ? ["Field Diagnostic", "white"]
+    : mode === "rel" ? ["Releasing Detainee", "white"] : occ ? ["Detained", "red"] : tl.c.reinforced ? ["Vacant  ·  Reinforced", "slate"] : ["Vacant", "slate"];
+  bg(tl.pill, col); L.set(tl.pill, lab);
+};
+const showRecord = (r) => {
+  if (r.archive) {
+    L.set(recCap, `Archive  ·  Cell ${r.cell + 1}  ·  Stardate ${r.sd}`);
+    [r.name, r.species, r.charge, r.disp].forEach((v, k) => L.set(recRows[k], v));
+  } else {
+    const rel = r.cell === REL_CELL && released;
+    L.set(recCap, `Cell ${r.cell + 1}  ·  Held since ${r.since}  ·  Stardate ${STARDATE}`);
+    [r.name, r.rec.species, r.rec.charge, rel ? "Released at 0800 Hours" : r.rec.disp].forEach((v, k) => L.set(recRows[k], v));
+  }
+  tiles.forEach((tl) => bg(tl.hd, !r.archive && tl.i === r.cell ? "sand" : "red"));
+  priorRows.forEach((row, k) => row.forEach((e, j) => ink(e, r.archive && k === 3 ? (j === 0 || j === 3 ? "butter" : "white") : j === 1 || j === 2 ? "white" : "sand")));
+};
+const showState = (c, occN) => {
+  if (c.rel) {
+    L.set(state, WORDS[3]);
+    L.set(stateSub, `Cell 5  ·  Lt. Worf  ·  Kovar released at the end of his detention`);
+  } else if (c.visit) {
+    L.set(state, WORDS[1]);
+    L.set(stateSub, `Cell ${c.visit.cell + 1}  ·  ${c.visit.who}  ·  ${c.visit.why}  ·  Field held at full strength`);
+  } else if (c.diag) {
+    L.set(state, WORDS[2]);
+    L.set(stateSub, `Cell ${c.diag.cell + 1}  ·  Field integrity sweep  ·  Backup emitter on line`);
+  } else {
+    L.set(state, WORDS[0]);
+    L.set(stateSub, `${occN} detainees  ·  All occupied cells at full field  ·  Next visit Cell ${c.nextCell + 1}`);
+  }
+};
+
+const ease = L.ease;
+L.tick((t) => {
+  const dt = Math.min(0.1, t - lastT); lastT = t;
+  const c = cycleAt(t);
+  // events, in order
+  if (!last || c.n !== last.n || (c.visit && !last.visit)) {
+    if (c.visit && (!last || !last.visit || c.n !== last.n)) {
+      visitEntry = logLine([hhmm(shipSec(t)), c.visit.who, `Cell ${c.visit.cell + 1}`, "In Progress"]);
+    }
+  }
+  if (last && last.visit && !c.visit && visitEntry) {
+    visitEntry[3] = `${last.visit.why}  ·  ${Math.round((last.visit.dur * 12) / 60)} min`; visitEntry = null; drawLog();
+  }
+  if (last && last.diag && !c.diag) diags++;
+  if (c.rel && c.rel.ph >= 3 && !released) {
+    released = true; logLine([hhmm(shipSec(t)), "Lt. Worf", "Cell 5", "Release  ·  End of Detention"]);
+    const r = records()[recIx % records().length]; if (r && r.cell === REL_CELL) showRecord({ cell: REL_CELL, ...CELLS[REL_CELL] });
+  }
+  if (c.rel && c.rel.ph >= 14 && !tiles[REL_CELL].out) { const tl = tiles[REL_CELL]; tl.out = true; swap([tl.nm, tl.l1, tl.l2, tl.l3, tl.l4], () => showCell(tl)); }
+  last = c;
+
+  // the cells
+  tiles.forEach((tl) => {
+    const visiting = c.visit && c.visit.cell === tl.i, diag = c.diag && c.diag.cell === tl.i, rel = c.rel && tl.i === REL_CELL;
+    const occ = tl.c.occ && !(tl.i === REL_CELL && (t >= REL_T + 8));
+    // field level: full when someone is held; lowered for the release; standby when empty
+    let want = occ ? 1 : 0.2;
+    if (rel) want = c.rel.ph < 3 ? 1 : c.rel.ph < 13 ? 0 : 0.2;
+    tl.level += (want - tl.level) * (1 - Math.exp(-dt / 0.6));
+    const shimmer = 0.92 + 0.08 * wave(t, 6.5, tl.i);
+    op(tl.field, (0.12 + 0.88 * tl.level) * shimmer);
+    tf(tl.strip, `translate3d(${(-((t * 18 + tl.i * 7) % 40)).toFixed(1)}px,0,0)`);
+    // the detainee moves now and then, eased; comes to the front for a visitor; walks out at 0800
+    let target = null;
+    if (rel && tl.c.occ) target = c.rel.ph < 5 ? "front" : c.rel.ph < 9 ? "hall" : "hallIn";
+    else if (visiting) target = c.visit.ph > 3 && c.visit.ph < c.visit.dur - 4 ? "front" : null;
+    if (occ || rel) {
+      if (target) {
+        const p = tl.P[target];
+        if (tl.to[0] !== p[0] || tl.to[1] !== p[1]) { tl.from = tl.pos.slice(); tl.to = p.slice(); tl.m0 = t; tl.mdur = rel ? 4 : 5; }
+      } else if (t >= tl.nextMove || (tl.to === tl.P.front || (tl.to[0] === tl.P.front[0] && tl.to[1] === tl.P.front[1]))) {
+        tl.wi = (tl.wi + 1) % tl.walk.length;
+        tl.from = tl.pos.slice(); tl.to = tl.P[tl.walk[tl.wi]].slice(); tl.m0 = t; tl.mdur = 6;
+        tl.nextMove = t + (tl.c.pacer ? 13 : 26) + 6 * ((tl.i * 0.37 + tl.wi * 0.61) % 1);
+      }
+      const k = ease(L.clamp((t - tl.m0) / tl.mdur));
+      tl.pos = [L.mix(tl.from[0], tl.to[0], k), L.mix(tl.from[1], tl.to[1], k)];
+      tf(tl.who, `translate3d(${(tl.pos[0] - 22).toFixed(1)}px,${(tl.pos[1] - 22).toFixed(1)}px,0)`);
+      // walking out: fade before the edge of the plan
+      op(tl.who, rel ? L.clamp(1 - (c.rel.ph - 11) / 2) : 1);
+    } else op(tl.who, 0);
+    // a visitor in the corridor: walks in, waits, walks out
+    let vx = null, va = 0;
+    if (visiting) {
+      const p = c.visit.ph, d = c.visit.dur;
+      const k = p < 4 ? ease(p / 4) : p > d - 4 ? 1 - ease((p - (d - 4)) / 4) : 1;
+      vx = L.mix(tl.P.hallIn[0], tl.P.hall[0], k) - 20; va = L.clamp(Math.min(p / 1.5, (d - p) / 1.5));
+    } else if (rel) {
+      const p = c.rel.ph;
+      const k = p < 3 ? ease(p / 3) : p < 9 ? 1 : 1 - ease(L.clamp((p - 9) / 4));
+      vx = L.mix(tl.P.hallIn[0], tl.P.hall[0] - 70, k); va = L.clamp(Math.min(p / 1.5, (13 - p) / 1.5));
+    }
+    if (vx !== null) tf(tl.vis, `translate3d(${(vx - 22).toFixed(1)}px,${(tl.P.hall[1] - 22).toFixed(1)}px,0)`);
+    op(tl.vis, va);
+    // the sweep: twice down the cell
+    if (diag) {
+      const k = (c.diag.k * 2) % 1;
+      tf(tl.sweep, `translate3d(0,${(k * (FY - PY - 30)).toFixed(1)}px,0)`);
+      op(tl.sweep, Math.min(1, k / 0.08, (1 - k) / 0.08));
+    } else op(tl.sweep, 0);
+  });
+
+  // field power eases with the work: the diagnostic draws on the backup emitters
+  const e = 1 - Math.exp(-dt / 3);
+  sm.load += ((c.diag ? 0.53 : 0.41) - sm.load) * e;
+  sm.gen += ((c.diag ? 2.02 : 1.84) - sm.gen) * e;
+  showBar(PWR.load, sm.load); showBar(PWR.gen, sm.gen / 3);
+
+  // the phase in words, and the pills
+  const mode = c.rel ? "rel" + (c.rel.ph >= 14 ? "b" : "a") : c.visit ? "v" + c.n : c.diag ? "d" + c.n : "idle" + c.n;
+  if (mode !== phaseKey) {
+    const first = !phaseKey; phaseKey = mode;
+    const occN = occupied(t).length;
+    if (first) { showState(c, occN); tiles.forEach((tl) => showCell(tl)); } else swap([state, stateSub], () => showState(cycleAt(L.t), occupied(L.t).length));
+    tiles.forEach((tl) => showPill(tl, c.rel && tl.i === REL_CELL && c.rel.ph < 14 ? "rel" : c.visit && c.visit.cell === tl.i ? "visit" : c.diag && c.diag.cell === tl.i ? "diag" : ""));
+  }
+  // the record: a new one every sixteen seconds
+  const rs = records(), ri = Math.floor(t / 16);
+  if (ri !== recIx) {
+    const first = recIx < 0; recIx = ri;
+    const r = rs[ri % rs.length];
+    if (first) showRecord(r); else swap([recCap, ...recRows], () => showRecord(r));
+  }
+});
+
+// the numbers: four times a second
+L.every(250, (t) => {
+  const c = cycleAt(t);
+  L.set(clockBox, `Ship Time  ${hhmm(shipSec(t))}  ·  ${STARDATE}`);
+  tiles.forEach((tl) => {
+    const lv = tl.level;
+    showBar(tl.gF, lv); L.set(tl.gF.v, Math.round(lv * 100) + "%");
+    const occ = tl.c.occ && !(tl.i === REL_CELL && t >= REL_T + 14);
+    if (occ) {
+      const visiting = c.visit && c.visit.cell === tl.i;
+      const p = tl.c.pulse + 1.5 * wave(t, 37, tl.i) + (visiting ? 4 * Math.sin(Math.PI * L.clamp(c.visit.k)) : 0);
+      showBar(tl.gP, p / 160); L.set(tl.gP.v, String(Math.round(p)));
+    } else { showBar(tl.gP, 0); L.set(tl.gP.v, "—"); }
+  });
+  // field power
+  L.set(PWR.gen.v, sm.gen.toFixed(2) + " MW");
+  showBar(PWR.back, 1); L.set(PWR.back.v, "Standby");
+  const full = tiles.filter((tl) => tl.level > 0.995).length;
+  showBar(PWR.full, full / 6); L.set(PWR.full.v, `${full} of 6`);
+  L.set(PWR.load.v, Math.round(sm.load * 100) + "%");
+  showBar(PWR.inhib, 1); L.set(PWR.inhib.v, "100%");
+  const res = 96.2 + 0.2 * wave(t, 71); showBar(PWR.res, res / 100); L.set(PWR.res.v, res.toFixed(1) + "%");
+  L.set(protoV[5], String(diags));
+}, 0);
+});
+</script></body></html>

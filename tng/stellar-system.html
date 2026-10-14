@@ -1,0 +1,460 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Stellar System</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .disc { position: absolute; border-radius: 50%; }
+  .ring { position: absolute; border-radius: 50%; border: 3px solid rgba(199,160,216,.55); }
+  .ringf { position: absolute; border-radius: 50%; border: 3px solid transparent; border-bottom-color: rgba(199,160,216,.9); }
+  .stem { position: absolute; width: 3px; }
+  .foot { position: absolute; border-radius: 50%; border: 2px solid; width: 26px; height: 10px; }
+  .ret i { position: absolute; display: block; background: var(--butter); }
+  .head { border-radius: 50%; background: radial-gradient(closest-side, #fff 0%, #e6f6ff 35%, rgba(143,211,255,.55) 60%, rgba(143,211,255,0)); }
+  .tail { border-radius: 9px; transform-origin: 0 50%;
+          background: linear-gradient(to right, rgba(230,246,255,.9), rgba(143,211,255,.45) 25%, rgba(143,211,255,.12) 70%, rgba(143,211,255,0)); }
+  .align { transform-origin: 0 50%; background: linear-gradient(to right, rgba(255,204,102,.85), rgba(255,204,102,.3)); }
+  .tline { transform-origin: 0 50%; }
+  .tdot { border-radius: 50%; }
+  .plab .t { text-shadow: 0 0 6px #000, 0 0 3px #000, 0 0 2px #000; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: sidebar left, title top right ----------------
+const BAR = 64;
+const titleLeft = L.title({ x: 3700, y: 40, h: BAR, c: "sky", txt: "Corvanis System  •  FGC-8813" });
+L.box({ x: 3724, y: 40, w: 92, h: BAR, c: "sky", r: "r" });
+L.elbow({ corner: "tl", x: 40, y: 40, w: 1360, h: 250, bw: 240, bh: BAR, R: 150, r: 60, c: "sky" });
+L.box({ x: 1400 + L.GAP, y: 40, w: 300, h: BAR, c: "ice", label: "47-8813" });
+L.box({ x: 1724 + L.GAP, y: 40, w: 200, h: BAR, c: "butter", label: "02" });
+L.rect({ x: 1948 + L.GAP, y: 40, w: titleLeft - L.GAP - (1948 + L.GAP), h: BAR, c: "blue" });
+[[298, 140, "ice", "01-8813"], [446, 70, "butter", "02"], [524, 420, "sky", "03-1104"], [952, 70, "orange", "04"],
+ [1030, 300, "lilac", "05-2290"], [1338, 70, "ice", "06"], [1416, 216, "sky", "07-4471"]]
+  .forEach(([y, h, c, label]) => L.box({ x: 40, y, w: 240, h, c, label }));
+L.elbow({ corner: "bl", x: 40, y: 1640, w: 1500, h: 480, bw: 240, bh: BAR, R: 150, r: 60, c: "blue" });
+L.text({ x: 258, base: 1712, s: 40, c: "#000", txt: "Survey", align: "r", on: true });
+[[1540 + L.GAP, 600, "ice"], [2164 + L.GAP, 900, "lilac"], [3088 + L.GAP, 3700 - (3088 + L.GAP), "sky"]]
+  .forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
+L.box({ x: 3724, y: 2056, w: 92, h: BAR, c: "sky", r: "r" });
+
+const header = (x, y, w, label, c1, c2, h = 56, fs = 32) => {
+  const lw = Math.round((L.textWidth(label, fs) + 64) / 10) * 10;
+  L.box({ x, y, w: lw, h, c: c1, label, fs, r: "l" });
+  L.rect({ x: x + lw + L.GAP, y, w: w - lw - L.GAP, h, c: c2 });
+};
+const div = (parent, cls, css) => L.el("div", cls, parent, Object.assign({ position: "absolute" }, css));
+const px = (v) => v + "px";
+
+// ---------------- the system ----------------
+const STAR_MASS = 1.04;                                 // Sol = 1
+const ORD = ["First", "Second", "Third", "Fourth", "Fifth", "Sixth", "Seventh"];
+const CLASS = { B: "Geomorphic", N: "Reducing", M: "Minshara", K: "Adaptable", J: "Gas Giant", P: "Glaciated" };
+const P = [
+  { n: "I",   cat: "B", cls: "B", a: 0.31, ecc: 0.061, inc: 3.2, mass: "0.06", moons: 0,  temp: 612, rad: 12, c: "peach",  lift: 62 },
+  { n: "II",  cat: "C", cls: "N", a: 0.68, ecc: 0.012, inc: 1.9, mass: "0.82", moons: 0,  temp: 738, rad: 17, c: "butter", lift: 72 },
+  { n: "III", cat: "D", cls: "M", a: 1.02, ecc: 0.021, inc: 0.0, mass: "1.14", moons: 2,  temp: 289, rad: 18, c: "ice",    lift: 82 },
+  { n: "IV",  cat: "E", cls: "K", a: 1.54, ecc: 0.087, inc: 1.4, mass: "0.31", moons: 1,  temp: 221, rad: 14, c: "orange", lift: 90 },
+  { n: "V",   cat: "F", cls: "J", a: 5.1,  ecc: 0.048, inc: 1.1, mass: "287",  moons: 41, temp: 131, rad: 34, c: "sky",    lift: 96, bands: true },
+  { n: "VI",  cat: "G", cls: "J", a: 9.6,  ecc: 0.057, inc: 2.3, mass: "84.2", moons: 22, temp: 97,  rad: 28, c: "lilac",  lift: 104, ring: true },
+  { n: "VII", cat: "H", cls: "P", a: 21.4, ecc: 0.039, inc: 4.6, mass: "1.62", moons: 3,  temp: 46,  rad: 20, c: "ice",    lift: 110 },
+];
+P.forEach((p, i) => { p.i = i; p.name = "Corvanis " + p.n; p.years = Math.sqrt(p.a ** 3 / STAR_MASS); });
+const BELT = [2.1, 3.3];
+
+// ---------------- status line ----------------
+L.text({ x: 330, cap: 150, s: 100, c: "ice", txt: "Stellar Survey" });
+L.text({ x: 330 + L.textWidth("Stellar Survey", 100) + 40, base: 222, s: 38, c: "sky",
+         txt: "Corvanis A  ·  Class G2 V main sequence  ·  7 planets  ·  1 asteroid belt  ·  1 comet  ·  Stellar Cartography" });
+const lock = L.box({ x: 3416, y: 150, w: 400, h: 72, c: "sky", label: "Sensors Locked", r: "lr", fs: 36 });
+lock.style.willChange = "opacity";
+L.tick((t) => { lock.style.opacity = (0.8 + 0.2 * Math.sin(t * 1.1)).toFixed(3); });
+
+// ---------------- the chart: a tilted orbital plane, drawn once ----------------
+header(330, 280, 2370, "System Chart  ·  Orbital Plane", "sky", "blue");
+const CX = 1515, CY = 1000, TILT = 0.34, ROUT = 1080;
+const rOf = (a) => 150 + ((Math.log(a) + 1.17) / 4.23) * (ROUT - 150);     // logarithmic in AU
+P.forEach((p) => (p.r = rOf(p.a)));
+const plane = (r, th) => [CX + r * Math.cos(th), CY + r * Math.sin(th) * TILT];
+
+const chart = L.svg("g", { class: "boot" });
+const defs = L.svg("defs", {}, chart);
+const gradient = (tag, id, attrs, stops) => {
+  const g = L.svg(tag, Object.assign({ id }, attrs), defs);
+  stops.forEach(([o, c, op]) => L.svg("stop", { offset: o, "stop-color": c, "stop-opacity": op }, g));
+};
+gradient("radialGradient", "sysHalo", {}, [[0, "#ffe6a8", 0.6], [0.35, "#ffcc66", 0.22], [1, "#ffcc66", 0]]);
+gradient("radialGradient", "sysCore", {}, [[0, "#ffffff", 1], [0.45, "#fff2cc", 1], [0.8, "#ffcc66", 1], [1, "#ff9c1a", 1]]);
+gradient("linearGradient", "sysGlH", { x1: 0, y1: 0, x2: 1, y2: 0 }, [[0, "#fff6dd", 0], [0.5, "#fff6dd", 0.95], [1, "#fff6dd", 0]]);
+gradient("linearGradient", "sysGlV", { x1: 0, y1: 0, x2: 0, y2: 1 }, [[0, "#fff6dd", 0], [0.5, "#fff6dd", 0.95], [1, "#fff6dd", 0]]);
+
+// the reference axes of the plane, dashed
+const dash = { stroke: "#5c9dff", "stroke-width": 2, "stroke-dasharray": "14 12", opacity: 0.7 };
+L.svg("line", Object.assign({ x1: CX - ROUT - 60, y1: CY, x2: CX + ROUT + 60, y2: CY }, dash), chart);
+L.svg("line", Object.assign({ x1: CX, y1: CY - ROUT * TILT - 40, x2: CX, y2: CY + ROUT * TILT + 40 }, dash), chart);
+// tick marks round the outermost orbit, every 10 degrees
+let ticks = "";
+for (let d = 0; d < 360; d += 10) {
+  const th = (d * Math.PI) / 180, l = d % 90 === 0 ? 34 : 18;
+  const [x1, y1] = plane(ROUT + 8, th), [x2, y2] = plane(ROUT + 8 + l, th);
+  ticks += `M${x1.toFixed(1)},${y1.toFixed(1)}L${x2.toFixed(1)},${y2.toFixed(1)}`;
+}
+L.svg("path", { d: ticks, stroke: "#5c9dff", "stroke-width": 3, fill: "none" }, chart);
+// the orbits
+P.forEach((p) => {
+  p.orbit = L.svg("ellipse", { cx: CX, cy: CY, rx: p.r, ry: p.r * TILT, fill: "none", stroke: `var(--${p.c})`, "stroke-width": 3, opacity: 0.75 }, chart);
+});
+
+// the comet: a steeply inclined, eccentric orbit with the star at one focus
+const COMET = { a: 500, e: 0.84, tilt: 30, au: 26.2, inc: 61.3, P: 300 };
+COMET.b = COMET.a * Math.sqrt(1 - COMET.e ** 2);
+const cu = [Math.cos((COMET.tilt * Math.PI) / 180), Math.sin((COMET.tilt * Math.PI) / 180)];   // towards perihelion
+const cv = [-cu[1], cu[0]];
+{
+  const ox = CX - COMET.a * COMET.e * cu[0], oy = CY - COMET.a * COMET.e * cu[1];
+  L.svg("ellipse", { cx: ox, cy: oy, rx: COMET.a, ry: COMET.b, transform: `rotate(${COMET.tilt} ${ox} ${oy})`, fill: "none",
+    stroke: "var(--lilac)", "stroke-width": 2.5, "stroke-dasharray": "6 10", opacity: 0.9 }, chart);
+}
+
+// the asteroid belt: a soft speckled band, on a canvas drawn once
+{
+  const holder = L.el("div", "lc", L.stage, { left: "0px", top: "0px" });
+  const R1 = rOf(BELT[0]), R2 = rOf(BELT[1]), RM = (R1 + R2) / 2;
+  const bx = CX - R2 - 30, by = CY - R2 * TILT - 30;
+  const c = L.canvas({ x: bx, y: by, w: 2 * (R2 + 30), h: 2 * (R2 * TILT + 30) }, holder);
+  const cols = ["#8fd3ff", "#c7a0d8", "#5c9dff", "#bdb497", "#f2f2ff"];
+  const pts = Array.from({ length: 2600 }, () => {
+    const g = (Math.random() + Math.random() + Math.random() - 1.5) / 1.5;      // roughly normal, -1..1
+    const r = RM + g * (R2 - R1) * 0.62, th = Math.random() * Math.PI * 2;
+    return [CX + r * Math.cos(th) - bx, CY + r * Math.sin(th) * TILT - by, 0.9 + Math.random() ** 3 * 2.4, L.pick(cols), 0.35 + Math.random() * 0.6];
+  });
+  c.onResize = () => {
+    const g = c.g;
+    g.clearRect(0, 0, c.w, c.h);
+    g.save(); g.translate(CX - bx, CY - by); g.scale(1, TILT);
+    for (let k = 0; k <= 40; k++) {                    // the band's glow, densest along its middle
+      g.beginPath(); g.arc(0, 0, R1 + ((R2 - R1) * k) / 40, 0, Math.PI * 2);
+      g.strokeStyle = `rgba(143,211,255,${(0.05 * Math.sin((Math.PI * k) / 40)).toFixed(3)})`;
+      g.lineWidth = 4; g.stroke();
+    }
+    g.restore();
+    for (const [x, y, r, cl, al] of pts) { g.globalAlpha = al; g.fillStyle = cl; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); }
+    g.globalAlpha = 1;
+  };
+}
+
+// the star, with its cross-shaped glint
+L.svg("circle", { cx: CX, cy: CY, r: 120, fill: "url(#sysHalo)" }, chart);
+L.svg("polygon", { points: `${CX - 230},${CY} ${CX},${CY - 5} ${CX + 230},${CY} ${CX},${CY + 5}`, fill: "url(#sysGlH)" }, chart);
+L.svg("polygon", { points: `${CX},${CY - 150} ${CX + 5},${CY} ${CX},${CY + 150} ${CX - 5},${CY}`, fill: "url(#sysGlV)" }, chart);
+L.svg("circle", { cx: CX, cy: CY, r: 30, fill: "url(#sysCore)" }, chart);
+
+// legends in the chart are layers too, so they can step back while a planet's name passes over them
+const legends = [];
+const legend = (x, base, txt, c, s = 30, align = "c") => {
+  const w = Math.ceil(L.textWidth(txt, s)) + 8;
+  const left = align === "c" ? x - w / 2 : align === "r" ? x - w : x;
+  const e = L.layer({ x: left, y: base - 0.83 * s - 4, w, h: s + 8 });
+  L.text({ x: w / 2, y: 4, s, c, txt, align: "c", w }, e);
+  legends.push({ e, x: left, y: base - 0.72 * s - 2, w, h: 0.72 * s + 4, op: 1 });
+  return e;
+};
+legend(CX + ROUT + 60, CY - 16, "000°", "sky", 32, "r");
+legend(CX - ROUT - 60, CY - 16, "180°", "sky", 32, "l");
+legend(CX + 16, CY + ROUT * TILT + 72, "090°", "sky", 32, "l");
+legend(CX + 16, CY - ROUT * TILT - 52, "270°", "sky", 32, "l");
+P.forEach((p) => legend(CX + p.r, CY + 44, p.a.toFixed(2), p.c));
+legend(...plane((rOf(BELT[0]) + rOf(BELT[1])) / 2, (118 * Math.PI) / 180), "Asteroid Belt", "lilac", 32);
+
+// scattered readouts in the chart's upper corners
+const dw = (n, s = 36) => Math.ceil(L.textWidth("0".repeat(n), s)) + 4;
+const nums = [];
+// (on layers, like the legends, so they step back while a planet's name passes over them)
+const cornerNums = (x, y, rows, o) => {
+  const w = o.cols.reduce((a, c) => a + c.w, 0), h = Math.ceil(rows * 36 * 1.18);
+  const e = L.layer({ x, y, w, h });
+  legends.push({ e, x, y, w, h, op: 1 });
+  return L.numbers(Object.assign({ x: 0, y: 0, s: 36, rows, c: "sky" }, o), e);
+};
+nums.push(cornerNums(330, 380, 4, { rowColors: ["sky", "ice", "sky", "lilac"], cols: [{ w: dw(4), n: 4 }, { w: 110, n: 3 }, { w: 130, n: 5 }] }));
+const urW = 130 + 110 + 150;
+nums.push(cornerNums(2700 - urW, 380, 3, { rowColors: ["ice", "sky", "butter"], cols: [{ w: 130, n: 5 }, { w: 110, n: 2 }, { w: 150, n: 6 }] }));
+
+// below the plane: the comet, and the survey
+const pair = (x, base, label, c, align = "l") => {
+  if (align === "l") {
+    L.text({ x, base, s: 40, c, txt: label });
+    return L.text({ x: x + L.textWidth(label, 40) + 24, base, s: 52, c: "white", txt: "" });
+  }
+  const v = L.text({ x, base, s: 52, c: "white", txt: "", align: "r" });
+  const lab = L.text({ x, base, s: 40, c, txt: label, align: "r" });
+  return { v, lab, place: (txt) => { v.textContent = txt; lab.style.right = L.W - (x - L.textWidth(txt, 52) - 24) + "px"; } };
+};
+L.text({ x: 330, base: 1470, s: 40, c: "lilac", txt: "Comet 8813-Q" });
+L.text({ x: 330 + L.textWidth("Comet 8813-Q", 40) + 24, base: 1470, s: 36, c: "sky",
+         txt: `Period ${Math.sqrt(COMET.au ** 3 / STAR_MASS).toFixed(1)} years  ·  e ${COMET.e.toFixed(2)}  ·  Inclination ${COMET.inc}°` });
+const cDist = pair(330, 1540, "Distance", "lilac");
+const cVel = pair(800, 1540, "Velocity", "lilac");
+const survey = pair(2700, 1540, "Survey Complete", "sky", "r");
+L.text({ x: 2700, base: 1470, s: 36, c: "sky", align: "r", txt: "Reference plane  ·  Corvanis III  ·  Scale logarithmic, AU" });
+
+// ---------------- planets: layers that ride their orbits ----------------
+// everything that moves lives in one wrapper, which fades in as the frame finishes booting
+const moving = L.el("div", "lc", L.stage, { left: "0px", top: "0px", opacity: "0" });
+let shown = false;
+L.tick((t) => { if (shown) return; const k = L.clamp((t - 0.8) / 1.0); moving.style.opacity = k.toFixed(3); shown = k >= 1; });
+const LW = 360, LABH = 80;
+P.forEach((p) => {
+  const dc = 112 + p.rad;                                  // disc centre, below the two-line label
+  p.H = dc + p.rad + p.lift;
+  p.dc = dc;
+  p.e = L.layer({ x: 0, y: 0, w: LW, h: p.H }, moving);
+  p.lab = L.layer({ x: 0, y: 0, w: LW, h: LABH, cls: "plab" }, moving);
+  p.nameT = L.text({ x: LW / 2, cap: 4, s: 40, c: "white", txt: p.name, align: "c", w: LW }, p.lab);
+  L.text({ x: LW / 2, cap: 50, s: 36, c: p.c, txt: "FGC-8813-" + p.cat, align: "c", w: LW }, p.lab);
+  p.lw = Math.max(L.textWidth(p.name, 40), L.textWidth("FGC-8813-" + p.cat, 36));
+  const stem = div(p.e, "stem", { left: px(LW / 2 - 1.5), top: px(dc + p.rad + 2), height: px(p.lift - 6),
+    background: `linear-gradient(to bottom, var(--${p.c}), rgba(92,157,255,.35))` });
+  div(p.e, "foot", { left: px(LW / 2 - 13), top: px(p.H - 5), borderColor: `var(--${p.c})` });
+  if (p.ring) div(p.e, "ring", { left: px(LW / 2 - p.rad * 1.75), top: px(dc - p.rad * 0.42), width: px(p.rad * 3.5), height: px(p.rad * 0.84) });
+  const shade = `radial-gradient(circle at 34% 30%, rgba(255,255,255,.85) 0%, rgba(255,255,255,0) 32%), radial-gradient(circle at 40% 38%, rgba(0,0,0,0) 45%, rgba(2,6,26,.78) 100%)`;
+  const bands = p.bands ? `, repeating-linear-gradient(to bottom, rgba(255,255,255,.0) 0 7px, rgba(31,63,214,.35) 7px 11px)` : "";
+  div(p.e, "disc", { left: px(LW / 2 - p.rad), top: px(dc - p.rad), width: px(2 * p.rad), height: px(2 * p.rad),
+    background: `${shade}${bands}, var(--${p.c})` });
+  if (p.ring) div(p.e, "ringf", { left: px(LW / 2 - p.rad * 1.75), top: px(dc - p.rad * 0.42), width: px(p.rad * 3.5), height: px(p.rad * 0.84) });
+  p.th0 = Math.random() * Math.PI * 2;
+  p.w = (2 * Math.PI) / (80 * (p.a / 0.31) ** 0.75);      // inner planets faster; Kepler, gently compressed
+  p.op = 1; p.z = 0;
+});
+
+// the comet's head, tail and name
+const tail = L.layer({ x: 0, y: 0, w: 300, h: 18, cls: "tail" }, moving);
+const head = L.layer({ x: 0, y: 0, w: 40, h: 40, cls: "head" }, moving);
+const cLab = L.layer({ x: 0, y: 0, w: 200, h: 40 }, moving);
+L.text({ x: 100, y: 0, s: 36, c: "lilac", txt: "8813-Q", align: "c", w: 200 }, cLab);
+const cLabW = L.textWidth("8813-Q", 36);
+let cOp = 1;
+[tail, head].forEach((e) => (e.style.zIndex = 8));          // behind the planets and their names
+cLab.style.zIndex = 50;
+
+// the selected planet: brackets, and an alignment line to the star
+const ret = L.layer({ x: 0, y: 0, w: 100, h: 100, cls: "ret" }, moving);
+ret.style.zIndex = 60;
+const corners = [];
+for (const [sx, sy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
+  corners.push([div(ret, "", { width: "26px", height: "4px" }), div(ret, "", { width: "4px", height: "26px" }), sx, sy]);
+}
+corners.forEach(([a, b]) => { a.style.background = b.style.background = "var(--butter)"; });
+const sizeRet = (s) => {
+  ret.style.width = ret.style.height = px(s);
+  corners.forEach(([a, b, sx, sy]) => {
+    a.style.left = px(sx ? s - 26 : 0); a.style.top = px(sy ? s - 4 : 0);
+    b.style.left = px(sx ? s - 4 : 0); b.style.top = px(sy ? s - 26 : 0);
+  });
+};
+const align = L.layer({ x: 0, y: 0, w: 1000, h: 3, cls: "align" }, moving);
+align.style.zIndex = 5;
+
+// ---------------- planetary data ----------------
+const RX = 2760, RW = 1056, RR = RX + RW;
+header(RX, 280, RW, "Planetary Data", "butter", "sky");
+const pName = L.text({ x: RX, cap: 384, s: 100, c: "ice", txt: "" });
+const pClass = L.box({ x: RR - 260, y: 384, w: 260, h: 72, c: "butter", label: "", r: "lr", fs: 36 });
+const pSub = L.text({ x: RX, base: 530, s: 38, c: "sky", txt: "" });
+const SELW = (RW - 6 * 16) / 7;
+const sel = P.map((p, i) => L.box({ x: RX + i * (SELW + 16), y: 572, w: SELW, h: 56, c: "slate", label: p.n, fs: 32, cls: "c",
+  r: i === 0 ? "l" : i === 6 ? "r" : null }));
+const ROWS = ["Orbital Period", "Semi-Major Axis", "Eccentricity", "Inclination", "Mass  ·  Earth = 1", "Moons", "Mean Temperature", "Orbital Position"];
+const rowV = ROWS.map((label, i) => {
+  const base = 700 + i * 72;
+  L.text({ x: RX, base, s: 40, c: i === 7 ? "butter" : "sky", txt: label });
+  return L.text({ x: RR, base, s: 52, c: "white", txt: "", align: "r" });
+});
+// beside each reading, where this planet stands in the system
+const BX = RX + 2 * (SELW + 16), BW = 3 * SELW + 2 * 16;           // under the III – V selectors
+const bars = ROWS.map((_, i) => {
+  const base = 700 + i * 72;
+  L.rect({ x: BX, y: base - 26, w: BW, h: 26, c: "#0d1a3a" });
+  const f = L.layer({ x: BX, y: base - 26, w: BW, h: 26 });
+  f.style.transformOrigin = "0 0"; f.style.background = "var(--sky)";
+  return { f, u: 0, goal: 0 };
+});
+const lg = Math.log10;
+const FRAC = [(p) => (lg(p.years) + 1) / 3.1, (p) => (Math.log(p.a) + 1.17) / 4.23, (p) => p.ecc / 0.1, (p) => p.inc / 5,
+  (p) => (lg(parseFloat(p.mass)) + 1.5) / 4, (p) => Math.sqrt(p.moons / 41), (p) => p.temp / 800];
+header(RX, 1256, RW, "Primary  ·  Corvanis A", "sky", "ice");
+[["Spectral Class", "G2 V"], ["Mass  ·  Luminosity", "1.04  ·  1.12 Sol"], ["Surface Temperature", "5,840 K"]].forEach(([label, v], i) => {
+  const base = 1380 + i * 72;
+  L.text({ x: RX, base, s: 40, c: "sky", txt: label });
+  L.text({ x: RR, base, s: 52, c: "white", txt: v, align: "r" });
+});
+
+const period = (y) => (y < 2 ? `${(y * 365.25).toFixed(1)} days` : `${y.toFixed(2)} years`);
+let cur = 2, prev = 2, selT0 = -9;
+const showPlanet = (p) => {
+  pName.textContent = p.name;
+  pClass.textContent = "Class " + p.cls;
+  pSub.textContent = `FGC-8813-${p.cat}  ·  ${CLASS[p.cls]}  ·  ${ORD[p.i]} planet`;
+  sel.forEach((b, i) => { b.style.background = i === p.i ? "var(--butter)" : "var(--slate)"; });
+  rowV[0].textContent = period(p.years);
+  rowV[1].textContent = p.a.toFixed(2) + " AU";
+  rowV[2].textContent = p.ecc.toFixed(3);
+  rowV[3].textContent = p.inc.toFixed(1) + "°";
+  rowV[4].textContent = p.mass;
+  rowV[5].textContent = p.moons;
+  rowV[6].textContent = p.temp + " K";
+  FRAC.forEach((f, i) => { bars[i].goal = L.clamp(f(p), 0.02, 1); bars[i].f.style.background = `var(--${p.c})`; });
+  bars[7].f.style.background = "var(--butter)";
+  P.forEach((q) => {
+    q.nameT.style.color = q === p ? "var(--butter)" : "var(--white)";
+    q.orbit.setAttribute("stroke-width", q === p ? 5 : 3);
+    q.orbit.setAttribute("opacity", q === p ? 1 : 0.75);
+  });
+};
+showPlanet(P[cur]);
+sizeRet(2 * P[cur].rad + 32);
+
+// ---------------- planet track ----------------
+header(330, 1620, 2370, "Planet Track", "ice", "sky", 48, 28);
+const TX0 = 400, TY0 = 1885, AMP = 95, TT = 1740, TB = 2004;
+const tx = (r) => 640 + ((r - 150) / (ROUT - 150)) * 2000;
+const track = L.svg("g", { class: "boot" });
+L.svg("line", { x1: TX0, y1: TY0, x2: 2700, y2: TY0, stroke: "#5c9dff", "stroke-width": 2, "stroke-dasharray": "14 12", opacity: 0.6 }, track);
+{ // the belt, as a speckled column
+  const x1 = tx(rOf(BELT[0])), x2 = tx(rOf(BELT[1]));
+  for (let k = 0; k < 260; k++) L.svg("circle", { cx: L.rand(x1, x2).toFixed(1), cy: L.rand(TT, TB).toFixed(1), r: (0.9 + Math.random() ** 3 * 2.2).toFixed(2),
+    fill: L.pick(["#8fd3ff", "#c7a0d8", "#5c9dff", "#bdb497"]), opacity: (0.35 + Math.random() * 0.5).toFixed(2) }, track);
+  L.text({ x: (x1 + x2) / 2, base: 1716, s: 36, c: "lilac", txt: "Belt  ·  2.1 – 3.3", align: "c", w: 400 });
+}
+L.svg("circle", { cx: TX0, cy: TY0, r: 44, fill: "url(#sysHalo)" }, track);
+L.svg("polygon", { points: `${TX0 - 70},${TY0} ${TX0},${TY0 - 3} ${TX0 + 70},${TY0} ${TX0},${TY0 + 3}`, fill: "url(#sysGlH)" }, track);
+L.svg("polygon", { points: `${TX0},${TY0 - 60} ${TX0 + 3},${TY0} ${TX0},${TY0 + 60} ${TX0 - 3},${TY0}`, fill: "url(#sysGlV)" }, track);
+L.svg("circle", { cx: TX0, cy: TY0, r: 12, fill: "url(#sysCore)" }, track);
+P.forEach((p) => {
+  p.tx = tx(p.r);
+  L.svg("line", { x1: p.tx, y1: TT, x2: p.tx, y2: TB, stroke: `var(--${p.c})`, "stroke-width": 3, "stroke-dasharray": "10 10", opacity: 0.8 }, track);
+  if (p.i === 6) L.text({ x: 2700, base: 1716, s: 36, c: p.c, txt: `${p.n}  ·  ${p.a.toFixed(2)}`, align: "r" });   // flush with the strip's end
+  else L.text({ x: p.tx, base: 1716, s: 36, c: p.c, txt: `${p.n}  ·  ${p.a.toFixed(2)}`, align: "c", w: 300 });
+  p.tline = L.layer({ x: 0, y: 0, w: 1000, h: 2, cls: "tline" }, moving);
+  p.tline.style.background = `var(--${p.c})`; p.tline.style.opacity = 0.55;
+  p.tdot = L.layer({ x: 0, y: 0, w: 24, h: 24, cls: "tdot" }, moving);
+  p.tdot.style.background = `var(--${p.c})`;
+});
+
+// ---------------- sensor telemetry ----------------
+header(RX, 1620, RW, "Sensor Telemetry", "sky", "lilac", 48, 28);
+nums.push(L.numbers({ x: RX, y: 1700, s: 36, rows: 7, c: "sky", rowColors: ["sky", "ice", "sky", "lilac", "sky", "ice", "butter"],
+  cols: [{ w: dw(4), n: 4 }, { w: 126, n: 3 }, { w: 170, n: 6 }, { w: 120, n: 2 }, { w: 170, n: 5 }, { w: 150, n: 4 }, { w: RW - dw(4) - 736, n: 6 }] }));
+L.every(450, () => nums.forEach((n) => n.tick(1)), 0.3);
+
+// ---------------- motion ----------------
+const pos = (p, t) => {
+  const th = p.th0 + p.w * t, [fx, fy] = plane(p.r, th);
+  return { th, fx, fy, dx: fx, dy: fy - p.lift - p.rad };
+};
+const rectOf = (p) => ({ x: p.fx - p.lw / 2 - 10, y: p.fy - p.H, w: p.lw + 20, h: LABH });
+const discOf = (p) => ({ x: p.fx - p.rad, y: p.fy - p.lift - 2 * p.rad, w: 2 * p.rad, h: 2 * p.rad });
+const STAR = { x: CX - 36, y: CY - 36, w: 72, h: 72 };
+const footOf = (p) => ({ x: p.fx - 14, y: p.fy - 6, w: 28, h: 12 });
+const hit = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+let comet = { x: 0, y: 0, E: 0, r: 1 }, settled = false;   // the first frame places names at once
+const M0 = Math.random() * Math.PI * 2;
+
+L.tick((t) => {
+  for (const p of P) {
+    Object.assign(p, pos(p, t));
+    L.move(p.e, p.fx - LW / 2, p.fy - p.H); L.move(p.lab, p.fx - LW / 2, p.fy - p.H);
+    // the planet track: a dot per planet, its height the planet's place across the plane
+    const ty = TY0 + AMP * Math.sin(p.th), ddx = p.tx - TX0, ddy = ty - TY0;
+    L.move(p.tdot, p.tx - 12, ty - 12);
+    p.tline.style.transform = `translate3d(${TX0}px,${TY0 - 1}px,0) rotate(${Math.atan2(ddy, ddx).toFixed(4)}rad) scaleX(${(Math.hypot(ddx, ddy) / 1000).toFixed(4)})`;
+  }
+  // nearer planets in front
+  [...P].sort((a, b) => a.fy - b.fy).forEach((p, k) => { if (p.z !== 10 + k) { p.z = 10 + k; p.e.style.zIndex = p.z; p.lab.style.zIndex = p.z + 20; } });
+
+  // the comet: Kepler's equation, solved by Newton's method
+  const M = M0 + (2 * Math.PI * t) / COMET.P;
+  let E = comet.E || M;
+  for (let k = 0; k < 6; k++) E -= (E - COMET.e * Math.sin(E) - M) / (1 - COMET.e * Math.cos(E));
+  const ox = COMET.a * (Math.cos(E) - COMET.e), oy = COMET.b * Math.sin(E);
+  const hx = CX + ox * cu[0] + oy * cv[0], hy = CY + ox * cu[1] + oy * cv[1];
+  const rr = Math.hypot(hx - CX, hy - CY), ang = Math.atan2(hy - CY, hx - CX);
+  comet = { x: hx, y: hy, E: E % (Math.PI * 2), r: rr };
+  L.move(head, hx - 20, hy - 20);
+  const len = 50 + 26000 / (rr + 70);                      // longer near the star, always pointing away from it
+  tail.style.transform = `translate3d(${hx.toFixed(2)}px,${(hy - 9).toFixed(2)}px,0) rotate(${ang.toFixed(4)}rad) scaleX(${(len / 300).toFixed(4)})`;
+  let nx = -Math.sin(ang), ny = Math.cos(ang);
+  if (ny > 0) { nx = -nx; ny = -ny; }
+  const clx = hx + nx * 52, cly = hy + ny * 52;
+  L.move(cLab, clx - 100, cly - 22);
+
+  // the selection glides from one planet to the next
+  const k = L.ease(L.clamp((t - selT0) / 1.6)), a = P[prev], b = P[cur];
+  const rx = L.mix(a.dx, b.dx, k), ry = L.mix(a.dy, b.dy, k), fx = L.mix(a.fx, b.fx, k), fy = L.mix(a.fy, b.fy, k);
+  if (k < 1) sizeRet(Math.round(L.mix(2 * a.rad + 32, 2 * b.rad + 32, k)));
+  const rs = k < 1 ? Math.round(L.mix(2 * a.rad + 32, 2 * b.rad + 32, k)) : 2 * b.rad + 32;
+  L.move(ret, rx - rs / 2, ry - rs / 2);
+  const adx = fx - CX, ady = fy - CY;
+  align.style.transform = `translate3d(${CX}px,${CY - 1.5}px,0) rotate(${Math.atan2(ady, adx).toFixed(4)}rad) scaleX(${(Math.hypot(adx, ady) / 1000).toFixed(4)})`;
+
+  // the bars ease to the selected planet; the last follows its orbit round
+  const p7 = P[cur];
+  bars[7].goal = ((((p7.th0 + p7.w * t) / (2 * Math.PI)) % 1) + 1) % 1;
+  if (bars[7].goal < bars[7].u - 0.5) bars[7].u = 0;
+  for (const b of bars) {
+    if (Math.abs(b.goal - b.u) < 0.0005 && b.drawn) continue;
+    b.u += (b.goal - b.u) * 0.07; b.drawn = true;
+    b.f.style.transform = `scaleX(${b.u.toFixed(4)})`;
+  }
+
+  // names never sit on one another: the selected planet wins, then the nearer one
+  const rank = (p) => (p === P[cur] ? 1e6 : p.fy);
+  for (const p of P) {
+    const r = rectOf(p);
+    let show = p === P[cur] || !hit(r, STAR);           // a name never sits on the star, unless it is the one selected
+    for (const q of P) {
+      if (q === p) continue;
+      if (rank(q) > rank(p) && ((q.op > 0.3 && hit(r, rectOf(q))) || hit(r, discOf(q)))) { show = false; break; }
+      if (p !== P[cur] && hit(r, discOf(q))) { show = false; break; }   // nor on another planet
+      if (p !== P[cur] && hit(r, footOf(q)) && q.fy > p.fy) { show = false; break; }
+    }
+    const goal = show ? 1 : 0;
+    if (Math.abs(goal - p.op) > 0.004 || !settled) { p.op = settled ? p.op + (goal - p.op) * 0.12 : goal; p.lab.style.opacity = p.op.toFixed(3); }
+  }
+  const cr = { x: clx - cLabW / 2 - 10, y: cly - 18, w: cLabW + 20, h: 36 };
+  const cGoal = P.some((p) => p.op > 0.3 && (hit(cr, rectOf(p)) || hit(cr, discOf(p)))) ? 0 : 1;
+  if (Math.abs(cGoal - cOp) > 0.004 || !settled) { cOp = settled ? cOp + (cGoal - cOp) * 0.12 : cGoal; cLab.style.opacity = cOp.toFixed(3); }
+  // legends step back under a passing name, disc or the comet
+  for (const g of legends) {
+    const under = P.some((p) => (p.op > 0.3 && hit(g, rectOf(p))) || hit(g, discOf(p))) ||
+      hit(g, { x: hx - 24, y: hy - 24, w: 48, h: 48 }) || (cOp > 0.3 && hit(g, cr));
+    const goal = under ? 0 : 1;
+    if (Math.abs(goal - g.op) > 0.004 || !settled) { g.op = settled ? g.op + (goal - g.op) * 0.12 : goal; g.e.style.opacity = g.op.toFixed(3); }
+  }
+});
+
+// (all placed: from now on, names and legends fade)
+L.tick(() => { settled = true; });
+// the highlight moves on through the system
+L.every(9000, (t) => {
+  if (t < 1) return;
+  prev = cur; cur = (cur + 1) % P.length; selT0 = t;
+  showPlanet(P[cur]);
+  P.forEach((p, i) => { p.tdot.style.background = i === cur ? "var(--butter)" : `var(--${p.c})`; p.tline.style.opacity = i === cur ? 0.95 : 0.45; });
+}, 0);
+P.forEach((p, i) => { p.tline.style.opacity = i === cur ? 0.95 : 0.45; if (i === cur) p.tdot.style.background = "var(--butter)"; });
+
+// readouts that change: a few times a second at most
+let surveyPct = L.rand(62, 80);
+L.every(400, (t) => {
+  const p = P[cur];
+  rowV[7].textContent = (((((p.th0 + p.w * t) * 180) / Math.PI) % 360 + 360) % 360).toFixed(1).padStart(5, "0") + "°";
+  const rAU = COMET.au * (1 - COMET.e * Math.cos(comet.E));
+  const v = Math.sqrt(4 * Math.PI ** 2 * STAR_MASS * (2 / rAU - 1 / COMET.au)) * 4.74;
+  cDist.textContent = rAU.toFixed(2) + " AU";
+  cVel.textContent = v.toFixed(2) + " km/s";
+}, 0);
+L.every(3000, () => { surveyPct = Math.min(99.9, surveyPct + 0.1); survey.place(surveyPct.toFixed(1) + "%"); }, 0);
+survey.place(surveyPct.toFixed(1) + "%");
+});
+</script></body></html>

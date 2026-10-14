@@ -1,0 +1,651 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Planetary Survey</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .ship { width: 26px; height: 26px; border-radius: 13px; background: var(--butter); }
+  .mship { width: 22px; height: 22px; border-radius: 11px; background: var(--white); }
+  .ping { width: 80px; height: 80px; border-radius: 50%; border: 5px solid var(--butter); }
+  .fade { transition: opacity 1.4s ease; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the planets: three surveys in turn ----------------
+// look: the surface, generated once per planet on the GPU (flat LCARS colour regions, not a photograph).
+const PLANETS = [
+  { name: "Mintaka III", sub: "Mintaka system  ·  Pre-warp civilization  ·  Prime Directive in force",
+    rKm: 5920, g: 0.94, alt: 312, inc: 30.0,
+    data: [["Class", "M", "Minshara"], ["Diameter", "11,840 km", "0.93 Earth"], ["Gravity", "0.94 g", "Standard"],
+           ["Day Length", "26.8 h", "Prograde"], ["Axial Tilt", "19.6°", "Seasonal"], ["Mean Temperature", "16 °C", "Temperate"],
+           ["Hydrosphere", "58%", "Liquid water"]],
+    pressure: ["0.98 atm", "Breathable"],
+    gases: [["Nitrogen", 77.4], ["Oxygen", 20.9], ["Argon", 0.9], ["Water Vapor", 0.76], ["Carbon Dioxide", 0.04]],
+    life: ["Humanoid  ·  Bronze Age", "Est. 1,900"],
+    minerals: [["Iron Ore", 4, 8200], ["Copper", 3, 2400], ["Magnesite", 2, 1900], ["Topaline", 1, 640], ["Pergium", 1, 310]],
+    findings: [["Mintakan village, population est. 200", "Cultural"], ["Observation post, holographic blind intact", "Cultural"],
+      ["River delta, seasonal floodplain", "Hydrological"], ["Copper ore outcrop", "Mineral", "Copper"],
+      ["Deciduous forest canopy", "Biological"], ["Herd migration, grazing ungulates", "Biological"],
+      ["Geothermal spring", "Geological"], ["Cultivated fields, cereal grain", "Cultural"],
+      ["Magnesite seam, exposed cliff", "Mineral", "Magnesite"], ["Pergium traces, river gravels", "Mineral", "Pergium"],
+      ["Iron ore bed, shallow", "Mineral", "Iron Ore"], ["Topaline vein, mountain range", "Mineral", "Topaline"],
+      ["Extinct volcanic plateau", "Geological"], ["Coastal tidal flats", "Hydrological"]],
+    look: { seed: [3.1, 7.4, 1.9], sea: 0.505, ice: 0.80, cloud: 0.60, dry: 0.60,
+      deep: "#2446c8", shelf: "#5c9dff", low: "#a99a3a", dry2: "#c9a77c", mid: "#8a7f30", high: "#bdb497", icec: "#eef0ff" } },
+  { name: "Velara III", sub: "Velara system  ·  Velara Terraforming Project  ·  Station staff aboard",
+    rKm: 4980, g: 0.81, alt: 290, inc: 30.0,
+    data: [["Class", "M", "Marginal"], ["Diameter", "9,960 km", "0.78 Earth"], ["Gravity", "0.81 g", "Low"],
+           ["Day Length", "31.4 h", "Prograde"], ["Axial Tilt", "11.2°", "Mild seasons"], ["Mean Temperature", "34 °C", "Arid"],
+           ["Hydrosphere", "9%", "Subsurface"]],
+    pressure: ["0.71 atm", "Thin"],
+    gases: [["Nitrogen", 81.4], ["Oxygen", 14.2], ["Carbon Dioxide", 2.1], ["Argon", 1.6], ["Water Vapor", 0.7]],
+    life: ["Microbial  ·  Subsurface", "Trace"],
+    minerals: [["Silicates", 6, 12600], ["Magnesite", 3, 3100], ["Pergium", 2, 940], ["Dilithium", 1, 120], ["Topaline", 1, 280]],
+    findings: [["Terraforming station, Velara Project", "Cultural"], ["Subsurface water table, 400 m", "Hydrological"],
+      ["Silicon crystal formations", "Geological"], ["Inorganic matrix, light sensitive", "Biological"],
+      ["Active dune field", "Geological"], ["Salt flats, evaporite basin", "Geological"],
+      ["Pergium deposit, basin floor", "Mineral", "Pergium"], ["Magnesite seam, canyon wall", "Mineral", "Magnesite"],
+      ["Dilithium traces, crater rim", "Mineral", "Dilithium"], ["Ancient seabed, fossil strata", "Geological"],
+      ["Atmospheric processor, offline", "Atmospheric"], ["Silicate plain, wind scoured", "Mineral", "Silicates"],
+      ["Topaline vein, escarpment", "Mineral", "Topaline"], ["Dust front, southern hemisphere", "Atmospheric"]],
+    look: { seed: [11.3, 2.2, 6.8], sea: 0.395, ice: 1.2, cloud: 0.71, dry: 0.30,
+      deep: "#2a50d0", shelf: "#5c9dff", low: "#c9a77c", dry2: "#d6a032", mid: "#ffb070", high: "#e8d9b4", icec: "#eef0ff" } },
+  { name: "Tagus III", sub: "Tagus system  ·  Taguan ruins  ·  Archaeological survey, sites sealed",
+    rKm: 6190, g: 1.02, alt: 340, inc: 30.0,
+    data: [["Class", "M", "Minshara"], ["Diameter", "12,380 km", "0.97 Earth"], ["Gravity", "1.02 g", "Standard"],
+           ["Day Length", "22.9 h", "Prograde"], ["Axial Tilt", "24.8°", "Seasonal"], ["Mean Temperature", "21 °C", "Warm temperate"],
+           ["Hydrosphere", "47%", "Liquid water"]],
+    pressure: ["1.06 atm", "Breathable"],
+    gases: [["Nitrogen", 75.8], ["Oxygen", 22.4], ["Argon", 1.1], ["Water Vapor", 0.64], ["Carbon Dioxide", 0.06]],
+    life: ["Humanoid  ·  Taguan", "Inhabited"],
+    minerals: [["Dilithium", 3, 1400], ["Kelbonite", 2, 5200], ["Magnetite", 4, 7600], ["Boridium", 1, 380], ["Topaline", 2, 900]],
+    findings: [["Taguan ruins, sealed site", "Cultural"], ["Ruins of pre-warp settlement", "Cultural"],
+      ["Excavation trenches, abandoned", "Cultural"], ["Subterranean chambers, depth 30 m", "Cultural"],
+      ["Dormant volcanic caldera", "Geological"], ["Dilithium deposits", "Mineral", "Dilithium"],
+      ["Kelbonite layer, mountain range", "Mineral", "Kelbonite"], ["Boridium traces", "Mineral", "Boridium"],
+      ["Magnetite sands, river mouth", "Mineral", "Magnetite"], ["Coral reef system, equatorial", "Biological"],
+      ["Temperate grassland", "Biological"], ["Glacial valley", "Hydrological"], ["Monsoon front", "Atmospheric"],
+      ["Topaline vein, fault line", "Mineral", "Topaline"]],
+    look: { seed: [5.6, 13.1, 9.2], sea: 0.475, ice: 0.76, cloud: 0.63, dry: 0.50,
+      deep: "#1f3fd6", shelf: "#5c9dff", low: "#a99a3a", dry2: "#e2631b", mid: "#c9a77c", high: "#f2e6c8", icec: "#f2f2ff" } },
+];
+const CYCLE = 210;                                        // seconds on each planet
+const START = (() => { const m = /p(\d)/.exec(location.hash); return m ? +m[1] % PLANETS.length : 0; })();   // dev: #p1 starts on the second
+
+// ---------------- the frame: sidebar left, title top right ----------------
+const BAR = 64;
+L.title({ x: 3700, y: 40, h: BAR, c: "sand", txt: "Planetary Survey  •  " + PLANETS[START].name });
+const titleEl = document.querySelector("[data-title]");
+// every planet's title measured now, as the page draws it (before the stage is zoomed)
+const titleW = PLANETS.map((p) => { titleEl.textContent = "Planetary Survey  •  " + p.name; return titleEl.offsetWidth; });
+titleEl.textContent = "Planetary Survey  •  " + PLANETS[START].name;
+L.box({ x: 3724, y: 40, w: 92, h: BAR, c: "olive", r: "r" });
+L.elbow({ corner: "tl", x: 40, y: 40, w: 1360, h: 250, bw: 240, bh: BAR, R: 150, r: 60, c: "olive" });
+L.rect({ x: 1400 + L.GAP, y: 40, w: 300, h: BAR, c: "sand" });
+const topBar = L.rect({ x: 1724 + L.GAP, y: 40, w: 3700 - titleW[START] - L.GAP - (1724 + L.GAP), h: BAR, c: "olive" });
+[[298, 140, "sand", "Surv 04"], [446, 70, "gold", "Orbit"], [524, 420, "olive", "Planetary"], [952, 70, "sky", "4417"],
+ [1030, 300, "tan", "Sensors"], [1338, 70, "butter", "Geo"], [1416, 216, "olive", "Survey"]]
+  .forEach(([y, h, c, label]) => L.box({ x: 40, y, w: 240, h, c, label }));
+L.elbow({ corner: "bl", x: 40, y: 1640, w: 1500, h: 480, bw: 240, bh: BAR, R: 150, r: 60, c: "tan" });
+L.text({ x: 258, base: 1712, s: 40, c: "#000", txt: "Cartography", align: "r", on: true });
+[[1540 + L.GAP, 600, "olive"], [2164 + L.GAP, 900, "sand"], [3088 + L.GAP, 3700 - (3088 + L.GAP), "tan"]]
+  .forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
+L.box({ x: 3724, y: 2056, w: 92, h: BAR, c: "olive", r: "r" });
+
+const header = (x, y, w, label, c1, c2, h = 56, fs = 32) => {
+  const lw = Math.round((L.textWidth(label, fs) + 64) / 10) * 10;
+  L.box({ x, y, w: lw, h, c: c1, label, fs, r: "l" });
+  L.rect({ x: x + lw + L.GAP, y, w: w - lw - L.GAP, h, c: c2 });
+};
+const fill = (x, y, w, h, c) => {
+  const f = L.layer({ x, y, w, h });
+  f.style.background = c.startsWith("#") ? c : `var(--${c})`; f.style.transformOrigin = "0 0";
+  return f;
+};
+const fmt = (n) => Math.round(n).toLocaleString("en");
+const D = Math.PI / 180;
+const wrapLon = (a) => { a = (a + Math.PI) % (2 * Math.PI); return (a < 0 ? a + 2 * Math.PI : a) - Math.PI; };
+const fmtLat = (r) => `${Math.abs(r / D).toFixed(1)} ${r >= 0 ? "N" : "S"}`;
+const fmtLon = (r) => `${Math.abs(r / D).toFixed(1)} ${r >= 0 ? "E" : "W"}`;
+const gridRef = (lat, lon) => "ABCDEF"[L.clamp(Math.floor((90 - lat / D) / 30), 0, 5)] + "-" + String(L.clamp(Math.floor((lon / D + 180) / 30), 0, 11) + 1).padStart(2, "0");
+
+// ---------------- column grid ----------------
+const C1 = 330, C1R = 1230, VX = 640;                    // left column; values start at VX
+const C2 = 1290, C2R = 2590;                             // the planet
+const C3 = 2650, C3R = 3816, VX3 = C3 + (VX - C1);       // right column
+const BARR = 170;                                        // bars end this far in from a column's right edge
+const rowBase = (i) => 404 + i * 76;                     // upper tables
+const lowBase = (i) => 1124 + i * 76;                    // lower tables
+
+// ---------------- status line ----------------
+const nameTxt = L.text({ x: C1, cap: 150, s: 100, c: "butter", txt: PLANETS[START].name });
+const nameW = PLANETS.map((p) => L.textWidth(p.name, 100));
+const subTxt = L.text({ x: 0, base: 222, s: 38, c: "sand", txt: "" });
+const pill = L.box({ x: 3416, y: 150, w: 400, h: 72, c: "gold", label: "", r: "lr", fs: 36 });
+pill.style.willChange = "opacity";
+L.tick((t) => { pill.style.opacity = (0.82 + 0.18 * Math.sin(t * 1.3)).toFixed(3); });
+
+// ---------------- planetary data ----------------
+header(C1, 280, C1R - C1, "Planetary Data", "sand", "olive");
+const dataRows = PLANETS[0].data.map((_, i) => ({
+  k: L.text({ x: C1, base: rowBase(i), s: 40, c: "tan", txt: "" }),
+  v: L.text({ x: VX, base: rowBase(i), s: 52, c: "white", txt: "" }),
+  n: L.text({ x: C1R, base: rowBase(i), s: 36, c: "olive", txt: "", align: "r" }),
+}));
+
+// ---------------- atmosphere ----------------
+header(C1, 1000, C1R - C1, "Atmosphere", "tan", "sand");
+L.text({ x: C1, base: lowBase(0), s: 40, c: "tan", txt: "Surface Pressure" });
+const presV = L.text({ x: VX, base: lowBase(0), s: 52, c: "white", txt: "" });
+const presN = L.text({ x: C1R, base: lowBase(0), s: 36, c: "olive", txt: "", align: "r" });
+const gasRows = [1, 2, 3, 4, 5].map((i) => {
+  const base = lowBase(i), w = C1R - BARR - VX;
+  L.rect({ x: VX, y: base - 26, w, h: 26, c: "#24200e" });
+  return { k: L.text({ x: C1, base, s: 40, c: "tan", txt: "" }), f: fill(VX, base - 26, w, 26, i % 2 ? "gold" : "sand"),
+           v: L.text({ x: C1R, base, s: 52, c: "white", txt: "", align: "r" }), u: 0, goal: 0 };
+});
+L.tick(() => gasRows.forEach((g) => {
+  if (Math.abs(g.goal - g.u) < 0.0005 && g.drawn) return;
+  g.u += (g.goal - g.u) * 0.05; g.drawn = true;
+  g.f.style.transform = `scaleX(${g.u.toFixed(4)})`;
+}));
+
+// ---------------- the globe ----------------
+// A WebGL disc: the surface texture is generated once per planet; each frame is a single draw of
+// one quad, so the planet can turn smoothly as a real sphere (no strip, no seam) at no CPU cost.
+const PX = 1940, PY = 880, PR = 440, PM = 26;            // centre, radius, margin for the atmosphere
+const A_ORB = 1.36, BETA = 22 * D, NODE = 0.6;           // orbit radius (in planet radii), view latitude, node
+const ROT_T = 160, CLOUD_T = 133, ORB_T = 70, FOOT = 11; // seconds per turn, per cloud turn, per orbit; sensor swath (deg)
+const SUN = (() => { const v = [0.58, 0.30, 0.76], n = Math.hypot(...v); return v.map((x) => x / n); })();
+header(C2, 280, C2R - C2, "Orbital Survey", "gold", "sand");
+
+const VS = `#version 300 es
+in vec2 a; void main() { gl_Position = vec4(a, 0.0, 1.0); }`;
+const NOISE = `
+float h3(vec3 p) { p = fract(p * vec3(0.1031, 0.1030, 0.0973)); p += dot(p, p.yxz + 33.33); return fract((p.x + p.y) * p.z); }
+float vn(vec3 x) {
+  vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(h3(i), h3(i + vec3(1, 0, 0)), f.x), mix(h3(i + vec3(0, 1, 0)), h3(i + vec3(1, 1, 0)), f.x), f.y),
+             mix(mix(h3(i + vec3(0, 0, 1)), h3(i + vec3(1, 0, 1)), f.x), mix(h3(i + vec3(0, 1, 1)), h3(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+}
+float fbm(vec3 p, int n) { float a = 0.5, s = 0.0; for (int k = 0; k < 8; k++) { if (k >= n) break; s += a * vn(p); p = p * 2.02 + vec3(3.1, 1.7, 5.3); a *= 0.5; } return s; }`;
+// the surface, as an equirectangular map: rgb the ground, alpha the clouds
+const GEN = `#version 300 es
+precision highp float;
+uniform vec2 uSize; uniform vec3 uSeed; uniform float uSea, uIce, uCloud, uDry;
+uniform vec3 cDeep, cShelf, cLow, cDry, cMid, cHigh, cIce;
+out vec4 o;` + NOISE + `
+void main() {
+  vec2 uv = gl_FragCoord.xy / uSize;
+  float lon = uv.x * 6.2831853, lat = (uv.y - 0.5) * 3.1415927;
+  vec3 P = vec3(cos(lat) * sin(lon), sin(lat), cos(lat) * cos(lon));
+  vec3 q = P * 1.4 + uSeed;
+  vec3 w = vec3(fbm(q, 4), fbm(q + 5.2, 4), fbm(q + 9.7, 4));
+  float h = fbm(P * 2.0 + uSeed * 1.3 + 1.7 * w, 8);
+  float m = fbm(P * 2.4 + uSeed + 11.0, 5) + 0.10 * exp(-pow((abs(lat) - 0.45) / 0.2, 2.0));
+  float aa = fwidth(h) * 0.7 + 1e-5, am = fwidth(m) * 0.7 + 1e-5;
+  vec3 low = mix(cLow, cDry, smoothstep(uDry - am, uDry + am, m));
+  vec3 c = cDeep;
+  c = mix(c, cShelf, smoothstep(uSea - 0.04 - aa, uSea - 0.04 + aa, h));
+  c = mix(c, low, smoothstep(uSea - aa, uSea + aa, h));
+  c = mix(c, cMid, smoothstep(uSea + 0.075 - aa, uSea + 0.075 + aa, h));
+  c = mix(c, cHigh, smoothstep(uSea + 0.15 - aa, uSea + 0.15 + aa, h));
+  float e = abs(lat) / 1.5707963 + (fbm(P * 4.0 + uSeed + 21.0, 4) - 0.5) * 0.16;
+  float ae = fwidth(e) * 0.7 + 1e-5;
+  c = mix(c, cIce, smoothstep(uIce - ae, uIce + ae, e));
+  float cl = fbm(vec3(P.x * 2.2, P.y * 5.5, P.z * 2.2) + uSeed + 31.0 + 0.6 * w, 6);
+  float ac = fwidth(cl) * 0.7 + 1e-5;
+  o = vec4(c, smoothstep(uCloud - ac, uCloud + ac, cl));
+}`;
+const GLOBE = `#version 300 es
+precision highp float;
+uniform sampler2D uTex, uCov;
+uniform vec2 uC; uniform float uR, uK, uRot, uCloudRot, uBeta, uScan, uScanDir, uFoot, uShipVis;
+uniform vec3 uSun, uShip;
+out vec4 o;
+const float PI = 3.1415927;
+float line(float d, float w) { return 1.0 - smoothstep(w - 0.5, w + 0.5, d); }    // d, w in device px
+void main() {
+  vec2 p = (gl_FragCoord.xy - uC) / uR;
+  float r = length(p);
+  float z = sqrt(max(0.0, 1.0 - r * r));
+  vec3 n = vec3(p, z);
+  vec3 np = vec3(n.x, n.y * cos(uBeta) + n.z * sin(uBeta), -n.y * sin(uBeta) + n.z * cos(uBeta));
+  float lat = asin(clamp(np.y, -1.0, 1.0)), lon = atan(np.x, np.z) - uRot;
+  float u = lon / (2.0 * PI), v = 0.5 + lat / PI;
+  vec2 du = vec2(dFdx(u), dFdy(u)); du -= floor(du + 0.5);           // no seam where the longitude wraps
+  vec2 dv = vec2(dFdx(v), dFdy(v));
+  vec4 s = textureGrad(uTex, vec2(u, v), vec2(du.x, dv.x), vec2(du.y, dv.y));
+  float cloud = textureGrad(uTex, vec2(u + uCloudRot, v), vec2(du.x, dv.x), vec2(du.y, dv.y)).a;
+  float cov = texture(uCov, vec2(u, v)).r;
+  vec3 col = s.rgb;
+  float lum = dot(col, vec3(0.3, 0.5, 0.2));
+  col = mix(mix(vec3(lum), col, 0.7) * 0.55, col, cov);             // not yet mapped: dimmer, a little gray
+  col = mix(col, vec3(0.95, 0.96, 1.0), cloud * mix(0.35, 0.8, cov));
+  float lit = smoothstep(-0.04, 0.10, dot(n, uSun));
+  col = mix(col * vec3(0.16, 0.18, 0.30), col, lit);
+  col = mix(col, vec3(0.56, 0.83, 1.0), pow(1.0 - z, 4.0) * 0.25 * (0.25 + 0.75 * lit));
+  // graticule, every 30 degrees, turning with the planet
+  float latD = lat / PI * 180.0, lonD = lon / PI * 180.0;
+  float fwLat = max(fwidth(latD), 1e-4), fwLon = max((abs(du.x) + abs(du.y)) * 360.0, 1e-4);
+  float gLat = abs(fract(latD / 30.0 + 0.5) - 0.5) * 30.0 / fwLat;
+  float gLon = abs(fract(lonD / 30.0 + 0.5) - 0.5) * 30.0 / fwLon;
+  float grid = max(line(gLat, 0.9 * uK), line(gLon, 0.9 * uK) * (1.0 - smoothstep(70.0, 80.0, abs(latD))));
+  col = mix(col, vec3(0.02, 0.03, 0.10), grid * 0.5);
+  // the pole-to-pole scan line, with a short afterglow behind it
+  float sd = latD - uScan;
+  float trail = sd * uScanDir < 0.0 ? exp(-abs(sd) / 4.0) * 0.28 : 0.0;
+  col = mix(col, vec3(0.56, 0.83, 1.0), max(line(abs(sd) / fwLat, 1.3 * uK) * 0.9, trail));
+  // the sensor footprint under the ship
+  vec3 q = vec3(cos(lat) * sin(lon), sin(lat), cos(lat) * cos(lon));
+  float ang = acos(clamp(dot(q, uShip), -1.0, 1.0)) / PI * 180.0;
+  float fr = line(abs(ang - uFoot) / max(fwidth(ang), 1e-4), 1.3 * uK) * 0.95;
+  col = mix(col, vec3(1.0, 0.8, 0.4), max(fr, step(ang, uFoot) * 0.16) * uShipVis);
+  // the limb, and a thin ring of atmosphere just off it
+  float disc = clamp((1.0 - r) * uR + 0.5, 0.0, 1.0);
+  float ringA = clamp(1.6 * uK + 0.5 - abs(r - 1.0 - 12.0 * uK / uR) * uR, 0.0, 1.0) * 0.9;
+  float glow = r > 1.0 ? 0.30 * exp(-(r - 1.0) * uR / (7.0 * uK)) : 0.0;
+  vec3 halo = vec3(0.56, 0.83, 1.0);
+  float ha = max(ringA, glow);
+  o = vec4(col * disc + halo * ha * (1.0 - disc), disc + ha * (1.0 - disc));
+}`;
+const MAP = `#version 300 es
+precision highp float;
+uniform sampler2D uTex, uCov; uniform vec2 uSize; uniform float uLatMax, uK;
+out vec4 o;
+float line(float d, float w) { return 1.0 - smoothstep(w - 0.5, w + 0.5, d); }
+void main() {
+  vec2 uv = gl_FragCoord.xy / uSize;
+  float lonD = -180.0 + 360.0 * uv.x, latD = mix(-uLatMax, uLatMax, uv.y);
+  vec2 t = vec2(lonD / 360.0, 0.5 + latD / 180.0);
+  vec3 col = texture(uTex, t).rgb;
+  float cov = texture(uCov, t).r;
+  float lum = dot(col, vec3(0.3, 0.5, 0.2));
+  col = mix(mix(vec3(lum), col, 0.7) * 0.5, col, cov);
+  float ppd = uSize.x / 360.0;                                        // device px per degree
+  float gx = abs(fract(lonD / 30.0 + 0.5) - 0.5) * 30.0 * ppd, gy = abs(fract(latD / 30.0 + 0.5) - 0.5) * 30.0 * ppd;
+  col = mix(col, vec3(0.02, 0.03, 0.10), max(line(gx, 0.9 * uK), line(gy, 0.9 * uK)) * 0.5);
+  o = vec4(col, 1.0);
+}`;
+
+const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
+// One WebGL canvas: compile, a full-screen triangle, the generated surface, the coverage texture.
+function glCanvas(x, y, w, h, fs) {
+  const cv = L.el("canvas", "boot fade", L.stage, { position: "absolute", left: x + "px", top: y + "px", width: w + "px", height: h + "px" });
+  const gl = cv.getContext("webgl2", { alpha: true, premultipliedAlpha: true, antialias: false });
+  if (!gl) return null;
+  const prog = (src) => {
+    const p = gl.createProgram();
+    for (const [type, s] of [[gl.VERTEX_SHADER, VS], [gl.FRAGMENT_SHADER, src]]) {
+      const sh = gl.createShader(type); gl.shaderSource(sh, s); gl.compileShader(sh);
+      if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh));
+      gl.attachShader(p, sh);
+    }
+    gl.bindAttribLocation(p, 0, "a"); gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+    const u = {}; const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+    for (let i = 0; i < n; i++) { const name = gl.getActiveUniform(p, i).name; u[name] = gl.getUniformLocation(p, name); }
+    return { p, u };
+  };
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  const o = { cv, gl, w, h, k: 0, gen: prog(GEN), main: prog(fs), tex: gl.createTexture(), cov: gl.createTexture() };
+  gl.bindTexture(gl.TEXTURE_2D, o.cov);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, COVW, COVH, 0, gl.RED, gl.UNSIGNED_BYTE, cov);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  // the planet's surface, drawn once into a texture by the generator
+  o.generate = (P, tw) => {
+    const th = tw / 2, lk = P.look;
+    gl.bindTexture(gl.TEXTURE_2D, o.tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, tw, th, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    const fb = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, o.tex, 0);
+    gl.viewport(0, 0, tw, th);
+    const { p, u } = o.gen; gl.useProgram(p);
+    gl.uniform2f(u.uSize, tw, th); gl.uniform3fv(u.uSeed, lk.seed);
+    gl.uniform1f(u.uSea, lk.sea); gl.uniform1f(u.uIce, lk.ice); gl.uniform1f(u.uCloud, lk.cloud); gl.uniform1f(u.uDry, lk.dry);
+    [["cDeep", lk.deep], ["cShelf", lk.shelf], ["cLow", lk.low], ["cDry", lk.dry2], ["cMid", lk.mid], ["cHigh", lk.high], ["cIce", lk.icec]]
+      .forEach(([n, c]) => gl.uniform3fv(u[n], hex(c)));
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.deleteFramebuffer(fb);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.generateMipmap(gl.TEXTURE_2D);
+  };
+  o.upload = (r0, r1) => {                                 // coverage rows r0..r1 have changed
+    if (r1 < r0) return;
+    gl.bindTexture(gl.TEXTURE_2D, o.cov);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, r0, COVW, r1 - r0 + 1, gl.RED, gl.UNSIGNED_BYTE, cov.subarray(r0 * COVW, (r1 + 1) * COVW));
+  };
+  o.fit = () => {                                          // the backing store at the display's real pixels
+    const k = L.zoom * (devicePixelRatio || 1);
+    if (k === o.k) return false;
+    o.k = k; cv.width = Math.round(w * k); cv.height = Math.round(h * k);
+    return true;
+  };
+  o.begin = () => {
+    const { p, u } = o.main;
+    gl.viewport(0, 0, cv.width, cv.height); gl.useProgram(p);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, o.tex); gl.uniform1i(u.uTex, 0);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, o.cov); gl.uniform1i(u.uCov, 1);
+    gl.activeTexture(gl.TEXTURE0);
+    return u;
+  };
+  return o;
+}
+
+// ---------------- coverage: what the sensors have mapped, half a degree a cell ----------------
+const COVW = 720, COVH = 360, cov = new Uint8Array(COVW * COVH);
+const rowCos = Float32Array.from({ length: COVH }, (_, j) => Math.cos(((j + 0.5) / COVH - 0.5) * Math.PI));
+const rowSum = rowCos.reduce((a, b) => a + b, 0) * COVW;
+let dirty = [COVH, -1], mapDirty = [0, COVH - 1];
+// mark everything within the swath of the point (lat, lon): full inside, a soft edge of a degree
+function mark(lat, lon) {
+  const F = FOOT + 0.6, sl = Math.sin(lat), cl = Math.cos(lat);
+  const j0 = Math.max(0, Math.floor(((lat / D - F) / 180 + 0.5) * COVH)), j1 = Math.min(COVH - 1, Math.ceil(((lat / D + F) / 180 + 0.5) * COVH));
+  for (let j = j0; j <= j1; j++) {
+    const la = ((j + 0.5) / COVH - 0.5) * Math.PI, sa = Math.sin(la), ca = Math.cos(la);
+    const cmax = (Math.cos(F * D) - sl * sa) / Math.max(1e-6, cl * ca);
+    if (cmax > 1) continue;
+    const dl = cmax < -1 ? Math.PI : Math.acos(cmax);
+    const i0 = Math.floor(((lon - dl) / (2 * Math.PI)) * COVW), i1 = Math.ceil(((lon + dl) / (2 * Math.PI)) * COVW);
+    for (let i = i0; i <= i1; i++) {
+      const ii = ((i % COVW) + COVW) % COVW, lo = ((i + 0.5) / COVW) * 2 * Math.PI;
+      const d = Math.acos(L.clamp(sl * sa + cl * ca * Math.cos(lo - lon), -1, 1)) / D;
+      const v = Math.round(255 * L.clamp((F - d) / 1.2));
+      if (v > cov[j * COVW + ii]) cov[j * COVW + ii] = v;
+    }
+  }
+  dirty[0] = Math.min(dirty[0], j0); dirty[1] = Math.max(dirty[1], j1);
+}
+const mappedFraction = () => {
+  let s = 0;
+  for (let j = 0; j < COVH; j++) { let r = 0; for (let i = j * COVW, e = i + COVW; i < e; i++) r += cov[i]; s += r * rowCos[j]; }
+  return s / 255 / rowSum;
+};
+
+// ---------------- the ship's orbit ----------------
+let P = null, pIndex = -1, tStart = 0, rot0 = 0, th0 = 0, orbit0 = 0;
+const cB = Math.cos(BETA), sB = Math.sin(BETA);
+// tau: seconds into this planet's survey. Inertial unit vector, then the ground point and the view.
+function shipAt(tau, inc = P.inc * D) {
+  const th = th0 + (2 * Math.PI * tau) / ORB_T;
+  const N = [Math.sin(NODE), 0, Math.cos(NODE)], E = [Math.cos(NODE), 0, -Math.sin(NODE)];
+  const M = [E[0] * Math.cos(inc), Math.sin(inc), E[2] * Math.cos(inc)];
+  const s = [0, 1, 2].map((k) => Math.cos(th) * N[k] + Math.sin(th) * M[k]);
+  const rot = rot0 + (2 * Math.PI * tau) / ROT_T;
+  return { lat: Math.asin(s[1]), lon: wrapLon(Math.atan2(s[0], s[2]) - rot), rot, th,
+           vx: s[0], vy: s[1] * cB - s[2] * sB, vz: s[1] * sB + s[2] * cB };
+}
+// the orbit drawn once: the far side under the globe, the near side over it
+const orbitBack = L.svg("path", { fill: "none", stroke: "var(--butter)", "stroke-width": 4, "stroke-linecap": "round", class: "boot" });
+const shipBack = L.layer({ x: 0, y: 0, cls: "ship" });
+const globe = glCanvas(PX - PR - PM, PY - PR - PM, 2 * (PR + PM), 2 * (PR + PM), GLOBE);
+const NS = "http://www.w3.org/2000/svg";
+const over = document.createElementNS(NS, "svg");
+over.setAttribute("viewBox", `${C2} 340 ${C2R - C2} 1060`);
+over.setAttribute("class", "boot");
+Object.assign(over.style, { position: "absolute", left: C2 + "px", top: "340px", width: C2R - C2 + "px", height: "1060px" });
+L.stage.appendChild(over);
+const orbitFront = L.svg("path", { fill: "none", stroke: "var(--butter)", "stroke-width": 4, "stroke-linecap": "round" }, over);
+const shipFront = L.layer({ x: 0, y: 0, cls: "ship" });
+const scr = (s) => [PX + A_ORB * PR * s.vx, PY - A_ORB * PR * s.vy];
+function drawOrbit() {
+  // the orbit is a fixed circle in space: sample it at fixed angles, split by which side it is on
+  const pts = [];
+  for (let k = 0; k <= 360; k++) {
+    const th = (k * Math.PI) / 180;
+    const N = [Math.sin(NODE), 0, Math.cos(NODE)], E = [Math.cos(NODE), 0, -Math.sin(NODE)], inc = P.inc * D;
+    const M = [E[0] * Math.cos(inc), Math.sin(inc), E[2] * Math.cos(inc)];
+    const s = [0, 1, 2].map((j) => Math.cos(th) * N[j] + Math.sin(th) * M[j]);
+    const v = { vx: s[0], vy: s[1] * cB - s[2] * sB, vz: s[1] * sB + s[2] * cB };
+    pts.push([...scr(v), v.vz >= 0]);
+  }
+  let front = "", back = "";
+  for (let k = 1; k < pts.length; k++) {
+    const [x0, y0, f0] = pts[k - 1], [x1, y1] = pts[k];
+    const seg = `M${x0.toFixed(1)},${y0.toFixed(1)}L${x1.toFixed(1)},${y1.toFixed(1)}`;
+    if (f0) front += seg; else back += seg;
+  }
+  orbitFront.setAttribute("d", front); orbitBack.setAttribute("d", back);
+}
+
+// ---------------- survey progress ----------------
+header(C3, 280, C3R - C3, "Survey Progress", "gold", "olive");
+const SURVEY = [["Surface Mapped", 1, "butter"], ["Topography", 1.04, "gold"], ["Geology", 0.86, "sand"], ["Biosphere", 0.74, "gold"], ["Subsurface", 0.52, "sand"]];
+const surveyRows = SURVEY.map(([name, k, c], i) => {
+  const base = rowBase(i), w = C3R - BARR - VX3;
+  L.text({ x: C3, base, s: 40, c: "tan", txt: name });
+  L.rect({ x: VX3, y: base - 26, w, h: 26, c: "#24200e" });
+  return { k, f: fill(VX3, base - 26, w, 26, c), v: L.text({ x: C3R, base, s: 52, c: "white", txt: "", align: "r" }), u: 0 };
+});
+L.text({ x: C3, base: rowBase(5), s: 40, c: "tan", txt: "Life Signs" });
+const lifeV = L.text({ x: VX3, base: rowBase(5), s: 52, c: "white", txt: "" });
+const lifeN = L.text({ x: C3R, base: rowBase(5), s: 36, c: "olive", txt: "", align: "r" });
+L.text({ x: C3, base: rowBase(6), s: 40, c: "tan", txt: "Findings" });
+const findV = L.text({ x: VX3, base: rowBase(6), s: 52, c: "white", txt: "" });
+const findN = L.text({ x: C3R, base: rowBase(6), s: 36, c: "olive", txt: "", align: "r" });
+let mapped = 0;
+
+// ---------------- survey map: the whole surface, the swaths mapped so far, the ground track ----------------
+const MX = C3, MY = 1080, MW = C3R - C3, MH = lowBase(5) - MY;
+const LATMAX = (MH / 2) * (360 / MW);                     // equal scale both ways
+header(C3, 1000, C3R - C3, "Survey Map", "sky", "sand");
+const map = glCanvas(MX, MY, MW, MH, MAP);
+const mover = document.createElementNS(NS, "svg");
+mover.setAttribute("viewBox", `0 0 ${MW} ${MH}`);
+mover.setAttribute("class", "boot");
+Object.assign(mover.style, { position: "absolute", left: MX + "px", top: MY + "px", width: MW + "px", height: MH + "px", overflow: "hidden" });
+L.stage.appendChild(mover);
+const track = L.svg("path", { fill: "none", stroke: "var(--butter)", "stroke-width": 3, "stroke-linejoin": "round" }, mover);
+const marks = L.svg("g", {}, mover);
+const mship = L.layer({ x: 0, y: 0, cls: "mship" });
+const mxy = (lat, lon) => [((lon / D + 180) / 360) * MW, ((LATMAX - lat / D) / (2 * LATMAX)) * MH];
+function drawTrack(tau) {
+  let d = "", prev = null;
+  for (let k = -60; k <= 20; k++) {                       // the last three quarters of an orbit, and a little ahead
+    const s = shipAt(tau + (k / 80) * ORB_T), [x, y] = mxy(s.lat, s.lon);
+    d += (prev === null || Math.abs(x - prev) > MW / 2 ? "M" : "L") + x.toFixed(1) + "," + y.toFixed(1);
+    prev = x;
+  }
+  track.setAttribute("d", d);
+}
+
+// ---------------- orbit readouts under the globe ----------------
+const RO = [[C2, "Altitude"], [C2 + 440, "Period"], [C2 + 880, "Inclination"], [C2, "Velocity"], [C2 + 440, "Orbit"], [C2 + 880, "Over"]];
+const roV = RO.map(([x, name], i) => {
+  const base = lowBase(i < 3 ? 4 : 5);
+  L.text({ x, base, s: 36, c: "tan", txt: name });
+  return L.text({ x: x + L.textWidth(name, 36) + 24, base, s: 52, c: "white", txt: "" });
+});
+
+// ---------------- surface scan findings ----------------
+const LOGR = C2R;
+L.box({ x: C1, y: 1620, w: 420, h: 48, c: "gold", label: "Surface Scan Findings", fs: 28, r: "l" });
+L.rect({ x: C1 + 420 + L.GAP, y: 1620, w: LOGR - (C1 + 420 + L.GAP), h: 48, c: "sand" });
+const LC = [C1, 510, 680, 1640, 2040, LOGR];
+[["Stardate", 0, "l"], ["Grid", 1, "l"], ["Finding", 2, "l"], ["Position", 3, "l"], ["Category", 4, "l"], ["Status", 5, "r"]]
+  .forEach(([txt, i, align]) => L.text({ x: LC[i], base: 1730, s: 36, c: "tan", txt, align }));
+const CATC = { Cultural: "butter", Biological: "gold", Geological: "sand", Mineral: "peach", Hydrological: "sky", Atmospheric: "ice" };
+const logRows = Array.from({ length: 5 }, (_, i) => {
+  const base = 1790 + i * 54;
+  return [["l", "orange"], ["l", "butter"], ["l", "white"], ["l", "sky"], ["l", "sand"], ["r", "olive"]]
+    .map(([align, c], j) => L.text({ x: LC[j], base, s: 36, c, txt: "", align }));
+});
+let stardate = 47803.2, logged = [], findDeck = [], nFound = 0, lastFind = "";
+const showLog = () => logRows.forEach((r, i) => {
+  const e = logged[i];
+  r.forEach((cell, j) => (cell.textContent = e ? e[j] : ""));
+  if (e) r[4].style.color = `var(--${CATC[e[4]] || "sand"})`;
+});
+const logLine = (grid, txt, pos, cat, status) => {
+  stardate += 0.1;
+  logged.push([stardate.toFixed(1), grid, txt, pos, cat, status]);
+  if (logged.length > logRows.length) logged.shift();
+  showLog();
+};
+
+// ---------------- mineral deposits ----------------
+L.box({ x: C3, y: 1620, w: 360, h: 48, c: "peach", label: "Mineral Deposits", fs: 28, r: "l" });
+L.rect({ x: C3 + 360 + L.GAP, y: 1620, w: C3R - (C3 + 360 + L.GAP), h: 48, c: "tan" });
+const MCOL = [C3, VX3, 3560, C3R];
+[["Deposit", 0, "l"], ["Estimated Yield", 1, "l"], ["Sites", 2, "r"], ["Kilotonnes", 3, "r"]]
+  .forEach(([txt, i, align]) => L.text({ x: MCOL[i], base: 1730, s: 36, c: "tan", txt, align }));
+const minRows = Array.from({ length: 5 }, (_, i) => {
+  const base = 1790 + i * 54, w = 3440 - VX3;
+  L.rect({ x: VX3, y: base - 24, w, h: 24, c: "#24200e" });
+  return { k: L.text({ x: C3, base, s: 36, c: "peach", txt: "" }), f: fill(VX3, base - 24, w, 24, i % 2 ? "tan" : "peach"),
+           n: L.text({ x: MCOL[2], base, s: 36, c: "white", txt: "", align: "r" }), v: L.text({ x: C3R, base, s: 36, c: "white", txt: "", align: "r" }), u: 0, goal: 0 };
+});
+let minerals = [];
+const showMinerals = () => {
+  const top = Math.max(...minerals.map((m) => m[2]));
+  minRows.forEach((r, i) => {
+    const m = minerals[i];
+    r.k.textContent = m[0]; r.n.textContent = m[1]; r.v.textContent = fmt(m[2]); r.goal = m[2] / top;
+  });
+};
+L.tick(() => minRows.forEach((r) => {
+  if (Math.abs(r.goal - r.u) < 0.0005 && r.drawn) return;
+  r.u += (r.goal - r.u) * 0.04; r.drawn = true;
+  r.f.style.transform = `scaleX(${r.u.toFixed(4)})`;
+}));
+
+// ---------------- a finding: logged, marked on the map, counted ----------------
+const pings = [];
+function find(tau, quiet) {
+  if (!findDeck.length) findDeck = P.findings.slice().sort(() => Math.random() - 0.5);
+  const [txt, cat, min] = findDeck.pop();
+  const s = shipAt(tau), lat = L.clamp(s.lat + L.rand(-7, 7) * D, -LATMAX * D * 0.95, LATMAX * D * 0.95), lon = wrapLon(s.lon + L.rand(-7, 7) * D);
+  const grid = gridRef(lat, lon);
+  logLine(grid, txt, `${fmtLat(lat)}  ${fmtLon(lon)}`, cat, cat === "Cultural" ? "Flagged" : "Logged");
+  const [x, y] = mxy(lat, lon);
+  L.svg("rect", { x: x - 8, y: y - 8, width: 16, height: 16, fill: `var(--${CATC[cat]})`, stroke: "#000", "stroke-width": 3 }, marks);
+  if (!quiet) { const pg = L.layer({ x: MX + x - 40, y: MY + y - 40, cls: "ping" }); pg.t0 = L.t; pings.push(pg); }
+  if (min) { const m = minerals.find((m) => m[0] === min); if (m) { m[1]++; m[2] += Math.round(L.rand(0.08, 0.3) * m[2] / m[1]); showMinerals(); } }
+  nFound++; lastFind = `${cat}  ·  Grid ${grid}`;
+  showFindings();
+}
+const showFindings = () => { findV.textContent = lastFind || "Scanning"; findN.textContent = `${nFound} this survey`; };
+L.tick((t) => {
+  for (let i = pings.length - 1; i >= 0; i--) {
+    const pg = pings[i], u = (t - pg.t0) / 1.6;
+    if (u >= 1) { pg.remove(); pings.splice(i, 1); continue; }
+    pg.style.opacity = (1 - u).toFixed(3); pg.style.transform = `scale(${(0.3 + 1.2 * L.ease(u)).toFixed(3)})`;
+  }
+});
+
+// ---------------- a planet: everything set for it ----------------
+function startPlanet(i, t) {
+  P = PLANETS[i]; pIndex = i; tStart = t;
+  rot0 = L.rand(0, 2 * Math.PI); th0 = L.rand(0, 2 * Math.PI); orbit0 = L.irand(9, 16);
+  titleEl.textContent = "Planetary Survey  •  " + P.name;
+  topBar.setAttribute("width", 3700 - titleW[i] - L.GAP - (1724 + L.GAP));
+  nameTxt.textContent = P.name; subTxt.textContent = P.sub; subTxt.style.left = C1 + nameW[i] + 40 + "px";
+  P.data.forEach(([k, v, n], j) => { dataRows[j].k.textContent = k; dataRows[j].v.textContent = v; dataRows[j].n.textContent = n; });
+  presV.textContent = P.pressure[0]; presN.textContent = P.pressure[1];
+  const top = Math.max(...P.gases.map((g) => g[1]));
+  P.gases.forEach(([k, v], j) => {
+    const g = gasRows[j]; g.k.textContent = k; g.v.textContent = (v < 1 ? v.toFixed(2) : v.toFixed(1)) + "%";
+    g.goal = Math.max(0.012, v / 100);
+  });
+  lifeV.textContent = P.life[0]; lifeN.textContent = P.life[1];
+  minerals = P.minerals.map((m) => m.slice()); showMinerals();
+  // orbital mechanics from the planet's own size and gravity
+  const GM = P.g * 9.80665 * Math.pow(P.rKm * 1000, 2), a = (P.rKm + P.alt) * 1000;
+  const per = (2 * Math.PI * Math.sqrt(Math.pow(a, 3) / GM)) / 60, vel = Math.sqrt(GM / a) / 1000;
+  roV[0].textContent = `${P.alt} km`; roV[1].textContent = `${per.toFixed(1)} min`; roV[2].textContent = `${P.inc.toFixed(1)}°`;
+  roV[3].textContent = `${vel.toFixed(2)} km/s`;
+  // the survey so far: earlier orbits already flown
+  cov.fill(0);
+  const hist = L.rand(2.0, 2.6) * ORB_T;
+  for (let tau = -hist; tau <= 0; tau += 0.1) { const s = shipAt(tau); mark(s.lat, s.lon); }
+  if (/full/.test(location.hash)) cov.fill(255);          // dev: everything mapped, to judge the surface
+  dirty = [0, COVH - 1]; mapDirty = [0, COVH - 1];
+  mapped = mappedFraction(); surveyRows.forEach((r) => (r.u = Math.min(1, mapped * r.k)));
+  while (marks.firstChild) marks.firstChild.remove();
+  nFound = 0; lastFind = ""; findDeck = [];
+  for (let k = 4; k >= 0; k--) find(-k * 9, true);               // the log arrives full: the last few findings
+  if (globe) globe.generate(P, 4096);
+  if (map) map.generate(P, 2048);
+  drawOrbit(); drawTrack(0); showFindings();
+}
+
+// ---------------- the clock ----------------
+let fadeOut = false;
+L.every(250, (t) => {
+  if (!P) return;
+  const tau = t - tStart, s = shipAt(tau);
+  roV[4].textContent = String(orbit0 + Math.floor(s.th / (2 * Math.PI))).padStart(2, "0");
+  roV[5].textContent = `${fmtLat(s.lat)}  ${fmtLon(s.lon)}`;
+  pill.textContent = `Survey Orbit ${roV[4].textContent}`;
+}, 0);
+L.every(1000, (t) => {
+  if (!P) return;
+  mapped = mappedFraction();
+  surveyRows.forEach((r) => (r.v.textContent = (Math.min(1, mapped * r.k) * 100).toFixed(1) + "%"));
+  drawTrack(t - tStart);
+  if (map) drawMap();
+}, 0);
+L.every(11000, (t) => { if (P && t - tStart > 3 && t - tStart < CYCLE - 8) find(t - tStart); }, 0.3);
+L.tick((t) => surveyRows.forEach((r) => {
+  r.u += (Math.min(1, mapped * r.k) - r.u) * 0.05;
+  r.f.style.transform = `scaleX(${r.u.toFixed(4)})`;
+}));
+
+function drawMap() {
+  map.fit();
+  if (mapDirty[1] >= mapDirty[0]) { map.upload(mapDirty[0], mapDirty[1]); mapDirty = [COVH, -1]; }
+  const u = map.begin(), gl = map.gl;
+  gl.uniform2f(u.uSize, map.cv.width, map.cv.height); gl.uniform1f(u.uLatMax, LATMAX); gl.uniform1f(u.uK, map.k);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+
+L.tick((t) => {
+  const n = Math.floor(t / CYCLE), i = (START + n) % PLANETS.length;
+  if (i !== pIndex) {
+    startPlanet(i, n * CYCLE);
+    if (globe) globe.cv.style.opacity = map.cv.style.opacity = over.style.opacity = mover.style.opacity = "";
+    fadeOut = false;
+    if (map) { map.k = 0; drawMap(); }
+  }
+  const tau = t - tStart;
+  if (!fadeOut && tau > CYCLE - 2.5) {                    // breaking orbit: the planet fades before the next
+    fadeOut = true;
+    logLine("—", `Survey of ${P.name} transmitted to Starfleet`, "", "Survey", "Sent");
+    for (const e of [globe && globe.cv, map && map.cv, over, mover]) if (e) e.style.opacity = "0";
+  }
+  const s = shipAt(tau);
+  mark(s.lat, s.lon);
+  if (globe) {
+    globe.fit();
+    if (dirty[1] >= dirty[0]) { globe.upload(dirty[0], dirty[1]); }
+    mapDirty = [Math.min(mapDirty[0], dirty[0]), Math.max(mapDirty[1], dirty[1])];
+    dirty = [COVH, -1];
+    const u = globe.begin(), gl = globe.gl, k = globe.k;
+    gl.uniform2f(u.uC, globe.cv.width / 2, globe.cv.height / 2); gl.uniform1f(u.uR, PR * k); gl.uniform1f(u.uK, k);
+    gl.uniform1f(u.uRot, s.rot); gl.uniform1f(u.uCloudRot, -((tau / CLOUD_T - tau / ROT_T) % 1)); gl.uniform1f(u.uBeta, BETA);
+    // the scan line: pole to pole and back, easing at each pole
+    const sp = (tau / 24) % 2, k1 = L.ease(sp % 1);
+    gl.uniform1f(u.uScan, sp < 1 ? L.mix(80, -80, k1) : L.mix(-80, 80, k1)); gl.uniform1f(u.uScanDir, sp < 1 ? -1 : 1);
+    gl.uniform3fv(u.uSun, SUN); gl.uniform1f(u.uFoot, FOOT);
+    gl.uniform3f(u.uShip, Math.cos(s.lat) * Math.sin(s.lon), Math.sin(s.lat), Math.cos(s.lat) * Math.cos(s.lon));
+    gl.uniform1f(u.uShipVis, L.clamp(s.vz * 8 + 0.5));
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+  // the ship: in front of the globe on the near side, behind it on the far side
+  const [x, y] = scr(s);
+  L.move(shipFront, x - 13, y - 13); L.move(shipBack, x - 13, y - 13);
+  shipFront.style.opacity = s.vz >= 0 ? "1" : "0"; shipBack.style.opacity = s.vz >= 0 ? "0" : "1";
+  const [mx, my] = mxy(s.lat, s.lon);
+  L.move(mship, MX + mx - 11, MY + my - 11);
+  mship.style.opacity = Math.abs(s.lat / D) < LATMAX ? "1" : "0";
+});
+});
+</script></body></html>

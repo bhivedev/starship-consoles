@@ -1,0 +1,366 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Plasma Injectors</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* colors change slowly; progress steps glide; .boot (the start-up cascade) always wins */
+  .sw { transition: background-color 1s ease, color 1s ease; }
+  .glide { transition: transform .8s cubic-bezier(.45, 0, .55, 1); }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: sidebar left, title top right ----------------
+L.frame({ type: "A", title: "Plasma Injectors  •  Timing", c: "sky", c2: "orange", accent: "peach", foot: "Injectors",
+  side: [[140, "orange", "PI 01"], [70, "peach", "Port"], [420, "sky", "Timing"], [70, "ice", "Phase"],
+         [300, "orange", "Thermal"], [70, "peach", "Recal"], [216, "sky", "Nacelle"]] });
+
+// three columns below the strips: phase · temperature · injection
+const COLS = [[330, 1452], [1512, 2634], [2694, 3816]];
+const [A, B, C] = COLS;
+const TRACK = "#0e1838", ZONE = "#1c2c5c";
+const fill = (x, y, w, h, c, origin = "0 0") => {
+  const f = L.layer({ x, y, w, h });
+  f.style.background = c.startsWith("#") ? c : `var(--${c})`; f.style.transformOrigin = origin;
+  return f;
+};
+const cls = (e, ...c) => (e.classList.add(...c), e);
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const bg = (e, c) => { if (e._bg !== c) { e._bg = c; e.style.background = c.startsWith("#") ? c : `var(--${c})`; } };
+const fg = (e, c) => { if (e._fg !== c) { e._fg = c; e.style.color = c.startsWith("#") ? c : `var(--${c})`; } };
+const fmt = (n) => Math.round(n).toLocaleString("en");
+const pad2 = (n) => String(n).padStart(2, "0");
+// (the LCARS face has no plus sign: the panel shows the size of an error and its bar the side; the log says which)
+const adeg = (v) => Math.abs(v).toFixed(1) + "°";
+const ddeg = (v) => (Math.abs(v) < 0.05 ? "" : v > 0 ? "Late " : "Early ") + adeg(v);
+const wide = (txts, s, step = 10) => Math.ceil(Math.max(...txts.map((x) => L.textWidth(x, s))) / step) * step;
+
+// ---------------- the injectors ----------------
+const INJ = [
+  { name: "Injector 1", c: "sky",    ink: "#5c9dff", body: "#17305e", nom: 0,   temp: 1862 },
+  { name: "Injector 2", c: "ice",    ink: "#8fd3ff", body: "#173f5c", nom: 120, temp: 1848 },
+  { name: "Injector 3", c: "butter", ink: "#ffcc66", body: "#4d3d17", nom: 240, temp: 1871 },
+];
+const ALERT = { ink: "#ff5a3c", body: "#5a1f14" };
+const TOL = 3;                                           // timing tolerance, ± degrees of the firing cycle
+
+// ---------------- the story: one injector drifts, is caught, and is brought back — every 36 s ----------------
+const CYCLE = 36;
+const smooth = (k) => k * k * k * (k * (k * 6 - 15) + 10);
+const sm = (a, b, u) => smooth(L.clamp((u - a) / (b - a)));
+const evk = (t) => Math.floor(t / CYCLE);
+const cyc = (t) => ((t % CYCLE) + CYCLE) % CYCLE;
+const mod = (n, m) => ((n % m) + m) % m;
+const who = (k) => [1, 2, 0][mod(k, 3)];                 // which injector drifts in event k
+const amp = (k) => [11, -9.5, 12.5, -10.5, 10, -12][mod(k, 6)];   // its peak drift, degrees (+ late, − early)
+const drift = (u) => sm(6, 14, u) * (1 - sm(14.5, 18.5, u));     // grows, is caught, is eased back to zero
+const heat = (u) => sm(7, 15, u) * (1 - sm(17, 27, u));          // a mistimed injector runs warm, and cools slowly
+const wander = (i, t) => 0.32 * Math.sin(t * 0.23 + i * 2.1) + 0.18 * Math.sin(t * 0.61 + i * 4.3);
+const err = (i, t) => { const k = evk(t); return wander(i, t) + (who(k) === i ? amp(k) * drift(cyc(t)) : 0); };
+const syncErr = (t) => 0.22 * Math.sin(t * 0.17 + 1) + 0.1 * Math.sin(t * 0.53) + 0.08 * amp(evk(t)) * drift(cyc(t));
+const tempOf = (i, t) => { const k = evk(t); return INJ[i].temp + 3 * Math.sin(t * 0.07 + i * 2) + (who(k) === i ? Math.abs(amp(k)) * 4 * heat(cyc(t)) : 0); };
+const manifold = (t) => 2064 + 4 * Math.sin(t * 0.05) + 5 * heat(cyc(t));
+// the recalibration procedure: [step, active from, complete at] (seconds into the cycle)
+const STEPS = [["Timing drift detected", 9, 10.5], ["Reference pulse locked", 10.5, 13], ["Correction computed", 13, 14.5],
+               ["Firing window realigned", 14.5, 18.5], ["Phase verified", 18.5, 20.5]];
+const DONE = 20.5;
+
+// ---------------- status line ----------------
+const stateTxt = L.text({ x: A[0], cap: 150, s: 100, c: "ice", txt: "" });
+L.text({ x: B[0], base: 222, s: 38, c: "peach", txt: "U.S.S. Enterprise NCC-1701-D  ·  Warp Nacelle Plasma Injection  ·  Warp 6" });
+const cond = cls(L.box({ x: C[1] - 400, y: 150, w: 400, h: 72, c: "sky", label: "", r: "lr", fs: 36 }), "sw");
+
+// a section header with a pill at its right end
+const pillHeader = (x0, x1, y, label, c1, c2, texts, pc, h = 56) => {
+  const fs = h >= 56 ? 32 : 28, pw = wide(texts, fs) + 90;
+  L.header({ x: x0, y, w: x1 - x0 - pw - L.GAP, label, c1, c2, h });
+  return L.box({ x: x1 - pw, y, w: pw, h, c: pc, label: texts[0], fs, r: "r" });
+};
+
+// ---------------- the strip charts: three injectors firing, full width ----------------
+pillHeader(A[0], C[1], 280, "Injector Firing Timing", "orange", "sky", ["Firing Order  1 · 2 · 3"], "peach");
+const TABW = 300, WX = A[0] + TABW + L.GAP, WW = C[1] - WX;   // the strip: 654 → 3816
+const SY = 372, SH = 204, SG = 28, TRACE_H = 3 * SH + 2 * SG;
+const MS = 480;                                         // design px per millisecond of firing
+const RATE = 1182, P = (MS * 1000) / RATE;              // firing rate (Hz) and the period it gives (≈406 px)
+const SPEED = 240;                                      // how fast the strip glides, design px per second
+const PULSE_TOP = 66, PULSE_BASE = 180, WIN_Y = 26;     // inside a channel: pulse band and the timing window above it
+const RISE = 10, FLAT = 90, WIN = RISE + FLAT;          // the pulse's rise and flat top; the window it should fill
+INJ.forEach((g, i) => {
+  const y = SY + i * (SH + SG);
+  g.y = y;
+  L.box({ x: A[0], y, w: TABW, h: SH, c: g.c, label: g.name, fs: 40 });
+  g.big = L.text({ x: A[0] + 24, cap: y + 22, s: 110, c: "#000", txt: "", on: true });
+  L.rect({ x: WX, y, w: WW, h: SH, c: "#08102a" });
+  for (let k = 1; k * MS < WW; k++) L.rect({ x: C[1] - k * MS - 1, y, w: 2, h: SH, c: "#1a2a5c", free: true });
+});
+// time from the right-hand edge (now), and the key
+const KEY = [["Firing Pulse", INJ[0].body, INJ[0].ink], ["Timing Window", "#6f80b8", null], ["Out of Tolerance", ALERT.body, ALERT.ink]];
+let kx = A[0];
+const LEG = SY + TRACE_H + 44;                          // the legend's baseline
+for (const [txt, body, ink] of KEY) {
+  L.rect({ x: kx, y: LEG - 31, w: 48, h: 36, c: ink || body });
+  if (ink) L.rect({ x: kx + 4, y: LEG - 27, w: 40, h: 28, c: body, free: true });
+  L.text({ x: kx + 68, base: LEG, s: 36, c: "lilac", txt, legend: true });
+  kx += 68 + Math.ceil(L.textWidth(txt, 36)) + 56;
+}
+for (let k = 0; k * MS < WW; k++) {
+  const x = C[1] - k * MS, txt = k ? k + " ms" : "Now", w = L.textWidth(txt, 36);
+  if (k === 0) L.text({ x, base: LEG, s: 36, c: "lilac", txt, align: "r", legend: true });
+  else if (x - w / 2 > kx + 20) L.text({ x, base: LEG, s: 36, c: "lilac", txt, align: "c", w: 200, legend: true });
+}
+
+// The traces scroll (the Sickbay method): canvas tiles side by side in a clipped strip, slid as
+// layers. Here a whole firing cycle is drawn at once, a little before it scrolls into view, so no
+// cycle is ever drawn in slivers. Three tiles, each about half the view: the tile that
+// leaves the view is cleared and moved to the far end before anything is drawn into its new range.
+const LEAD = 480, NT = 3, S = Math.ceil((WW + LEAD + 8) / (NT - 1)) + 8;   // the lead and a tile's stride
+const strip = L.el("div", "boot", L.stage, { position: "absolute", left: WX + "px", top: SY + "px", width: WW + "px", height: TRACE_H + "px", overflow: "hidden" });
+const tiles = Array.from({ length: NT }, (_, k) => {
+  const c = L.canvas({ x: 0, y: 0, w: S + 8, h: TRACE_H }, strip);
+  c.cv.style.willChange = "transform"; c.idx = k;   // (not .k: the kit keeps the pixel scale there)
+  return c;
+});
+// strip coordinate ↔ time: the right-hand edge is now
+let written = WW;
+const tAt = (x) => (x - WW) / SPEED;
+const sched = (i, n) => (n + i / 3) * P;                 // where firing n of injector i is due
+const fired = (i, n) => sched(i, n) + (err(i, tAt(sched(i, n))) * P) / 360;   // where it actually fired
+const shape = (f) => {                                   // the pulse, 0..1, f px after it fires
+  if (f < RISE) return L.ease(f / RISE);
+  if (f < WIN) return 1 + 0.07 * Math.exp(-(f - RISE) / 12) - 0.02 * Math.sin((f - RISE) / 9) * Math.exp(-(f - RISE) / 40);
+  return Math.exp(-(f - WIN) / 13);
+};
+const TAIL = WIN + 80;
+const drawCycle = (i, n, only) => {
+  const g = INJ[i], x0 = fired(i, n), x1 = fired(i, n + 1), oy = i * (SH + SG);
+  const bad = Math.abs(err(i, tAt(sched(i, n)))) > TOL;
+  const ys = (v) => oy + PULSE_BASE - v * (PULSE_BASE - PULSE_TOP);
+  const pts = [];
+  for (let f = 0; f <= TAIL; f += f < RISE ? 1 : 2) pts.push([x0 + f, ys(shape(f))]);
+  const ws = sched(i, n);
+  for (const tile of only ? [only] : tiles) {
+    const c = tile.g, o = tile.idx * S;
+    if (Math.max(x1, x0 + TAIL) < o - 4 || Math.min(ws, x0) > o + S + 12) continue;   // nothing of it on this tile
+    // the timing window: a bracket over where the pulse is due
+    c.fillStyle = "#6f80b8";
+    c.fillRect(ws - o, oy + WIN_Y, WIN, 5);
+    c.fillRect(ws - o, oy + WIN_Y, 3, 22);
+    c.fillRect(ws + WIN - 3 - o, oy + WIN_Y, 3, 22);
+    // the pulse: filled, then its outline and the baseline on to the next firing
+    c.fillStyle = bad ? ALERT.body : g.body;
+    c.beginPath(); c.moveTo(x0 - o, oy + PULSE_BASE);
+    for (const [x, y] of pts) c.lineTo(x - o, y);
+    c.lineTo(x0 + TAIL - o, oy + PULSE_BASE); c.closePath(); c.fill();
+    c.strokeStyle = bad ? ALERT.ink : g.ink; c.lineWidth = 3.2; c.lineJoin = "round"; c.lineCap = "butt";   // butt ends: one cycle meets the next without a bright dot
+    c.beginPath(); c.moveTo(x0 - o, oy + PULSE_BASE);
+    for (const [x, y] of pts) c.lineTo(x - o, y);
+    c.lineTo(x1 - o, oy + PULSE_BASE); c.stroke();
+  }
+};
+const next = INJ.map(() => -2);                          // the next cycle to draw, per injector
+const drawAhead = () => {
+  INJ.forEach((g, i) => { while (fired(i, next[i] + 1) <= written + LEAD - 10) drawCycle(i, next[i]++); });
+};
+// a canvas is cleared whenever the display's size is set: draw back what its range holds
+tiles.forEach((tile) => (tile.onResize = () => {
+  const o = tile.idx * S;
+  INJ.forEach((g, i) => { for (let n = Math.floor(o / P) - 2; n < next[i] && sched(i, n) < o + S + 12; n++) drawCycle(i, n, tile); });
+}));
+const place = () => tiles.forEach((tile) => tf(tile.cv, `translate3d(${(tile.idx * S - (written - WW)).toFixed(2)}px,0,0)`));
+let lastT = null;
+L.tick((t) => {
+  if (lastT === null) { lastT = t; written = WW + t * SPEED; drawAhead(); place(); return; }
+  written = WW + t * SPEED; lastT = t;
+  // recycle a tile once it has left the view, before drawing into its new range
+  for (const tile of tiles) if (written - WW >= tile.idx * S + S + 8) { tile.idx += NT; tile.g.clearRect(0, 0, S + 8, TRACE_H); }
+  drawAhead();
+  place();
+});
+
+// ---------------- lower panels ----------------
+const MID = 1120, ROW0 = 1264, PITCH = 88, rowBase = (i) => ROW0 + i * PITCH + 52.5, LAB = 1240;
+const BOXW = 250;
+
+// phase alignment: each injector's error either side of its due phase
+L.header({ x: A[0], y: MID, w: A[1] - A[0], label: "Phase Alignment", c1: "sky", c2: "orange" });
+const NOMX = A[0] + BOXW + L.GAP, NOMW = wide(["240°"], 40);
+const VALW = wide(["12.5°", "Error"], 52);
+const GX0 = NOMX + NOMW + 2 * L.GAP, GX1 = A[1] - VALW - L.GAP, GC = Math.round((GX0 + GX1) / 2), GH = GX1 - GC;
+const RANGE = 14;
+L.text({ x: A[0], base: LAB, s: 36, c: "lilac", txt: "Injector" });
+L.text({ x: NOMX, base: LAB, s: 36, c: "lilac", txt: "Nominal" });
+L.text({ x: GC, base: LAB, s: 36, c: "lilac", txt: "Early  ·  Late", align: "c", w: GX1 - GX0 });
+L.text({ x: A[1], base: LAB, s: 36, c: "lilac", txt: "Error", align: "r" });
+const PHROWS = [...INJ.map((g) => [g.name, g.c, g.nom + "°"]), ["Nacelle Sync", "peach", "0°"]];
+const phase = PHROWS.map(([label, c, nom], i) => {
+  const base = rowBase(i), zw = Math.round((GH * TOL) / RANGE);
+  L.box({ x: A[0], y: ROW0 + i * PITCH, w: BOXW, h: 64, c, label, fs: 32, r: "l" });
+  L.text({ x: NOMX, base, s: 40, c: "lilac", txt: nom });
+  L.rect({ x: GX0, y: base - 26, w: GX1 - GX0, h: 26, c: TRACK });
+  L.rect({ x: GC - zw, y: base - 26, w: 2 * zw, h: 26, c: ZONE, free: true });   // the tolerance
+  const bar = fill(GC, base - 26, GH, 26, c);
+  L.rect({ x: GC - 2, y: base - 34, w: 4, h: 42, c: "white", free: true });      // due
+  return { bar, c, val: L.text({ x: A[1], base, s: 52, c: "white", txt: "", align: "r" }), v: 0 };
+});
+
+// injector temperature
+L.header({ x: B[0], y: MID, w: B[1] - B[0], label: "Injector Temperature", c1: "orange", c2: "sky" });
+const TVALW = wide(["2,088 K", "Kelvin"], 52);
+const TX0 = B[0] + BOXW + L.GAP, TX1 = B[1] - TVALW - L.GAP, TLO = 1000, THI = 2500, LIMIT = 2400;
+L.text({ x: B[0], base: LAB, s: 36, c: "lilac", txt: "Injector" });
+L.text({ x: TX0, base: LAB, s: 36, c: "lilac", txt: "Housing  ·  Limit 2,400 K" });
+L.text({ x: B[1], base: LAB, s: 36, c: "lilac", txt: "Kelvin", align: "r" });
+const TROWS = [...INJ.map((g) => [g.name, g.c]), ["Manifold", "peach"]];
+const temps = TROWS.map(([label, c], i) => {
+  const base = rowBase(i);
+  L.box({ x: B[0], y: ROW0 + i * PITCH, w: BOXW, h: 64, c, label, fs: 32, r: "l" });
+  L.rect({ x: TX0, y: base - 26, w: TX1 - TX0, h: 26, c: TRACK });
+  const bar = fill(TX0, base - 26, TX1 - TX0, 26, c);
+  L.rect({ x: TX0 + ((TX1 - TX0) * (LIMIT - TLO)) / (THI - TLO) - 2, y: base - 34, w: 4, h: 42, c: "mars", free: true });
+  return { bar, val: L.text({ x: B[1], base, s: 52, c: "white", txt: "", align: "r" }), v: -1 };
+});
+
+// plasma injection: a table of what the injectors are set to, and what they are doing
+L.header({ x: C[0], y: MID, w: C[1] - C[0], label: "Plasma Injection", c1: "sky", c2: "peach" });
+const INJW = 300, NOWX = C[0] + INJW + L.GAP + 290, SETX = NOWX + 250;
+L.text({ x: C[0], base: LAB, s: 36, c: "lilac", txt: "Reading" });
+L.text({ x: NOWX, base: LAB, s: 36, c: "lilac", txt: "Now", align: "r" });
+L.text({ x: SETX, base: LAB, s: 36, c: "lilac", txt: "Set", align: "r" });
+L.text({ x: C[1], base: LAB, s: 36, c: "lilac", txt: "Unit", align: "r" });
+const READ = [
+  ["Firing Rate", "orange", (t) => fmt(RATE), fmt(RATE), "Hz"],
+  ["Pulse Width", "peach", (t) => (0.254 + 0.001 * Math.round(Math.sin(t * 0.11))).toFixed(3), "0.254", "ms"],
+  ["Plasma Pressure", "orange", (t) => (41.1 + 0.1 * Math.round(Math.sin(t * 0.09 + 1) * 1.4)).toFixed(1), "41.0", "MPa"],
+  ["Field Output", "peach", (t) => "392", "392", "Cochranes"],
+];
+const reads = READ.map(([label, c, f, set, unit], i) => {
+  const base = rowBase(i);
+  L.box({ x: C[0], y: ROW0 + i * PITCH, w: INJW, h: 64, c, label, fs: 32, r: "l" });
+  L.text({ x: SETX, base, s: 40, c: "sky", txt: set, align: "r" });
+  L.text({ x: C[1], base, s: 40, c: "lilac", txt: unit, align: "r" });
+  return { f, val: L.text({ x: NOWX, base, s: 52, c: "white", txt: "", align: "r" }) };
+});
+
+// ---------------- recalibration events ----------------
+const LOGY = 1620, ROWS = (i) => 1734 + i * 54;
+L.header({ x: A[0], y: LOGY, w: B[1] - A[0], label: "Recalibration Events", c1: "orange", c2: "sky", h: 48 });
+const EVENTS = ["Early firing drift, window realigned", "Late firing drift, window realigned", "Thermal drift, window realigned",
+  "Plasma pressure transient compensated", "Scheduled timing verification", "Coil alignment checked after Typhon Expanse transit"];
+const SDX = A[0], INX = SDX + wide(["47988.8"], 36, 2) + 48, EVX = INX + wide(["Injector 3", "Injector"], 36, 2) + 48;
+const EVW = wide(EVENTS, 36);
+const LOGCOLS = [["Peak Drift", "Early 12.5°"], ["Peak Temp", "1,921 K"], ["Duration", "14.0 s"], ["Result", "Complete"]];
+// the four number columns share what is left equally, right-aligned
+const NX0 = EVX + EVW + 48, NSTEP = (B[1] - NX0) / LOGCOLS.length;
+const ncol = LOGCOLS.map((_, j) => Math.round(NX0 + (j + 1) * NSTEP));
+ncol[ncol.length - 1] = B[1];
+L.text({ x: SDX, base: ROWS(0), s: 36, c: "lilac", txt: "Stardate" });
+L.text({ x: INX, base: ROWS(0), s: 36, c: "lilac", txt: "Injector" });
+L.text({ x: EVX, base: ROWS(0), s: 36, c: "lilac", txt: "Event" });
+LOGCOLS.forEach(([h], j) => L.text({ x: ncol[j], base: ROWS(0), s: 36, c: "lilac", txt: h, align: "r" }));
+const logRows = Array.from({ length: 5 }, (_, i) => {
+  const base = ROWS(i + 1);
+  return { sd: L.text({ x: SDX, base, s: 36, c: "orange", txt: "" }), inj: L.text({ x: INX, base, s: 36, c: "sky", txt: "" }),
+           ev: L.text({ x: EVX, base, s: 36, c: "ice", txt: "" }), nums: ncol.map((x) => L.text({ x, base, s: 36, c: "white", txt: "", align: "r" })) };
+});
+let stardate = 47987.4;
+const logged = [
+  ["47984.6", 2, EVENTS[2], "Early 6.4°", "1,896 K", "9.0 s", "Complete"],
+  ["47985.3", -1, EVENTS[4], "0.3°", "1,866 K", "6.0 s", "Nominal"],
+  ["47986.1", 0, EVENTS[3], "Late 2.8°", "1,874 K", "2.5 s", "Complete"],
+  ["47986.9", -1, EVENTS[5], "0.4°", "1,870 K", "14.0 s", "Nominal"],
+  ["47987.4", 0, EVENTS[1], "Late 10.0°", "1,903 K", "11.5 s", "Complete"],
+];
+const showLog = () => logRows.forEach((r, i) => {
+  const e = logged[i];
+  L.set(r.sd, e[0]); L.set(r.inj, e[1] < 0 ? "All" : INJ[e[1]].name); L.set(r.ev, e[2]);
+  r.nums.forEach((n, j) => L.set(n, e[3 + j]));
+  fg(r.ev, i === logged.length - 1 ? "white" : "ice");
+  fg(r.nums[3], e[6] === "Complete" ? "sky" : "lilac");
+});
+showLog();
+const logEvent = (k) => {
+  stardate += 0.4 + Math.random() * 0.3;
+  const i = who(k), a = amp(k);
+  logged.push([stardate.toFixed(1), i, EVENTS[a > 0 ? 1 : 0], ddeg(a), fmt(INJ[i].temp + Math.abs(a) * 4) + " K", (DONE - 9).toFixed(1) + " s", "Complete"]);
+  if (logged.length > logRows.length) logged.shift();
+  showLog();
+};
+
+// ---------------- the recalibration sequence ----------------
+const seqPill = pillHeader(C[0], C[1], LOGY, "Recalibration Sequence", "sky", "orange", ["Injector 3"], "peach", 48);
+cls(seqPill, "sw");
+const STW = wide(["Complete", "Pending", "Active"], 36);
+const steps = STEPS.map(([txt], i) => {
+  const base = ROWS(i);
+  L.box({ x: C[0], y: base - 29, w: 96, h: 40, c: i % 2 ? "peach" : "sky", label: pad2(i + 1), fs: 30, r: "l" });
+  L.text({ x: C[1] - STW - 48, base, s: 36, c: "lilac", txt: (STEPS[i][1] - STEPS[0][1]).toFixed(1) + " s", align: "r" });
+  return { e: L.text({ x: C[0] + 124, base, s: 36, c: "ice", txt }), st: L.text({ x: C[1], base, s: 36, c: "lilac", txt: "", align: "r" }), look: "" };
+});
+const PB = ROWS(5), CNTW = wide(["5 Of 5"], 36);
+L.text({ x: C[0], base: PB, s: 36, c: "lilac", txt: "Progress" });
+const PX0 = C[0] + 124, PX1 = C[1] - CNTW - L.GAP;
+L.rect({ x: PX0, y: PB - 26, w: PX1 - PX0, h: 26, c: TRACK });
+const prog = cls(fill(PX0, PB - 26, PX1 - PX0, 26, "sky"), "glide");
+const progN = L.text({ x: C[1], base: PB, s: 36, c: "white", txt: "", align: "r" });
+// the step marks sit over the bar, so each fifth reads as one step
+for (let k = 1; k < 5; k++) { const m = L.layer({ x: Math.round(PX0 + ((PX1 - PX0) * k) / 5) - 3, y: PB - 26, w: 6, h: 26 }); m.style.background = "#000"; }
+
+// ---------------- the clock ----------------
+// bars and the big phase numbers glide every frame (their functions are smooth)
+L.tick((t) => {
+  INJ.forEach((g, i) => {
+    const e = err(i, t), p = phase[i];
+    const v = L.clamp(e / RANGE, -1, 1);                   // late (+) fires right of its window on the strip: so here too
+    if (Math.abs(v - p.v) > 0.0004) { p.v = v; tf(p.bar, `scaleX(${v.toFixed(4)})`); }
+  });
+  const s = L.clamp(syncErr(t) / RANGE, -1, 1);
+  if (Math.abs(s - phase[3].v) > 0.0004) { phase[3].v = s; tf(phase[3].bar, `scaleX(${s.toFixed(4)})`); }
+  temps.forEach((r, i) => {
+    const T = i < 3 ? tempOf(i, t) : manifold(t), v = L.clamp((T - TLO) / (THI - TLO));
+    if (Math.abs(v - r.v) > 0.0004) { r.v = v; tf(r.bar, `scaleX(${v.toFixed(4)})`); }
+  });
+});
+let lastLogged = evk(0) - 1 + (cyc(0) >= DONE ? 1 : 0);
+L.every(250, (t) => {
+  const k = evk(t), u = cyc(t);
+  // readings: a few times a second
+  INJ.forEach((g, i) => {
+    const e = err(i, t), out = Math.abs(e) > TOL;
+    L.set(g.big, ((((g.nom + e) % 360) + 360) % 360).toFixed(1) + "°");
+    L.set(phase[i].val, adeg(e)); fg(phase[i].val, out ? "mars" : "white");
+    bg(phase[i].bar, out ? "mars" : phase[i].c);
+  });
+  L.set(phase[3].val, adeg(syncErr(t)));
+  temps.forEach((r, i) => L.set(r.val, fmt(i < 3 ? tempOf(i, t) : manifold(t)) + " K"));
+  reads.forEach((r) => L.set(r.val, r.f(t)));
+  // the procedure: before the drift is caught, the last one is shown complete
+  const live = u >= STEPS[0][1], ek = live ? k : k - 1, inj = who(ek);
+  L.set(seqPill, INJ[inj].name);
+  bg(seqPill, INJ[inj].c);
+  let n = 0;
+  steps.forEach((s, i) => {
+    const [, a, b] = STEPS[i];
+    const st = !live || u >= b ? 2 : u >= a ? 1 : 0;
+    if (st === 2) n++;
+    const look = String(st);
+    if (look === s.look) return;
+    s.look = look;
+    L.set(s.st, ["Pending", "Active", "Complete"][st]);
+    fg(s.st, ["lilac", "white", "sky"][st]); fg(s.e, ["lilac", "white", "ice"][st]);
+  });
+  tf(prog, `scaleX(${(n / 5).toFixed(3)})`);
+  L.set(progN, `${n} Of 5`);
+  // the ship's state
+  const caught = live && u < STEPS[3][1], fixing = live && u >= STEPS[3][1] && u < DONE;
+  const name = INJ[who(k)].name;
+  L.set(stateTxt, caught ? "Timing Drift  ·  " + name : fixing ? "Recalibrating " + name : "Injectors Synchronized");
+  fg(stateTxt, caught ? "orange" : fixing ? "butter" : "ice");
+  L.set(cond, caught ? "Drift Detected" : fixing ? "Recalibrating" : "Timing Nominal");
+  bg(cond, caught ? "orange" : fixing ? "butter" : "sky");
+  // a finished recalibration goes in the log
+  if (u >= DONE && k > lastLogged) { lastLogged = k; logEvent(k); }
+}, 0);
+});
+</script></body></html>

@@ -1,0 +1,487 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Science Station</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* the scan cursor: a bright hairline with a soft glow either side */
+  .cursor { background: linear-gradient(to right, rgba(143,211,255,0), rgba(143,211,255,.22) 42%, #eaf6ff 47%, #eaf6ff 53%, rgba(143,211,255,.22) 58%, rgba(143,211,255,0)); }
+  .cursor.id { background: linear-gradient(to right, rgba(255,204,102,0), rgba(255,204,102,.22) 42%, #fff1cc 47%, #fff1cc 53%, rgba(255,204,102,.22) 58%, rgba(255,204,102,0)); }
+  .caret { width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 12px solid var(--butter); }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame, mirrored: sidebar on the right, title at top left ----------------
+const BAR = 64, TS = BAR / (L.BASELINE - L.CAP_TOP);
+L.box({ x: 40, y: 40, w: 92, h: BAR, c: "ice", r: "l" });
+const TITLE = "Science Station  •  Spectrographic Analysis";
+L.text({ x: 132 + L.GAP, cap: 40, s: TS, c: "ice", txt: TITLE });
+const afterTitle = 132 + L.GAP + L.textWidth(TITLE, TS) + L.GAP;
+L.rect({ x: afterTitle, y: 40, w: 300, h: BAR, c: "butter" });
+L.rect({ x: afterTitle + 300 + L.GAP, y: 40, w: 2600 - L.GAP - (afterTitle + 300 + L.GAP), h: BAR, c: "sky" });
+L.elbow({ corner: "tr", x: 2600, y: 40, w: 1216, h: 250, bw: 240, bh: BAR, R: 150, r: 60, c: "sky" });
+[[298, 140, "ice", "Sci 01"], [446, 70, "butter", "Spec"], [524, 420, "sky", "Analysis"], [952, 70, "blue", "Lab 2"],
+ [1030, 300, "ice", "Sensors"], [1338, 70, "butter", "Probe"], [1416, 216, "sky", "Archive"]]
+  .forEach(([y, h, c, label]) => L.box({ x: 3576, y, w: 240, h, c, label }));
+L.elbow({ corner: "br", x: 2600, y: 1640, w: 1216, h: 480, bw: 240, bh: BAR, R: 150, r: 60, c: "blue" });
+L.text({ x: 3794, base: 1712, s: 40, c: "#000", txt: "Science", align: "r", on: true });
+L.box({ x: 40, y: 2056, w: 92, h: BAR, c: "blue", r: "l" });
+[[132 + L.GAP, 700, "ice"], [132 + L.GAP + 700 + L.GAP, 900, "sky"]].forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
+L.rect({ x: 132 + 3 * L.GAP + 1600, y: 2056, w: 2600 - L.GAP - (132 + 3 * L.GAP + 1600), h: BAR, c: "blue" });
+
+const header = (x, y, w, label, lw, c1, c2) => {
+  L.box({ x, y, w: lw, h: 56, c: c1, label, fs: 32, r: "l" });
+  L.rect({ x: x + lw + L.GAP, y, w: w - lw - L.GAP, h: 56, c: c2 });
+};
+const small = (x, y, w, label, lw, c1, c2) => {
+  L.box({ x, y, w: lw, h: 48, c: c1, label, fs: 28, r: "l" });
+  L.rect({ x: x + lw + L.GAP, y, w: w - lw - L.GAP, h: 48, c: c2 });
+};
+
+// ---------------- the samples ----------------
+// Each sample: what it is, where it came from, and its emission lines (air wavelengths, nm) with
+// the elements each line belongs to and its relative strength. Composition is by mass and sums to 100.
+const ELEMENT = { H: "Hydrogen", He: "Helium", O: "Oxygen", N: "Nitrogen", S: "Sulfur", Ne: "Neon", C: "Carbon",
+  Na: "Sodium", Fe: "Iron", Ar: "Argon", Mg: "Magnesium", Si: "Silicon", Ca: "Calcium" };
+const SAMPLES = [
+  { short: "FGC-47 Nebula", source: "FGC-47 Nebula", cls: "Emission Nebula", collect: "Bussard Collector",
+    range: "0.21 light-years", temp: "8,200 K", density: "640 /cm³", vel: "+12.4 km/s", mass: "0.6 Micrograms",
+    rad: [0.042, 1240, 0.006, 12, 92.4],
+    cont: (u) => 0.035 + 0.02 * u,
+    comp: [["H", 73.4], ["He", 25.1], ["O", 0.92], ["Ne", 0.31], ["N", 0.17], ["S", 0.10]],
+    lines: [["Ne III", 386.9, ["Ne"], 0.20], ["H I", 410.2, ["H"], 0.10, "H-Delta"], ["H I", 434.0, ["H"], 0.20, "H-Gamma"],
+            ["H I", 486.1, ["H"], 0.42, "H-Beta"], ["O III", 495.9, ["O"], 0.36], ["O III", 500.7, ["O"], 1.0],
+            ["He I", 587.6, ["He"], 0.15], ["H I", 656.3, ["H"], 0.90, "H-Alpha"], ["N II", 658.4, ["N"], 0.32], ["S II", 671.6, ["S"], 0.17]],
+    energy: [0.30, 0.16] },
+  { short: "Comet Tail", source: "Comet Tail  ·  Sector 21503", cls: "Cometary Ion Tail", collect: "Shuttlecraft Probe",
+    range: "184,000 km", temp: "212 K", density: "12,400 /cm³", vel: "+41.8 km/s", mass: "3.6 mg",
+    rad: [0.008, 310, 0.002, 2900, 18.6],
+    cont: (u) => 0.05 + 0.1 * Math.exp(-Math.pow((u - 0.38) / 0.32, 2)),
+    comp: [["O", 47.2], ["C", 24.6], ["H", 18.9], ["N", 6.1], ["Fe", 2.4], ["Na", 0.8]],
+    lines: [["CN", 388.3, ["C", "N"], 0.80], ["C3", 405.0, ["C"], 0.42], ["CH", 431.4, ["C", "H"], 0.20], ["C2", 473.7, ["C"], 0.45, "C2 Swan"],
+            ["C2", 516.5, ["C"], 0.90, "C2 Swan"], ["Fe I", 527.0, ["Fe"], 0.18], ["C2", 563.5, ["C"], 0.32, "C2 Swan"],
+            ["Na I", 589.0, ["Na"], 0.70, "Sodium D", 589.6], ["O I", 630.0, ["O"], 0.38], ["H I", 656.3, ["H"], 0.24, "H-Alpha"]],
+    energy: [0.18, 0.12] },
+  { short: "Tagra IV", source: "Tagra IV  ·  Upper Atmosphere", cls: "Nitrogen-Oxygen Atmosphere", collect: "Atmospheric Probe",
+    range: "38,400 km", temp: "214 K", density: "0.41 kg/m³", vel: "+0.3 km/s", mass: "18.2 mg",
+    rad: [0.003, 220, 0.001, 4800, 0.02],
+    cont: (u) => 0.03 + 0.03 * u,
+    comp: [["N", 74.86], ["O", 22.3], ["Ar", 1.28], ["C", 1.06], ["S", 0.42], ["Na", 0.08]],
+    lines: [["N2+", 391.4, ["N"], 0.72], ["N2+", 427.8, ["N"], 0.40], ["C I", 538.0, ["C"], 0.22], ["O I", 557.7, ["O"], 1.0, "O I Green"],
+            ["Na I", 589.0, ["Na"], 0.26, "Sodium D", 589.6], ["O I", 630.0, ["O"], 0.58, "O I Red"], ["O I", 636.4, ["O"], 0.20],
+            ["S II", 671.6, ["S"], 0.28], ["Ar I", 696.5, ["Ar"], 0.18]],
+    energy: [0.55, 0.14] },
+  { short: "Penthara IV", source: "Penthara IV  ·  Ash Plume", cls: "Volcanic Ash Aerosol", collect: "Atmospheric Probe",
+    range: "41,200 km", temp: "1,180 K", density: "2.6 g/m³", vel: "+0.1 km/s", mass: "12.8 mg",
+    rad: [0.021, 540, 0.004, 38200, 0.4],
+    cont: (u) => 0.04 + 0.2 * Math.pow(u, 1.6),
+    comp: [["O", 46.3], ["Si", 28.1], ["Fe", 9.4], ["Ca", 7.2], ["Mg", 5.1], ["Na", 3.9]],
+    lines: [["Ca II", 393.4, ["Ca"], 0.62, "Calcium K"], ["Ca II", 396.8, ["Ca"], 0.55, "Calcium H"], ["Fe I", 438.4, ["Fe"], 0.32],
+            ["Mg I", 518.4, ["Mg"], 0.50], ["Fe I", 527.0, ["Fe"], 0.38], ["Na I", 589.0, ["Na"], 1.0, "Sodium D", 589.6],
+            ["O I", 630.0, ["O"], 0.30], ["Si II", 634.7, ["Si"], 0.42], ["Si II", 637.1, ["Si"], 0.28]],
+    energy: [0.72, 0.18] },
+];
+SAMPLES.forEach((s) => (s.lines = s.lines.map(([sp, nm, els, i, name, dbl]) => ({ sp, nm, els, i, name: name || sp, dbl }))));
+
+// The analysis cycle, about 33 seconds round.
+const PHASES = [["Sampling", 6], ["Spectral Scan", 11], ["Element Identification", 10], ["Analysis Complete", 6]];
+const CYCLE = PHASES.reduce((a, p) => a + p[1], 0), T_SCAN = 6, T_ID = 17, T_REP = 27;
+const phaseAt = (u) => { for (let i = 0; i < PHASES.length; i++) { if (u < PHASES[i][1]) return { i, k: u / PHASES[i][1] }; u -= PHASES[i][1]; } return { i: 0, k: 0 }; };
+
+let sampleN = 2240, sd = 47772.3;
+
+// ---------------- status line ----------------
+const stateTxt = L.text({ x: 40, cap: 150, s: 100, c: "ice", txt: "Sampling" });
+const stateSub = L.text({ x: 1140, base: 222, s: 38, c: "sky", txt: "" });
+const pill = L.box({ x: 3120, y: 150, w: 400, h: 72, c: "sky", label: "", r: "lr", fs: 36 });
+
+// ---------------- sample data ----------------
+header(40, 280, 1040, "Sample Data", 300, "sky", "ice");
+const META = [["Source", (s) => s.source], ["Class", (s) => s.cls], ["Collection", (s) => s.collect], ["Range", (s) => s.range],
+  ["Temperature", (s) => s.temp], ["Density", (s) => s.density], ["Radial Velocity", (s) => s.vel], ["Sample Mass", (s) => s.mass],
+  ["Stardate", (s) => s.sd]];
+const metaVals = META.map(([name], i) => {
+  const base = 404 + i * 76;
+  L.text({ x: 40, base, s: 40, c: "sky", txt: name });
+  return L.text({ x: 330, base, s: 52, c: "white", txt: "" });
+});
+
+// ---------------- emission spectrum ----------------
+const P0 = 1140, PW = 3520 - P0, NM0 = 380, NM1 = 700, PT = 412, PH = 360, BT = 788, BH = 72;
+const X = (nm) => P0 + ((nm - NM0) / (NM1 - NM0)) * PW;
+header(P0, 280, PW, "Emission Spectrum", 360, "ice", "sky");
+for (let nm = NM0; nm <= NM1; nm += 10) {                // the wavelength scale, above the plot
+  const big = nm % 20 === 0;
+  L.rect({ x: X(nm) - 1.5, y: PT - (big ? 18 : 10), w: 3, h: big ? 18 : 10, c: "sky", free: true });
+  if (big) L.text({ x: nm === NM0 ? P0 : nm === NM1 ? P0 + PW : X(nm), base: PT - 30, s: 34, c: "sky", txt: String(nm),
+    align: nm === NM0 ? undefined : nm === NM1 ? "r" : "c", w: 120, legend: true });
+}
+L.rect({ x: P0, y: PT, w: PW, h: PH, c: "#08102a" });
+L.rect({ x: P0, y: BT, w: PW, h: BH, c: "#0a1636" });
+// The chart is drawn twice: the sample under analysis, and over it a window showing the one before.
+// The window slides off to the right with the scan cursor, so the new spectrum is uncovered behind
+// it while the old one stays put ahead of it. Moving the window is compositing only.
+const CH = BT + BH - PT;
+const clip = L.el("div", "boot", L.stage, { position: "absolute", left: P0 + "px", top: PT + "px", width: PW + "px", height: CH + 4 + "px", overflow: "hidden" });
+const RAMP = [[0, 10, 22, 54], [0.12, 22, 48, 140], [0.35, 58, 111, 255], [0.65, 143, 211, 255], [1, 242, 248, 255]];
+const ramp = (u) => {
+  u = L.clamp(u); let j = 0;
+  while (j < RAMP.length - 2 && u > RAMP[j + 1][0]) j++;
+  const a = RAMP[j], b = RAMP[j + 1], k = (u - a[0]) / (b[0] - a[0]);
+  return `rgb(${[1, 2, 3].map((c) => Math.round(L.mix(a[c], b[c], k))).join(",")})`;
+};
+const SCALE = 0.84;
+const yOf = (v) => PH - 6 - L.clamp(v, 0, 1.1) * SCALE * PH;
+const chart = (parent) => {                              // grid, filled curve and band, in clip coordinates
+  const svg = L.svg("svg", { width: PW, height: PH, style: "position:absolute;left:0;top:0" }, parent);
+  for (let nm = NM0 + 20; nm < NM1; nm += 20) L.svg("rect", { x: X(nm) - P0 - 1, y: 0, width: 2, height: PH, fill: "#1a2a5c" }, svg);
+  for (let k = 1; k < 4; k++) L.svg("rect", { x: 0, y: (PH / 4) * k - 1, width: PW, height: 2, fill: "#1a2a5c" }, svg);
+  const area = L.svg("path", { d: "", fill: "#173a8c", opacity: 0.55 }, svg);
+  const curve = L.svg("path", { d: "", fill: "none", stroke: "var(--ice)", "stroke-width": 3, "stroke-linejoin": "round" }, svg);
+  const band = L.canvas({ x: 0, y: BT - PT, w: PW, h: BH }, parent);
+  let prof = [];
+  band.onResize = () => {
+    band.g.clearRect(0, 0, band.w, band.h);
+    const n = prof.length - 1;
+    for (let i = 0; i < n; i++) {
+      band.g.fillStyle = ramp(Math.pow((prof[i] + prof[i + 1]) / 2, 0.7));
+      band.g.fillRect((i / n) * PW - 0.3, 0, PW / n + 0.6, BH);
+    }
+  };
+  return { draw(p) {
+    prof = p;
+    const n = p.length - 1;
+    let d = "";
+    for (let i = 0; i <= n; i++) d += (i ? "L" : "M") + ((i / n) * PW).toFixed(1) + "," + yOf(p[i]).toFixed(1);
+    curve.setAttribute("d", d);
+    area.setAttribute("d", d + `L${PW},${PH - 2}L0,${PH - 2}Z`);
+    band.onResize();
+  } };
+};
+const now = chart(clip);
+const cover = L.layer({ x: 0, y: 0, w: PW, h: CH + 4 }, clip);
+cover.style.overflow = "hidden";
+cover.style.background = `linear-gradient(to bottom, #08102a 0 ${PH}px, #000 ${PH}px ${BT - PT}px, #0a1636 ${BT - PT}px ${CH}px, #000 ${CH}px)`;
+const inner = L.layer({ x: 0, y: 0, w: PW, h: CH }, cover);
+const before = chart(inner);
+const marks = L.el("div", "", clip, { position: "absolute", left: 0, top: 0, width: PW + "px", height: CH + "px" });
+const cursor = L.layer({ x: P0 - 20, y: PT, w: 40, h: CH, cls: "cursor" });
+cursor.style.opacity = 0;
+const slide = (x) => { L.move(cover, x, 0); L.move(inner, -x, 0); };
+
+// the line labels, in up to three tiers below the band, each with a leader up to its line: the
+// wavelength appears when the scan detects the line, the species when it is identified
+const TIERS = [936, 984, 1032], LS = 36, LG = 14;
+const labelW = (l) => L.textWidth(l.sp, LS) + LG + L.textWidth(l.nm.toFixed(1), LS);
+const placeLabels = (lines) => {
+  // Each label goes in a tier, to the right or left of its leader. Rules: labels in one tier keep
+  // apart; no leader passes through a label in a tier above its own. A small search (ten lines at
+  // most) finds a layout that keeps them, preferring the top tier and the right-hand side.
+  const order = lines.slice().sort((a, b) => b.nm - a.nm), placed = [];
+  const ok = (q) => placed.every((p) =>
+    !(p.tier === q.tier && q.a < p.b + 18 && p.a < q.b + 18) &&
+    !(p.tier > q.tier && p.x > q.a - 10 && p.x < q.b + 10) &&
+    !(p.tier < q.tier && q.x > p.a - 10 && q.x < p.b + 10));
+  const search = (i) => {
+    if (i === order.length) return true;
+    const l = order[i], x = X(l.nm), w = labelW(l);
+    for (let tier = 0; tier < TIERS.length; tier++) for (const side of [1, -1]) {
+      const a = side > 0 ? x + 12 : x - 12 - w, q = { l, x, tier, a, b: a + w };
+      if (a < P0 || q.b > P0 + PW || !ok(q)) continue;
+      placed.push(q);
+      if (search(i + 1)) return true;
+      placed.pop();
+    }
+    return false;
+  };
+  if (!search(0)) console.warn("line labels: no clean layout");
+  for (const q of placed) Object.assign(q.l, { lx: q.x, tier: q.tier, la: q.a });
+};
+// the spectrum of a sample: continuum, its lines (Gaussian, about 1 nm), a little noise
+const profile = (s) => {
+  let seed = s.lines.length * 7919 + Math.round(s.lines[0].nm * 10);
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const N = 1190, out = [];
+  for (let i = 0; i <= N; i++) {
+    const nm = NM0 + ((NM1 - NM0) * i) / N;
+    let v = s.cont((nm - NM0) / (NM1 - NM0)) + (rnd() - 0.5) * 0.012;
+    for (const l of s.lines) {
+      v += l.i * Math.exp(-Math.pow((nm - l.nm) / 0.9, 2));
+      if (l.dbl) v += l.i * 0.6 * Math.exp(-Math.pow((nm - l.dbl) / 0.9, 2));
+    }
+    out.push(v);
+  }
+  const top = Math.max(...out);                          // the strongest line reaches the same height every time
+  return out.map((v) => v / top);
+};
+let prof = [];
+
+// ---------------- radiation ----------------
+header(40, 1100, 1040, "Radiation", 260, "ice", "sky");
+// bars on a log scale, [lo, hi]: the readings span orders of magnitude from sample to sample
+const RAD = [["Radiation", (v) => v.toFixed(3) + " rem/h", [1e-4, 0.1]], ["Neutrino Flux", (v) => Math.round(v).toLocaleString("en") + " /s", [10, 1e4]],
+  ["Theta Radiation", (v) => v.toFixed(3) + " rem/h", [1e-4, 0.1]], ["Particulates", (v) => Math.round(v).toLocaleString("en") + " /cm³", [1, 1e5]],
+  ["Ionization", (v) => (v < 1 ? v.toFixed(2) : v.toFixed(1)) + "%", [0.003, 100]]];
+const rads = RAD.map(([name, fmt, [lo, hi]], i) => {
+  const base = 1220 + i * 81;
+  L.text({ x: 40, base, s: 40, c: "sky", txt: name });
+  L.rect({ x: 330, y: base - 28, w: 430, h: 28, c: "#0c1a3a" });
+  const f = L.layer({ x: 330, y: base - 28, w: 430, h: 28 });
+  f.style.background = i === 2 ? "var(--butter)" : "var(--sky)"; f.style.transformOrigin = "0 0";
+  const v = L.text({ x: 1080, base, s: 52, c: "white", txt: "", align: "r" });
+  return { f, v, fmt, frac: (x) => L.clamp(Math.log10(x / lo) / Math.log10(hi / lo), 0.01, 1), base: 0, cur: 0, goal: 0 };
+});
+
+// ---------------- element composition ----------------
+const EX = 1140, EW = 2700 - EX;
+header(EX, 1100, EW, "Element Composition", 400, "sky", "ice");
+const EC = { name: 1256, lines: 1500, mass: 2100, bar: 2160 };
+[["Element", EX], ["Spectral Lines  ·  nm", EC.lines], ["Mass %", EC.mass, "r"], ["Abundance  ·  Log Scale", EC.bar]]
+  .forEach(([txt, x, align]) => L.text({ x, base: 1220, s: 36, c: "sky", txt, align }));
+const ROW_C = ["ice", "sky"], SYMW = Math.round(L.textWidth("Element", 36));   // the symbol column is as wide as its caption
+const erows = [0, 1, 2, 3, 4, 5].map((i) => {
+  const base = 1274 + i * 54;
+  const box = L.box({ x: EX, y: base - 33, w: SYMW, h: 44, c: "#14224a", label: "", fs: 30 });   // its label on the row's baseline
+  const name = L.text({ x: EC.name, base, s: 40, c: "slate", txt: "Unresolved" });
+  const lines = L.text({ x: EC.lines, base, s: 36, c: "ice", txt: "" });
+  const mass = L.text({ x: EC.mass, base, s: 40, c: "white", txt: "", align: "r" });
+  L.rect({ x: EC.bar, y: base - 22, w: 2700 - EC.bar, h: 22, c: "#0c1a3a" });
+  const bar = L.layer({ x: EC.bar, y: base - 22, w: 2700 - EC.bar, h: 22 });
+  bar.style.background = `var(--${ROW_C[i % 2]})`; bar.style.transformOrigin = "0 0"; bar.style.transform = "scaleX(0)";
+  return { box, name, lines, mass, bar, u: 0, goal: 0, t0: -1, el: null, found: [] };
+});
+const logFrac = (p) => L.clamp((Math.log10(p) + 2) / 4);     // 0.01% → empty, 100% → full
+
+// ---------------- the analysis cycle ----------------
+const AX = 2760, AW = 3520 - AX;
+header(AX, 1100, AW, "Analysis Cycle", 340, "butter", "sky");
+const stages = ["Sampling", "Spectral Scan", "Identification", "Report"].map((name, i) => {
+  const base = 1220 + i * 81;
+  L.text({ x: AX, base, s: 40, c: "sky", txt: name });
+  L.rect({ x: 3000, y: base - 28, w: 360, h: 28, c: "#0c1a3a" });
+  const f = L.layer({ x: 3000, y: base - 28, w: 360, h: 28 });
+  f.style.background = "var(--ice)"; f.style.transformOrigin = "0 0"; f.style.transform = "scaleX(0)";
+  const v = L.text({ x: 3520, base, s: 52, c: "white", txt: "", align: "r" });
+  return { f, v, u: 0 };
+});
+const readLabel = L.text({ x: AX, base: 1544, s: 40, c: "butter", txt: "" });
+const readVal = L.text({ x: 3520, base: 1544, s: 52, c: "butter", txt: "", align: "r" });
+
+// ---------------- analysis log ----------------
+small(40, 1620, 1040, "Analysis Log", 280, "sky", "ice");
+const logRows = Array.from({ length: 6 }, (_, i) => {
+  const base = 1734 + i * 54;
+  return { sd: L.text({ x: 40, base, s: 36, c: "butter", txt: "" }), tx: L.text({ x: 230, base, s: 36, c: "ice", txt: "" }) };
+});
+const logged = [];
+const logLine = (txt) => {
+  sd += 0.1; logged.push([sd.toFixed(1), txt]); if (logged.length > 6) logged.shift();
+  logRows.forEach((r, i) => { const e = logged[i]; r.sd.textContent = e ? e[0] : ""; r.tx.textContent = e ? e[1] : ""; });
+};
+
+// ---------------- particle energy ----------------
+const QX = 1140, QW = 2100 - QX, QB = 2004;
+small(QX, 1620, QW, "Particle Energy", 320, "ice", "sky");
+// three readouts, each a caption over its value, on the log's first two lines
+const qcols = [["Peak", QX], ["Mean", QX + 320 + L.GAP], ["Count", QX + 2 * (320 + L.GAP)]].map(([name, x]) => {
+  L.text({ x, base: 1734, s: 36, c: "sky", txt: name });
+  return L.text({ x, base: 1788, s: 40, c: "white", txt: "" });
+});
+const NQ = 24, QBW = QW / NQ, QH = 176;
+const qbars = Array.from({ length: NQ }, (_, i) => {
+  const b = L.layer({ x: QX + i * QBW + 4, y: QB - QH, w: QBW - 8, h: QH });
+  b.style.background = i % 4 === 3 ? "var(--ice)" : "var(--sky)"; b.style.transformOrigin = "50% 100%";
+  return b;
+});
+
+// ---------------- sample archive ----------------
+const RX = 2160, RW = 3520 - RX;
+small(RX, 1620, RW, "Sample Archive", 320, "butter", "sky");
+const RC = [RX, RX + 190, RX + 440, RX + 850, RX + 1180];
+["Stardate", "Source", "Class", "Dominant", "Lines"].forEach((h, i) => L.text({ x: RC[i], base: 1734, s: 36, c: "sky", txt: h }));
+const arcRows = Array.from({ length: 5 }, (_, i) => RC.map((x, j) => L.text({ x, base: 1788 + i * 54, s: 36, c: j === 0 ? "butter" : j >= 3 ? "white" : "ice", txt: "" })));
+const archived = [];
+const archive = (s, at) => {
+  const [el, p] = s.comp[0];
+  archived.unshift([at, s.short, s.cls, `${ELEMENT[el]}  ${p.toFixed(1)}%`, String(s.lines.length)]);
+  if (archived.length > arcRows.length) archived.pop();
+  arcRows.forEach((r, i) => r.forEach((e, j) => (e.textContent = archived[i] ? archived[i][j] : "")));
+};
+
+// ---------------- history, so the screen starts part way through a watch ----------------
+let sIdx = L.irand(0, SAMPLES.length - 1);
+for (let k = 4; k >= 0; k--) {                           // the last five samples; the latest is still on the chart
+  const s = SAMPLES[(sIdx - k + SAMPLES.length) % SAMPLES.length];
+  sd += 0.6; archive(s, sd.toFixed(1));
+}
+{ const s = SAMPLES[sIdx], seen = [];                     // the end of its log: the last elements named, then the report
+  for (const l of s.lines.slice().sort((a, b) => b.nm - a.nm)) for (const el of l.els) if (!seen.find((e) => e[0] === el)) seen.push([el, l]);
+  logLine(`Scan complete  ·  ${s.lines.length} lines detected`);
+  seen.slice(-3).forEach(([el, l]) => logLine(`${ELEMENT[el]} identified  ·  ${l.name} ${l.nm.toFixed(1)} nm`));
+  logLine(`Report filed  ·  Sample ${sampleN}  ·  Astrophysics Lab`); }
+
+// ---------------- one sample through the cycle ----------------
+before.draw(profile(SAMPLES[sIdx]));                    // the screen opens on the last sample's spectrum
+let S = null, lineEls = [], idOrder = [], detected = 0, identified = 0, lastU = -1, cyc = -1, scanX = 0, curX = P0 + PW;
+const clearSample = () => { lineEls.forEach((e) => e.forEach((x) => x && x.remove())); lineEls = []; };
+const newSample = () => {
+  clearSample();
+  sIdx = (sIdx + 1) % SAMPLES.length; S = SAMPLES[sIdx]; sampleN++;
+  S.sd = (sd + 0.1).toFixed(1);
+  prof = profile(S); now.draw(prof);
+  placeLabels(S.lines);
+  idOrder = S.lines.slice().sort((a, b) => b.nm - a.nm);  // identified right to left: back from where the scan ended
+  S.lines.forEach((l) => {
+    l.det = 0; l.id = 0; l.lit = 0;
+    const x = X(l.nm) - P0;
+    l.mark = L.layer({ x: x - 3, y: BT - PT, w: 6, h: BH }, marks);
+    l.mark.style.background = "var(--sky)"; l.mark.style.opacity = 0;
+    const peak = Math.max(...[-1, 0, 1].map((d) => prof[Math.round(((l.nm - NM0) / (NM1 - NM0)) * (prof.length - 1)) + d]));
+    l.caret = L.layer({ x: x - 6, y: PH - 6 - L.clamp(peak, 0, 1.1) * SCALE * PH - 24, cls: "caret" }, marks);
+    l.caret.style.opacity = 0;
+    l.leader = L.layer({ x: l.lx - 1.5, y: BT + BH + 6, w: 3, h: TIERS[l.tier] + 2 - (BT + BH + 6) });
+    l.leader.style.background = "var(--sky)"; l.leader.style.opacity = 0;
+    l.spT = L.text({ x: l.la, base: TIERS[l.tier], s: LS, c: "butter", txt: l.sp });
+    l.nmT = L.text({ x: l.la + L.textWidth(l.sp, LS) + LG, base: TIERS[l.tier], s: LS, c: "ice", txt: l.nm.toFixed(1) });
+    for (const e of [l.spT, l.nmT]) {                    // made after the boot cascade, so no "boot" class
+      e.className = "t"; e.style.opacity = 0;
+      e.dataset.legend = "1";                            // placed by the data, not the grid: alignment rules don't apply
+    }
+    lineEls.push([l.mark, l.caret, l.leader, l.spT, l.nmT]);
+  });
+  erows.forEach((r, i) => {
+    const [el, p] = S.comp[i];
+    Object.assign(r, { el, p, u: 0, goal: 0, t0: -1, found: [] });
+    r.box.textContent = ""; r.box.style.background = "#14224a";
+    r.name.textContent = "Unresolved"; r.name.style.color = "var(--slate)";
+    r.lines.textContent = ""; r.mass.textContent = "";
+  });
+  rads.forEach((r, i) => { r.base = S.rad[i]; r.goal = r.base; });
+  detected = 0; identified = 0;
+  logLine(`Sample acquired  ·  ${S.short}  ·  ${S.collect}`);
+};
+const identify = (l, t) => {
+  l.id = t;
+  identified++;
+  for (const el of l.els) {
+    const r = erows.find((r) => r.el === el);
+    r.found.push(l.nm.toFixed(1));
+    r.lines.textContent = r.found.slice().sort().join("  ");
+    if (r.t0 < 0) {
+      r.t0 = t; r.goal = logFrac(r.p);
+      const i = erows.indexOf(r);
+      r.box.textContent = el; r.box.style.background = `var(--${ROW_C[i % 2]})`;
+      r.name.textContent = ELEMENT[el]; r.name.style.color = "var(--white)";
+      logLine(`${ELEMENT[el]} identified  ·  ${l.name} ${l.nm.toFixed(1)} nm`);
+    }
+  }
+};
+
+// the particle spectrum: a broad hump that wanders a little
+let qPeak = 0.3, qWid = 0.15;
+L.every(2500, () => rads.forEach((r) => (r.goal = r.base * L.rand(0.99, 1.01))), 0.3);   // steady readings, barely drifting
+L.every(1000, () => {
+  rads.forEach((r) => (r.v.textContent = r.fmt(r.cur)));
+  qcols[2].textContent = Math.round(rads[3].cur * 0.37 + 180).toLocaleString("en") + " /s";
+}, 0);
+
+let tPrev = null;
+L.tick((t) => {
+  const dt = tPrev === null ? 0 : Math.min(0.1, t - tPrev); tPrev = t;
+  const c = Math.floor(t / CYCLE), u = t - c * CYCLE;
+  if (c !== cyc) { cyc = c; lastU = -1; }
+  const ph = phaseAt(u);
+  // ---- sampling: the last spectrum moves to the window (where it looks the same), dims, and the
+  // new sample is drawn behind it ----
+  if (lastU < 0) { if (S) before.draw(prof); slide(0); scanX = 0; }
+  if (u < 1.2) inner.style.opacity = (1 - 0.55 * L.ease(u / 1.2)).toFixed(3);
+  else if (lastU < 1.2) { inner.style.opacity = 0.45; newSample(); }
+  // ---- the scan: the cursor sweeps the band and uncovers the spectrum behind it ----
+  if (u >= T_SCAN && u < T_ID) {
+    const k = (u - T_SCAN) / (T_ID - T_SCAN);
+    scanX = PW * L.clamp(k - Math.sin(2 * Math.PI * k) / (2 * Math.PI) * 0.3);
+    curX = P0 + scanX;
+    slide(scanX);
+    for (const l of S.lines) if (!l.det && X(l.nm) <= curX) { l.det = t; detected++; }
+  } else if (u >= T_ID && scanX < PW) { scanX = PW; slide(PW); }
+  // ---- identification: the cursor walks back along the lines, naming each ----
+  if (u >= T_ID && u < T_REP) {
+    const slot = (T_REP - T_ID) / idOrder.length, j = Math.min(idOrder.length - 1, Math.floor((u - T_ID) / slot));
+    const k = (u - T_ID - j * slot) / slot;
+    const from = j === 0 ? P0 + PW : X(idOrder[j - 1].nm), to = X(idOrder[j].nm);
+    curX = L.mix(from, to, L.ease(L.clamp(k / 0.6)));
+    for (let q = 0; q <= j; q++) if (!idOrder[q].id && (q < j || k >= 0.65)) identify(idOrder[q], t);
+  }
+  if (u >= T_REP) for (const l of idOrder) if (!l.id) identify(l, t);
+  // ---- the cursor ----
+  const cOn = u < T_SCAN ? 0 : u < T_SCAN + 0.5 ? (u - T_SCAN) / 0.5 : u < T_REP ? 1 : Math.max(0, 1 - (u - T_REP) / 0.6);
+  cursor.style.opacity = cOn.toFixed(3);
+  if (cOn > 0) L.move(cursor, curX - P0, 0);
+  const idMode = u >= T_ID;
+  if (cursor.classList.contains("id") !== idMode) cursor.classList.toggle("id", idMode);
+  // ---- the lines: detected faintly, then marked and named ----
+  const fade = u < 1.2 ? 1 - L.ease(u / 1.2) : 1;
+  if (S) for (const l of S.lines) {
+    const det = l.det ? L.clamp((t - l.det) / 0.6) : 0, id = l.id ? L.ease(L.clamp((t - l.id) / 0.6)) : 0;
+    l.mark.style.opacity = (fade * (0.45 * det + 0.55 * id)).toFixed(3);
+    if (id > 0 && !l.lit) { l.lit = 1; l.mark.style.background = "var(--butter)"; }
+    l.caret.style.opacity = (fade * id).toFixed(3); l.leader.style.opacity = (fade * (0.4 * det + 0.4 * id)).toFixed(3);
+    l.nmT.style.opacity = (fade * (0.7 * det + 0.3 * id)).toFixed(3); l.spT.style.opacity = (fade * id).toFixed(3);
+  }
+  // ---- composition bars ----
+  for (const r of erows) {
+    const goal = u < 1.2 ? 0 : r.goal;
+    r.u += (goal - r.u) * 0.08;
+    r.bar.style.transform = `scaleX(${r.u.toFixed(4)})`;
+  }
+  // ---- the cycle's own bars ----
+  stages.forEach((s, i) => {
+    const goal = ph.i > i ? 1 : ph.i < i ? 0 : i === 3 ? L.clamp(ph.k * 2.5) : ph.k;
+    s.u += (goal - s.u) * 0.15;
+    s.f.style.transform = `scaleX(${L.clamp(s.u).toFixed(4)})`;
+  });
+  // ---- radiation and particles ----
+  for (const r of rads) {
+    r.cur += (r.goal - r.cur) * 0.03;
+    if (r.cur > 0) r.f.style.transform = `scaleX(${r.frac(r.cur).toFixed(4)})`;
+  }
+  qPeak += ((S ? S.energy[0] : 0.3) - qPeak) * 0.02; qWid += ((S ? S.energy[1] : 0.15) - qWid) * 0.02;
+  const busy = u >= T_SCAN && u < T_REP ? 1 : 0.8;
+  qbars.forEach((b, i) => {
+    const x = (i + 0.5) / NQ;
+    let v = 0.06 + 0.86 * busy * Math.exp(-Math.pow((x - qPeak) / qWid, 2)) + 0.025 * Math.sin(t * 1.9 + i * 0.8) + 0.02 * Math.sin(t * 3.3 - i * 1.7);
+    b.style.transform = `scaleY(${L.clamp(v, 0.03, 1).toFixed(4)})`;
+  });
+  // ---- events ----
+  if (lastU < T_ID && u >= T_ID) logLine(`Scan complete  ·  ${S.lines.length} lines detected`);
+  if (lastU < T_REP && u >= T_REP) { archive(S, S.sd); logLine(`Report filed  ·  Sample ${sampleN}  ·  Astrophysics Lab`); }
+  lastU = u;
+});
+
+// ---------------- the readouts, a few times a second ----------------
+L.every(250, (t) => {
+  if (!S) return;
+  const u = t % CYCLE, ph = phaseAt(u);
+  stateTxt.textContent = PHASES[ph.i][0];
+  stateTxt.style.color = ph.i === 0 || ph.i === 3 ? "var(--ice)" : "var(--white)";
+  const nm = NM0 + ((curX - P0) / PW) * (NM1 - NM0);
+  stateSub.textContent = [`${S.collect}  ·  ${S.source}`,
+    `${NM0} – ${NM1} nm  ·  Resolution 0.1 nm  ·  ${detected} ${detected === 1 ? "line" : "lines"} detected`,
+    `${identified} of ${S.lines.length} lines identified  ·  ${erows.filter((r) => r.t0 >= 0).length} of 6 elements`,
+    `${S.cls}  ·  Report filed to Astrophysics Lab`][ph.i];
+  pill.textContent = "Sample " + sampleN;
+  pill.style.background = `var(--${ph.i === 3 ? "ice" : "sky"})`;
+  META.forEach(([, f], i) => (metaVals[i].textContent = f(S)));
+  erows.forEach((r) => (r.mass.textContent = r.t0 < 0 ? "" : (r.p * L.ease(L.clamp((t - r.t0) / 1.2))).toFixed(2)));
+  stages.forEach((s) => (s.v.textContent = Math.round(L.clamp(s.u) * 100) + "%"));
+  if (ph.i === 0) { readLabel.textContent = "Chamber Pressure"; readVal.textContent = (0.12 + 2.3 * L.ease(L.clamp(stages[0].u))).toFixed(2) + " kPa"; }
+  else if (ph.i === 1) { readLabel.textContent = "Wavelength"; readVal.textContent = nm.toFixed(1) + " nm"; }
+  else if (ph.i === 2) { readLabel.textContent = "Wavelength"; readVal.textContent = nm.toFixed(1) + " nm"; }
+  else { readLabel.textContent = "Confidence"; readVal.textContent = (99 + (sampleN % 7) * 0.13).toFixed(1) + "%"; }
+  const mean = 10 * (qPeak + 0.05);
+  qcols[0].textContent = (10 * qPeak).toFixed(1) + " MeV";
+  qcols[1].textContent = mean.toFixed(1) + " MeV";
+}, 0);
+});
+</script></body></html>

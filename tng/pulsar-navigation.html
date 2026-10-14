@@ -1,0 +1,405 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Pulsar Navigation</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .sw { transition: background-color .9s ease, color .9s ease; }
+  .fade { transition: opacity 1.2s ease; }
+  .strip { overflow: hidden; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: wide, no sidebars — the position plot is the screen ----------------
+L.frame({ type: "D", title: "Pulsar Navigation  •  Position Fix", c: "ice", c2: "violet", accent: "lilac" });
+
+// Three columns, 64 apart: 40–900 | 964–2892 | 2956–3816. Side columns on an 80 grid from 360,
+// three sections each (headers at 280, 920, 1560); both bottom tables on a 54 grid from 1682.
+const LX = 40, LR = 900, MX = 964, MR = 2892, RX = 2956, RR = 3816, CW = LR - LX;
+const GR = (k) => 360 + 80 * k;
+const STRIP = (i) => 1682 + 54 * i;
+const PANEL = "#06072a", TRACK = "#1b1850", DIM = "#2c2870", RING = "#3a3394";
+const RGB = { ice: "143,211,255", lilac: "199,160,216", sky: "92,157,255", pink: "244,182,230", plum: "156,111,180", blue: "58,111,255" };
+const colr = (c) => (c.startsWith("#") ? c : `var(--${c})`);
+const bg = (e, c) => { if (e._bg !== c) { e._bg = c; e.style.backgroundColor = colr(c); } };
+const ink = (e, c) => { if (e._ink !== c) { e._ink = c; e.style.color = colr(c); } };
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const op = (e, v) => { v = v < 0.005 ? "0" : v > 0.995 ? "1" : v.toFixed(2); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const fmt = (n) => Math.round(n).toLocaleString("en-US");
+const pad = (n, k = 2) => String(n).padStart(k, "0");
+const gauss = () => Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(2 * Math.PI * Math.random());
+const later = (ms, f, jitter) => L.every(ms, (t) => { if (t > 1) f(t); }, jitter);
+const WORD = ["None", "One", "Two", "Three", "Four", "Five", "Six"];
+
+// ---------------- the pulsars ----------------
+// bearing: galactic, from the ship (000 at the top of the plot, clockwise)
+const PSR = [
+  { name: "Kavis Alpha", des: "J0917-3842", per: "5,094.2 ms", brg: 48, c: "ice" },
+  { name: "Hulse-Taylor", des: "B1913+16", per: "59.030 ms", brg: 102, c: "lilac" },
+  { name: "Crab", des: "B0531+21", per: "33.792 ms", brg: 147, c: "sky" },
+  { name: "Vela", des: "B0833-45", per: "89.401 ms", brg: 196, c: "pink" },
+  { name: "Black Widow", des: "B1957+20", per: "1.607 ms", brg: 251, c: "plum" },
+  { name: "Lich", des: "B1257+12", per: "6.219 ms", brg: 305, c: "blue" },
+];
+PSR.forEach((p) => { const a = (p.brg * Math.PI) / 180; p.u = [Math.sin(a), -Math.cos(a)]; });   // toward the pulsar, screen axes
+
+// ---------------- the ship ----------------
+const HEADING = 75, WARP = 6, COCHRANE = 392;               // warp 6: 392 times light
+const HU = [Math.sin((HEADING * Math.PI) / 180), -Math.cos((HEADING * Math.PI) / 180)];
+const KMS = COCHRANE * 299792.458;                           // km/s
+const LYS = COCHRANE / 31557600;                             // light-years per second
+let gx = 1284.66213 + L.rand(-0.4, 0.4), gy = -412.08754 + L.rand(-0.4, 0.4);
+const S0 = 45653.36 + Math.random() * 0.03;
+const CLK0 = 14 * 3600 + L.irand(0, 3599);                     // ship time at page load, seconds
+const shipTime = (t) => { const s = Math.floor(CLK0 + t); return `${pad(Math.floor(s / 3600) % 24)}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)}`; };
+const stardate = (t = L.t) => S0 + t / 3600 / 8.766;
+
+// ---------------- status line ----------------
+const WORDS = ["Dead Reckoning", "Acquiring", "Triangulating", "Fix Confirmed", "Correcting"];
+const SUBX = LX + Math.ceil(Math.max(...WORDS.map((w) => L.textWidth(w, 100))) / 10) * 10 + 56;
+const stateTxt = L.text({ x: LX, cap: 150, s: 100, c: "ice", txt: "" });
+const stateSub = L.text({ x: SUBX, base: 222, s: 38, c: "lilac", txt: "" });
+L.box({ x: RR - 400, y: 150, w: 400, h: 72, c: "violet", label: "Pulsar Timing", r: "lr", fs: 36 });
+L.text({ x: RX, base: 222, s: 40, c: "lilac", txt: "Stardate" });
+const sdVal = L.text({ x: RX + L.textWidth("Stardate", 40) + 24, base: 222, s: 52, c: "white", txt: "" });
+
+// ---------------- tables ----------------
+const row = (x, k, label, c, cap) => {
+  const y = GR(k), base = y + 44.56;
+  const b = L.box({ x, y, w: 260, h: 56, c, label, fs: 32, r: "l", cls: "sw" });
+  const v = L.text({ x: x + 284, base, s: 52, c: "white", txt: "" });
+  const cp = cap === null ? null : L.text({ x: x + CW, base, s: 36, c: "lilac", txt: cap || "", align: "r", cls: "sw" });
+  return { b, v, cp, base };
+};
+
+// pulsar catalog (top left): designation, period, state
+L.header({ x: LX, y: 280, w: CW, label: "Pulsar Catalog", c1: "ice", c2: "violet" });
+const cat = PSR.map((p, i) => { const r = row(LX, i, p.des, DIM, ""); L.set(r.v, p.per); return r; });
+
+// lines of position (middle left): the width of each pulsar's band, as a bar and in km
+L.header({ x: LX, y: GR(7), w: CW, label: "Lines of Position", c1: "lilac", c2: "violet" });
+const BAR0 = LX + 284, BARW = 300, WMAX = 36000;
+const lop = PSR.map((p, i) => {
+  const y = GR(8 + i), base = y + 44.56;
+  const b = L.box({ x: LX, y, w: 260, h: 56, c: DIM, label: p.name, fs: 32, r: "l", cls: "sw" });
+  L.rect({ x: BAR0, y: base - 26, w: BARW, h: 26, c: TRACK });
+  const f = L.layer({ x: BAR0, y: base - 26, w: BARW, h: 26 });
+  f.style.background = colr(p.c); f.style.transformOrigin = "0 0"; f.style.transform = "scaleX(0)";
+  const v = L.text({ x: LR, base, s: 52, c: "white", txt: "", align: "r" });
+  return { b, f, v, shown: 0 };
+});
+
+// position fix (top right)
+L.header({ x: RX, y: 280, w: CW, label: "Position Fix", c1: "violet", c2: "ice" });
+const pos = [["Region", "ice", "Leaving"], ["Galactic X", "lilac", "Light-years"], ["Galactic Y", "ice", "Light-years"],
+  ["Heading", "violet", "Galactic"], ["Speed", "lilac", `${COCHRANE} c`], ["Since Fix", "ice", "Billion km"]]
+  .map(([label, c, cap], i) => row(RX, i, label, c, cap));
+L.set(pos[0].v, "Typhon Expanse"); L.set(pos[3].v, `${pad(HEADING, 3)} mark 004`); L.set(pos[4].v, `Warp ${WARP}`);
+
+// error ellipse (middle right)
+L.header({ x: RX, y: GR(7), w: CW, label: "Error Ellipse", c1: "ice", c2: "lilac" });
+const ell = [["Semi-Major", "violet", "95% Confidence"], ["Semi-Minor", "lilac", "95% Confidence"], ["Orientation", "ice", "Major Axis"],
+  ["Correction", "violet", ""], ["Sources", "lilac", "In Solution"], ["Integration", "ice", ""]]
+  .map(([label, c, cap], i) => row(RX, 8 + i, label, c, cap));
+
+// ---------------- navigation log (bottom left) ----------------
+L.header({ x: LX, y: GR(15), w: CW, label: "Navigation Log", c1: "violet", c2: "lilac" });
+const logRows = Array.from({ length: 6 }, (_, i) => ({
+  sd: L.text({ x: LX, base: STRIP(i), s: 36, c: "lilac", txt: "" }), tx: L.text({ x: LX + 164, base: STRIP(i), s: 36, c: "ice", txt: "" }) }));
+const logged = [];
+const log = (txt) => {
+  logged.push([stardate().toFixed(1), txt]); if (logged.length > 6) logged.shift();
+  logRows.forEach((r, i) => { const e = logged[i]; L.set(r.sd, e ? e[0] : ""); L.set(r.tx, e ? e[1] : ""); ink(r.tx, i === logged.length - 1 ? "white" : "ice"); });
+};
+
+// ---------------- fix history (bottom right) ----------------
+L.header({ x: RX, y: GR(15), w: CW, label: "Fix History", c1: "lilac", c2: "violet" });
+const HC = [[RX, "l", "Ship Time"], [RX + 220, "l", "Sources"], [RX + 600, "r", "Correction"], [RR, "r", "Error"]];
+HC.forEach(([x, a, txt]) => L.text({ x, base: STRIP(0), s: 36, c: "violet", txt, align: a === "r" ? "r" : undefined }));
+const histRows = Array.from({ length: 5 }, (_, i) => HC.map(([x, a]) => L.text({ x, base: STRIP(i + 1), s: 36, c: "ice", txt: "", align: a === "r" ? "r" : undefined })));
+const history = [];
+const showHistory = () => histRows.forEach((r, i) => {
+  const h = history[history.length - 5 + i];
+  [h ? h.sd : "", h ? WORD[h.n] : "", h ? `${fmt(h.corr)} km` : "", h ? `${fmt(h.err)} km` : ""].forEach((s, j) => L.set(r[j], s));
+  r.forEach((e) => ink(e, i === 4 ? "white" : "ice"));
+});
+// earlier fixes this watch, one every minute and a half
+for (let k = 5; k >= 1; k--) history.push({ sd: shipTime(-95 * k - 20), n: k === 3 ? 5 : 6,
+  corr: L.rand(4200, 9800), err: L.rand(1050, 1350) * (k === 3 ? 1.2 : 1) });
+showHistory();
+
+// =====================================================================================
+// THE POSITION PLOT: the galactic plane round the ship, rays in from each pulsar, the lines of
+// position their timing gives, and the error ellipse where they cross
+// =====================================================================================
+L.header({ x: MX, y: 280, w: MR - MX, label: "Position Plot  ·  Galactic Plane", c1: "ice", c2: "violet" });
+const PY0 = GR(0), PY1 = 2010, PCX = (MX + MR) / 2, PCY = Math.round((PY0 + PY1) / 2);   // centre 1928, 1185
+L.rect({ x: MX, y: PY0, w: MR - MX, h: PY1 - PY0, c: PANEL, panel: true });
+const KM = 0.032, CR = 690, RB = 704;                       // px per km (20,000 km = 640 px); clip radius; bearing ring
+const svg = (tag, a) => L.svg(tag, a);
+const P = (r, a) => [PCX + r * Math.sin((a * Math.PI) / 180), PCY - r * Math.cos((a * Math.PI) / 180)];
+
+// range rings, their scale in a gap at the top
+[5000, 10000, 15000, 20000].forEach((km, i) => {
+  const r = km * KM, txt = `${fmt(km)} km`, hw = L.textWidth(txt, 34) / 2 + 16, g = (Math.asin(hw / r) * 180) / Math.PI;
+  svg("path", { d: L.arc(PCX, PCY, r - 1.5, r + 1.5, g, 360 - g), fill: i === 3 ? DIM : RING, opacity: i === 3 ? 1 : 0.8 });
+  L.text({ x: PCX, base: PCY - r + 12, s: 34, c: "lilac", txt, align: "c", w: 300, legend: true });
+});
+// the bearing ring: ticks every 5°, figures every 30°
+svg("path", { d: L.arc(PCX, PCY, RB, RB + 10, 0, 359.99), fill: "var(--violet)" });
+for (let a = 0; a < 360; a += 5) {
+  const major = a % 30 === 0, mid = a % 10 === 0;
+  const [x1, y1] = P(RB + 10, a), [x2, y2] = P(RB + (major ? 36 : mid ? 28 : 20), a);
+  svg("line", { x1, y1, x2, y2, stroke: major ? "var(--lilac)" : "var(--violet)", "stroke-width": major ? 4 : 3 });
+  if (major) { const [x, y] = P(RB + 70, a); L.text({ x, base: y + 12, s: 34, c: "lilac", txt: pad(a, 3), align: "c", w: 120, legend: true }); }
+}
+// the course line, dashed, out to the ring
+{ const [x1, y1] = P(60, HEADING), [x2, y2] = P(RB - 12, HEADING);
+  svg("line", { x1, y1, x2, y2, stroke: "var(--violet)", "stroke-width": 4, "stroke-dasharray": "18 14" }); }
+// each pulsar: a mark on the bearing ring, and its name beside the ray
+PSR.forEach((p) => {
+  svg("path", { d: L.arc(PCX, PCY, RB - 6, RB + 46, p.brg - 1.6, p.brg + 1.6), fill: colr(p.c) });
+  // the name inside the ring, clear of its own ray: moved in along the ray, then off to one side
+  const txt = `${p.name}  ${pad(p.brg, 3)}`, w = L.textWidth(txt, 36), h = 26, n = [-p.u[1], p.u[0]];
+  const eu = Math.abs((w / 2) * p.u[0]) + Math.abs((h / 2) * p.u[1]), en = Math.abs((w / 2) * n[0]) + Math.abs((h / 2) * n[1]);
+  const [ax, ay] = P(640 - eu, p.brg), cx = ax + n[0] * (en + 16), cy = ay + n[1] * (en + 16);
+  p.tag = L.text({ x: cx, base: cy + 13, s: 36, c: p.c, txt, align: "c", w: Math.ceil(w) + 40 });
+});
+
+// the rays: a line in from the ring, and pulses running down it to the ship
+const R0 = 52, R1 = RB - 8, LEN = R1 - R0, V = 190;
+PSR.forEach((p, i) => {
+  const rot = `rotate(${(p.brg - 90).toFixed(2)}deg) translateX(${R0}px)`;
+  const ray = L.layer({ x: PCX, y: PCY - 2, w: LEN, h: 4, cls: "fade" });
+  ray.style.transformOrigin = "0 2px"; ray.style.transform = rot;
+  ray.style.background = `linear-gradient(to right, rgba(${RGB[p.c]},0) 0px, rgba(${RGB[p.c]},.55) 140px, rgba(${RGB[p.c]},.8) 100%)`;
+  const strip = L.layer({ x: PCX, y: PCY - 7, w: LEN, h: 14, cls: "strip fade" });
+  strip.style.transformOrigin = "0 7px"; strip.style.transform = rot;
+  const m = `linear-gradient(to right, transparent 0px, #000 70px, #000 ${LEN - 50}px, transparent ${LEN}px)`;
+  strip.style.webkitMaskImage = m; strip.style.maskImage = m;
+  const Pd = Math.round(460 + 70 * i + L.rand(0, 40));
+  const s = L.el("div", "layer", strip, { left: "0px", top: "0px", width: LEN + Pd + "px", height: "14px", backgroundRepeat: "repeat-x",
+    backgroundSize: `${Pd}px 14px`, backgroundImage: `radial-gradient(circle 6px at 8px 50%, #fff 0%, rgba(${RGB[p.c]},1) 55%, rgba(${RGB[p.c]},0) 100%),
+      linear-gradient(to right, rgba(${RGB[p.c]},0) 0px, rgba(${RGB[p.c]},.9) 10px, rgba(${RGB[p.c]},0) 90px)`,
+    backgroundPosition: "0 0, 0 0" });
+  s.style.backgroundSize = `${Pd}px 14px, ${Pd}px 4px`; s.style.backgroundPosition = "0 0, 0 5px";
+  s.style.backgroundRepeat = "repeat-x, repeat-x";
+  const anim = s.animate([{ transform: "translate3d(0,0,0)" }, { transform: `translate3d(${-Pd}px,0,0)` }],
+    { duration: (Pd / V) * 1000, iterations: Infinity, easing: "linear" });
+  anim.currentTime = Math.random() * (Pd / V) * 1000;
+  p.ray = ray; p.strip = strip;
+  op(ray, 0.35); op(strip, 0.3);
+});
+
+// the lines of position, clipped to the plot: a pale band, its two edges, a dashed centre line
+const clip = L.layer({ x: PCX - CR, y: PCY - CR, w: 2 * CR, h: 2 * CR });
+clip.style.overflow = "hidden"; clip.style.borderRadius = "50%";
+const BL = 1240;
+PSR.forEach((p) => {
+  const g = L.el("div", "layer", clip, { left: "0px", top: "0px", width: 2 * CR + "px", height: 2 * CR + "px", opacity: 0 });
+  const piece = (h, bgi) => L.el("div", "layer", g, { left: "0px", top: "0px", width: BL + "px", height: h + "px", transformOrigin: "0 0", backgroundImage: bgi });
+  const c = RGB[p.c], along = (a) => `linear-gradient(to right, rgba(${c},0) 0%, rgba(${c},${a}) 30%, rgba(${c},${a}) 70%, rgba(${c},0) 100%)`;
+  p.band = { g, fill: piece(100, along(0.11)), e1: piece(4, along(0.85)), e2: piece(4, along(0.85)),
+    mid: piece(3, `repeating-linear-gradient(to right, rgba(${c},.75) 0px, rgba(${c},.75) 16px, rgba(${c},0) 16px, rgba(${c},0) 30px), ${along(0)}`) };
+  p.band.mid.style.webkitMaskImage = p.band.mid.style.maskImage = "linear-gradient(to right, transparent 0%, #000 30%, #000 70%, transparent 100%)";
+});
+const placeBand = (p, d, hw) => {            // d: offset along the pulsar's direction, km; hw: half-width, km
+  const cx = CR + p.u[0] * d * KM, cy = CR + p.u[1] * d * KM, w = Math.max(1.5, hw * KM);
+  const base = `translate3d(${cx.toFixed(1)}px,${cy.toFixed(1)}px,0) rotate(${p.brg}deg)`;
+  tf(p.band.fill, `${base} scale(1,${(w / 50).toFixed(4)}) translate(${-BL / 2}px,-50px)`);
+  tf(p.band.e1, `${base} translate(${-BL / 2}px,${(-w - 2).toFixed(1)}px)`);
+  tf(p.band.e2, `${base} translate(${-BL / 2}px,${(w - 2).toFixed(1)}px)`);
+  tf(p.band.mid, `${base} translate(${-BL / 2}px,-1.5px)`);
+};
+
+// the error ellipse, the estimate's cross, and the ship, drawn over the bands
+const NS = "http://www.w3.org/2000/svg";
+const ov = document.createElementNS(NS, "svg");
+ov.setAttribute("viewBox", `0 0 ${2 * CR} ${2 * CR}`);
+Object.assign(ov.style, { position: "absolute", left: PCX - CR + "px", top: PCY - CR + "px", width: 2 * CR + "px", height: 2 * CR + "px", overflow: "hidden" });
+L.stage.appendChild(ov);
+const ellipse = L.svg("ellipse", { cx: CR, cy: CR, rx: 10, ry: 10, fill: "rgba(199,160,216,.16)", stroke: "var(--white)", "stroke-width": 4 }, ov);
+const cross = L.svg("g", {}, ov);
+for (const [x1, y1, x2, y2] of [[-30, 0, -12, 0], [12, 0, 30, 0], [0, -30, 0, -12], [0, 12, 0, 30]])
+  L.svg("line", { x1, y1, x2, y2, stroke: "var(--white)", "stroke-width": 4 }, cross);
+// the ship: a chevron on its heading, at the plotted position
+L.svg("path", { d: "M0,-26 L18,18 L0,8 L-18,18 Z", fill: "var(--ice)", transform: `translate(${CR},${CR}) rotate(${HEADING})` }, ov);
+let shownE = "";
+const drawEllipse = (cx, cy, a, b, ang) => {     // px from the plot centre; semi-axes px; major axis angle, degrees (screen)
+  const key = [cx, cy, a, b, ang].map((v) => (Math.round(v * 4) / 4).toFixed(2)).join();
+  if (key === shownE) return; shownE = key;
+  const X = CR + cx, Y = CR + cy;
+  ellipse.setAttribute("cx", X.toFixed(2)); ellipse.setAttribute("cy", Y.toFixed(2));
+  ellipse.setAttribute("rx", Math.max(3, a).toFixed(2)); ellipse.setAttribute("ry", Math.max(3, b).toFixed(2));
+  ellipse.setAttribute("transform", `rotate(${ang.toFixed(2)} ${X.toFixed(2)} ${Y.toFixed(2)})`);
+  cross.setAttribute("transform", `translate(${X.toFixed(2)},${Y.toFixed(2)})`);
+};
+
+// the four corner readings, printed on the plot
+const corner = (x, align, top, label) => {
+  const lb = top ? PY0 + 48 + 26 : PY1 - 48 - 62;
+  return { l: L.text({ x, base: lb, s: 36, c: "lilac", txt: label, align }), v: L.text({ x, base: lb + 62, s: 52, c: "white", txt: "", align }) };
+};
+const cSrc = corner(MX + 48, "l", true, "Pulsars Locked");
+const cErr = corner(MR - 48, "r", true, "Error  ·  95%");
+const cCourse = corner(MX + 48, "l", false, "Course");
+const cCorr = corner(MR - 48, "r", false, "Correction");
+L.set(cCourse.v, `${pad(HEADING, 3)} mark 004`);
+
+// =====================================================================================
+// THE NAVIGATOR: dead reckoning lets the error grow; a pulsar fix shrinks it and moves the
+// estimate to where the lines of position cross; the plot then recentres on the fix
+// =====================================================================================
+const K95 = Math.sqrt(5.991);                                // 95% of a 2-D normal
+const add = (A, B, k = 1) => [A[0] + k * B[0], A[1] + k * B[1], A[2] + k * B[2]];   // [xx, xy, yy]
+const inv = ([a, b, c]) => { const d = a * c - b * b; return [c / d, -b / d, a / d]; };
+const outer = (u, k = 1) => [k * u[0] * u[0], k * u[0] * u[1], k * u[1] * u[1]];
+const mul = ([a, b, c], v) => [a * v[0] + b * v[1], b * v[0] + c * v[1]];
+const axes = ([a, b, c]) => {                                 // 95% semi-axes (km) and the major axis's screen angle
+  const m = (a + c) / 2, d = Math.sqrt(((a - c) / 2) ** 2 + b * b);
+  return { A: K95 * Math.sqrt(m + d), B: K95 * Math.sqrt(Math.max(1, m - d)), ang: (Math.atan2(2 * b, a - c) * 90) / Math.PI };
+};
+const HP = [-HU[1], HU[0]];
+const DR_A = 5200, DR_C = 2100;                               // 1-sigma drift over a dead-reckoning leg, km: along, across the course
+const ACQ0 = 1.2, ACQ = 2.6, FIX = 44, HOLD = 6, UPD = 3.2;
+
+let phase = "dr", p0 = -L.rand(10, 24), drLen = 32;
+let Pfix = [430 * 430, 0, 410 * 410], Q = add(outer(HU, (DR_A * DR_A) / drLen), outer(HP, (DR_C * DR_C) / drLen));
+const sampleEnd = () => { const n1 = L.clamp(gauss(), -1.5, 1.5), n2 = L.clamp(gauss(), -1.5, 1.5);
+  return [HU[0] * DR_A * n1 + HP[0] * DR_C * n2, HU[1] * DR_A * n1 + HP[1] * DR_C * n2]; };
+let T0 = [L.rand(-200, 200), L.rand(-200, 200)], Tend = sampleEnd();   // where the ship really is, relative to the plot centre
+let T = T0.slice();
+let P0 = null, est = [0, 0], cov = Pfix, shift = [0, 0], lastCorr = history[history.length - 1].corr, lastErr = 0, occl = -1, nUsed = 0, sinceFix = L.rand(1.2, 2.4) * 1e9;
+const drCov = (t) => add(Pfix, Q, Math.max(0, t - p0));
+const sigma = (p, te) => p.floor + (p.s0 - p.floor) / Math.sqrt(1 + (te - p.a) / 0.2);
+
+const startFix = (t) => {
+  P0 = drCov(t); phase = "acq"; p0 = t; T = Tend.slice();
+  occl = Math.random() < 0.35 ? L.irand(0, PSR.length - 1) : -1;
+  const order = PSR.map((_, i) => i).sort(() => Math.random() - 0.5).filter((i) => i !== occl);
+  PSR.forEach((p) => { p.a = Infinity; p.s0 = L.rand(7200, 8800); p.floor = L.rand(220, 320); p.e = L.clamp(gauss(), -1.6, 1.6) * 0.45; });
+  order.forEach((i, k) => (PSR[i].a = t + ACQ0 + ACQ * k));
+  nUsed = order.length;
+  log(occl < 0 ? "Pulsar fix begun, six sources" : `Pulsar fix begun, ${PSR[occl].name} occluded`);
+};
+const solve = (te) => {                                       // the estimate and its covariance from the pulsars acquired by te
+  let Lam = inv(P0), rhs = [0, 0], n = 0;
+  for (const p of PSR) {
+    if (!(p.a <= te)) { p.z = null; continue; }
+    const s = sigma(p, te), w = 1 / (s * s);
+    p.s = s; p.z = p.u[0] * T[0] + p.u[1] * T[1] + p.e * s;
+    Lam = add(Lam, outer(p.u, w)); rhs = [rhs[0] + p.u[0] * p.z * w, rhs[1] + p.u[1] * p.z * w]; n++;
+  }
+  cov = inv(Lam); est = mul(cov, rhs);
+  return n;
+};
+
+let lastT = null, locked = 0;
+L.tick((t) => {
+  const dt = lastT === null ? 0 : Math.min(0.2, t - lastT); lastT = t;
+  gx += HU[0] * LYS * dt; gy += -HU[1] * LYS * dt; sinceFix += KMS * dt;
+  const u = t - p0;
+  let bandOp = 0;
+  if (phase === "dr") {
+    const k = L.clamp(u / drLen);
+    T = [L.mix(T0[0], Tend[0], k), L.mix(T0[1], Tend[1], k)];
+    cov = drCov(t); est = [0, 0]; locked = 0;
+    if (u >= drLen) startFix(t);
+  }
+  if (phase === "acq" || phase === "fix" || phase === "hold" || phase === "upd") {
+    const te = Math.min(t, p0 + FIX);
+    locked = solve(te);
+    if (phase === "acq" && locked === nUsed && u > ACQ0 + ACQ * (nUsed - 1) + 1) { phase = "fix"; log(`${WORD[nUsed]} sources in solution`); }
+    if (phase === "fix" && u >= FIX) {
+      phase = "hold"; lastErr = axes(cov).A;
+      log(`Position fix confirmed, error ${fmt(lastErr)} km`);
+    }
+    if (phase === "hold" && u >= FIX + HOLD) phase = "upd";
+    bandOp = 1;
+    if (phase === "upd") {
+      const k = L.clamp((u - FIX - HOLD) / UPD), e = L.ease(k);
+      shift = [est[0] * e, est[1] * e]; bandOp = 1 - L.clamp((k - 0.35) / 0.65);
+      if (k >= 1) {
+        const c = Math.hypot(est[0], est[1]);
+        lastCorr = c;
+        log(`Course plot corrected, ${fmt(c)} km`);
+        history.push({ sd: shipTime(t), n: nUsed, corr: c, err: lastErr }); if (history.length > 12) history.shift();
+        showHistory();
+        T0 = [T[0] - est[0], T[1] - est[1]]; Pfix = cov; est = [0, 0]; shift = [0, 0];
+        drLen = L.rand(30, 36); Q = add(outer(HU, (DR_A * DR_A) / drLen), outer(HP, (DR_C * DR_C) / drLen));
+        Tend = sampleEnd(); Tend = [Tend[0] + T0[0], Tend[1] + T0[1]];
+        phase = "dr"; p0 = t; sinceFix = 0; locked = 0; bandOp = 0;
+      }
+    }
+  }
+  // bands
+  PSR.forEach((p) => {
+    const on = phase !== "dr" && p.z != null;
+    const o = on ? bandOp * L.clamp((t - p.a) / 0.9) : 0;
+    op(p.band.g, o);
+    if (on) placeBand(p, p.z - (p.u[0] * shift[0] + p.u[1] * shift[1]), 1.96 * p.s);
+  });
+  // ellipse
+  const ax = axes(cov);
+  drawEllipse((est[0] - shift[0]) * KM, (est[1] - shift[1]) * KM, ax.A * KM, ax.B * KM, ax.ang);
+});
+
+// ---------------- readings, a few times a second ----------------
+const brgOf = (deg) => (((Math.round(deg) % 180) + 180) % 180);    // an axis, 000–179
+L.every(250, (t) => {
+  const u = t - p0, ax = axes(cov), fixing = phase !== "dr";
+  L.set(sdVal, stardate(t).toFixed(1));
+  // status
+  const next = PSR.filter((p) => p.a > t && fixing).sort((a, b) => a.a - b.a)[0];
+  if (phase === "dr") { L.set(stateTxt, "Dead Reckoning"); L.set(stateSub, `Inertial navigation  ·  warp ${WARP}  ·  next pulsar fix in ${Math.max(1, Math.ceil(drLen - u))} s`); }
+  else if (phase === "acq") { L.set(stateTxt, "Acquiring"); L.set(stateSub, next ? `Navigational sensors slewing to ${next.name}  ·  source ${locked + 1} of ${nUsed}` : `Timing ${WORD[locked].toLowerCase()} pulsars`); }
+  else if (phase === "fix") { L.set(stateTxt, "Triangulating"); L.set(stateSub, `Timing ${WORD[nUsed].toLowerCase()} pulsars  ·  error ellipse ${fmt(ax.A)} km and closing`); }
+  else if (phase === "hold") { L.set(stateTxt, "Fix Confirmed"); L.set(stateSub, `Position known to ${fmt(ax.A)} km  ·  estimate ${fmt(Math.hypot(est[0], est[1]))} km from the plot`); }
+  else { L.set(stateTxt, "Correcting"); L.set(stateSub, `Recentering the course plot on the pulsar fix  ·  ${fmt(Math.hypot(est[0], est[1]))} km`); }
+  // catalog and lines of position
+  PSR.forEach((p, i) => {
+    const st = !fixing ? "Standby" : i === occl ? "Occluded" : p.a <= t ? "Locked" : next === p ? "Slewing" : "Waiting";
+    L.set(cat[i].cp, st);
+    const lit = st === "Locked";
+    bg(cat[i].b, lit ? p.c : DIM); bg(lop[i].b, lit ? p.c : DIM);
+    ink(cat[i].cp, lit ? p.c : st === "Occluded" ? "pink" : "lilac");
+    op(p.ray, lit ? 1 : 0.35); op(p.strip, lit ? 1 : 0.3);
+    const w = lit && p.s ? 2 * 1.96 * p.s : 0;
+    if (Math.abs(w - lop[i].shown) > 1) { lop[i].shown = w; lop[i].f.style.transform = `scaleX(${L.clamp(w / WMAX).toFixed(4)})`; }
+    L.set(lop[i].v, lit ? `${fmt(w)} km` : st === "Occluded" ? "Occluded" : "Standby");
+  });
+  // position
+  const gtxt = (v) => (v < 0 ? "−" : "+") + fmt(Math.floor(Math.abs(v))) + "." + (Math.abs(v) % 1).toFixed(5).slice(2);
+  L.set(pos[1].v, gtxt(gx)); L.set(pos[2].v, gtxt(gy));
+  L.set(pos[5].v, (sinceFix / 1e9).toFixed(2));
+  L.set(pos[5].cp, phase === "dr" ? "Billion km" : "Billion km");
+  // ellipse
+  L.set(ell[0].v, `${fmt(ax.A)} km`); L.set(ell[1].v, `${fmt(ax.B)} km`);
+  // screen angle → bearing of the major axis
+  L.set(ell[2].v, `${pad(brgOf(ax.ang + 90), 3)}°`);
+  const c = fixing ? Math.hypot(est[0], est[1]) : lastCorr;
+  L.set(ell[3].v, `${fmt(c)} km`); L.set(ell[3].cp, fixing ? "Estimate Shift" : "Last Applied");
+  L.set(ell[4].v, fixing ? `${locked} of ${PSR.length}` : "None");
+  L.set(ell[4].cp, fixing ? "In Solution" : "Dead Reckoning");
+  const integ = fixing ? Math.min(u, FIX) : FIX;
+  L.set(ell[5].v, `${integ.toFixed(1)} s`); L.set(ell[5].cp, fixing ? "Timing" : "Last Fix");
+  // corners
+  L.set(cSrc.v, fixing ? `${locked} of ${PSR.length}` : "Standby");
+  L.set(cErr.v, `${fmt(ax.A)} km`);
+  L.set(cCorr.v, `${fmt(c)} km`);
+}, 0);
+
+const ROUTINE = ["Chronometer verified against pulsar time", "Inertial sensors recalibrated", "Navigational deflector nominal",
+  "Stellar drift correction applied", "Subspace field geometry stable", "Course 075 mark 004 holding"];
+let rdeck = [];
+later(9000, (t) => {
+  if (phase !== "dr" || t - p0 < 6 || t - p0 > drLen - 6) return;
+  if (!rdeck.length) rdeck = ROUTINE.slice().sort(() => Math.random() - 0.5);
+  log(rdeck.pop());
+}, 0.2);
+
+log("Leaving the Typhon Expanse, warp 6"); log("Chronometers reset to Starfleet time"); log("Pulsar fix every ninety seconds");
+log(`Course plot corrected, ${fmt(lastCorr)} km`); log("Dead reckoning, inertial drift 0.0004%");
+});
+</script></body></html>

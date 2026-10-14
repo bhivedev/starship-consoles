@@ -1,0 +1,279 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Transporter</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .field { border-radius: 16px; background: linear-gradient(to bottom, rgba(150,200,255,.05), rgba(150,200,255,.34) 50%, rgba(150,200,255,.05)); }
+  .padglow { border-radius: 50%; background: radial-gradient(closest-side, rgba(255,240,200,.95), rgba(255,200,90,.55) 55%, rgba(255,180,60,0)); }
+  .scanbar { background: linear-gradient(to right, rgba(143,211,255,0), rgba(143,211,255,.5) 85%, #e6f6ff); }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame ----------------
+const BAR = 64;
+const titleLeft = L.title({ x: 3700, y: 40, h: BAR, c: "gold", txt: "Transporter Room 3" });
+L.box({ x: 3724, y: 40, w: 92, h: BAR, c: "gold", r: "r" });
+L.elbow({ corner: "tl", x: 40, y: 40, w: 1360, h: 250, bw: 240, bh: BAR, R: 150, r: 60, c: "gold" });
+L.rect({ x: 1400 + L.GAP, y: 40, w: 300, h: BAR, c: "butter" });
+L.rect({ x: 1724 + L.GAP, y: 40, w: titleLeft - L.GAP - (1724 + L.GAP), h: BAR, c: "gold" });
+[[298, 140, "butter", "TR 3"], [446, 70, "orange", "Pads"], [524, 420, "gold", "Lock"], [952, 70, "ice", "Buffer"],
+ [1030, 300, "butter", "ACB"], [1338, 70, "sky", "Coils"], [1416, 216, "gold", "Log"]]
+  .forEach(([y, h, c, label]) => L.box({ x: 40, y, w: 240, h, c, label }));
+L.elbow({ corner: "bl", x: 40, y: 1640, w: 1500, h: 480, bw: 240, bh: BAR, R: 150, r: 60, c: "orange" });
+L.text({ x: 258, base: 1712, s: 40, c: "#000", txt: "Transport", align: "r", on: true });
+[[1540 + L.GAP, 600, "butter"], [2164 + L.GAP, 900, "gold"], [3088 + L.GAP, 3700 - (3088 + L.GAP), "orange"]]
+  .forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
+L.box({ x: 3724, y: 2056, w: 92, h: BAR, c: "gold", r: "r" });
+
+const header = (x, y, w, label, lw, c1, c2) => {
+  L.box({ x, y, w: lw, h: 56, c: c1, label, fs: 32, r: "l" });
+  L.rect({ x: x + lw + L.GAP, y, w: w - lw - L.GAP, h: 56, c: c2 });
+};
+const small = (x, y, w, label, lw, c1, c2) => {
+  L.box({ x, y, w: lw, h: 48, c: c1, label, fs: 28, r: "l" });
+  L.rect({ x: x + lw + L.GAP, y, w: w - lw - L.GAP, h: 48, c: c2 });
+};
+
+// ---------------- the transport cycle ----------------
+// Standby → Locking → Energizing → Materializing → Complete, about 34 seconds round.
+const PHASES = [["Standby", 8], ["Locking", 6], ["Energizing", 7], ["Materializing", 6], ["Transport Complete", 7]];
+const CYCLE = PHASES.reduce((a, p) => a + p[1], 0);
+const destinations = [
+  ["Starbase 74", "Docking Ring 2", 2, "Personnel"], ["Bajor", "Ashalla, Ministry Plaza", 3, "Away team"],
+  ["Deep Space 9", "Promenade, Level 1", 1, "Personnel"], ["U.S.S. Hood", "Transporter Room 1", 2, "Officers"],
+  ["Deneb IV", "Farpoint Station", 4, "Away team"], ["Risa", "Temtibi Lagoon", 2, "Shore leave"],
+  ["Rigel VII", "Surface, Grid 4", 3, "Survey team"], ["Starbase 133", "Cargo Bay 6", 0, "Medical supplies"],
+];
+let destDeck = [], dest = null, cycleN = 411;
+const nextDest = () => { if (!destDeck.length) destDeck = destinations.slice().sort(() => Math.random() - 0.5); dest = destDeck.pop(); cycleN++; };
+nextDest();
+const phaseAt = (t) => {
+  let u = t % CYCLE;
+  for (let i = 0; i < PHASES.length; i++) { if (u < PHASES[i][1]) return { i, name: PHASES[i][0], k: u / PHASES[i][1] }; u -= PHASES[i][1]; }
+  return { i: 0, name: PHASES[0][0], k: 0 };
+};
+let ph = phaseAt(0), lastPhase = 0;
+
+// ---------------- status line ----------------
+const stateTxt = L.text({ x: 330, cap: 150, s: 100, c: "ice", txt: "Standby" });
+const stateSub = L.text({ x: 1290, base: 222, s: 38, c: "butter", txt: "" });   // on the pad column's line
+const cyc = L.box({ x: 3416, y: 150, w: 400, h: 72, c: "gold", label: "", r: "lr", fs: 36 });
+
+// ---------------- transport coordinates ----------------
+header(330, 280, 900, "Transport Coordinates", 460, "gold", "butter");
+const coordRows = [["Origin", () => "Enterprise · TR 3"], ["Destination", () => dest[0]], ["Site", () => dest[1]],
+  ["Payload", () => (dest[2] ? `${dest[2]} ${dest[2] === 1 ? "person" : "persons"} · ${dest[3]}` : dest[3])],
+  ["Range", () => coord.range.toLocaleString("en") + " km"], ["Bearing", () => coord.b.toFixed(1).padStart(5, "0") + " mark " + coord.m.toFixed(1)],
+  ["Coordinates", () => `${coord.x}  ·  ${coord.y}  ·  ${coord.z}`]];
+let coord = {};
+const newCoord = () => (coord = { range: L.irand(800, 38000), b: L.rand(0, 360), m: L.rand(-40, 40), x: L.digits(4), y: L.digits(4), z: L.digits(3) });
+newCoord();
+const coordVals = coordRows.map(([name], i) => {
+  const base = 404 + i * 76;
+  L.text({ x: 330, base, s: 40, c: "butter", txt: name });
+  return L.text({ x: 620, base, s: 52, c: "white", txt: "" });
+});
+
+// ---------------- pattern lock ----------------
+header(330, 1000, 900, "Pattern Lock", 300, "orange", "butter");
+const locks = [0, 1, 2].map((i) => {
+  const base = 1112 + i * 92;
+  L.text({ x: 330, base, s: 40, c: "butter", txt: "Lock " + (i + 1) });
+  L.rect({ x: 480, y: base - 30, w: 590, h: 30, c: "#2a2210" });
+  const f = L.layer({ x: 480, y: base - 30, w: 590, h: 30 });
+  f.style.background = "var(--gold)"; f.style.transformOrigin = "0 0";
+  const v = L.text({ x: 1230, base, s: 52, c: "white", txt: "", align: "r" });
+  return { f, v, u: 0.2, goal: L.rand(0.96, 0.995) };
+});
+L.text({ x: 330, base: 1420, s: 40, c: "butter", txt: "Combined" });
+const combined = L.text({ x: 1230, base: 1420, s: 72, c: "gold", txt: "", align: "r" });
+L.text({ x: 330, base: 1510, s: 40, c: "orange", txt: "Signal" });
+const signal = L.text({ x: 1230, base: 1510, s: 52, c: "white", txt: "", align: "r" });
+
+// ---------------- the transporter pad, side view ----------------
+header(1290, 280, 1320, "Transporter Pad", 360, "gold", "butter");
+const PX = 1290, PW = 1320, NP = 6, PITCH = PW / NP, CT = 470, CB = 1450;      // column top and bottom
+L.rect({ x: PX + 20, y: 380, w: PW - 40, h: 52, rx: 26, c: "gold" });                // emitter array
+L.rect({ x: PX + 20, y: 1490, w: PW - 40, h: 52, rx: 26, c: "gold" });               // the platform
+const cols = [];
+for (let i = 0; i < NP; i++) {
+  const cx = PX + PITCH * (i + 0.5);
+  L.rect({ x: cx - 60, y: 432, w: 120, h: 22, c: "butter", free: true });          // emitter
+  L.rect({ x: cx - 76, y: CT, w: 152, h: CB - CT, rx: 16, c: "#0a1430", panel: true });
+  L.rect({ x: cx - 90, y: 1466, w: 180, h: 24, rx: 12, c: "orange", free: true });  // pad
+  const field = L.layer({ x: cx - 76, y: CT, w: 152, h: CB - CT, cls: "field" });
+  field.style.opacity = 0;
+  const glow = L.layer({ x: cx - 130, y: 1428, w: 260, h: 100, cls: "padglow" });
+  glow.style.opacity = 0;
+  L.text({ x: cx, base: CT + 58, s: 36, c: "sky", txt: "Pad " + (i + 1), align: "c", w: 150 });
+  cols.push({ cx, field, glow, used: false });
+}
+// between transports, a diagnostic line sweeps down the chamber
+const diag = L.layer({ x: PX + 40, y: CT, w: PW - 80, h: 10 });
+diag.style.background = "linear-gradient(to right, rgba(143,211,255,0), rgba(143,211,255,.7) 15%, rgba(143,211,255,.7) 85%, rgba(143,211,255,0))";
+diag.style.opacity = 0;
+// the matter stream: sparkles drawn only inside the columns, only while the beam is up
+const spark = L.canvas({ x: PX, y: CT, w: PW, h: CB - CT, panel: true });
+const parts = [];
+for (let i = 0; i < NP; i++) for (let k = 0; k < 70; k++)
+  parts.push({ col: i, x: L.rand(-62, 62), y: L.rand(70, CB - CT - 10), v: L.rand(6, 26), ph: L.rand(0, 7), sz: L.rand(1.6, 4.2), hot: Math.random() < 0.2 });
+let sparkOn = false, spT = null;
+const drawSparks = (t, amount) => {
+  const g = spark.g, dt = spT === null ? 0 : Math.min(0.1, t - spT); spT = t;
+  for (const c of cols) g.clearRect(c.cx - PX - 78, 0, 156, spark.h);
+  if (amount <= 0.001) return;
+  for (const p of parts) {
+    if (!cols[p.col].used) continue;
+    p.y -= p.v * dt; if (p.y < 70) p.y = CB - CT - 10;
+    const tw = 0.5 + 0.5 * Math.sin(t * 9 + p.ph);
+    const a = amount * (0.25 + 0.75 * tw);
+    if (a < 0.05) continue;
+    const x = cols[p.col].cx - PX + p.x + Math.sin(t * 2 + p.ph) * 3;
+    g.fillStyle = p.hot ? `rgba(255,236,190,${a.toFixed(3)})` : `rgba(190,230,255,${(a * 0.85).toFixed(3)})`;
+    const s = p.sz * (0.6 + 0.6 * tw);
+    g.fillRect(x - s / 2, p.y - s * 1.6, s, s * 3.2);          // a vertical glint
+    g.fillRect(x - s * 1.4, p.y - s / 2, s * 2.8, s);          // and its cross
+  }
+};
+
+// ---------------- pattern buffer ----------------
+header(2670, 280, 1146, "Pattern Buffer", 340, "ice", "sky");
+const BX = 3243, BY = 600, BR = 200, NS = 48;
+const segs = [];
+const ringG = L.svg("g", { class: "boot" });
+for (let i = 0; i < NS; i++) {
+  const a0 = -150 + (300 / NS) * i + 0.8, a1 = -150 + (300 / NS) * (i + 1) - 0.8;
+  segs.push(L.svg("path", { d: L.arc(BX, BY, BR - 44, BR, a0, a1), fill: "#1a2a4a" }, ringG));
+}
+const bufPct = L.text({ x: BX, base: BY + 40, s: 120, c: "ice", txt: "0%", align: "c", w: 360 });
+L.text({ x: BX, base: BY + 100, s: 36, c: "sky", txt: "Capacity", align: "c", w: 360 });
+L.text({ x: 2670, base: 880, s: 40, c: "sky", txt: "Pattern Integrity" });
+const integ = L.text({ x: 3816, base: 880, s: 52, c: "white", txt: "", align: "r" });
+L.text({ x: 2670, base: 950, s: 40, c: "sky", txt: "Buffer Time" });
+const btime = L.text({ x: 3816, base: 950, s: 52, c: "white", txt: "", align: "r" });
+let buffer = 0, litSegs = -1, bufT = 0;
+// four small readouts flanking the ring
+const flank = [["Stream", 2670, 470, "l"], ["Resolution", 2670, 640, "l"], ["Confinement", 3816, 470, "r"], ["Compensation", 3816, 640, "r"]]
+  .map(([name, x, base, align]) => {
+    L.text({ x, base: base - 60, s: 36, c: "sky", txt: name, align: align === "r" ? "r" : undefined });
+    return L.text({ x, base, s: 48, c: "white", txt: "", align: align === "r" ? "r" : undefined });
+  });
+
+// ---------------- subsystems ----------------
+header(2670, 1000, 1146, "Subsystems", 300, "ice", "sky");
+const subs = ["Heisenberg Compensators", "Phase Transition Coils", "Annular Confinement Beam", "Molecular Imaging Scanners",
+              "Doppler Compensator", "Biofilter"].map((name, i) => {
+  const base = 1112 + i * 72;
+  L.text({ x: 2670, base, s: 40, c: "sky", txt: name });
+  const pill = L.box({ x: 3576, y: base - 40, w: 240, h: 50, c: "sky", label: "Online", r: "lr", fs: 30 });
+  return { pill, state: "" };
+});
+
+// ---------------- transport log ----------------
+small(330, 1620, 1170, "Transport Log", 340, "gold", "butter");
+const logRows = Array.from({ length: 6 }, (_, i) => {
+  const base = 1734 + i * 54;
+  return { sd: L.text({ x: 330, base, s: 36, c: "orange", txt: "" }), tx: L.text({ x: 520, base, s: 36, c: "butter", txt: "" }) };
+});
+let sd = 47771.0, logged = [];
+const logLine = (txt) => {
+  sd += 0.1; logged.push([sd.toFixed(1), txt]); if (logged.length > 6) logged.shift();
+  logRows.forEach((r, i) => { const e = logged[i]; r.sd.textContent = e ? e[0] : ""; r.tx.textContent = e ? e[1] : ""; });
+};
+const describe = (d) => `Transport complete  ·  ${d[2] ? d[2] + (d[2] === 1 ? " person" : " persons") : d[3]}  ·  ${d[0]}, ${d[1]}`;
+for (let i = 0; i < 6; i++) { logLine(describe(destDeck.length ? destDeck[destDeck.length - 1 - (i % destDeck.length)] : dest)); }
+
+// ---------------- biofilter ----------------
+small(1560, 1620, 2256, "Biofilter", 240, "ice", "sky");
+L.text({ x: 1560, base: 1734, s: 40, c: "sky", txt: "Pathogens" });
+const patho = L.text({ x: 3816, base: 1734, s: 52, c: "white", txt: "", align: "r" });
+const BFX = 1560, BFW = 2256, BFT = 1772, BFH = 232;
+const bf = L.svg("g", { class: "boot" });
+L.svg("rect", { x: BFX, y: BFT, width: BFW, height: BFH, fill: "#08102a" }, bf);
+[["#8fd3ff", 0.18, 3.1], ["#ffcc66", 0.5, 5.3], ["#c7a0d8", 0.82, 7.7]].forEach(([c, row, f]) => {
+  const pts = [];
+  for (let x = 0; x <= BFW; x += 6) {
+    const u = x / BFW;
+    pts.push(`${(BFX + x).toFixed(0)},${(BFT + BFH * row + 26 * Math.sin(u * f * 6) * Math.sin(u * 3.1 + row * 4) + 8 * Math.sin(u * 61 + row)).toFixed(1)}`);
+  }
+  L.svg("polyline", { points: pts.join(" "), fill: "none", stroke: c, "stroke-width": 3, opacity: 0.85 }, bf);
+});
+const scan = L.layer({ x: BFX, y: BFT, w: 220, h: BFH, cls: "scanbar" });
+scan.style.opacity = 0;
+
+// ---------------- the cycle drives it all ----------------
+let tPrev = null;
+L.tick((t) => {
+  const dt = tPrev === null ? 0 : Math.min(0.1, t - tPrev); tPrev = t;
+  ph = phaseAt(t);
+  if (ph.i !== lastPhase) {                               // phase changes
+    if (ph.i === 0) { nextDest(); newCoord(); locks.forEach((l) => (l.goal = L.rand(0.96, 0.995))); }
+    if (ph.i === 2) {                                     // the pads in use for this payload
+      const n = Math.max(1, Math.min(NP, dest[2] || 3));
+      const order = [2, 3, 1, 4, 0, 5];
+      cols.forEach((c, i) => (c.used = order.indexOf(i) < n));
+    }
+    if (ph.i === 4) logLine(describe(dest));
+    lastPhase = ph.i;
+  }
+  // locks: searching at standby, climbing while locking, held until the transport is done
+  for (const l of locks) {
+    const target = ph.i === 0 ? 0.2 + 0.12 * Math.sin(t * 0.8 + l.goal * 40) : ph.i === 1 ? l.goal * L.ease(ph.k) + 0.2 * (1 - L.ease(ph.k)) : ph.i === 4 ? L.mix(l.goal, 0.25, ph.k) : l.goal;
+    l.u += (target - l.u) * 0.08;
+    l.f.style.transform = `scaleX(${l.u.toFixed(4)})`;
+  }
+  // the beam
+  const beam = ph.i === 2 ? L.ease(L.clamp(ph.k * 2.2)) : ph.i === 3 ? 1 - L.ease(ph.k) : 0;
+  const pad = ph.i === 2 ? L.clamp(ph.k * 3) : ph.i === 3 ? 1 - ph.k * 0.6 : ph.i === 4 ? 0.4 * (1 - ph.k) : 0;
+  const idle = ph.i === 0 || ph.i === 4;
+  for (const c of cols) {
+    c.field.style.opacity = c.used ? (beam * (0.8 + 0.2 * Math.sin(t * 6 + c.cx))).toFixed(3) : 0;
+    c.glow.style.opacity = Math.max(c.used ? pad : 0, idle ? 0.16 + 0.06 * Math.sin(t * 1.3 + c.cx) : 0).toFixed(3);
+  }
+  const dk = (t % 4.5) / 4.5;
+  diag.style.opacity = idle ? (0.55 * Math.sin(dk * Math.PI)).toFixed(3) : 0;
+  L.move(diag, 0, dk * (CB - CT - 10));
+  if (beam > 0.001 || sparkOn) { drawSparks(t, beam); sparkOn = beam > 0.001; } else spT = t;
+  // the buffer fills while energizing, empties while materializing
+  const goal = ph.i === 2 ? L.ease(ph.k) : ph.i === 3 ? 1 - L.ease(ph.k) : 0;
+  buffer += (goal - buffer) * 0.2;
+  bufT = ph.i === 2 || ph.i === 3 ? bufT + dt : 0;
+  const n = Math.round(buffer * NS);
+  if (n !== litSegs) {
+    segs.forEach((p, i) => p.setAttribute("fill", i < n ? (i > NS * 0.85 ? "var(--white)" : "var(--ice)") : "#1a2a4a"));
+    litSegs = n;
+  }
+  // the biofilter scans while the pattern is in the buffer
+  const scanning = ph.i === 2 || ph.i === 3;
+  scan.style.opacity = scanning ? 1 : 0;
+  if (scanning) L.move(scan, ((t * 520) % (BFW + 220)) - 220, 0);
+});
+L.every(200, (t) => {
+  stateTxt.textContent = ph.name;
+  stateTxt.style.color = ph.i === 2 || ph.i === 3 ? "var(--butter)" : "var(--ice)";
+  stateSub.textContent = ph.i === 0 ? "Ready for transport  ·  Pads 1 – 6 clear" : `${dest[0]}  ·  ${dest[1]}`;
+  cyc.textContent = "Cycle " + String(cycleN).padStart(4, "0");
+  coordRows.forEach(([, f], i) => (coordVals[i].textContent = f()));     // at standby: the transport coming up
+  locks.forEach((l) => (l.v.textContent = (l.u * 100).toFixed(1) + "%"));
+  combined.textContent = (Math.min(...locks.map((l) => l.u)) * 100).toFixed(1) + "%";
+  signal.textContent = ph.i === 0 ? "Searching" : ph.i === 1 ? "Acquiring" : ph.i === 4 ? "Released" : "Locked";
+  bufPct.textContent = Math.round(buffer * 100) + "%";
+  integ.textContent = (99.999 - bufT * 0.0007).toFixed(3) + "%";
+  btime.textContent = bufT.toFixed(1) + " s";
+  const active = ph.i === 2 || ph.i === 3, ready = ph.i === 1;
+  subs.forEach((s, i) => {
+    const st = active ? "Active" : ready && i < 4 ? "Ready" : "Online";
+    if (st === s.state) return;
+    s.state = st; s.pill.textContent = st;
+    s.pill.style.background = st === "Active" ? "var(--butter)" : st === "Ready" ? "var(--gold)" : "var(--sky)";
+  });
+  patho.textContent = active ? "Scanning" : "None detected";
+  flank[0].textContent = active ? (buffer * 9.4).toFixed(2) + " kg/s" : "0.00 kg/s";
+  flank[1].textContent = active ? "0.0001 mm" : "Standby";
+  flank[2].textContent = (active ? 97.6 + Math.sin(t) * 0.8 : 100).toFixed(1) + "%";
+  flank[3].textContent = active ? "Doppler " + (0.3 + Math.abs(Math.sin(t * 0.7)) * 0.4).toFixed(2) : "Nominal";
+}, 0);
+});
+</script></body></html>

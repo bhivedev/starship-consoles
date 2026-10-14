@@ -1,0 +1,553 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Security</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .pill { transition: background-color 1.2s ease; }
+  .num30 { transition: background-color .6s ease, color .6s ease; }
+  .band { background: linear-gradient(to bottom, rgba(217,74,58,0) 0%, rgba(217,74,58,.10) 55%, rgba(255,90,60,.42) 92%, #ff8a70 100%); }
+  .room { position: absolute; }
+  .room i { position: absolute; left: 0; top: 0; right: 0; height: 8px; }
+  .room b { position: absolute; font-weight: normal; font-size: 30px; line-height: 1; white-space: pre; }
+  .ls { width: 16px; height: 16px; border-radius: 8px; background: var(--white); }
+  .ls.sec { background: var(--mars); }
+  .ls.civ { background: var(--sand); }
+  .mark { border: 5px solid var(--mars); border-radius: 14px; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: sidebar on the left, title at top right ----------------
+const BAR = 64;
+const titleLeft = L.title({ x: 3700, y: 40, h: BAR, c: "red", txt: "Security  •  Internal Sensors" });
+L.box({ x: 3724, y: 40, w: 92, h: BAR, c: "red", r: "r" });
+L.elbow({ corner: "tl", x: 40, y: 40, w: 1360, h: 250, bw: 240, bh: BAR, R: 150, r: 60, c: "red" });
+L.rect({ x: 1400 + L.GAP, y: 40, w: 300, h: BAR, c: "sand" });
+L.rect({ x: 1724 + L.GAP, y: 40, w: titleLeft - L.GAP - (1724 + L.GAP), h: BAR, c: "red" });
+[[298, 140, "sand", "Sec 01"], [446, 70, "mars", "Brig"], [524, 420, "red", "Sensors"], [952, 70, "sand", "Level 3"],
+ [1030, 300, "tan", "Teams"], [1338, 70, "mars", "Arms"], [1416, 216, "red", "Access"]]
+  .forEach(([y, h, c, label]) => L.box({ x: 40, y, w: 240, h, c, label }));
+L.elbow({ corner: "bl", x: 40, y: 1640, w: 1500, h: 480, bw: 240, bh: BAR, R: 150, r: 60, c: "sand" });
+L.text({ x: 258, base: 1712, s: 40, c: "#000", txt: "Security", align: "r", on: true });
+[[1540 + L.GAP, 600, "red"], [2164 + L.GAP, 900, "tan"], [3088 + L.GAP, 3700 - (3088 + L.GAP), "sand"]]
+  .forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
+L.box({ x: 3724, y: 2056, w: 92, h: BAR, c: "sand", r: "r" });
+
+const header = (x, y, w, label, lw, c1, c2, h = 56, fs = 32) => {
+  L.box({ x, y, w: lw, h, c: c1, label, fs, r: "l" });
+  L.rect({ x: x + lw + L.GAP, y, w: w - lw - L.GAP, h, c: c2 });
+};
+const fill = (x, y, w, h, c, origin = "0 0", parent) => {
+  const f = L.layer({ x, y, w, h }, parent);
+  f.style.background = c.startsWith("#") ? c : `var(--${c})`; f.style.transformOrigin = origin;
+  return f;
+};
+const later = (ms, f, jitter) => L.every(ms, (t) => { if (t > 1) f(t); }, jitter);
+const D2 = (d) => String(d).padStart(2, "0");
+const fmt = (n) => n.toLocaleString("en");
+const DIM = "#8796a5", DARK = "#2a2420";
+// three columns: sensor sweep 330–1490, deck plan 1550–2650, fields and teams 2710–3816
+const C1 = 330, C1R = 1490, C2 = 1550, C2R = 2650, C3 = 2710, C3R = 3816;
+
+// ---------------- the decks ----------------
+// [section, how many usually there]
+const DECKS = [null,
+  ["Main Bridge", 14], ["Officers' Quarters", 22], ["Briefing Rooms", 12], ["Stellar Cartography", 16], ["Science Labs", 30],
+  ["Transporter Rooms", 18], ["Diplomatic Suites", 14], ["Brig  ·  Battle Bridge", 20], ["Captain's Quarters", 24], ["Ten Forward", 48],
+  ["Holodecks", 34], ["Sickbay", 30], ["Shuttlebays 2 – 3", 22], ["Cargo Bays", 12], ["Crew Quarters", 46],
+  ["Docking Latches", 6], ["Science Labs", 28], ["Schoolrooms", 36], ["Environmental", 10], ["Personnel Office", 18],
+  ["Computer Core", 12], ["Cargo Bays 3 – 5", 14], ["Impulse Engines", 16], ["Hydroponics", 18], ["Torpedo Launchers", 12],
+  ["Recreation", 38], ["Replicator Shop", 14], ["Crew Quarters", 44], ["Life Support", 10], ["Deflector Control", 12],
+  ["Main Deflector", 8], ["Deflector Coils", 6], ["Engineering Quarters", 40], ["Fabrication Shops", 22], ["Warp Core Access", 14],
+  ["Main Engineering", 46], ["Dilithium Chamber", 10], ["Cargo Bays 6 – 9", 12], ["Shuttle Repair", 16], ["Waste Recycling", 8],
+  ["Tractor Emitter", 6], ["Antimatter Storage", 8]];
+// rooms named on the deck plan, beyond the deck's own name
+const ROOMS = { 1: ["Main Bridge", "Ready Room", "Observation Lounge"], 8: ["Brig", "Security Office", "Armory", "Battle Bridge"],
+  10: ["Ten Forward", "Galley"], 12: ["Sickbay", "Intensive Care", "Surgery", "Morgue"], 13: ["Shuttlebay 2", "Shuttlebay 3", "Flight Control"],
+  21: ["Computer Core", "Core Access"], 22: ["Cargo Bay 3", "Cargo Bay 4", "Cargo Bay 5"], 27: ["Replicator Shop", "Matter Stores"],
+  31: ["Main Deflector", "Graviton Control"], 36: ["Main Engineering", "Chief Engineer", "Warp Core"], 42: ["Antimatter Storage", "Pod Control"] };
+const ABOARD = 1014;
+// true counts, kept summing to everyone aboard; what the screen shows is what the last sweep saw
+const lives = [0], seen = [0];
+{
+  const w = DECKS.slice(1).map((d) => d[1]), sw = w.reduce((a, b) => a + b, 0);
+  const raw = w.map((v) => (v * ABOARD) / sw), n = raw.map(Math.floor);
+  let left = ABOARD - n.reduce((a, b) => a + b, 0);
+  raw.map((r, i) => [r - n[i], i]).sort((a, b) => b[0] - a[0]).forEach(([, i]) => { if (left-- > 0) n[i]++; });
+  n.forEach((v) => { lives.push(v); seen.push(v); });
+}
+later(4000, () => {                                       // people move about the ship
+  const a = L.irand(1, 42), b = L.irand(1, 42);
+  if (a !== b && lives[a] > 3) { lives[a]--; lives[b]++; }
+}, 0.4);
+
+// ---------------- status line ----------------
+const stateTxt = L.text({ x: C1, cap: 150, s: 100, c: "sand", txt: "All Decks Secure" });
+const stateSub = L.text({ x: C2, base: 222, s: 38, c: "mars", txt: "" });
+const pill = L.box({ x: 3416, y: 150, w: 400, h: 72, c: "sand", label: "No Intruders Detected", r: "lr", fs: 36, cls: "pill" });
+pill.style.willChange = "opacity";
+L.tick((t) => { pill.style.opacity = (0.88 + 0.12 * Math.sin(t * 1.1)).toFixed(3); });
+
+// ---------------- internal sensor sweep: decks 1–42, two columns of 21 ----------------
+header(C1, 280, C1R - C1, "Internal Sensor Sweep", 420, "red", "sand");
+const COLX = [C1, 940], COLW = 550, ROWB = 460, RP = 54;
+const rowBase = (d) => ROWB + ((d - 1) % 21) * RP;
+const colOf = (d) => COLX[d > 21 ? 1 : 0];
+// the sweep: a band moving down the list, one deck every 1.5 s; one band per column
+const PER = 1.5;
+const bands = COLX.map((x) => { const b = L.layer({ x: x - 12, y: 0, w: COLW + 24, h: 50, cls: "band" }); b.style.opacity = 0; return b; });
+COLX.forEach((x) => {
+  L.text({ x: x + 124, base: 400, s: 36, c: "mars", txt: "Section" });
+  L.text({ x: x + COLW, base: 400, s: 36, c: "mars", txt: "Life Signs", align: "r" });
+});
+const list = [null];
+for (let d = 1; d <= 42; d++) {
+  const x = colOf(d), base = rowBase(d);
+  list.push({
+    box: L.box({ x, y: base - 29, w: 96, h: 40, c: "sand", label: D2(d), fs: 30, r: "l", cls: "num30" }),
+    name: L.text({ x: x + 124, base, s: 36, c: "sand", txt: DECKS[d][0] }),
+    n: L.text({ x: x + COLW, base, s: 36, c: "white", txt: seen[d], align: "r" }),
+    look: "",
+  });
+}
+let sweepN = 2184, lastDeck = 0, unknowns = 0;
+const SWEEP0 = L.rand(0, 42 * PER);                        // start somewhere in the pass
+const sweepPos = (t) => ((t + SWEEP0) / PER) % 42;          // 0 … 42, in decks
+L.tick((t) => {
+  const p = sweepPos(t), d = Math.floor(p) + 1;
+  // band A covers decks 1–21, B 22–42; each fades as it runs off its column's end
+  // (each fades in just above its first row and out just below its last: no jumps)
+  [[0, p > 41 ? p - 42 : p], [1, p < 11 ? p + 21 : p - 21]].forEach(([i, q]) => {
+    const vis = L.clamp(Math.min(q + 0.6, 21.6 - q) / 0.6);
+    if (vis <= 0 && bands[i].hid) return;
+    bands[i].hid = vis <= 0;
+    bands[i].style.opacity = vis.toFixed(3);
+    L.move(bands[i], 0, ROWB - 79 + q * RP);              // its bright lower edge crosses the row being swept
+  });
+  if (d !== lastDeck) {
+    if (lastDeck) { seen[lastDeck] = lives[lastDeck]; list[lastDeck].n.textContent = seen[lastDeck]; if (lastDeck === plan.deck) syncDots(); }
+    if (d === 1 && lastDeck) sweepN++;
+    lastDeck = d; showSweep(); paintList();
+  }
+});
+// swept within the last half pass: lit; the rest dim; the deck under the band white
+const paintList = () => {
+  const p = sweepPos(L.t), cur = Math.floor(p) + 1;
+  for (let d = 1; d <= 42; d++) {
+    const age = (p - (d - 1) + 42) % 42;
+    const look = d === cur ? "cur" : age < 21 ? "lit" : "dim";
+    const hot = d === plan.deck, warn = !!(alert && alert.phase < 2 && alert.deck === d);
+    const key = look + hot + warn;
+    if (key === list[d].look) continue;
+    list[d].look = key;
+    const b = list[d].box;
+    b.style.background = warn ? "var(--mars)" : look === "cur" ? "var(--white)" : look === "lit" ? "var(--sand)" : DARK;
+    b.style.color = look === "dim" && !warn ? "var(--sand)" : "#000";
+    list[d].name.style.color = hot ? "var(--white)" : "var(--sand)";
+  }
+};
+const showSweep = () => {
+  stateSub.textContent = `Sweep ${fmt(sweepN)}  ·  Deck ${D2(lastDeck)}  ·  ${fmt(ABOARD)} life signs aboard  ·  ${unknowns} unidentified`;
+  showReadings();
+};
+
+// ---------------- the deck plan: an abstract section grid, life signs moving along its corridors ----------------
+header(C2, 280, C2R - C2, "Deck Plan", 260, "sand", "red");
+const planTitle = L.text({ x: C2, base: 400, s: 40, c: "white", txt: "" });
+const planCount = L.text({ x: C2R, base: 400, s: 40, c: "sand", txt: "", align: "r" });
+const PX = C2, PY = 436, PW = C2R - C2, PH = 1030;
+const planBox = L.layer({ x: PX, y: PY, w: PW, h: PH });
+planBox.style.transition = "opacity .9s ease";
+// when the sweep reaches the deck on the plan, its band crosses the plan too
+const planScan = L.layer({ x: PX - 12, y: PY - 70, w: PW + 24, h: 70, cls: "band" });
+planScan.style.opacity = 0;
+L.tick((t) => {
+  const p = sweepPos(t), on = Math.floor(p) + 1 === plan.deck, k = p - Math.floor(p);
+  if (!on) { if (planScan.shown) { planScan.style.opacity = 0; planScan.shown = false; } return; }
+  planScan.shown = true;
+  planScan.style.opacity = L.clamp(Math.min(k, 1 - k) / 0.12).toFixed(3);
+  L.move(planScan, 0, k * (PH + 70));
+});
+// corridors: a ring and a cross, on a 3 × 3 grid of junctions
+const GX = [180, PW / 2, PW - 180], GY = [180, PH / 2, PH - 180], CW = 36;
+const seeded = (s) => () => { s = (s + 0x6d2b79f5) | 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+const split = (a, b, n, gap, rnd) => {                      // n pieces from a to b, uneven, gap between
+  const w = Array.from({ length: n }, () => 0.7 + rnd() * 0.8), sw = w.reduce((p, q) => p + q, 0), span = b - a - gap * (n - 1);
+  let x = a; return w.map((v) => { const s = [x, x + (v / sw) * span]; x = s[1] + gap; return [Math.round(s[0]), Math.round(s[1])]; });
+};
+const SEC = new Set(["Brig", "Security Office", "Armory", "Battle Bridge"]);
+const plan = { deck: 0, rooms: [], dots: [] };
+const buildPlan = (deck) => {
+  planBox.textContent = "";
+  plan.deck = deck; plan.rooms = []; plan.dots = [];
+  const rnd = seeded(deck * 7919 + 13), G = 12, O = 150, IN = 180 + CW / 2 + G;
+  const rooms = [];
+  const add = (x0, x1, y0, y1, inner) => rooms.push({ x: x0, y: y0, w: x1 - x0, h: y1 - y0, inner });
+  // the outer band: corners, then each side cut into rooms
+  [[0, O], [PW - O, PW]].forEach(([a, b]) => { add(a, b, 0, O); add(a, b, PH - O, PH); });
+  split(O + G, PW - O - G, 3 + Math.floor(rnd() * 2), G, rnd).forEach(([a, b]) => add(a, b, 0, O));
+  split(O + G, PW - O - G, 3 + Math.floor(rnd() * 2), G, rnd).forEach(([a, b]) => add(a, b, PH - O, PH));
+  split(O + G, PH - O - G, 2 + Math.floor(rnd() * 2), G, rnd).forEach(([a, b]) => { add(0, O, a, b); add(PW - O, PW, a, b); });
+  // the four quarters inside the ring, each one or two rooms
+  const mx = GX[1] - CW / 2 - G, mx2 = GX[1] + CW / 2 + G, my = GY[1] - CW / 2 - G, my2 = GY[1] + CW / 2 + G;
+  [[IN, mx, IN, my], [mx2, PW - IN, IN, my], [IN, mx, my2, PH - IN], [mx2, PW - IN, my2, PH - IN]].forEach(([x0, x1, y0, y1]) => {
+    if (rnd() < 0.45) add(x0, x1, y0, y1, true);
+    else if (x1 - x0 > y1 - y0) split(x0, x1, 2, G, rnd).forEach(([a, b]) => add(a, b, y0, y1, true));
+    else split(y0, y1, 2, G, rnd).forEach(([a, b]) => add(x0, x1, a, b, true));
+  });
+  // names: the biggest rooms take the deck's own rooms; the rest carry section numbers
+  const names = (ROOMS[deck] || DECKS[deck][0].split("  ·  ")).slice();
+  if (alert && alert.deck === deck && !names.includes(alert.room)) names.unshift(alert.room);
+  // the biggest rooms take the names, each where it fits
+  rooms.slice().sort((a, b) => b.w * b.h - a.w * a.h).forEach((r) => {
+    const i = names.findIndex((n) => L.textWidth(n, 30) + 40 <= r.w);
+    if (i >= 0 && r.h >= 80) r.name = names.splice(i, 1)[0];
+  });
+  let sec = 1;
+  for (const r of rooms) {
+    const code = `${D2(deck)}-${D2(sec++)}`;
+    const sec_ = SEC.has(r.name), named = !!r.name;
+    const e = L.el("div", "room", planBox, { left: r.x + "px", top: r.y + "px", width: r.w + "px", height: r.h + "px",
+      background: sec_ ? "#3a1c17" : named ? "#2e2b22" : "#1b222b", borderRadius: "10px" });
+    const tab = L.el("i", "", e); tab.style.background = sec_ ? "var(--mars)" : named ? "var(--sand)" : "var(--slate)";
+    tab.style.borderRadius = "10px 10px 0 0";
+    let label = r.name || code;
+    if (L.textWidth(label, 30) + 40 > r.w) label = code;
+    if (L.textWidth(label, 30) + 40 <= r.w && r.h >= 80) {
+      const b = L.el("b", "", e, { left: "18px", top: 26 - 0.11 * 30 + "px", color: sec_ ? "var(--mars)" : named ? "var(--sand)" : DIM });
+      b.textContent = label;
+    }
+    r.e = e; plan.rooms.push(r);
+  }
+  // corridors drawn over nothing: they sit in the gaps between rooms
+  GY.forEach((y) => L.el("div", "", planBox, { position: "absolute", left: GX[0] - CW / 2 + "px", top: y - CW / 2 + "px", width: GX[2] - GX[0] + CW + "px", height: CW + "px", background: "#3a4552", borderRadius: CW / 2 + "px" }));
+  GX.forEach((x) => L.el("div", "", planBox, { position: "absolute", left: x - CW / 2 + "px", top: GY[0] - CW / 2 + "px", width: CW + "px", height: GY[2] - GY[0] + CW + "px", background: "#3a4552", borderRadius: CW / 2 + "px" }));
+  plan.mark = L.layer({ x: 0, y: 0, w: 10, h: 10, cls: "mark" }, planBox); plan.mark.style.opacity = 0;
+  planTitle.textContent = `Deck ${D2(deck)}  ·  ${DECKS[deck][0]}`;
+  syncDots(true);
+  paintList();
+};
+// a life sign: in a room (wandering slowly inside it) or in the corridors (junction to junction)
+const newDot = (kind, corridor) => {
+  const e = L.layer({ x: 0, y: 0, w: 16, h: 16, cls: "ls" + (kind === "crew" ? "" : " " + kind) }, planBox);
+  const d = { e, kind, a: 0, fade: 1, gone: false };
+  if (corridor) {
+    d.node = [L.irand(0, 2), L.irand(0, 2)]; d.x = GX[d.node[0]]; d.y = GY[d.node[1]]; d.wait = L.rand(0, 3);
+  } else {
+    d.room = L.pick(plan.rooms); d.x = d.room.x + L.rand(30, d.room.w - 30); d.y = d.room.y + L.rand(50, d.room.h - 24); d.wait = L.rand(0, 6);
+  }
+  d.from = [d.x, d.y]; d.to = [d.x, d.y]; d.t0 = L.t; d.dur = 0;
+  e.style.opacity = 0;
+  L.move(e, d.x - 8, d.y - 8);
+  plan.dots.push(d);
+  return d;
+};
+const teamsOn = (deck) => TEAMS.filter((tm) => tm.deck === deck).reduce((a, tm) => a + tm.size, 0);
+const syncDots = (fresh) => {
+  const want = seen[plan.deck], have = plan.dots.filter((d) => !d.gone);
+  const sec = Math.min(want, teamsOn(plan.deck)), civ = Math.round((want - sec) * 0.12);
+  const kinds = [...Array(sec).fill("sec"), ...Array(civ).fill("civ"), ...Array(Math.max(0, want - sec - civ)).fill("crew")];
+  // keep the dots already there where they match; fade out the rest, fade in what is missing
+  const pool = have.slice();
+  const keep = [];
+  for (const k of kinds) {
+    const i = pool.findIndex((d) => d.kind === k);
+    if (i >= 0) keep.push(pool.splice(i, 1)[0]); else keep.push(newDot(k, k === "sec" || Math.random() < 0.3));
+  }
+  pool.forEach((d) => (d.gone = true));
+  const n = (k) => kinds.filter((x) => x === k).length;
+  keyVals.crew.textContent = n("crew"); keyVals.sec.textContent = n("sec"); keyVals.civ.textContent = n("civ");
+  planCount.textContent = `${want} life signs`;
+  if (fresh) plan.dots.forEach((d) => (d.a = 0));
+};
+const SPEED = 46, ROOMSPEED = 14;
+L.tick((t) => {
+  for (let i = plan.dots.length - 1; i >= 0; i--) {
+    const d = plan.dots[i];
+    // fading in or out
+    const goal = d.gone ? 0 : 1;
+    if (d.a !== goal) {
+      d.a = L.clamp(d.a + (goal ? 1 : -1) / 30);
+      d.e.style.opacity = d.a.toFixed(3);
+      if (d.gone && d.a <= 0) { d.e.remove(); plan.dots.splice(i, 1); continue; }
+    }
+    if (d.dur && t < d.t0 + d.dur) {
+      const k = L.ease(L.clamp((t - d.t0) / d.dur));
+      d.x = L.mix(d.from[0], d.to[0], k); d.y = L.mix(d.from[1], d.to[1], k);
+      L.move(d.e, d.x - 8, d.y - 8);
+      continue;
+    }
+    if (d.dur) { d.x = d.to[0]; d.y = d.to[1]; L.move(d.e, d.x - 8, d.y - 8); d.dur = 0; d.wait = t + (d.node ? L.rand(0.5, 4) : L.rand(3, 12)); }
+    if (t < d.wait) continue;
+    // where next
+    if (d.node) {
+      const [i0, j0] = d.node, opts = [[i0 + 1, j0], [i0 - 1, j0], [i0, j0 + 1], [i0, j0 - 1]].filter(([a, b]) => a >= 0 && a <= 2 && b >= 0 && b <= 2);
+      // a security team answering a check makes for the junction nearest the room, and waits there
+      const goal = d.kind === "sec" && alert && alert.phase < 2 && alert.deck === plan.deck && plan.target;
+      if (goal && i0 === goal[0] && j0 === goal[1]) { d.wait = t + 2; continue; }
+      const dist = ([a, b]) => Math.abs(a - goal[0]) + Math.abs(b - goal[1]);
+      const [a, b] = goal ? opts.sort((p, q) => dist(p) - dist(q))[0] : L.pick(opts); d.node = [a, b];
+      d.from = [d.x, d.y]; d.to = [GX[a], GY[b]];
+      d.dur = Math.hypot(d.to[0] - d.x, d.to[1] - d.y) / SPEED;
+    } else {
+      const r = d.room;
+      d.from = [d.x, d.y]; d.to = [r.x + L.rand(30, r.w - 30), r.y + L.rand(50, r.h - 24)];
+      d.dur = Math.max(1.5, Math.hypot(d.to[0] - d.x, d.to[1] - d.y) / ROOMSPEED);
+    }
+    d.t0 = t;
+  }
+});
+// the key under the plan
+const KEYB = 1540;
+const keyVals = {};
+[["crew", "Crew", "white", C2], ["sec", "Security", "mars", C2 + 300], ["civ", "Civilians", "sand", C2 + 640]].forEach(([k, name, c, x]) => {
+  L.rect({ x, y: KEYB - 25, w: 20, h: 20, rx: 10, c });
+  L.text({ x: x + 40, base: KEYB, s: 40, c: "sand", txt: name });
+  keyVals[k] = L.text({ x: x + 40 + L.textWidth(name, 40) + 20, base: KEYB, s: 40, c: "white", txt: "" });
+});
+const sectionsTxt = L.text({ x: C2R, base: KEYB, s: 40, c: DIM, txt: "", align: "r" });
+
+// ---------------- forcefields ----------------
+header(C3, 280, C3R - C3, "Forcefields", 280, "mars", "sand");
+const FC = { deck: 3060, bar: 3100, barW: 380, pct: 3650 };
+L.text({ x: C3, base: 400, s: 36, c: "mars", txt: "Field" });
+L.text({ x: FC.deck, base: 400, s: 36, c: "mars", txt: "Deck", align: "r" });
+L.text({ x: FC.bar, base: 400, s: 36, c: "mars", txt: "Emitter Power" });
+L.text({ x: C3R, base: 400, s: 36, c: "mars", txt: "Status", align: "r" });
+const FIELDS = [["Brig Cell 1", 8, true], ["Brig Cell 2", 8, false], ["Brig Cell 3", 8, true], ["Brig Cell 4", 8, false],
+  ["Armory", 8, true], ["Shuttlebay 2", 13, false], ["Main Engineering", 36, false]].map(([name, deck, up], i) => {
+  const base = 468 + i * 76;
+  const box = L.box({ x: C3, y: base - 41, w: 280, h: 52, c: up ? "mars" : "tan", label: name, fs: 30, r: "l", cls: "pill" });
+  L.text({ x: FC.deck, base, s: 40, c: "white", txt: D2(deck), align: "r" });
+  L.rect({ x: FC.bar, y: base - 26, w: FC.barW, h: 26, c: DARK });
+  const f = fill(FC.bar, base - 26, FC.barW, 26, up ? "sand" : "slate");
+  const pct = L.text({ x: FC.pct, base, s: 40, c: "white", txt: "", align: "r" });
+  const st = L.text({ x: C3R, base, s: 36, c: "sand", txt: "", align: "r" });
+  return { name, deck, up, box, f, pct, st, v: up ? 0.97 : 0.12, goal: up ? 0.97 : 0.12, why: "" };
+});
+const showField = (fd) => {
+  fd.goal = fd.up ? L.rand(0.955, 0.99) : L.rand(0.1, 0.14);
+  fd.box.style.background = fd.up ? "var(--mars)" : "var(--tan)";
+  fd.f.style.background = fd.up ? "var(--sand)" : "var(--slate)";
+  fd.st.textContent = fd.why || (fd.up ? "Raised" : "Standby");
+  fd.st.style.color = fd.why ? "var(--butter)" : fd.up ? "var(--sand)" : DIM;
+};
+FIELDS.forEach(showField);
+L.tick(() => FIELDS.forEach((fd) => {
+  const dv = fd.goal - fd.v;
+  if (Math.abs(dv) < 0.0005 && fd.drawn) return;
+  fd.v += dv * 0.05; fd.drawn = true;
+  fd.f.style.transform = `scaleX(${fd.v.toFixed(4)})`;
+}));
+L.every(400, () => FIELDS.forEach((fd) => (fd.pct.textContent = (fd.v * 100).toFixed(1) + "%")), 0);
+later(5000, () => { const fd = L.pick(FIELDS.filter((f) => f.up)); fd.goal = L.rand(0.955, 0.99); }, 0.3);   // a raised field drifts a little
+
+// ---------------- security teams ----------------
+header(C3, 1000, C3R - C3, "Security Teams", 340, "red", "sand");
+const TC = { lead: 2904, job: 3170, deck: 3560 };
+L.text({ x: C3, base: 1112, s: 36, c: "mars", txt: "Team" });
+L.text({ x: TC.lead, base: 1112, s: 36, c: "mars", txt: "Leader" });
+L.text({ x: TC.job, base: 1112, s: 36, c: "mars", txt: "Assignment" });
+L.text({ x: TC.deck, base: 1112, s: 36, c: "mars", txt: "Deck", align: "r" });
+L.text({ x: C3R, base: 1112, s: 36, c: "mars", txt: "Status", align: "r" });
+const TEAMS = [
+  { name: "Team 1", lead: "Lt. T. Vance", job: "Brig Detail", deck: 8, size: 2, home: 8, c: "mars" },
+  { name: "Team 2", lead: "Ens. R. Okafor", job: "Patrol", deck: 9, size: 3, lo: 2, hi: 15, c: "sand" },
+  { name: "Team 3", lead: "Lt. M. Rhee", job: "Main Engineering", deck: 36, size: 3, home: 36, c: "tan" },
+  { name: "Team 4", lead: "CPO D. Halloran", job: "Patrol", deck: 24, size: 3, lo: 16, hi: 42, c: "sand" },
+  { name: "Chief", lead: "Lt. Worf", job: "Main Bridge", deck: 1, size: 1, home: 1, c: "red" },
+];
+TEAMS.forEach((tm, i) => {
+  const base = 1196 + i * 86;
+  L.box({ x: C3, y: base - 41, w: 170, h: 52, c: tm.c, label: tm.name, fs: 30, r: "l" });
+  tm.leadE = L.text({ x: TC.lead, base, s: 40, c: "white", txt: tm.lead });
+  tm.jobE = L.text({ x: TC.job, base, s: 36, c: "sand", txt: "" });
+  tm.deckE = L.text({ x: TC.deck, base, s: 52, c: "white", txt: "", align: "r" });
+  tm.stE = L.text({ x: C3R, base, s: 36, c: "sand", txt: "", align: "r" });
+  tm.status = tm.lo ? "On Patrol" : tm.name === "Chief" ? "On Duty" : "On Station";
+});
+const showTeams = () => TEAMS.forEach((tm) => {
+  tm.jobE.textContent = !tm.lo ? tm.job : tm.status === "On Patrol" || tm.status === "Returning" ? `Patrol  ·  Decks ${tm.lo} – ${tm.hi}` : "Security Check";
+  tm.deckE.textContent = D2(tm.deck);
+  tm.stE.textContent = tm.status;
+  tm.stE.style.color = tm.status === "En Route" || tm.status === "On Scene" ? "var(--mars)" : tm.status === "Returning" ? "var(--butter)" : "var(--sand)";
+});
+showTeams();
+later(14000, () => {                                       // patrols move on, a deck at a time
+  TEAMS.filter((tm) => tm.lo && tm.status === "On Patrol").forEach((tm) => {
+    if (Math.random() < 0.6) { tm.deck = tm.deck >= tm.hi ? tm.lo : tm.deck + 1; }
+  });
+  showTeams(); syncDots();
+}, 0.3);
+
+// ---------------- security log ----------------
+const LG = { who: 480, where: 760, lvl: 1140 };
+header(C1, 1620, C1R - C1, "Security Log", 300, "sand", "red", 48, 28);
+const logRows = Array.from({ length: 6 }, (_, i) => {
+  const base = 1734 + i * 54;
+  return { sd: L.text({ x: C1, base, s: 36, c: "mars", txt: "" }), who: L.text({ x: LG.who, base, s: 36, c: "white", txt: "" }),
+           where: L.text({ x: LG.where, base, s: 36, c: "sand", txt: "" }), lvl: L.text({ x: LG.lvl, base, s: 36, c: "sand", txt: "" }),
+           res: L.text({ x: C1R, base, s: 36, c: "sand", txt: "", align: "r" }) };
+});
+let stardate = 47772.0;
+const logged = [];
+const RESC = { Granted: "sand", Denied: "mars", Responding: "mars", Cleared: "butter", Returned: "sand" };
+const log = (who, where, lvl, res) => {
+  stardate += 0.1; logged.push([stardate.toFixed(1), who, where, lvl, res]);
+  if (logged.length > 6) logged.shift();
+  logRows.forEach((r, i) => {
+    const e = logged[i] || ["", "", "", "", ""];
+    r.sd.textContent = e[0]; r.who.textContent = e[1]; r.where.textContent = e[2]; r.lvl.textContent = e[3]; r.res.textContent = e[4];
+    r.res.style.color = `var(--${RESC[e[4]] || "sand"})`;
+    r.who.style.color = e[4] === "Responding" || e[4] === "Cleared" ? "var(--mars)" : "var(--white)";
+  });
+};
+const CREW = ["Lt. Cmdr. H. Tavares", "Ens. P. Lindqvist", "Lt. K. Moreau", "CPO A. Nakamura", "Crewman L. Brenner", "Ens. S. Adeyemi",
+  "Lt. J. Castellanos", "Ens. T'Sel", "Lt. Cmdr. D. Ilyin", "Crewman B. Oduya", "Ens. M. Hargrove", "Lt. R. Satterfield",
+  "Dr. E. Kowalczyk", "Ens. Y. Tanaka", "Lt. A. Sorensen", "CPO G. Mbeki"];
+const DOORS = [["Deck 01  ·  Main Bridge", 4], ["Deck 06  ·  Transporter Room 3", 2], ["Deck 08  ·  Armory", 4], ["Deck 08  ·  Brig", 3],
+  ["Deck 12  ·  Sickbay, Surgery", 2], ["Deck 13  ·  Shuttlebay 2", 2], ["Deck 14  ·  Cargo Bay 1", 1], ["Deck 21  ·  Computer Core", 4],
+  ["Deck 24  ·  Hydroponics", 1], ["Deck 25  ·  Phaser Control", 4], ["Deck 30  ·  Deflector Control", 3], ["Deck 36  ·  Main Engineering", 2],
+  ["Deck 37  ·  Dilithium Chamber", 4], ["Deck 42  ·  Antimatter Storage", 5]];
+const access = () => {
+  const [where, lvl] = L.pick(DOORS);
+  log(L.pick(CREW), where, `Level ${lvl}`, "Granted");
+};
+for (let i = 0; i < 6; i++) access();
+later(7500, () => { if (!alert || Math.random() < 0.5) access(); }, 0.35);
+
+// ---------------- weapons locker ----------------
+header(C3, 1620, C3R - C3, "Weapons Locker", 320, "mars", "sand", 48, 28);
+const WL = { slots: 3040, slotsR: 3640 };
+const KIT = [["Type-2 Phaser", 24], ["Type-1 Phaser", 24], ["Type-3 Phaser Rifle", 12], ["Phaser Power Cell", 24], ["Tricorder", 12], ["Field Medical Kit", 12]];
+const locker = KIT.map(([name, n], i) => {
+  const base = 1734 + i * 54, pitch = (WL.slotsR - WL.slots + 6) / n;
+  L.text({ x: C3, base, s: 36, c: "sand", txt: name });
+  const slots = Array.from({ length: n }, (_, k) => L.rect({ x: WL.slots + k * pitch, y: base - 28, w: pitch - 6, h: 28, c: "sand", noalign: true }));
+  const cnt = L.text({ x: C3R, base, s: 36, c: "white", txt: "", align: "r" });
+  return { name, n, slots, cnt, out: 0 };
+});
+const issued = { 0: 0, 2: 0, 4: 0 };
+const showLocker = () => {
+  // the patrols carry type-2 phasers and a tricorder each; a responding team draws rifles
+  const patrol = TEAMS.filter((tm) => tm.lo || tm.name === "Team 1" || tm.name === "Team 3").reduce((a, tm) => a + tm.size, 0);
+  locker[0].out = patrol + issued[0]; locker[1].out = 2; locker[2].out = issued[2]; locker[3].out = 4 + issued[2];
+  locker[4].out = 4 + issued[4]; locker[5].out = 1;
+  locker.forEach((it) => {
+    it.slots.forEach((s, k) => s.setAttribute("fill", k < it.n - it.out ? "var(--sand)" : DARK));
+    it.cnt.textContent = `${it.n - it.out} / ${it.n}`;
+  });
+};
+showLocker();
+
+// ---------------- intruder alert: the condition ladder and what security is watching ----------------
+header(C2, 1620, C2R - C2, "Intruder Alert", 300, "red", "sand", 48, 28);
+const LADDER = [["Normal", "sand"], ["Security Check", "mars"], ["Intruder Alert", "red"], ["Lockdown", "red"]];
+const LW = (C2R - C2 - 3 * 16) / 4;
+const ladder = LADDER.map(([name, c], i) => L.box({ x: C2 + i * (LW + 16), y: 1697, w: LW, h: 48, c: DARK, label: name, fs: 28, r: i === 0 ? "l" : i === 3 ? "r" : null, cls: "pill" }));
+const showLadder = (k) => ladder.forEach((b, i) => {
+  b.style.background = i === k ? `var(--${LADDER[i][1]})` : DARK;
+  b.style.color = i === k ? "#000" : `var(--${LADDER[i][1]})`;
+});
+showLadder(0);
+const finding = L.text({ x: C2, base: 2004, s: 36, c: "sand", txt: "" });
+const AX = [C2, C2 + 580], AV = 290;                      // two columns of readings
+const READ = [["Intruders", () => (alert && alert.what === "Unknown Life Sign" && alert.phase < 2 ? "1 Unverified" : "None")],
+  ["Unidentified", () => String(unknowns)],
+  ["Fields Raised", () => `${FIELDS.filter((f) => f.up).length} of ${FIELDS.length}`],
+  ["Teams Out", () => `${TEAMS.filter((tm) => tm.status !== "On Station" && tm.status !== "On Duty").length} of ${TEAMS.length - 1}`],
+  ["Sweep", () => fmt(sweepN)],
+  ["Sweep Cycle", () => `${Math.round(42 * PER)} s`]];
+const readings = READ.map(([name, f], i) => {
+  const x = AX[Math.floor(i / 3)], base = 1842 + (i % 3) * 54;
+  L.text({ x, base, s: 36, c: "sand", txt: name });
+  return { f, e: L.text({ x: x + AV, base, s: 36, c: "white", txt: "" }) };
+});
+const showReadings = () => readings.forEach((r) => (r.e.textContent = r.f()));
+let lastFinding = "Last check  ·  Deck 14  ·  Cargo Bay 1  ·  cleared, crew error";
+finding.textContent = lastFinding;
+
+// ---------------- a security check now and then: raised, answered, cleared ----------------
+const EVENTS = [
+  ["Access Attempt", 22, "Cargo Bay 4", "cleared, crew error  ·  expired authorization"],
+  ["Unknown Life Sign", 31, "Main Deflector", "cleared, sensor echo"],
+  ["Door Override", 27, "Replicator Shop", "cleared, maintenance override"],
+  ["Access Attempt", 42, "Antimatter Storage", "cleared, authorized engineer"],
+  ["Field Fluctuation", 8, "Brig", "cleared, emitter recalibrated"],
+  ["Unknown Life Sign", 13, "Shuttlebay 2", "cleared, visiting pilot"],
+];
+let alert = null, evDeck = [];
+const nearestTeam = (deck) => TEAMS.filter((tm) => tm.lo && tm.status === "On Patrol").sort((a, b) => Math.abs(a.deck - deck) - Math.abs(b.deck - deck))[0];
+const raise = (t) => {
+  if (!evDeck.length) evDeck = EVENTS.slice().sort(() => Math.random() - 0.5);
+  const [what, deck, room, end] = evDeck.pop();
+  const tm = nearestTeam(deck);
+  if (!tm) return;
+  alert = { what, deck, room, end, tm, t0: t, phase: 0 };
+  if (what === "Unknown Life Sign") unknowns = 1;
+  showSweep();
+  stateTxt.textContent = `Security Check  ·  Deck ${D2(deck)}`;
+  pill.textContent = `${tm.name} Responding`; pill.style.background = "var(--mars)";
+  showLadder(1);
+  finding.textContent = `${what}  ·  Deck ${D2(deck)}  ·  ${room}  ·  ${tm.name} responding`;
+  finding.style.color = "var(--mars)";
+  if (what === "Access Attempt") log("Unidentified", `Deck ${D2(deck)}  ·  ${room}`, "Level 4", "Denied");
+  log(what, `Deck ${D2(deck)}  ·  ${room}`, tm.name, "Responding");
+  tm.status = "En Route"; tm.from = tm.deck; tm.deck = deck; issued[2] = 2; issued[4] = 1; showLocker(); showTeams();
+  if (what === "Field Fluctuation") { const fd = FIELDS[2]; fd.why = "Fluctuating"; showField(fd); }
+  showPlan(deck); showReadings();
+};
+const settle = (t) => {
+  if (!alert) return;
+  const u = t - alert.t0, a = alert;
+  if (a.phase === 0 && u > 10) { a.phase = 1; a.tm.status = "On Scene"; showTeams(); syncDots(); }
+  else if (a.phase === 1 && u > 26) {
+    a.phase = 2; unknowns = 0; showSweep();
+    log(a.what, `Deck ${D2(a.deck)}  ·  ${a.room}`, a.tm.name, "Cleared");
+    stateTxt.textContent = "All Decks Secure";
+    pill.textContent = "No Intruders Detected"; pill.style.background = "var(--sand)";
+    showLadder(0);
+    finding.textContent = `Last check  ·  Deck ${D2(a.deck)}  ·  ${a.room}  ·  ${a.end}`;
+    finding.style.color = "var(--sand)";
+    a.tm.status = "Returning"; showTeams();
+    FIELDS[2].why = ""; showField(FIELDS[2]);
+    plan.mark.dataset.on = ""; plan.mark.style.opacity = 0; paintList();
+  } else if (a.phase === 2 && u > 40) {
+    a.tm.status = "On Patrol"; a.tm.deck = L.clamp(a.tm.from, a.tm.lo, a.tm.hi); issued[2] = 0; issued[4] = 0;
+    log(a.tm.lead, "Deck 08  ·  Armory", "Level 3", "Returned");
+    showTeams(); showLocker(); alert = null; paintList(); syncDots();
+  }
+  showReadings();
+};
+later(1000, settle, 0);
+later(80000, (t) => { if (!alert && t > 20) raise(t); }, 0.25);
+
+// the plan changes deck now and then: the decks security watches most, or wherever a check is
+const WATCH = [8, 12, 10, 36, 1, 13, 21, 42, 22, 6];
+let watchI = 0, planT = 0;
+const showPlan = (deck) => {
+  planBox.style.opacity = 0;
+  setTimeout(() => {
+    buildPlan(deck);
+    if (alert && alert.deck === deck) {
+      const r = plan.rooms.find((r) => r.name === alert.room) || plan.rooms.filter((r) => r.inner)[0];
+      Object.assign(plan.mark.style, { left: r.x - 9 + "px", top: r.y - 9 + "px", width: r.w + 18 + "px", height: r.h + 18 + "px" });
+      plan.mark.dataset.on = "1";
+      const cx = r.x + r.w / 2, cy = r.y + r.h / 2, near = (v, g) => g.reduce((bi, gv, i) => (Math.abs(gv - v) < Math.abs(g[bi] - v) ? i : bi), 0);
+      plan.target = [near(cx, GX), near(cy, GY)];
+    } else { plan.mark.dataset.on = ""; plan.target = null; }
+    sectionsTxt.textContent = `${plan.rooms.length} sections`;
+    planBox.style.opacity = 1;
+  }, 950);
+  planT = L.t;
+};
+L.tick((t) => {
+  if (plan.mark && plan.mark.dataset.on === "1" && alert && alert.phase < 2) plan.mark.style.opacity = (0.7 + 0.3 * Math.sin(t * 2)).toFixed(3);
+  if (t - planT > 42 && !alert) { watchI = (watchI + 1) % WATCH.length; showPlan(WATCH[watchI]); }
+});
+buildPlan(WATCH[0]);
+sectionsTxt.textContent = `${plan.rooms.length} sections`;
+showSweep(); showReadings();
+});
+</script></body></html>

@@ -1,0 +1,494 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Ship's Stores</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .sw { transition: background-color .8s ease, color .8s ease; }
+  .clip { overflow: hidden; }
+  .stream { -webkit-mask-image: linear-gradient(to right, transparent, #000 18%, #000 82%, transparent);
+            mask-image: linear-gradient(to right, transparent, #000 18%, #000 82%, transparent); }
+  .bars { background: repeating-linear-gradient(90deg, var(--butter) 0 14px, transparent 14px 32px); }
+  .shim { background: repeating-linear-gradient(0deg, rgba(242,242,255,.75) 0 5px, rgba(242,242,255,0) 5px 14px); }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame, mirrored: sidebar on the right, title at top left ----------------
+L.frame({ type: "B", title: "Ship's Stores  •  Supply", c: "tan", c2: "orange", accent: "peach", foot: "Stores",
+  side: [[140, "orange", "Stores 39"], [70, "peach", "Supply"], [420, "tan", "Inventory"], [70, "butter", "Manifest"],
+         [300, "orange", "Requisitions"], [70, "peach", "Bay 2"], [216, "tan", "Quartermaster"]] });
+
+// two columns: inventory and requisitions 40–2080, the resupply and the bay 2140–3520
+const L0 = 40, L1 = 2080, R0 = 2140, R1 = 3520;
+const TRACK = "#2a1e12", DARK = "#3a2a18";
+const pad = (n, k = 2) => String(n).padStart(k, "0");
+const op = (e, v) => { v = v < 0.005 ? "0" : v > 0.995 ? "1" : v.toFixed(3); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const fg = (e, c) => { if (e._fg !== c) { e._fg = c; e.style.color = c.startsWith("#") ? c : `var(--${c})`; } };
+const bg = (e, c) => { if (e._bg !== c) { e._bg = c; e.style.background = c.startsWith("#") ? c : `var(--${c})`; } };
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const fill = (x, y, w, h, c, parent, origin = "0 0") => {
+  const f = L.layer({ x, y, w, h }, parent);
+  f.style.background = c.startsWith("#") ? c : `var(--${c})`; f.style.transformOrigin = origin;
+  return f;
+};
+const clockAt = (t) => { const d = new Date(Date.now() + (t - L.t) * 1000); return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
+const later = (ms, f, jitter) => L.every(ms, (t) => { if (t > 1) f(t); }, jitter);
+
+// ---------------- the stores: twelve categories, held as percent of capacity ----------------
+// contents: what a pallet of it from the starbase holds
+const CATS = [
+  { name: "Feedstock", contents: ["Replicator feedstock, organic", "Replicator feedstock, polymer"] },
+  { name: "Provisions", contents: ["Emergency ration packs", "Fresh produce, Tarsas III"] },
+  { name: "Medical", contents: ["Hypospray cartridges", "Surgical supplies"] },
+  { name: "Spares", contents: ["Plasma relay spares", "Turbolift actuators"] },
+  { name: "Isolinear", contents: ["Isolinear chips", "Isolinear rods"] },
+  { name: "Hull Plating", contents: ["Duranium plate", "Tritanium plate"] },
+  { name: "Conduit", contents: ["EPS conduit sections", "Waveguide couplings"] },
+  { name: "Field Gear", contents: ["Tricorders", "Away team field kits"] },
+  { name: "EV Suits", contents: ["Environmental suits", "EV suit helmets"] },
+  { name: "Textiles", contents: ["Duty uniforms", "Bedding and linen"] },
+  { name: "Seed Stock", contents: ["Hydroponic seed stock", "Arboretum cuttings"] },
+  { name: "Power Cells", contents: ["Phaser power cells", "Microfusion cells"] },
+];
+const REORDER = 35;
+const LEVELS = [62, 48, 71, 33, 57, 79, 44, 66, 52, 84, 41, 30];
+CATS.forEach((c, i) => { c.n = L.clamp(LEVELS[i] + L.rand(-4, 4), 28, 90); c.bay = 0; c.shown = c.n; c.gshown = c.n; });
+const byName = (n) => CATS.find((c) => c.name === n);
+
+// ---------------- the log ----------------
+const log = [];
+let logReady = false;
+const note = (t, txt, who) => { log.push([clockAt(t), txt, who]); if (log.length > 40) log.shift(); if (logReady) showLog(); };
+
+// ---------------- status line ----------------
+const BIG = 100, stateTxt = L.text({ x: L0, cap: 150, s: BIG, c: "orange", txt: "" });
+const sub = L.text({ x: L0, base: 222, s: 38, c: "tan", txt: "" });
+const remPill = L.box({ x: R1 - 480, y: 150, w: 480, h: 72, c: "peach", label: "", r: "lr", fs: 36 });
+
+// ---------------- inventory by category: a column each ----------------
+L.header({ x: L0, y: 280, w: L1 - L0, label: "Inventory by Category  ·  Percent of Capacity", c1: "tan", c2: "orange" });
+const YT = 440, YB = 760, CH = YB - YT, CX0 = 152, CP = 164, CW = 124;
+const yOf = (v) => YB - (v / 100) * CH;
+// the key, on the line under the header, flush right; the overall figure flush left
+const KEY = [["On Hand", "orange", 20], ["In Cargo Bay 2", "tan", 20], [`Reorder Point ${REORDER}%`, "mars", 4]];
+let kx = L1 - KEY.reduce((a, [txt]) => a + 66 + L.textWidth(txt, 36), 0) - 56 * (KEY.length - 1);
+KEY.forEach(([txt, c, h]) => {
+  L.rect({ x: kx, y: 404 - 13 - h / 2, w: 48, h, c });
+  L.text({ x: kx + 66, base: 404, s: 36, c: "peach", txt });
+  kx += 66 + L.textWidth(txt, 36) + 56;
+});
+const allT = L.text({ x: L0, base: 404, s: 36, c: "white", txt: "" });
+for (const v of [0, 20, 40, 60, 80, 100]) {
+  const y = yOf(v);
+  L.rect({ x: CX0, y: y - 1, w: L1 - CX0, h: 2, c: "#3a2c1c", free: true });
+  L.text({ x: 128, base: y + 10.8, s: 30, c: "lilac", txt: String(v), align: "r", legend: true });
+}
+CATS.forEach((c, i) => {
+  const x = CX0 + i * CP;
+  L.rect({ x, y: YT, w: CW, h: CH, c: TRACK, noalign: true });
+  c.ghost = fill(x, YT, CW, CH, "tan", undefined, "50% 100%");
+  c.bar = fill(x, YT, CW, CH, "orange", undefined, "50% 100%");
+  c.valT = L.text({ x: x + CW / 2, base: 820, s: 52, c: "white", txt: "", align: "c", w: CP });
+  L.text({ x: x + CW / 2, base: 876, s: 40, c: "tan", txt: c.name, align: "c", w: CP });
+});
+// the reorder point, drawn over the columns
+const rl = fill(CX0, yOf(REORDER) - 2, L1 - CX0, 4, "mars");
+op(rl, 0.85);
+L.tick(() => CATS.forEach((c) => {
+  const d = c.n - c.shown, g = c.n + c.bay - c.gshown;
+  c.shown = Math.abs(d) < 0.01 ? c.n : c.shown + d * 0.05;
+  c.gshown = Math.abs(g) < 0.01 ? c.n + c.bay : c.gshown + g * 0.05;
+  tf(c.bar, `scaleY(${(c.shown / 100).toFixed(4)})`);
+  tf(c.ghost, `scaleY(${(Math.min(100, c.gshown) / 100).toFixed(4)})`);
+  const low = c.shown < REORDER;
+  bg(c.bar, low ? "mars" : "orange"); fg(c.valT, low ? "mars" : "white");
+  L.set(c.valT, Math.round(c.shown) + "%");
+}));
+L.every(500, () => L.set(allT, `All Stores  ${Math.round(CATS.reduce((a, c) => a + c.shown, 0) / CATS.length)}% of Capacity`), 0);
+
+// ---------------- resupply: the cargo transporter, starbase to bay ----------------
+L.header({ x: R0, y: 280, w: R1 - R0, label: "Resupply  ·  Starbase 74", c1: "orange", c2: "tan" });
+const manT = L.text({ x: R0, base: 404, s: 36, c: "peach", txt: "" });
+L.text({ x: R1, base: 404, s: 36, c: "lilac", txt: "Holding Position  ·  Range 16 km", align: "r" });
+const DY = 436, DH = 180, BW = 320;
+const CHX0 = R0 + BW + L.GAP, CHX1 = R1 - BW - L.GAP;            // the channel between the two
+L.box({ x: R0, y: DY, w: BW, h: DH, c: "tan", label: "Starbase 74", r: "l" });
+L.box({ x: CHX1 + L.GAP, y: DY, w: BW, h: DH, c: "orange", label: "Cargo Bay 2", r: "r" });
+L.rect({ x: CHX0, y: DY, w: CHX1 - CHX0, h: DH, c: "#1c140c", panel: true });
+const PW = 120, PH = 100, PY = DY + 22;
+const SX = CHX0 + 24, TX = CHX1 - 24 - PW;                         // source and target pads
+[SX, TX].forEach((x) => L.rect({ x: x - 12, y: PY + PH + 16, w: PW + 24, h: 12, rx: 6, c: "#5a4228", free: true }));
+L.rect({ x: SX + PW + 24, y: PY + PH / 2 - 1, w: TX - SX - PW - 48, h: 2, c: "#3a2c1c", free: true });
+const mkPallet = (x) => {
+  const e = L.layer({ x, y: PY, w: PW, h: PH, cls: "clip" });
+  const b = L.box({ x: 0, y: 0, w: PW, h: PH, c: "tan", label: "", fs: 28 }, e);
+  const sh = L.layer({ x: 0, y: -14, w: PW, h: PH + 28, cls: "shim" }, e);
+  op(e, 0); op(sh, 0);
+  return { e, b, sh };
+};
+const srcP = mkPallet(SX), dstP = mkPallet(TX);
+const STW = TX - 24 - (SX + PW + 24);
+const stream = L.layer({ x: SX + PW + 24, y: PY + PH / 2 - 24, w: STW, h: 48, cls: "clip stream" });
+const bars = L.layer({ x: -32, y: 0, w: STW + 64, h: 48, cls: "bars" }, stream);
+op(stream, 0);
+const PHASES = [["Target Lock", "peach"], ["Dematerialize", "butter"], ["Pattern Buffer", "orange"], ["Rematerialize", "butter"]];
+const PGW = (R1 - R0 - 3 * 16) / 4;
+const phaseBox = PHASES.map(([name], k) => L.box({ x: R0 + k * (PGW + 16), y: 640, w: PGW, h: 48, c: DARK, label: name, fs: 28,
+  r: k === 0 ? "l" : k === 3 ? "r" : null, cls: "sw" }));
+const showPhase = (k) => phaseBox.forEach((b, j) => { const c = PHASES[j][1]; bg(b, j <= k ? c : DARK); fg(b, j <= k ? "#000" : c); op(b, j < k ? 0.5 : 1); });
+const RD = [["Pallet", R0, "l"], ["Contents", CHX0, "l"], ["Mass", CHX1, "r"], ["Pattern Integrity", R1, "r"]].map(([txt, x, align]) => {
+  L.text({ x, base: 760, s: 40, c: "tan", txt, align });
+  return L.text({ x, base: 820, s: 52, c: "white", txt: "", align });
+});
+L.text({ x: R0, base: 876, s: 40, c: "tan", txt: "Received" });
+L.rect({ x: CHX0, y: 876 - 26, w: CHX1 - CHX0, h: 26, c: TRACK });
+const recBar = fill(CHX0, 876 - 26, CHX1 - CHX0, 26, "orange");
+const recT = L.text({ x: R1, base: 876, s: 40, c: "white", txt: "", align: "r" });
+
+// ---------------- the manifest ----------------
+const man = { no: 2207, total: 140, done: L.irand(34, 58), pal: 0, next: [] };
+man.pal = man.done;
+const wpick = (a, w) => { let r = Math.random() * w.reduce((s, v) => s + v, 0), i = 0; while ((r -= w[i]) > 0 && i < a.length - 1) i++; return a[i]; };
+const queuedFor = (c) => man.next.filter((p) => p.cat === c).length * 1.8;
+const newPallet = () => {
+  // the starbase loads what the ship is shortest of
+  const w = CATS.map((c) => Math.pow(Math.max(4, 96 - c.n - c.bay - queuedFor(c)), 2));
+  const cat = wpick(CATS, w);
+  return { no: ++man.pal, cat, contents: L.pick(cat.contents), mass: L.rand(1.2, 3.8).toFixed(1), amt: L.rand(1.2, 2.4) };
+};
+const fillNext = () => { while (man.next.length < 7) man.next.push(newPallet()); };
+const palName = (p) => "P-" + pad(p.no, 3);
+
+// ---------------- requisitions: a queue, each moving through its stages ----------------
+L.header({ x: L0, y: 1000, w: L1 - L0, label: "Requisitions  ·  Open", c1: "orange", c2: "tan" });
+const QC = { dept: 224, item: 520, qty: 1000, to: 1040, st: 1360 };
+const STAGES = ["Submitted", "Approved", "Picking", "In Transit", "Delivered"];
+const SGW = (L1 - QC.st - 4 * 12) / 5;
+[["Number", L0, "l"], ["Department", QC.dept, "l"], ["Item", QC.item, "l"], ["Qty", QC.qty, "r"], ["Deliver To", QC.to, "l"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: 1124, s: 36, c: "lilac", txt, align }));
+STAGES.forEach((s, k) => L.text({ x: QC.st + k * (SGW + 12) + SGW, base: 1124, s: 36, c: "lilac", txt: s, align: "r" }));
+const REQS = [
+  ["Engineering", "EPS conduit sections", "Conduit", 4, 12, ["Main Engineering", "Deck 22", "Jefferies Tube 25"]],
+  ["Engineering", "Isolinear chips", "Isolinear", 12, 48, ["Main Engineering", "Computer Core"]],
+  ["Engineering", "Plasma relay spares", "Spares", 2, 8, ["Deck 29", "Main Engineering"]],
+  ["Engineering", "Duranium plate", "Hull Plating", 2, 6, ["Deck 34", "Shuttlebay 2"]],
+  ["Operations", "Replicator feedstock", "Feedstock", 4, 10, ["Deck 10", "Deck 31"]],
+  ["Operations", "Emergency ration packs", "Provisions", 20, 60, ["Shuttlebay 2", "Deck 36"]],
+  ["Operations", "Synthehol concentrate", "Provisions", 6, 12, ["Ten Forward"]],
+  ["Operations", "Duty uniforms", "Textiles", 10, 30, ["Deck 8", "Deck 14"]],
+  ["Operations", "Environmental suits", "EV Suits", 2, 6, ["Transporter Room 3", "Shuttlebay 2"]],
+  ["Science", "Tricorders", "Field Gear", 2, 6, ["Science Lab 2", "Stellar Cartography"]],
+  ["Science", "Hydroponic seed stock", "Seed Stock", 6, 20, ["Arboretum", "Hydroponics Bay 1"]],
+  ["Science", "Sensor spares", "Spares", 2, 6, ["Science Lab 4", "Deck 11"]],
+  ["Medical", "Surgical supplies", "Medical", 6, 24, ["Sickbay"]],
+  ["Medical", "Hypospray cartridges", "Medical", 24, 96, ["Sickbay", "Deck 12"]],
+  ["Medical", "Biobed linen", "Textiles", 10, 30, ["Sickbay"]],
+  ["Security", "Phaser power cells", "Power Cells", 12, 40, ["Security Office", "Armory"]],
+  ["Security", "Tricorders", "Field Gear", 2, 6, ["Security Office"]],
+  ["Command", "Away team field kits", "Field Gear", 2, 4, ["Transporter Room 3"]],
+  ["Command", "Isolinear chips", "Isolinear", 6, 24, ["Main Bridge", "Battle Bridge"]],
+  ["Command", "Microfusion cells", "Power Cells", 4, 12, ["Main Bridge"]],
+];
+const DUR = [[8, 13], [10, 15], [12, 17], [11, 16], [3, 3]];
+let rqNo = 4470;
+const newReq = (busy) => {
+  let r;
+  for (let k = 0; k < 10; k++) { r = L.pick(REQS); if (!busy.includes(r[1])) break; }
+  const [dept, item, cat, q0, q1, to] = r;
+  return { no: ++rqNo, dept, item, cat: byName(cat), qty: L.irand(q0, q1), to: L.pick(to), amt: L.rand(0.8, 1.8),
+           dur: DUR.map(([a, b]) => L.rand(a, b)) };
+};
+const RY = 1148, RP = 68, RH = 56, RB = 45.2, RN = 6;
+const rows = Array.from({ length: RN }, (_, i) => {
+  const e = L.layer({ x: L0, y: RY, w: L1 - L0, h: RH });
+  const at = (x) => x - L0;
+  const r = {
+    e, slot: i, s: 0, u: 0,
+    box: L.box({ x: 0, y: 0, w: 160, h: RH, c: "tan", label: "", fs: 28, r: "l", cls: "sw" }, e),
+    dept: L.text({ x: at(QC.dept), base: RB, s: 40, c: "peach", txt: "" }, e),
+    item: L.text({ x: at(QC.item), base: RB, s: 40, c: "white", txt: "" }, e),
+    qty: L.text({ x: at(QC.qty), base: RB, s: 40, c: "white", txt: "", align: "r", rightIn: true }, e),
+    to: L.text({ x: at(QC.to), base: RB, s: 40, c: "tan", txt: "" }, e),
+    seg: STAGES.map((_, k) => {
+      const x = at(QC.st) + k * (SGW + 12);
+      const tr = L.layer({ x, y: 10, w: SGW, h: RH - 20 }, e);
+      tr.style.background = TRACK;
+      return fill(0, 0, SGW, RH - 20, "orange", tr);
+    }),
+  };
+  r.set = (q) => {
+    r.q = q; r.s = 0; r.u = 0;
+    L.set(r.box, "RQ-" + q.no); L.set(r.dept, q.dept); L.set(r.item, q.item); L.set(r.qty, q.qty); L.set(r.to, q.to);
+  };
+  L.move(e, 0, i * RP);
+  return r;
+});
+const busyItems = () => rows.filter((r) => r.q).map((r) => r.q.item);
+rows.forEach((r) => r.set(newReq(busyItems())));
+// the queue as found: the oldest furthest along
+[[3, 0.5], [2, 0.7], [1, 0.4], [0, 0.8], [0, 0.5], [0, 0.1]].forEach(([s, u], i) => { rows[i].s = s; rows[i].u = u; });
+const drawRow = (r) => r.seg.forEach((f, k) => {
+  const v = k < r.s ? 1 : k === r.s ? L.clamp(r.u) : 0;
+  tf(f, `scaleX(${v.toFixed(4)})`);
+  bg(f, r.s === 4 ? "butter" : k < r.s ? "tan" : "orange");
+});
+const styleRows = () => rows.forEach((r) => { bg(r.box, r.slot === 0 ? "butter" : "tan"); fg(r.item, r.slot === 0 ? "white" : "peach"); });
+styleRows();
+
+// ---------------- cargo bay 2: receiving ----------------
+L.header({ x: R0, y: 1000, w: R1 - R0, label: "Cargo Bay 2  ·  Receiving", c1: "tan", c2: "orange" });
+L.text({ x: R0, base: 1124, s: 36, c: "tan", txt: "Pallets in Bay" });
+const bayT = L.text({ x: R0 + L.textWidth("Pallets in Bay", 36) + 24, base: 1124, s: 36, c: "white", txt: "" });
+const stowT = L.text({ x: R1, base: 1124, s: 36, c: "lilac", txt: "", align: "r" });
+const GC = 8, GR = 4, GG = 16, GW = (R1 - R0 - (GC - 1) * GG) / GC, GH = (1544 - RY - (GR - 1) * GG) / GR;
+const slots = Array.from({ length: GC * GR }, (_, k) => {
+  const x = R0 + (k % GC) * (GW + GG), y = RY + Math.floor(k / GC) * (GH + GG);
+  L.rect({ x, y, w: GW, h: GH, c: "#1c140c", noalign: true });
+  const e = L.layer({ x, y, w: GW, h: GH });
+  const b = L.box({ x: 0, y: 0, w: GW, h: GH, c: "tan", label: "", fs: 28, cls: "sw" }, e);
+  op(e, 0);
+  return { e, b, p: null, a: 0, goal: 0, since: 0 };
+});
+let inBay = 0, arrivals = 0;
+const showBay = () => L.set(bayT, `${inBay} / ${slots.length}`);
+const place = (p, fresh) => {
+  const free = slots.filter((s) => !s.p && s.goal === 0 && s.a === 0);
+  if (!free.length) return null;
+  const s = L.pick(free);
+  s.p = p; s.order = ++arrivals; s.goal = 1; L.set(s.b, p.cat.name);
+  if (!fresh) { s.a = 1; op(s.e, 1); }
+  p.cat.bay += p.amt;
+  return s;
+};
+// the bay as found: a dozen pallets from earlier in the manifest
+for (let k = 0; k < 12; k++) { const p = { no: man.done - 11 + k, cat: L.pick(CATS), amt: L.rand(1.2, 2.4) }; place(p, false); inBay++; }
+L.tick(() => slots.forEach((s) => {
+  if (s.a === s.goal) return;
+  s.a = s.goal > s.a ? Math.min(1, s.a + 0.03) : Math.max(0, s.a - 0.04);
+  op(s.e, L.ease(s.a));
+  if (s.a === 0 && s.goal === 0 && s.p) { s.p = null; inBay--; showBay(); }
+}));
+const styleBay = () => {
+  const newest = Math.max(...slots.filter((s) => s.p && s.goal).map((s) => s.order), 0);
+  slots.forEach((s) => bg(s.b, s.p && s.order === newest ? "butter" : "tan"));
+};
+// stowing: the crew takes the oldest pallet in the bay down to the stores
+let nextStow = L.rand(3, 6), crews = 2;
+const stow = (t) => {
+  const held = slots.filter((s) => s.p && s.goal === 1);
+  if (!held.length) return;
+  const s = held.reduce((a, b) => (b.order < a.order ? b : a));
+  s.goal = 0;
+  const c = s.p.cat;
+  c.bay = Math.max(0, c.bay - s.p.amt); c.n = Math.min(98, c.n + s.p.amt);
+};
+const showStow = () => L.set(stowT, `Stowing to Ship's Stores, Deck 39  ·  ${crews} Crews`);
+showStow();
+
+// ---------------- the department totals ----------------
+const DEPTS = ["Engineering", "Operations", "Science", "Medical", "Security", "Command"];
+const filled = Object.fromEntries(DEPTS.map((d) => [d, L.irand(3, 12)]));
+
+// ---------------- the transport cycle ----------------
+const LOCK = 1.6, DEMAT = 4.0, BUF = 6.0, REMAT = 8.4, CYCLE = 10;
+const tr = { st: "run", t0: 0, p: null, slot: null, got: false };
+const showMan = () => {
+  L.set(manT, `Manifest SB74-${man.no}  ·  Cargo Transporter 2`);
+  L.set(recT, `${man.done} / ${man.total}`);
+  tf(recBar, `scaleX(${(man.done / man.total).toFixed(4)})`);
+  L.set(remPill, `Pallets Remaining  ${man.total - man.done}`);
+};
+const showReadouts = () => {
+  const p = tr.p;
+  L.set(RD[0], p ? palName(p) : "—"); L.set(RD[1], p ? p.contents : "Transfer complete");
+  L.set(RD[2], p ? p.mass + " t" : "—"); L.set(RD[3], p ? p.integ : "—");
+};
+const startPallet = (t) => {
+  fillNext();
+  tr.p = man.next.shift(); tr.p.integ = (99.991 + Math.random() * 0.008).toFixed(3) + "%";
+  tr.t0 = t; tr.slot = null; tr.got = false;
+  L.set(srcP.b, pad(tr.p.no, 3)); L.set(dstP.b, pad(tr.p.no, 3));
+  showReadouts(); showManifest();
+};
+L.tick((t) => {
+  // ---- stowing ----
+  if (t >= nextStow) {
+    stow(t);
+    const held = slots.filter((s) => s.p && s.goal === 1).length;
+    nextStow = t + L.clamp(10 + (12 - held) * 0.9, 5, 16) + L.rand(-1.5, 1.5);
+  }
+  // ---- the stream of pattern data ----
+  tf(bars, `translate3d(${((t * 64) % 32).toFixed(2)}px,0,0)`);
+  if (tr.st === "reconcile") {
+    if (t - tr.t0 > 45) {
+      man.no++; man.total = L.irand(12, 16) * 10; man.done = 0; man.pal = 0; man.next = [];
+      note(t, `Manifest SB74-${man.no} opened, ${man.total} pallets`, "Starbase 74");
+      tr.st = "run"; showMan(); startPallet(t);
+    }
+    return;
+  }
+  if (!tr.p) startPallet(t);
+  let u = t - tr.t0;
+  // hold the pattern in the buffer while the bay has no room
+  if (u >= BUF && !tr.slot) {
+    tr.slot = place(tr.p, true);
+    if (!tr.slot) { tr.t0 = t - BUF + 0.001; u = BUF - 0.001; } else styleBay();
+  }
+  const k = u < LOCK ? 0 : u < DEMAT ? 1 : u < BUF ? 2 : u < REMAT ? 3 : 4;
+  showPhase(k === 4 ? -1 : k);
+  // the pallet at the starbase: appears, is locked, dissolves
+  op(srcP.e, u < 0.8 ? L.ease(u / 0.8) : u < LOCK ? 1 : u < DEMAT ? 1 - L.ease((u - LOCK) / (DEMAT - LOCK)) : 0);
+  op(srcP.sh, u < LOCK || u > DEMAT ? 0 : Math.sin(Math.PI * (u - LOCK) / (DEMAT - LOCK)));
+  // in the bay: forms, then is taken to its place on the deck
+  op(dstP.e, u < BUF ? 0 : u < REMAT ? L.ease((u - BUF) / (REMAT - BUF)) : 1 - L.ease(L.clamp((u - REMAT) / (CYCLE - REMAT))));
+  op(dstP.sh, u < BUF || u > REMAT ? 0 : Math.sin(Math.PI * (u - BUF) / (REMAT - BUF)));
+  tf(srcP.sh, `translate3d(0,${((t * 28) % 14).toFixed(2)}px,0)`); tf(dstP.sh, `translate3d(0,${((t * 28) % 14).toFixed(2)}px,0)`);
+  op(stream, u < LOCK ? 0 : u < 2.4 ? (u - LOCK) / 0.8 : u < 7.2 ? 1 : u < REMAT ? 1 - (u - 7.2) / 1.2 : 0);
+  if (u >= REMAT && !tr.got) {
+    tr.got = true; man.done++; inBay++; showBay(); showMan();
+    if (man.done % 10 === 0 && man.done < man.total) note(t, `Pallet ${man.done} of ${man.total} received`, "Cargo Bay 2");
+  }
+  if (u >= CYCLE) {
+    if (man.done >= man.total) {
+      note(t, `Manifest SB74-${man.no} complete, ${man.total} pallets received`, "Cargo Bay 2");
+      tr.st = "reconcile"; tr.t0 = t; tr.p = null; showPhase(-1); showReadouts(); showManifest();
+    } else startPallet(t);
+  }
+});
+
+// ---------------- the requisition queue ----------------
+let qPhase = "work", qT0 = 0, rqLast = null, qRow = null;
+L.tick((t) => {
+  const dt = rqLast === null ? 0 : Math.min(0.1, t - rqLast); rqLast = t;
+  const order = rows.slice().sort((a, b) => a.slot - b.slot);
+  order.forEach((r, i) => {
+    if (qPhase !== "work" && r.slot === 0) return;
+    if (r.s === 4 && r.u >= 1) { drawRow(r); return; }
+    r.u = Math.min(1, r.u + dt / r.q.dur[r.s]);
+    if (r.u >= 1 && r.s < 4) {
+      const above = i > 0 ? order[i - 1] : null;
+      // a stage behind the requisition ahead of it, at least
+      if (!above || (above.s > r.s + 1 && r.s + 1 < 4)) {
+        if (r.s === 2) {                                    // picked: drawn from the stores
+          const c = r.q.cat, was = c.n;
+          c.n = Math.max(4, c.n - r.q.amt);
+          if (was >= REORDER && c.n < REORDER) note(t, `${c.name} below reorder point, ${Math.round(c.n)}%`, "Stores");
+        }
+        r.s++; r.u = 0;
+      }
+    }
+    drawRow(r);
+  });
+  if (qPhase === "work") {
+    const top = order[0];
+    if (top.s === 4 && top.u >= 1) {
+      qPhase = "done"; qT0 = t; qRow = top;
+      filled[top.q.dept]++;
+      note(t, `RQ-${top.q.no} delivered, ${top.q.to}`, top.q.dept);
+    }
+  } else {
+    const u = t - qT0, top = qRow;
+    if (qPhase === "done") {
+      op(top.e, 1 - L.clamp(u / 0.8));
+      if (u >= 0.8) { qPhase = "slide"; qT0 = t; }
+    } else if (qPhase === "slide") {
+      const k = L.ease(L.clamp(u / 1.2));
+      rows.forEach((r) => { if (r.slot > 0) L.move(r.e, 0, (r.slot - k) * RP); });
+      if (k >= 1) {
+        rows.forEach((r) => (r.slot = r.slot === 0 ? RN - 1 : r.slot - 1));
+        top.set(newReq(busyItems())); L.move(top.e, 0, (RN - 1) * RP); drawRow(top);
+        styleRows();
+        qPhase = "arrive"; qT0 = t;
+      }
+    } else if (qPhase === "arrive") {
+      op(top.e, L.clamp(u / 0.9));
+      if (u >= 0.9) qPhase = "work";
+    }
+  }
+});
+
+// ---------------- the bottom strip: log, departments, the next pallets ----------------
+const LOGR = 1380;
+L.header({ x: L0, y: 1620, w: LOGR - L0, label: "Stores Log", c1: "tan", c2: "peach", h: 48 });
+const logRows = Array.from({ length: 6 }, (_, i) => {
+  const base = 1734 + i * 54;
+  return { tm: L.text({ x: L0, base, s: 36, c: "orange", txt: "" }), tx: L.text({ x: 220, base, s: 36, c: "peach", txt: "" }),
+           who: L.text({ x: LOGR, base, s: 36, c: "lilac", txt: "", align: "r" }) };
+});
+function showLog() {
+  const last = log.slice(-6);
+  logRows.forEach((r, i) => { const e = last[i]; L.set(r.tm, e ? e[0] : ""); L.set(r.tx, e ? e[1] : ""); L.set(r.who, e ? e[2] : ""); });
+}
+
+const DX = 1440, DSCALE = 40;
+L.header({ x: DX, y: 1620, w: L1 - DX, label: "Filled This Shift", c1: "orange", c2: "tan", h: 48 });
+const DBX = DX + 300, DBW = L1 - DBX;
+const deptRows = DEPTS.map((d, i) => {
+  const base = 1734 + i * 54;
+  L.text({ x: DX, base, s: 36, c: "tan", txt: d });
+  L.rect({ x: DBX, y: base - 26, w: DBW, h: 26, c: TRACK });
+  return { d, bar: fill(DBX, base - 26, DBW, 26, i % 2 ? "tan" : "orange"), n: L.text({ x: DBX - 24, base, s: 36, c: "white", txt: "", align: "r" }), shown: filled[d] };
+});
+L.tick(() => deptRows.forEach((r) => {
+  const d = filled[r.d] - r.shown;
+  r.shown = Math.abs(d) < 0.01 ? filled[r.d] : r.shown + d * 0.06;
+  tf(r.bar, `scaleX(${(r.shown / DSCALE).toFixed(4)})`);
+  L.set(r.n, Math.round(r.shown));
+}));
+
+const MH = L.header({ x: R0, y: 1620, w: R1 - R0, label: "Next Pallets  ·  Manifest SB74-0000", c1: "peach", c2: "orange", h: 48 });
+const manHdr = [...document.querySelectorAll(".bx")].pop();
+const MC = { cat: R0 + 160, what: R0 + 420, mass: R1 - 260 };
+const manRows = Array.from({ length: 6 }, (_, i) => {
+  const base = 1734 + i * 54;
+  return { no: L.text({ x: R0, base, s: 36, c: "orange", txt: "" }), cat: L.text({ x: MC.cat, base, s: 36, c: "tan", txt: "" }),
+           what: L.text({ x: MC.what, base, s: 36, c: "peach", txt: "" }), mass: L.text({ x: MC.mass, base, s: 36, c: "white", txt: "", align: "r" }),
+           st: L.text({ x: R1, base, s: 36, c: "lilac", txt: "", align: "r" }) };
+});
+function showManifest() {
+  L.set(manHdr, `Next Pallets  ·  Manifest SB74-${man.no}`);
+  const left = man.total - man.done - (tr.p ? 1 : 0);
+  const list = (tr.p ? [tr.p] : []).concat(man.next.slice(0, Math.max(0, Math.min(6, left))));
+  manRows.forEach((r, i) => {
+    const p = list[i];
+    L.set(r.no, p ? palName(p) : ""); L.set(r.cat, p ? p.cat.name : ""); L.set(r.what, p ? p.contents : "");
+    L.set(r.mass, p ? p.mass + " t" : ""); L.set(r.st, p ? (i === 0 ? "Transporting" : "Queued") : "");
+    const c = i === 0 ? "white" : "peach"; fg(r.what, c);
+  });
+}
+
+// ---------------- routine entries in the log ----------------
+const ROUTINE = [["Inventory audit, Stores Bay C, no discrepancies", "Stores"], ["Antigrav sleds recharged, Cargo Bay 2", "Cargo Bay 2"],
+  ["Cargo transporter 2 cycle check nominal", "Operations"], ["Stores crew rotation, Deck 39", "Stores"],
+  ["Hazardous materials locker inspected", "Security"], ["Manifest discrepancy cleared with Starbase 74", "Stores"],
+  ["Cold storage held at 4 degrees, Stores Bay A", "Stores"], ["Isolinear stock serialized and logged", "Stores"],
+  ["Bay 2 forcefield containment verified", "Cargo Bay 2"], ["Requisition priorities reviewed", "Operations"]];
+let routineDeck = [];
+const routine = (t) => { if (!routineDeck.length) routineDeck = ROUTINE.slice().sort(() => Math.random() - 0.5); note(t, ...routineDeck.pop()); };
+
+// the log as found
+note(-340, `Manifest SB74-${man.no} confirmed by Cmdr. Quinteros`, "Starbase 74");
+note(-260, `RQ-${rqNo - 7} delivered, Main Engineering`, "Engineering");
+routine(-190);
+note(-120, `Pallet ${Math.floor(man.done / 10) * 10} of ${man.total} received`, "Cargo Bay 2");
+note(-64, `RQ-${rqNo - 6} delivered, Sickbay`, "Medical");
+routine(-18);
+logReady = true; showLog();
+later(28000, routine, 0.3);
+
+// ---------------- status ----------------
+let shownWord = "";
+L.every(250, () => {
+  const word = tr.st === "reconcile" ? "Reconciling" : "Resupply";
+  if (word !== shownWord) {
+    shownWord = word; L.set(stateTxt, word);
+    sub.style.left = L0 + L.textWidth(word, BIG) + 56 + "px";
+  }
+  L.set(sub, tr.st === "reconcile" ? `Manifest SB74-${man.no} received in full  ·  Cargo Bay 2  ·  Ship's Stores, Deck 39`
+    : `Starbase 74 to Cargo Bay 2  ·  Manifest SB74-${man.no}  ·  Ship's Stores, Deck 39`);
+}, 0);
+
+fillNext(); showMan(); showBay(); styleBay();
+});
+</script></body></html>

@@ -1,0 +1,305 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Alert Status</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .seg  { transition: background-color 1.8s ease, color 1.8s ease; will-change: opacity; }
+  .segt { transition: color 1.8s ease; }
+  .cell { transition: background-color 1.1s ease; }
+  .pill { transition: background-color .9s ease, color .9s ease; }
+  .scan { border: 4px solid var(--white); border-radius: 6px; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: wide, no sidebars ----------------
+L.frame({ type: "D", title: "Alert Status  •  Ship Condition", c: "sky", c2: "blue", accent: "mars" });
+
+const G = L.GAP, X0 = 40, X1 = 3816;
+const COL = [40, 1000, 1960, 2920], CW = 896;              // four columns, 64 apart
+const TRACK = "#0c1a36";
+const pad = (n, k = 2) => String(n).padStart(k, "0");
+const fmt = (n) => Math.round(n).toLocaleString("en");
+const ms = (s) => `${Math.floor(s / 60)} m ${pad(Math.floor(s % 60))} s`;
+const q = new URLSearchParams(location.search);
+
+// ---------------- status line ----------------
+const stateTxt = L.text({ x: X0, cap: 150, s: 100, c: "ice", txt: "" });
+const stateSub = L.text({ x: 0, base: 222, s: 38, c: "sky", txt: "" });
+const setState = (word, sub, c) => {
+  L.set(stateTxt, word); stateTxt.style.color = `var(--${c})`;
+  stateSub.style.left = X0 + L.textWidth(word, 100) + 40 + "px";
+  L.set(stateSub, sub);
+};
+const stardate0 = 47634.4 + Math.random() * 0.05;
+const stardate = (t = L.t) => stardate0 + t / 3600 / 8.766;
+L.text({ x: COL[3], base: 222, s: 40, c: "sky", txt: "Stardate" });
+const sdVal = L.text({ x: COL[3] + L.textWidth("Stardate", 40) + 24, base: 222, s: 52, c: "white", txt: "" });
+L.text({ x: X1, base: 222, s: 40, c: "sky", txt: "Main Bridge  ·  Tactical", align: "r" });
+
+// ---------------- the condition band ----------------
+const BY = 280, BH = 176;
+const SEGS = [
+  { name: "Condition Green", note: "Normal operations", x: COL[0], w: COL[1] + CW - COL[0], c: "sky", dark: "#0e2246", r: "l" },
+  { name: "Yellow Alert", note: "Shields up  ·  Stations manned", x: COL[2], w: CW, c: "butter", dark: "#2e2610", r: null },
+  { name: "Red Alert", note: "Battle stations", x: COL[3], w: CW, c: "mars", dark: "#2e100a", r: "r" },
+].map((s) => {
+  s.e = L.box({ x: s.x, y: BY, w: s.w, h: BH, c: s.dark, label: s.name, fs: 112, r: s.r, cls: "seg" });
+  s.e.style.paddingRight = (s.r === "r" ? 80 : 32) + "px"; s.e.style.paddingBottom = "14px";
+  s.n = L.text({ x: s.x + (s.r === "l" ? 96 : 32), cap: BY + 26, s: 40, c: s.c, txt: s.note, on: true, cls: "segt" });
+  return s;
+});
+let lit = -1;
+const light = (k) => {
+  lit = k;
+  SEGS.forEach((s, i) => {
+    s.e.style.background = i === k ? `var(--${s.c})` : s.dark;
+    s.e.style.color = i === k ? "#000" : `var(--${s.c})`;
+    s.n.style.color = i === k ? "#000" : `var(--${s.c})`;
+    if (i !== k) s.e.style.opacity = "1";
+  });
+};
+L.tick((t) => { if (lit >= 0) SEGS[lit].e.style.opacity = (0.9 + 0.1 * Math.sin(t * 0.7)).toFixed(3); });
+
+// readouts under the band, one to a column
+const readout = (i, label) => {
+  const l = L.text({ x: COL[i], base: 532, s: 40, c: "sky", txt: label });
+  const v = L.text({ x: COL[i] + L.textWidth(label, 40) + 28, base: 532, s: 52, c: "white", txt: "" });
+  return { l, v, label: (txt) => { L.set(l, txt); v.style.left = COL[i] + L.textWidth(txt, 40) + 28 + "px"; } };
+};
+const rdTime = readout(0, "Time at Condition"), rdReady = readout(1, "Stations Ready"),
+      rdLast = readout(2, "Last Drill"), rdNext = readout(3, "Next Drill");
+
+// ---------------- the deck readiness grid: 42 decks × six departments ----------------
+const HY = 592;
+L.header({ x: X0, y: HY, w: X1 - X0, label: "Deck Readiness  ·  Decks 1 – 42", c1: "sky", c2: "blue" });
+const DECKS = 42, LW = 314, CX0 = X0 + LW + G, PITCH = (X1 - CX0 + 6) / DECKS, CELLW = PITCH - 6;
+const GY = 728, RP = 60, RH = 48;
+const range = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
+const DEPTS = [
+  ["Command", "sky", [1, 2, 3, 8, 9, 16, 36]],
+  ["Engineering", "ice", [4, 8, 11, 13, 15, ...range(17, 42)]],
+  ["Science", "blue", [2, 3, 4, 5, 6, 10, 11, 12, 14, 17, 18, 19, 20, 21, 33, 39]],
+  ["Medical", "sky", [5, 12, 15, 17, 18, 21, 29, 35]],
+  ["Security", "ice", [1, 5, 6, 8, 10, 13, 15, 19, 22, 27, 31, 34, 36, 38, 42]],
+  ["Operations", "blue", range(1, 42).filter((d) => ![17, 26, 41].includes(d))],
+];
+for (let d = 1; d <= DECKS; d++)
+  L.text({ x: CX0 + (d - 1) * PITCH + CELLW / 2, base: GY - 22, s: 32, c: "sky", txt: d, align: "c", w: 80, legend: true });
+const C = { ready: "var(--sky)", standby: "#22457e", awaiting: "#4a3c16", reported: "var(--butter)", none: TRACK,
+            dready: "var(--ice)", dstandby: "#22457e" };
+const cells = [];
+DEPTS.forEach(([name, c, decks], r) => {
+  const y = GY + r * RP;
+  L.box({ x: X0, y, w: LW, h: RH, c, label: name, fs: 28, r: "l" });
+  for (let d = 1; d <= DECKS; d++) {
+    const here = decks.includes(d);
+    const e = L.box({ x: CX0 + (d - 1) * PITCH, y, w: CELLW, h: RH, c: here ? "sky" : TRACK, cls: here ? "cell" : "" });
+    if (here) cells.push({ e, deck: d, dept: name, state: "ready" });
+  }
+});
+const SY = GY + 6 * RP + 4;                                   // the deck-status row, a little apart
+L.box({ x: X0, y: SY, w: LW, h: RH, c: "butter", label: "Deck Status", fs: 28, r: "l" });
+const deckBox = range(1, DECKS).map((d) => L.box({ x: CX0 + (d - 1) * PITCH, y: SY, w: CELLW, h: RH, c: "ice", cls: "cell" }));
+const paintCell = (c, st, delay = 0) => { c.state = st; c.e.style.transitionDelay = delay.toFixed(2) + "s"; c.e.style.background = C[st]; };
+const paintDecks = (delayOf = () => 0) => {
+  for (let d = 1; d <= DECKS; d++) {
+    const mine = cells.filter((c) => c.deck === d);
+    const st = mine.some((c) => c.state === "awaiting") ? "awaiting" : mine.every((c) => c.state === "reported") ? "reported"
+             : mine.some((c) => c.state === "standby") ? "dstandby" : "dready";
+    const e = deckBox[d - 1];
+    if (e.dataset.st === st) continue;
+    e.dataset.st = st; e.style.transitionDelay = delayOf(d).toFixed(2) + "s"; e.style.background = C[st];
+  }
+};
+paintDecks();
+
+// the internal sensor poll: a bracket gliding deck to deck
+const scan = L.layer({ x: CX0 - 9, y: GY - 9, w: CELLW + 18, h: SY + RH - GY + 18, cls: "scan" });
+scan.style.opacity = "0.55";
+let pollDeck = 1;
+L.tick((t) => {
+  const p = (t * 0.55) % DECKS;                             // a pass every 76 s
+  L.move(scan, (p * PITCH).toFixed(1) * 1, 0);
+  pollDeck = Math.min(DECKS, Math.round(p) + 1);
+});
+
+// key and totals, under the grid
+const KY = SY + RH + 36;
+let kx = X0;
+[["Ready", C.ready, "#000"], ["Standby", C.standby, "var(--ice)"], ["Awaiting Report", C.awaiting, "var(--butter)"],
+ ["Reported", C.reported, "#000"], ["No Station", C.none, "var(--sky)"]].forEach(([name, bg, fg], i) => {
+  const w = Math.round((L.textWidth(name, 28) + 64) / 10) * 10;
+  const e = L.box({ x: kx, y: KY, w, h: 48, c: "sky", label: name, fs: 28, r: i === 0 ? "l" : null });
+  e.style.background = bg; e.style.color = fg;
+  kx += w + 12;
+});
+const KB = KY + 40;                                           // shares the key's label baseline
+const pollTxt = L.text({ x: COL[1], base: KB, s: 40, c: "sky", txt: "" });
+const deckTxt = L.text({ x: COL[2], base: KB, s: 40, c: "ice", txt: "" });
+const totTxt = L.text({ x: X1, base: KB, s: 40, c: "white", txt: "", align: "r" });
+const showTotals = () => {
+  const ready = cells.filter((c) => c.state === "ready" || c.state === "reported").length;
+  L.set(rdReady.v, `${ready} of ${cells.length}`);
+  L.set(totTxt, `${cells.length} stations on ${DECKS} decks  ·  6 departments`);
+};
+
+// ---------------- readiness checklist (lower left) ----------------
+const LY = 1288, RB0 = 1440, RPITCH = 72, RRH = 56;
+const rowBase = (i) => RB0 + i * RPITCH + 46;
+const LR = COL[1] + CW;
+L.header({ x: X0, y: LY, w: LR - X0, label: "Readiness Checklist", c1: "ice", c2: "sky" });
+[["Check No.", X0, "l"], ["Readiness Check", 184, "l"], ["Station", 700, "l"], ["Reported By", 1040, "l"], ["Checked", 1580, "r"], ["Status", LR, "r"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: 1408, s: 36, c: "ice", txt, align, w: 300 }));
+const NW = Math.round(L.textWidth("Check No.", 36));
+const CHECKS = [
+  ["Bridge stations manned", "Main Bridge", "Cmdr. Riker"],
+  ["Deflector shields to standby", "Tactical", "Lt. Worf"],
+  ["Phaser banks to standby", "Phaser Control", "Ens. Sito Jaxa"],
+  ["Damage control parties assembled", "Engineering", "Lt. Cmdr. La Forge"],
+  ["Emergency bulkheads verified", "Damage Control", "Lt. Barclay"],
+  ["Casualty stations ready", "Sickbay", "Dr. Crusher"],
+  ["Lifeboat systems ready", "Operations", "Lt. Cmdr. Data"],
+  ["Saucer separation systems ready", "Battle Bridge", "Ens. Ro Laren"],
+].map(([item, station, who], i) => {
+  const y = RB0 + i * RPITCH, base = rowBase(i);
+  L.box({ x: X0, y, w: NW, h: RRH, c: i % 2 ? "sky" : "ice", label: pad(i + 1), fs: 28, r: "l" });
+  L.text({ x: 184, base, s: 40, c: "white", txt: item });
+  L.text({ x: 700, base, s: 36, c: "sky", txt: station });
+  L.text({ x: 1040, base, s: 36, c: "ice", txt: who });
+  const at = L.text({ x: 1580, base, s: 36, c: "ice", txt: "", align: "r" });
+  const pill = L.box({ x: 1640, y, w: LR - 1640, h: RRH, c: "sky", label: "Complete", fs: 28, r: "lr", cls: "pill" });
+  return { item, at, pill, state: "Complete" };
+});
+const PILL = { Complete: ["var(--sky)", "#000"], Pending: ["#2e2610", "var(--butter)"], Checking: ["var(--butter)", "#000"] };
+const setCheck = (k, st, secs) => {
+  const c = CHECKS[k]; c.state = st;
+  c.pill.style.background = PILL[st][0]; c.pill.style.color = PILL[st][1];
+  L.set(c.pill, st);
+  if (secs !== undefined) L.set(c.at, secs === null ? "—" : ms(secs));
+};
+
+// ---------------- alert history (lower right) ----------------
+const AX = COL[2];
+L.header({ x: AX, y: LY, w: X1 - AX, label: "Alert History", c1: "sky", c2: "blue" });
+[["Stardate", AX, "l"], ["Condition", 2248, "c"], ["Event", 2380, "l"], ["Ordered By", 3240, "l"], ["Duration", X1, "r"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: 1408, s: 36, c: "ice", txt, align, w: 300 }));
+const COND = { Yellow: ["var(--butter)", "Yellow"], Red: ["var(--mars)", "Red"], Intruder: ["var(--mars)", "Intruder"] };
+const logRows = Array.from({ length: 8 }, (_, i) => {
+  const y = RB0 + i * RPITCH, base = rowBase(i);
+  return {
+    sd: L.text({ x: AX, base, s: 40, c: i < 4 ? "butter" : "sky", txt: "" }),
+    pill: L.box({ x: 2140, y, w: 216, h: RRH, c: "butter", label: "", fs: 28, r: "lr", cls: "pill" }),
+    ev: L.text({ x: 2380, base, s: 40, c: "white", txt: "" }),
+    by: L.text({ x: 3240, base, s: 36, c: "sky", txt: "" }),
+    du: L.text({ x: X1, base, s: 36, c: "ice", txt: "", align: "r" }),
+  };
+});
+// the ship's record: what is not forgotten
+const RECORD = [
+  [46357.4, "Red", "Cardassian border  ·  Minos Korva  ·  fleet withdrawn from the system", "6 h 40 m", "Capt. Jellico"],
+  [45652.1, "Red", "Typhon Expanse  ·  collision with U.S.S. Bozeman  ·  causality loop", "0 h 03 m", "Capt. Picard"],
+  [44001.4, "Red", "Wolf 359  ·  Borg cube en route to Sector 001  ·  39 ships lost", "31 h 18 m", "Cmdr. Riker"],
+  [43625.2, "Red", "Temporal rift  ·  Enterprise-C emerges near Narendra III", "1 h 52 m", "Capt. Picard"],
+];
+let recent = [
+  [47631.2, "Yellow", "Readiness drill  ·  all decks reported ready", "0 m 34 s", "Cmdr. Riker"],
+  [47627.9, "Yellow", "Ion storm  ·  Mericor system  ·  deflectors to full power", "4 h 12 m", "Capt. Picard"],
+  [47619.6, "Intruder", "Intruder alert  ·  Cargo Bay 4  ·  sensor echo, cleared", "0 h 09 m", "Lt. Worf"],
+  [47611.3, "Yellow", "Readiness drill  ·  all decks reported ready", "0 m 37 s", "Lt. Cmdr. Data"],
+];
+const showLog = () => [...recent, ...RECORD].forEach(([sd, cond, ev, du, by], i) => {
+  const r = logRows[i];
+  L.set(r.sd, sd.toFixed(1)); L.set(r.ev, ev); L.set(r.du, du); L.set(r.by, by); L.set(r.pill, COND[cond][1]);
+  r.pill.style.background = COND[cond][0];
+});
+showLog();
+
+// ---------------- condition green: the ship going about its business ----------------
+let since = L.rand(2.5, 9) * 3600, sinceT = 0;               // hours at condition when the screen comes up
+let lastDrill = recent[0][0], drillAt = q.has("drill") ? +q.get("drill") : L.rand(45, 110), drill = null;
+L.set(rdLast.v, lastDrill.toFixed(1));
+CHECKS.forEach((c, i) => setCheck(i, "Complete", 4 + i * 3.6 + L.rand(0, 3)));
+const green = () => {
+  setState("All Decks Ready", "Condition Green  ·  No alert in effect  ·  Internal sensors polling every deck", "ice");
+  light(0);
+};
+green();
+// now and then a station stands down for maintenance, and comes back
+L.every(11000, (t) => {
+  if (drill || t < 2) return;
+  const down = cells.filter((c) => c.state === "standby");
+  if (down.length && (down.length >= 3 || Math.random() < 0.45)) paintCell(L.pick(down), "ready");
+  else paintCell(L.pick(cells.filter((c) => c.state === "ready")), "standby");
+  paintDecks(); showTotals();
+}, 0.3);
+
+// ---------------- the drill: yellow alert, every deck reports, then secure ----------------
+const startDrill = (t) => {
+  drill = { t0: t, done: null, secured: null, n: 0 };
+  // reports arrive over about half a minute; the bridge and the lower decks' damage control parties first-ish
+  cells.forEach((c) => {
+    c.at = 5 + 24 * L.clamp(0.7 * Math.random() + 0.3 * ((c.deck - 1) / 41) - (c.dept === "Command" ? 0.25 : 0));
+  });
+  cells.forEach((c) => paintCell(c, "awaiting", (c.deck - 1) * 0.025));
+  paintDecks((d) => (d - 1) * 0.025);
+  CHECKS.forEach((_, i) => setCheck(i, "Pending", null));
+  setState("Readiness Drill", "Yellow Alert  ·  All hands to stations  ·  Decks report when ready", "butter");
+  light(1);
+  rdTime.label("Drill Time"); rdNext.label("Reporting");
+  since = 0; sinceT = t;
+};
+const secure = (t) => {
+  const dur = drill.done - drill.t0;
+  cells.forEach((c) => paintCell(c, "ready", (c.deck - 1) * 0.03));
+  paintDecks((d) => (d - 1) * 0.03);
+  lastDrill = stardate(t);
+  recent.unshift([lastDrill, "Yellow", "Readiness drill  ·  all decks reported ready", ms(dur), L.pick(["Cmdr. Riker", "Capt. Picard", "Lt. Worf"])]); recent = recent.slice(0, 4);
+  showLog();
+  L.set(rdLast.v, lastDrill.toFixed(1));
+  rdTime.label("Time at Condition"); rdNext.label("Next Drill");
+  since = 0; sinceT = t;
+  drill = null; drillAt = t + L.rand(180, 300);
+  green();
+};
+L.every(250, (t) => {
+  if (!drill) { if (t >= drillAt) startDrill(t); return; }
+  const u = t - drill.t0;
+  let changed = false;
+  for (const c of cells) if (c.state === "awaiting" && u >= c.at) { paintCell(c, "reported"); drill.last = c; changed = true; }
+  if (changed) paintDecks();
+  CHECKS.forEach((c, i) => {
+    const due = 6 + i * 3.4;
+    if (c.state === "Pending" && u >= due - 2) setCheck(i, "Checking");
+    if (c.state === "Checking" && u >= due) setCheck(i, "Complete", due + L.rand(-0.4, 0.4));
+  });
+  if (!drill.done && cells.every((c) => c.state === "reported") && CHECKS.every((c) => c.state === "Complete")) {
+    drill.done = t;
+    setState("All Decks Report Ready", `Yellow Alert  ·  Drill complete in ${ms(t - drill.t0)}  ·  Standing by to secure`, "butter");
+  }
+  if (drill.done && t - drill.done > 6) secure(t);
+}, 0);
+
+// ---------------- readings, once a second ----------------
+L.every(1000, (t) => {
+  L.set(sdVal, stardate(t).toFixed(1));
+  if (drill) {
+    const u = (drill.done || t) - drill.t0;
+    L.set(rdTime.v, ms(u));
+    const decksIn = range(1, DECKS).filter((d) => cells.filter((c) => c.deck === d).every((c) => c.state === "reported")).length;
+    L.set(rdNext.v, `${decksIn} of ${DECKS} decks`);
+    L.set(pollTxt, `Damage control  ·  awaiting ${cells.filter((c) => c.state === "awaiting").length} stations`);
+    L.set(deckTxt, drill.last ? `Last report  ·  Deck ${drill.last.deck}  ·  ${drill.last.dept}` : "Last report  ·  none yet");
+  } else {
+    const s = since + (t - sinceT);
+    L.set(rdTime.v, `${Math.floor(s / 3600)} h ${pad(Math.floor((s % 3600) / 60))} m ${pad(Math.floor(s % 60))} s`);
+    L.set(rdNext.v, ms(Math.max(0, drillAt - t)));
+    L.set(pollTxt, `Internal sensors  ·  polling Deck ${pollDeck}`);
+    const mine = cells.filter((c) => c.deck === pollDeck), sb = mine.filter((c) => c.state === "standby").length;
+    L.set(deckTxt, `Deck ${pollDeck}  ·  ${mine.length} stations  ·  ${sb ? sb + " on standby" : "all ready"}`);
+  }
+  showTotals();
+}, 0);
+});
+</script></body></html>

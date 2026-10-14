@@ -1,0 +1,560 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Crew Manifest</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* text that is swapped fades out and back in; .boot (the start-up cascade) always wins */
+  .fade { transition: opacity .4s ease; }
+  .out:not(.boot) { opacity: .2; }   /* a record dips, never goes black, while it changes */
+  .rc { transition: color .35s ease; }
+  .cell { transition: background-color .6s ease, color .6s ease; }
+  .idx { transition: background-color .8s ease, color .8s ease; }
+  .hl { transition: color .6s ease; }
+  .rk, .sl { transition: fill .6s ease; }
+  .ptr { transition: opacity .4s ease; }
+  .band { background: var(--lilac); border-radius: 10px; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: sidebar left, title top right ----------------
+const BAR = 64;
+L.title({ x: 3700, y: 40, h: BAR, c: "lilac", txt: "Personnel Records  •  Crew Manifest" });
+// (L.title measures with a canvas, which sets this line ~11px wider than the page draws it; use the page's own width)
+const titleLeft = 3700 - document.querySelector("[data-title]").offsetWidth;
+L.box({ x: 3724, y: 40, w: 92, h: BAR, c: "plum", r: "r" });
+L.elbow({ corner: "tl", x: 40, y: 40, w: 1360, h: 250, bw: 240, bh: BAR, R: 150, r: 60, c: "plum" });
+L.rect({ x: 1400 + L.GAP, y: 40, w: 300, h: BAR, c: "peach" });
+L.rect({ x: 1724 + L.GAP, y: 40, w: titleLeft - L.GAP - (1724 + L.GAP), h: BAR, c: "lilac" });
+[[298, 140, "lilac", "PER 20"], [446, 70, "peach", "Index"], [524, 420, "plum", "Manifest"], [952, 70, "ice", "Query"],
+ [1030, 300, "lilac", "Records"], [1338, 70, "peach", "Duty"], [1416, 216, "plum", "Postings"]]
+  .forEach(([y, h, c, label]) => L.box({ x: 40, y, w: 240, h, c, label }));
+L.elbow({ corner: "bl", x: 40, y: 1640, w: 1500, h: 480, bw: 240, bh: BAR, R: 150, r: 60, c: "lilac" });
+L.text({ x: 258, base: 1712, s: 40, c: "#000", txt: "Personnel", align: "r", on: true });
+[[1540 + L.GAP, 600, "plum"], [2164 + L.GAP, 900, "peach"], [3088 + L.GAP, 3700 - (3088 + L.GAP), "lilac"]]
+  .forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
+L.box({ x: 3724, y: 2056, w: 92, h: BAR, c: "plum", r: "r" });
+
+const header = (x, y, w, label, lw, c1, c2, h = 56, fs = 32) => {
+  if (!lw) lw = Math.round((L.textWidth(label, fs) + 64) / 10) * 10;
+  L.box({ x, y, w: lw, h, c: c1, label, fs, r: "l" });
+  L.rect({ x: x + lw + L.GAP, y, w: w - lw - L.GAP, h, c: c2 });
+  return lw;
+};
+const small = (x, y, w, label, c1, c2) => header(x, y, w, label, 0, c1, c2, 48, 28);
+const cls = (e, ...c) => (e.classList.add(...c), e);
+// write only what changed: an unchanged reading costs nothing
+const put = (e, txt) => { if (e.textContent !== txt) e.textContent = txt; };
+const css = (e, k, v) => { if (e.style[k] !== v) e.style[k] = v; };
+const fmt = (n) => n.toLocaleString("en");
+const D2 = (n) => String(n).padStart(2, "0");
+const V = (c) => (c.startsWith("#") ? c : `var(--${c})`);
+const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = L.irand(0, i); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const cap = (s) => s[0].toUpperCase() + s.slice(1);
+const DARK = "#2a1d33";                                   // the plum of an empty cell or gauge
+
+// Columns: the manifest 330–2160; the record 2220–3816, its values from 2488 and its second column from 3064.
+const LX = 330, LR = 2160, RX = 2220, VX = 2488, RX2 = 3064, RR = 3816;
+const NOW = 2370, SD = 47634.2;                          // the year, and today's stardate
+
+// ---------------- the crew ----------------
+const RANKS = [  // [abbrev, full, short (for the log), how many aboard, officer]
+  ["CAPT", "Captain", "Capt.", 1, true], ["CMDR", "Commander", "Cmdr.", 4, true], ["LCDR", "Lt. Commander", "Lt. Cmdr.", 22, true],
+  ["LT", "Lieutenant", "Lt.", 118, true], ["LTJG", "Lieutenant (j.g.)", "Lt. (j.g.)", 164, true], ["ENS", "Ensign", "Ens.", 247, true],
+  ["CPO", "Chief Petty Officer", "Chief", 66, false], ["PO", "Petty Officer", "P.O.", 158, false], ["CRMN", "Crewman", "Crewman", 234, false]];
+const DEPTS = [  // [name, how many, colour]
+  ["Command", 36, "peach"], ["Operations", 214, "lilac"], ["Engineering", 268, "plum"],
+  ["Security", 118, "pink"], ["Sciences", 274, "ice"], ["Medical", 104, "sky"]];
+const SPECIES = [  // [legend name, how many, colour]
+  ["Human", 719, "lilac"], ["Vulcan", 58, "plum"], ["Bolian", 44, "ice"], ["Betazoid", 39, "peach"], ["Andorian", 31, "sky"],
+  ["Bajoran", 27, "pink"], ["Benzite", 18, "violet"], ["Trill", 16, "tan"], ["Klingon", 1, "butter"], ["Other", 61, "slate"]];
+const OTHERS = [["Tellarite", 14], ["Deltan", 10], ["Zakdorn", 9], ["Rigelian", 10], ["Efrosian", 9], ["Grazerite", 8], ["Android", 1]];
+// where each department works: [assignment, deck], and what its people do
+const WORK = {
+  Command: { at: [["Main Bridge", 1], ["Flight Control", 1], ["Personnel Office", 20], ["Battle Bridge", 8], ["Diplomatic Office", 7]],
+    pos: ["Bridge Officer", "Flight Controller", "Personnel Officer", "Executive Assistant", "Diplomatic Liaison", "Yeoman"] },
+  Operations: { at: [["Ops Station", 1], ["Transporter Room 3", 6], ["Transporter Room 6", 14], ["Cargo Bay 4", 22], ["Shuttlebay 2", 13],
+    ["Main Computer", 21], ["Communications", 1], ["Flight Control", 1]],
+    pos: ["Operations Officer", "Transporter Technician", "Cargo Specialist", "Shuttle Pilot", "Computer Specialist", "Communications Officer"] },
+  Engineering: { at: [["Main Engineering", 36], ["Warp Propulsion", 36], ["Impulse Engines", 23], ["Structural Systems", 34],
+    ["Environmental Systems", 19], ["EPS Maintenance", 29], ["Deflector Control", 30], ["Damage Control", 36]],
+    pos: ["Warp Field Specialist", "Engineering Technician", "Plasma Systems Specialist", "Structural Engineer", "EPS Technician", "Environmental Engineer"] },
+  Security: { at: [["Security Office", 8], ["Tactical", 1], ["Brig", 8], ["Armory", 8], ["Away Team Detail", 6], ["Internal Security", 8]],
+    pos: ["Security Officer", "Tactical Officer", "Security Specialist", "Weapons Technician", "Brig Officer"] },
+  Sciences: { at: [["Stellar Cartography", 4], ["Astrophysics Lab", 5], ["Exobiology Lab", 17], ["Hydroponics", 24], ["Geology Lab", 17],
+    ["Sensor Analysis", 5], ["Science Lab 4", 5], ["Xenolinguistics", 17]],
+    pos: ["Astrophysicist", "Exobiologist", "Botanist", "Geologist", "Stellar Cartographer", "Sensor Analyst", "Xenolinguist", "Science Officer"] },
+  Medical: { at: [["Sickbay", 12], ["Surgery", 12], ["Medical Research", 12], ["Intensive Care", 12], ["Counselor's Office", 12], ["Pharmacy", 12]],
+    pos: ["Physician", "Nurse", "Medical Technician", "Surgeon", "Counselor", "Pharmacologist"] },
+};
+const QDECKS = [5, 6, 7, 8, 9, 10, 12, 13, 15, 17, 18, 20, 26, 28, 33];      // decks with crew quarters
+const SHIPS = ["U.S.S. Hood", "U.S.S. Excalibur", "U.S.S. Victory", "U.S.S. Potemkin", "U.S.S. Lexington", "U.S.S. Repulse",
+  "U.S.S. Zhukov", "U.S.S. Bozeman", "U.S.S. Ahwahnee", "U.S.S. Sutherland", "U.S.S. Tian An Men", "U.S.S. Endeavour",
+  "U.S.S. Excelsior", "U.S.S. Crazy Horse", "U.S.S. Fearless", "U.S.S. Aries", "U.S.S. Ajax", "U.S.S. Merrimac",
+  "U.S.S. Charleston", "U.S.S. Trieste", "U.S.S. Wellington", "U.S.S. Hornet", "U.S.S. Melbourne", "U.S.S. Gandhi"];
+const BASES = ["Starbase 74", "Starbase 133", "Starbase 515", "Starbase 211", "Starbase 173", "Starbase 12", "Utopia Planitia Yards",
+  "Earth Station McKinley", "Deep Space 4", "Starbase 84"];
+const SCI_BASES = ["Daystrom Institute", "Vulcan Science Academy", "Starfleet Medical", "Memory Alpha"];
+const HONOURS = { high: ["Medal of Honor", "Legion of Honor", "Star Cross", "Silver Palm", "Decoration for Valor", "Pike Medal of Valor",
+  "Citation for Conspicuous Gallantry"], mid: ["Starfleet Commendation", "Unit Citation", "Meritorious Service Medal", "Distinguished Service Medal"],
+  low: ["Academy Honors", "Starfleet Commendation", "Unit Citation", "Good Conduct Citation"] };
+const OFF_DUTY = [["Ten Forward", 10], ["Holodeck 3", 11], ["Arboretum", 11], ["Gymnasium", 12]];
+const SHIFTS = [["Alpha", "0800 – 1600"], ["Beta", "1600 – 2400"], ["Gamma", "0000 – 0800"]];
+const NOW_SHIFT = 1, TODAY = 3;                           // Beta shift, the fourth day of the seven shown
+
+// names: a pool per kind, and syllables for the worlds whose people go by one name
+const HG = ["James", "Maria", "Hiroshi", "Amara", "Daniel", "Sofia", "Kenji", "Leila", "Marcus", "Anika", "Tomas", "Priya", "Samuel",
+  "Elena", "Rafael", "Ingrid", "Kwame", "Mei", "Oliver", "Nadia", "Diego", "Hannah", "Ravi", "Chiara", "Pavel", "Ayesha", "Liam",
+  "Yuki", "Mateo", "Zara", "Erik", "Fatima", "Noah", "Alexei", "Grace", "Tobias", "Imani", "Jonah", "Lucia", "Arjun", "Freya",
+  "Malik", "Rosa", "Stefan", "Naomi", "Kofi", "Elise", "Andre", "Mira", "Teodor", "Ana", "Owen", "Sana", "Julian", "Ines", "Felix"];
+const HF = ["Okafor", "Lindqvist", "Tanaka", "Moreau", "Castillo", "Novak", "Haddad", "Brennan", "Kowalski", "Mensah", "Rossi",
+  "Nakamura", "Petrov", "Achebe", "Fischer", "Gallagher", "Reyes", "Sato", "Johansson", "Ibrahim", "Costa", "Delgado", "Whitfield",
+  "Varga", "Chen", "Abara", "Larsen", "Ortega", "Kaplan", "Mbeki", "Sorensen", "Quinn", "Yamada", "Vasquez", "Hale", "Duarte",
+  "Adeyemi", "Volkov", "Park", "Ferreira", "Holm", "Bianchi", "Osei", "Laurent", "Kim", "Navarro", "Sharma", "Eriksen", "Torres",
+  "Mwangi", "Byrne", "Rahman", "Takahashi", "Dubois", "Mercer", "Iyer", "Lowell", "Aziz", "Kerr", "Fontaine", "Calloway", "Wexler",
+  "Sutherland", "Zhou", "Ueda", "Grieve", "Pryce", "Hollis", "Abbott", "Nilsson", "Okoye", "Vance", "Marsh", "Ellery",
+  "Asante", "Bergstrom", "Cardenas", "Dalton", "Esposito", "Farrell", "Goldberg", "Hassan", "Ishikawa", "Jovanovic", "Keller",
+  "Lambert", "Moretti", "Nwosu", "O'Neill", "Pereira", "Quintero", "Rasmussen", "Silva", "Thorne", "Usman", "Valdez", "Wallace",
+  "Xiong", "Yilmaz", "Zielinski", "Antonelli", "Baptiste", "Chowdhury", "Drummond", "Engel", "Fujita", "Gutierrez", "Halvorsen",
+  "Ivanova", "Janssen", "Kariuki", "Lindgren", "Matsuda", "Nkemelu", "Oyelaran", "Pacheco", "Rourke", "Sokolov", "Tran",
+  "Underwood", "Vogel", "Whitaker", "Yoon", "Zamora", "Alvarez", "Brandt", "Coleman", "Dunmore", "Ekwueme", "Fairfax", "Grady",
+  "Hartmann", "Ingram", "Juarez", "Kovacs", "Lister", "Mackenzie", "Nair", "Ostrowski", "Prescott", "Rios", "Strand", "Tembo"];
+const syl = (a, b, c) => cap(L.pick(a) + L.pick(b) + L.pick(c));
+const NAMES = {
+  Human: () => [L.pick(HF), L.pick(HG)],
+  Vulcan: () => Math.random() < 0.5 ? [syl(["so", "sa", "se", "sto", "sta", "ske", "tu", "va", "vo", "sy", "ta", "su"], ["r", "l", "v", "t", "k", "n", "m"], ["ak", "ek", "ok", "ik", "al", "el", "an", "in", "ar", "on"])]
+    : ["T'" + syl(["la", "pe", "ve", "sa", "ra", "me", "ka", "po", "ri", "le"], ["r", "l", "n", "s", "v", ""], ["a", "ia", "el", "ra", "ri", "ess", "ai"])],
+  Bolian: () => [syl(["bre", "vo", "ka", "ru", "hi", "to", "ma", "gre", "do", "se", "zho", "ri", "chel"], ["n", "z", "v", "l", "r", "k", "x"], ["ek", "a", "i", "at", "el", "in", "oz", "ak", "et"])],
+  Betazoid: () => [syl(["en", "or", "lo", "ha", "de", "va", "ke", "an", "mi", "te"], ["n", "r", "l", "s", "v"], ["is", "as", "an", "el", "en", "o"]),
+    L.pick(["Mirel", "Andrus", "Taya", "Jaren", "Kestra", "Davin", "Lessa", "Orin", "Shana", "Tavin", "Elan", "Rhiel"])],
+  Andorian: () => [L.pick(["th'", "sh'", "ch'", "zh'"]) + syl(["zho", "vre", "tha", "le", "ra", "ko", "ve", "shi"], ["s", "n", "r", "l", "v"], ["s", "ris", "an", "ek", "o", "ess"]),
+    L.pick(["Thelev", "Talla", "Keval", "Zhian", "Shirev", "Vithra", "Tharis", "Shenar", "Ravos", "Jhamel", "Thiris", "Vessar"])],
+  Bajoran: () => [L.pick(["Taran", "Kalla", "Sorin", "Jeral", "Dorin", "Halla", "Edon", "Asar", "Kaela", "Vellan", "Moral", "Tessar", "Ilana", "Hovath"]),
+    L.pick(["Edon", "Rhi", "Jalen", "Varis", "Teya", "Bren", "Mirala", "Venn", "Toru", "Lessa", "Pran", "Oran", "Jaxen", "Kira"])],
+  Benzite: () => [cap(L.pick(["men", "mor", "ve", "zal", "hen", "mer", "tav", "kor", "sel", "ra", "bel", "jen", "dor", "lo"]) + L.pick(["don", "dok", "dor", "dek", "dun"]))],
+  Trill: () => [L.pick(["Tolan", "Nirin", "Ishel", "Sevaan", "Talek", "Jor", "Orvel", "Kanis", "Velar", "Dresen", "Hamon", "Lesk"]),
+    L.pick(["Vessa", "Jarel", "Maren", "Edra", "Corin", "Nessa", "Talen", "Seja", "Brin", "Ilsa", "Kovan", "Dena"])],
+  Tellarite: () => [syl(["thr", "br", "gr", "gl", "kr", "dr", "sk"], ["a", "e", "o", "u"], ["g", "lek", "v", "sh", "k", "x", "m"])],
+  Efrosian: () => [syl(["fla", "mo", "dra", "ve", "na", "ko"], ["r", "l", "n"], ["ren", "aan", "osh", "ik", "ev"])],
+  Grazerite: () => [syl(["ja", "dee", "ko", "ma", "zo"], ["r", "l", "m"], ["esh", "ani", "ot", "u", "ek"])],
+  Deltan: () => [syl(["la", "re", "sa", "vi", "na"], ["n", "s", "l", "r"], ["a", "ae", "is", "ia"]), L.pick(["Ilsa", "Teraia", "Lonn", "Sena", "Aril", "Davi", "Persa", "Lian"])],
+  Zakdorn: () => [syl(["kol", "sir", "tal", "mar", "zan", "dor"], ["r", "n", "v", "k"], ["ami", "ek", "ol", "in", "es"]), L.pick(["Sirna", "Vosk", "Tarn", "Molla", "Kesh", "Ravo", "Dren", "Yalla"])],
+  Rigelian: () => [syl(["ve", "ka", "lo", "ri", "sa", "do"], ["r", "l", "s", "t"], ["is", "ane", "on", "ek", "a"]), L.pick(["Jaro", "Linnis", "Torv", "Selva", "Marek", "Ondra", "Pell", "Varis"])],
+};
+// the people we know: [display name, full name, rank, species, department, assignment, deck, position, serial,
+//   born (year, place), commissioned, service history, commendations, shift, quarters deck]
+const SENIOR = [
+  ["Picard, Jean-Luc", "Jean-Luc Picard", 0, "Human", "Command", "Main Bridge", 1, "Commanding Officer", "SP-937-215", [2305, "La Barre, Earth"], 2327,
+    [["U.S.S. Enterprise", "2364 – Present"], ["U.S.S. Stargazer", "2333 – 2355"], ["Starfleet Academy", "2323 – 2327"]],
+    [["Medal of Honor", "2355"], ["Legion of Honor", "2366"]], 0, 9],
+  ["Riker, William T.", "William T. Riker", 1, "Human", "Command", "Main Bridge", 1, "First Officer", "SC-231-427", [2335, "Valdez, Earth"], 2357,
+    [["U.S.S. Hood", "2361 – 2364"], ["U.S.S. Potemkin", "2359 – 2361"], ["U.S.S. Pegasus", "2357 – 2358"]],
+    [["Citation for Conspicuous Gallantry", "2367"], ["Silver Palm", "2362"]], 0, 9],
+  ["Data", "Data", 2, "Android", "Operations", "Ops Station", 1, "Second Officer  ·  Operations", "SD-112-480", [2338, "Omicron Theta"], 2345,
+    [["U.S.S. Enterprise", "2364 – Present"], ["U.S.S. Trieste", "2357 – 2364"], ["Starfleet Academy", "2341 – 2345"]],
+    [["Medal of Honor with Clusters", "2363"], ["Legion of Honor", "2361"]], 0, 2],
+  ["La Forge, Geordi", "Geordi La Forge", 2, "Human", "Engineering", "Main Engineering", 36, "Chief Engineer", "SL-473-905", [2335, "Mogadishu, Earth"], 2357,
+    [["U.S.S. Enterprise", "2364 – Present"], ["U.S.S. Victory", "2357 – 2364"], ["Starfleet Academy", "2353 – 2357"]],
+    [["Meritorious Service Medal", "2368"], ["Starfleet Commendation", "2362"]], 0, 2],
+  ["Worf", "Worf, Son of Mogh", 3, "Klingon", "Security", "Tactical", 1, "Chief of Security", "SW-584-117", [2340, "Qo'noS"], 2361,
+    [["U.S.S. Enterprise", "2364 – Present"], ["Starbase 24", "2361 – 2364"], ["Starfleet Academy", "2357 – 2361"]],
+    [["Decoration for Valor", "2367"], ["Unit Citation", "2365"]], 0, 7],
+  ["Crusher, Beverly", "Beverly Crusher", 1, "Human", "Medical", "Sickbay", 12, "Chief Medical Officer", "SB-308-616", [2324, "Copernicus City, Luna"], 2350,
+    [["U.S.S. Enterprise", "2364 – Present"], ["Starfleet Medical", "2365 – 2366"], ["Starfleet Academy", "2342 – 2350"]],
+    [["Distinguished Service Medal", "2369"], ["Starfleet Commendation", "2358"]], 0, 2],
+  ["Troi, Deanna", "Deanna Troi", 2, "Betazoid", "Medical", "Counselor's Office", 12, "Ship's Counselor", "ST-692-041", [2336, "Betazed"], 2359,
+    [["U.S.S. Enterprise", "2364 – Present"], ["Starbase 133", "2360 – 2364"], ["Starfleet Academy", "2355 – 2359"]],
+    [["Starfleet Commendation", "2370"], ["Unit Citation", "2365"]], 0, 8],
+  ["Ro Laren", "Ro Laren", 5, "Bajoran", "Operations", "Flight Control", 1, "Flight Control Officer", "SR-819-322", [2340, "Bajor"], 2362,
+    [["U.S.S. Enterprise", "2368 – Present"], ["U.S.S. Wellington", "2366 – 2367"], ["Starfleet Academy", "2358 – 2362"]],
+    [["Unit Citation", "2369"], ["Academy Honors", "2362"]], 0, 6],
+  ["Barclay, Reginald", "Reginald Barclay", 3, "Human", "Engineering", "Main Engineering", 36, "Diagnostic Engineer", "SB-547-283", [2333, "Earth"], 2355,
+    [["U.S.S. Enterprise", "2366 – Present"], ["U.S.S. Zhukov", "2363 – 2366"], ["Starfleet Academy", "2351 – 2355"]],
+    [["Starfleet Commendation", "2367"], ["Unit Citation", "2365"]], 1, 15],
+  ["Taurik", "Taurik", 5, "Vulcan", "Engineering", "Warp Propulsion", 36, "Engineering Officer", "SV-201-776", [2346, "Vulcan"], 2369,
+    [["U.S.S. Enterprise", "2369 – Present"], ["U.S.S. Ajax  ·  Cadet Cruise", "2368"], ["Starfleet Academy", "2365 – 2369"]],
+    [["Academy Honors", "2369"], ["Unit Citation", "2370"]], 2, 28],
+  ["Ogawa, Alyssa", "Alyssa Ogawa", 5, "Human", "Medical", "Sickbay", 12, "Nurse", "SO-736-952", [2342, "Earth"], 2364,
+    [["U.S.S. Enterprise", "2364 – Present"], ["Starfleet Medical", "2363 – 2364"], ["Starfleet Academy", "2360 – 2364"]],
+    [["Starfleet Commendation", "2369"], ["Unit Citation", "2365"]], 1, 12],
+  ["Selar", "Selar", 3, "Vulcan", "Medical", "Sickbay", 12, "Physician", "SS-468-130", [2329, "Vulcan"], 2356,
+    [["U.S.S. Enterprise", "2364 – Present"], ["Vulcan Science Academy", "2358 – 2364"], ["Starfleet Medical", "2350 – 2356"]],
+    [["Starfleet Commendation", "2366"], ["Unit Citation", "2365"]], 0, 17],
+];
+const BORN = { Human: () => L.pick(["Earth", "Earth", "Earth", "Mars", "Luna", "Alpha Centauri", "Berengaria VII", "Tau Ceti III", "Deneva", "Earth"]),
+  Vulcan: () => L.pick(["ShiKahr, Vulcan", "Vulcan", "Gol, Vulcan"]), Bolian: () => "Bolarus IX", Betazoid: () => "Betazed",
+  Andorian: () => "Andoria", Bajoran: () => L.pick(["Bajor", "Kendra Province, Bajor", "Valo II"]), Benzite: () => "Benzar",
+  Trill: () => "Trill", Tellarite: () => "Tellar Prime", Deltan: () => "Delta IV", Zakdorn: () => "Zakdorn", Rigelian: () => "Rigel V",
+  Efrosian: () => "Efros Delta", Grazerite: () => "Grazer" };
+const LEGEND = (sp) => (SPECIES.some((s) => s[0] === sp) ? sp : "Other");
+
+// ---- the manifest: every count above comes true, the senior staff included ----
+const crew = [];
+{
+  const left = (list, key, n) => list.map((r) => [r[0], r[n] - SENIOR.filter((s) => key(s) === r[0]).length]);
+  const deal = (pairs) => shuffle(pairs.flatMap(([v, n]) => Array(n).fill(v)));
+  const spPairs = SPECIES.filter((s) => s[0] !== "Other").map((s) => [s[0], s[1]]).concat(OTHERS);
+  const species = deal(spPairs.map(([n, c]) => [n, c - SENIOR.filter((s) => s[3] === n).length]));
+  const ranks = deal(RANKS.map((r, i) => [i, r[3] - SENIOR.filter((s) => s[2] === i).length]));
+  const depts = deal(left(DEPTS, (s) => s[4], 1));
+  const used = new Set(SENIOR.map((s) => s[0]));
+  const letters = ["SA", "SB", "SC", "SD", "SE", "SF", "SH", "SK", "SL", "SM", "SN", "SP", "SR", "ST", "SV", "SW"];
+  for (let i = 0; i < species.length; i++) {
+    const sp = species[i], rank = ranks[i], dept = depts[i], R = RANKS[rank];
+    let display, full, short;
+    for (;;) {
+      const n = NAMES[sp]();
+      if (n.length === 1) { display = full = short = n[0]; }
+      else if (sp === "Bajoran") { display = full = n[0] + " " + n[1]; short = n[0]; }
+      else { display = n[0] + ", " + n[1]; full = n[1] + " " + n[0]; short = n[0]; }
+      if (!used.has(display)) { used.add(display); break; }
+    }
+    const [at, deck] = L.pick(WORK[dept].at);
+    // a career that fits the rank: commissioned (or enlisted) so many years ago, aboard since
+    const yrs = [[18, 26], [14, 22], [9, 16], [5, 12], [3, 7], [0, 3], [10, 24], [4, 14], [0, 6]][rank];
+    const comm = NOW - L.irand(yrs[0], yrs[1]);
+    const aboard = Math.max(comm, L.irand(2364, 2370));
+    const hist = [["U.S.S. Enterprise", aboard + " – Present"]];
+    let y = aboard;
+    while (hist.length < 3 && y - comm >= 2) {                       // postings between the Academy and the Enterprise
+      const len = Math.min(y - comm, L.irand(2, 4)), from = y - len;
+      const where = dept === "Sciences" || dept === "Medical" ? (Math.random() < 0.35 ? L.pick(SCI_BASES) : L.pick(SHIPS))
+        : Math.random() < 0.3 ? L.pick(BASES) : L.pick(SHIPS);
+      if (!hist.some((h) => h[0] === where)) hist.push([where, from + " – " + y]);
+      y = from;
+    }
+    if (hist.length < 3) hist.push(R[4] ? ["Starfleet Academy", comm - 4 + " – " + comm] : ["Starfleet Technical Training", comm - 1 + " – " + comm]);
+    if (hist.length < 3) hist.splice(1, 0, R[4] ? [L.pick(SHIPS) + "  ·  Cadet Cruise", String(comm - 1)]   // newest first
+      : [L.pick(BASES), aboard > comm ? comm + " – " + aboard : String(comm)]);
+    const tier = rank <= 2 ? "high" : rank <= 3 || rank === 6 ? "mid" : "low";
+    const hon = [];
+    while (hon.length < 2) {
+      const h = L.pick(Math.random() < 0.5 ? HONOURS[tier] : HONOURS.mid.concat(HONOURS.low));
+      if (!hon.some((x) => x[0] === h)) hon.push([h, String(h === "Academy Honors" ? comm : L.irand(Math.max(comm, 2350), NOW))]);   // honours at graduation
+    }
+    hon.sort((a, b) => b[1] - a[1]);
+    const qd = L.pick(QDECKS);
+    crew.push({ display, full, short, rank, sp, dept, at, deck, pos: L.pick(WORK[dept].pos),
+      serial: L.pick(letters) + "-" + L.irand(100, 999) + "-" + L.irand(100, 999),
+      born: comm - (R[4] ? L.irand(21, 24) : L.irand(18, 22)), place: BORN[sp](), comm, hist, hon,
+      shift: L.irand(0, 2), off: L.irand(0, 6), offN: 2, qd, room: D2(qd) + D2(L.irand(1, 60)), clear: [9, 7, 6, 5, 4, 3, 4, 3, 2][rank] });
+  }
+  for (const s of SENIOR) {
+    const [display, full, rank, sp, dept, at, deck, pos, serial, [born, place], comm, hist, hon, shift, qd] = s;
+    crew.push({ display, full, short: display.split(",")[0], rank, sp, dept, at, deck, pos, serial, born, place, comm, hist, hon,
+      shift, off: L.irand(0, 6), offN: 1, qd, room: D2(qd) + D2(L.irand(1, 60)), clear: [10, 9, 8, 7, 6, 5][rank], senior: true });
+  }
+  crew.find((c) => c.display === "Worf").short = "Worf";
+  crew.find((c) => c.display === "Ro Laren").short = "Ro";
+  crew.sort((a, b) => a.display.toUpperCase().replace(/[^A-Z ,]/g, "").localeCompare(b.display.toUpperCase().replace(/[^A-Z ,]/g, "")));
+}
+const TOTAL = crew.length;                                 // 1,014
+const ROWS = 16, PAGES = Math.ceil(TOTAL / ROWS);
+const pageStart = (p) => Math.min(p * ROWS, TOTAL - ROWS);  // the last page shows the final sixteen
+const letterOf = (c) => c.display.toUpperCase().replace(/[^A-Z]/g, "")[0];
+
+// ---------------- status line ----------------
+L.text({ x: LX, cap: 150, s: 100, c: "lilac", txt: "All Personnel Accounted For" });
+const stateSub = L.text({ x: RX, base: 222, s: 38, c: "peach", txt: "" });
+const pagePill = L.box({ x: 3416, y: 150, w: 400, h: 72, c: "peach", label: "", r: "lr", fs: 36 });
+
+// ---------------- the manifest ----------------
+header(LX, 280, LR - LX, "Crew Manifest", 340, "plum", "lilac");          // its bar starts where the Rank column does
+const COL = { name: LX, rank: 694, sp: 1010, dept: 1220, at: 1460, q: 1800 };
+[["Name", COL.name], ["Rank", COL.rank], ["Species", COL.sp], ["Department", COL.dept], ["Assignment", COL.at], ["Quarters", COL.q]]
+  .forEach(([h, x]) => L.text({ x, base: 404, s: 36, c: "plum", txt: h }));
+L.text({ x: LR, base: 404, s: 36, c: "plum", txt: "Serial", align: "r" });
+const RP = 64, rowBase = (i) => 480 + i * RP;
+const ROWC = ["white", "lilac", "peach", "lilac", "white", "peach", "ice"];
+// the selection: a lilac band behind a row, whose text turns black on it
+const band = L.layer({ x: LX - 16, y: 0, w: LR - LX + 32, h: 52, cls: "band" });
+band.style.opacity = 0;
+const rows = Array.from({ length: ROWS }, (_, i) => {
+  const e = L.layer({ x: LX, y: rowBase(i) - 48, w: LR - LX, h: RP });
+  const at = (x) => x - LX;
+  const t = [COL.name, COL.rank, COL.sp, COL.dept, COL.at, COL.q].map((x, k) => cls(L.text({ x: at(x), base: 48, s: 40, c: ROWC[k], txt: "" }, e), "rc"));
+  t.push(cls(L.text({ x: L.W, base: 48, s: 40, c: ROWC[6], txt: "", align: "r" }, e), "rc"));     // right-aligned in the layer
+  return { e, t, op: -1, dy: -1, who: null };
+});
+const fillRow = (r, c) => {
+  r.who = c;
+  [c.display, RANKS[c.rank][1], c.sp, c.dept, c.at, `Deck ${D2(c.qd)}  ·  ${c.room}`, c.serial].forEach((v, k) => put(r.t[k], v));
+};
+const paintRow = (r, on) => r.t.forEach((e, k) => (e.style.color = on ? "#000" : V(ROWC[k])));
+
+// the index: where in the alphabet this page sits
+const IW = 55, IG = 16, IY = 1492;
+const index = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map((ch, k) => {
+  const b = L.box({ x: LX + k * (IW + IG), y: IY, w: IW, h: 48, c: DARK, label: ch, fs: 28, cls: "c idx" });
+  b.style.color = "var(--plum)";
+  return { ch, b, look: "" };
+});
+const paintIndex = (lo, hi, sel) => index.forEach((x) => {
+  const look = x.ch === sel ? "sel" : x.ch >= lo && x.ch <= hi ? "on" : "off";
+  if (look === x.look) return;
+  x.look = look;
+  x.b.style.background = look === "sel" ? "var(--ice)" : look === "on" ? "var(--lilac)" : DARK;
+  x.b.style.color = look === "off" ? "var(--plum)" : "#000";
+});
+
+// ---------------- the service record ----------------
+header(RX, 280, RR - RX, "Service Record", 0, "lilac", "plum");
+const recName = cls(L.text({ x: RX, base: 404, s: 52, c: "butter", txt: "" }), "fade");
+const recSerial = cls(L.text({ x: RR, base: 404, s: 52, c: "ice", txt: "", align: "r" }), "fade");
+const RB = (i) => 480 + i * 76;
+const ATTR = ["Rank", "Position", "Department", "Species", "Born", "Commissioned", "Clearance"];
+const attrLab = ATTR.map((a, i) => cls(L.text({ x: RX, base: RB(i), s: 40, c: "lilac", txt: a }), "fade"));
+const attrVal = ATTR.map((a, i) => cls(L.text({ x: VX, base: RB(i), s: 48, c: "white", txt: "" }), "fade"));
+L.text({ x: RX2, base: RB(0), s: 40, c: "lilac", txt: "Service History" });
+const hist = [1, 2, 3].map((i) => [cls(L.text({ x: RX2, base: RB(i), s: 40, c: "white", txt: "" }), "fade"),
+  cls(L.text({ x: RR, base: RB(i), s: 40, c: "peach", txt: "", align: "r" }), "fade")]);
+L.text({ x: RX2, base: RB(4), s: 40, c: "lilac", txt: "Commendations" });
+const hon = [5, 6].map((i) => [cls(L.text({ x: RX2, base: RB(i), s: 40, c: "white", txt: "" }), "fade"),
+  cls(L.text({ x: RR, base: RB(i), s: 40, c: "peach", txt: "", align: "r" }), "fade")]);
+
+// ---------------- the duty roster ----------------
+header(RX, 1000, RR - RX, "Duty Roster", VX - L.GAP - RX, "peach", "lilac");   // its bar starts where the week does
+const CW = 176, CG = 16, cellX = (d) => VX + d * (CW + CG);
+L.text({ x: RX, base: 1110, s: 36, c: "lilac", txt: "Stardate" });
+for (let d = 0; d < 7; d++) {
+  const sd = (SD + (d - TODAY) * 2.74).toFixed(1);
+  L.box({ x: cellX(d), y: 1080, w: CW, h: 40, c: d === TODAY ? "ice" : "plum", label: sd, fs: 28, cls: "c" });
+}
+const CY = (s) => 1144 + s * 72;
+const cells = SHIFTS.map(([name], s) => {
+  L.text({ x: RX, base: CY(s) + 42, s: 40, c: s === NOW_SHIFT ? "ice" : "lilac", txt: name });
+  return Array.from({ length: 7 }, (_, d) => {
+    const b = L.box({ x: cellX(d), y: CY(s), w: CW, h: 56, c: DARK, label: "", fs: 28, cls: "c cell" });
+    b.look = "";
+    return b;
+  });
+});
+const STAT = ["Status", "Location"], STAT2 = ["Shift", "Shifts This Week"];
+const statVal = STAT.map((n, i) => { L.text({ x: RX, base: 1424 + i * 76, s: 40, c: "lilac", txt: n }); return cls(L.text({ x: VX, base: 1424 + i * 76, s: 48, c: "white", txt: "" }), "fade"); });
+const statVal2 = STAT2.map((n, i) => { L.text({ x: RX2, base: 1424 + i * 76, s: 40, c: "lilac", txt: n }); return cls(L.text({ x: RR, base: 1424 + i * 76, s: 48, c: "white", txt: "", align: "r" }), "fade"); });
+const onDuty = (c, d) => c.offN === 1 ? d !== c.off : d !== c.off && d !== (c.off + 1) % 7;
+
+// ---------------- department strength ----------------
+const BY = 1734, BP = 54;                                  // the bottom strip's rows
+small(LX, 1620, 1150 - LX, "Department Strength", "plum", "lilac");
+const dmax = Math.max(...DEPTS.map((d) => d[1]));
+const deptRows = DEPTS.map(([name, n, c], i) => {
+  const base = BY + i * BP;
+  const lab = cls(L.text({ x: LX, base, s: 36, c: "lilac", txt: name }), "hl");
+  L.rect({ x: 560, y: base - 26, w: 500, h: 26, c: DARK });
+  const f = L.layer({ x: 560, y: base - 26, w: 500, h: 26, cls: "boot" });
+  f.style.background = V(c); f.style.transformOrigin = "0 0"; f.style.transform = `scaleX(${(n / dmax).toFixed(4)})`;
+  const v = cls(L.text({ x: 1150, base, s: 36, c: "white", txt: fmt(crew.filter((x) => x.dept === name).length), align: "r" }), "hl");
+  return { name, lab, v };
+});
+
+// ---------------- species aboard ----------------
+small(1210, 1620, LR - 1210, "Species Aboard", "lilac", "plum");
+const DCX = 1375, DCY = 1850, R1 = 104, R2 = 158;
+const spCount = (name) => crew.filter((c) => LEGEND(c.sp) === name).length;
+const slices = [];
+{
+  // every species gets at least a sliver; the rest shared by number
+  const MIN = 4, GAPA = 1.6, n = SPECIES.map((s) => spCount(s[0])), free = 360 - SPECIES.length * (MIN + GAPA);
+  let a = 0;
+  SPECIES.forEach(([name, , c], i) => {
+    const span = MIN + (free * n[i]) / TOTAL;
+    const p = L.svg("path", { d: L.arc(DCX, DCY, R1, R2, a + GAPA / 2, a + GAPA / 2 + span), fill: V(c), class: "boot sl" });
+    slices.push({ name, p, a0: a + GAPA / 2, a1: a + GAPA / 2 + span });
+    a += span + GAPA;
+  });
+}
+const ptr = L.svg("path", { d: "", fill: "var(--white)", class: "ptr" });
+ptr.style.opacity = 0;
+const spShare = cls(L.text({ x: DCX, base: 1846, s: 52, c: "white", txt: "", align: "c", w: 2 * R1 - 30 }), "fade");
+const spName = cls(L.text({ x: DCX, base: 1898, s: 36, c: "lilac", txt: "", align: "c", w: 2 * R1 - 30 }), "fade");
+const LEG = [1590, 1900], LEGW = 260;
+const legend = SPECIES.map(([name, , c], i) => {
+  const x = LEG[Math.floor(i / 5)], base = BY + (i % 5) * BP;
+  L.rect({ x, y: base - 30, w: 34, h: 34, rx: 6, c });                    // (taller than the capitals: a key, not a bar)
+  return { name, lab: cls(L.text({ x: x + 54, base, s: 36, c: "lilac", txt: name }), "hl"),
+    v: cls(L.text({ x: x + LEGW, base, s: 36, c: "white", txt: fmt(spCount(name)), align: "r" }), "hl") };
+});
+L.text({ x: LEG[0], base: BY + 5 * BP, s: 36, c: "lilac", txt: "Species Represented" });
+L.text({ x: LR, base: BY + 5 * BP, s: 36, c: "white", txt: String(new Set(crew.map((c) => c.sp)).size), align: "r" });
+
+// ---------------- rank structure ----------------
+small(RX, 1620, 3004 - RX, "Rank Structure", "peach", "plum");
+const KW = 80, KG = 8, KB = 1960, KH = 180;
+const rmax = Math.max(...RANKS.map((r) => r[3]));
+const rankCols = RANKS.map(([ab, , , n], i) => {
+  const x = RX + i * (KW + KG), h = Math.max(8, Math.round((KH * n) / rmax));
+  const r = L.rect({ x, y: KB - h, w: KW, h, c: i < 6 ? "plum" : "lilac" });
+  r.classList.add("rk");
+  const cnt = crew.filter((c) => c.rank === i).length;
+  const v = cls(L.text({ x: x + KW / 2, base: KB - h - 18, s: 36, c: "white", txt: fmt(cnt), align: "c", w: KW + KG }), "hl");
+  const lab = cls(L.text({ x: x + KW / 2, base: BY + 5 * BP, s: 36, c: "lilac", txt: ab, align: "c", w: KW + KG }), "hl");
+  return { r, v, lab, c: i < 6 ? "plum" : "lilac" };
+});
+
+// ---------------- personnel log ----------------
+small(RX2, 1620, RR - RX2, "Personnel Log", "ice", "lilac");
+const LOGN = 6, LOGX = RX2 + 150;
+const logRows = Array.from({ length: LOGN }, (_, i) => ({
+  sd: L.text({ x: RX2, base: BY + i * BP, s: 36, c: "peach", txt: "" }),
+  tx: L.text({ x: LOGX, base: BY + i * BP, s: 36, c: "white", txt: "" }) }));
+let logSD = SD - 0.6;
+const logged = [];
+const logLine = (txt) => {
+  logSD += 0.1; logged.push([logSD.toFixed(1), txt]); if (logged.length > LOGN) logged.shift();
+  logRows.forEach((r, i) => { const e = logged[i]; put(r.sd, e ? e[0] : ""); put(r.tx, e ? e[1] : ""); });
+};
+const who = (c) => `${RANKS[c.rank][2]} ${c.short}`;
+const EVENTS = [
+  () => `Duty roster revised  ·  ${L.pick(SHIFTS)[0]} shift`,
+  () => `Transfer request filed  ·  ${who(L.pick(crew))}`,
+  () => `Transfer approved  ·  ${L.pick(BASES.concat(SHIPS))}`,
+  () => `Quarters reassigned  ·  Deck ${D2(L.pick(QDECKS))}`,
+  () => `Away team roster filed  ·  ${L.irand(3, 7)} personnel`,
+  () => `Medical clearance logged  ·  ${who(L.pick(crew))}`,
+  () => `Shore leave approved  ·  ${who(L.pick(crew))}`,
+  () => `Fitness report filed  ·  ${who(L.pick(crew))}`,
+  () => `Personnel file updated  ·  ${who(L.pick(crew))}`,
+];
+
+// ---------------- a guard: every record's words fit their places ----------------
+{
+  const bad = [];
+  const fits = (txt, s, w, where) => { if (L.textWidth(txt, s) > w) bad.push(`${where}: "${txt}"`); };
+  const COLW = [COL.rank - COL.name, COL.sp - COL.rank, COL.dept - COL.sp, COL.at - COL.dept, COL.q - COL.at];
+  for (const c of crew) {
+    [c.display, RANKS[c.rank][1], c.sp, c.dept, c.at].forEach((v, k) => fits(v, 40, COLW[k] - 40, "column " + k));
+    fits(`Deck ${D2(c.qd)}  ·  ${c.room}` + "      " + c.serial, 40, LR - COL.q, "quarters + serial");
+    fits(c.full, 52, RR - RX - 260, "name");
+    [RANKS[c.rank][1], c.pos, c.dept, c.sp, `${c.born}  ·  ${c.place}`, `${c.comm}  ·  Starfleet Academy`]
+      .forEach((v) => fits(v, 48, RX2 - VX - 40, "record value"));
+    [...c.hist, ...c.hon].forEach(([a, b]) => fits(a + "      " + b, 40, RR - RX2, "history"));
+    fits(`${c.at}  ·  Deck ${D2(c.deck)}`, 48, RX2 - VX - 40, "location");
+    fits(`Personnel file updated  ·  ${who(c)}`, 36, RR - LOGX, "log");
+  }
+  if (bad.length) setTimeout(() => { throw new Error("crew-manifest: " + [...new Set(bad)].slice(0, 12).join(" | ")); });
+}
+
+// ---------------- showing a record ----------------
+const showRecord = (c) => {
+  const R = RANKS[c.rank];
+  put(recName, c.full); put(recSerial, c.serial);
+  put(attrLab[4], c.sp === "Android" ? "Activated" : "Born");
+  put(attrLab[5], R[4] ? "Commissioned" : "Enlisted");
+  [R[1], c.pos, c.dept, c.sp, `${c.born}  ·  ${c.place}`, `${c.comm}  ·  ${R[4] ? "Starfleet Academy" : "Starfleet"}`, `Level ${c.clear}`]
+    .forEach((v, i) => put(attrVal[i], v));
+  hist.forEach(([a, b], i) => { put(a, c.hist[i][0]); put(b, c.hist[i][1]); });
+  hon.forEach(([a, b], i) => { put(a, c.hon[i][0]); put(b, c.hon[i][1]); });
+  // the week
+  cells.forEach((row, s) => row.forEach((b, d) => {
+    const on = s === c.shift && onDuty(c, d), now = on && d === TODAY && s === NOW_SHIFT;
+    const look = now ? "now" : on ? (d === TODAY ? "today" : "on") : "off";
+    if (look === b.look) return;
+    b.look = look;
+    b.style.background = look === "now" ? "var(--ice)" : look === "today" ? "var(--lilac)" : look === "on" ? "var(--plum)" : DARK;
+    b.textContent = look === "now" ? "On Duty" : "";
+  }));
+  const working = c.shift === NOW_SHIFT && onDuty(c, TODAY);
+  put(statVal[0], working ? "On Duty" : "Off Duty");
+  css(statVal[0], "color", working ? "var(--ice)" : "var(--white)");
+  const place = working ? [c.at, c.deck] : c.shift === 2 || Math.random() < 0.5 ? ["Quarters", c.qd] : L.pick(OFF_DUTY);
+  put(statVal[1], `${place[0]}  ·  Deck ${D2(place[1])}`);
+  put(statVal2[0], `${SHIFTS[c.shift][0]}  ·  ${SHIFTS[c.shift][1]}`);
+  let done = 0, all = 0;                                     // today's Gamma and Alpha are over, Beta under way
+  for (let d = 0; d < 7; d++) if (onDuty(c, d)) { all++; if (d <= TODAY) done++; }
+  put(statVal2[1], `${done} of ${all}`);
+  // the charts point at this person
+  deptRows.forEach((r) => { const on = r.name === c.dept; css(r.lab, "color", on ? "var(--white)" : "var(--lilac)"); css(r.v, "color", on ? "var(--ice)" : "var(--white)"); });
+  const sp = LEGEND(c.sp);
+  legend.forEach((r) => { const on = r.name === sp; css(r.lab, "color", on ? "var(--white)" : "var(--lilac)"); css(r.v, "color", on ? "var(--ice)" : "var(--white)"); });
+  const sl = slices.find((s) => s.name === sp);
+  ptr.setAttribute("d", L.arc(DCX, DCY, R2 + 10, R2 + 20, sl.a0, sl.a1));
+  ptr.style.opacity = 1;
+  const n = sp === "Other" ? crew.filter((x) => x.sp === c.sp).length : spCount(sp);
+  put(spShare, (Math.round((n / TOTAL) * 1000) / 10).toFixed(1) + "%");
+  put(spName, sp === "Other" ? c.sp : sp);
+  rankCols.forEach((k, i) => {
+    const on = i === c.rank;
+    css(k.r, "fill", on ? "var(--ice)" : V(k.c));
+    css(k.v, "color", on ? "var(--ice)" : "var(--white)"); css(k.lab, "color", on ? "var(--white)" : "var(--lilac)");
+  });
+};
+const recEls = [recName, recSerial, ...attrLab.slice(4, 6), ...attrVal, ...hist.flat(), ...hon.flat(), ...statVal, ...statVal2, spShare, spName];
+
+// ---------------- the cycle ----------------
+// A page of sixteen records holds for 20 s; two of them are opened in turn, ten seconds each. Then the
+// rows fade up and away, top first, and the next page rises in their place.
+const PAGE = 20, OUT0 = 19.0, STAG = 0.04, FADE = 0.4, PICK = [1.2, 10.6];
+let page = L.irand(0, PAGES - 1), shownPage = -1, picks = [], sel = -1, selRow = -1;
+const pickRows = (start) => {
+  const on = Array.from({ length: ROWS }, (_, i) => i), seniors = on.filter((i) => crew[start + i].senior);
+  const a = seniors.length ? L.pick(seniors) : L.irand(0, ROWS - 1);
+  const rest = on.filter((i) => Math.abs(i - a) >= 3);
+  return [a, L.pick(rest)];
+};
+const loadPage = (p) => {
+  const start = pageStart(p);
+  rows.forEach((r, i) => fillRow(r, crew[start + i]));
+  picks = pickRows(start); sel = -1;
+  const lo = letterOf(crew[start]), hi = letterOf(crew[start + ROWS - 1]);
+  paintIndex(lo, hi, "");
+  put(pagePill, `Page ${D2(p + 1)} of ${PAGES}`);
+  const abbr = (c) => c.short.replace(/^[a-z]{1,2}'/, "").slice(0, 3);
+  put(stateSub, `Records ${fmt(start + 1)} – ${fmt(start + ROWS)} of ${fmt(TOTAL)}  ·  ${abbr(crew[start])} – ${abbr(crew[start + ROWS - 1])}  ·  Stardate ${SD.toFixed(1)}`);
+};
+let recSwapAt = -1, recNext = null;
+const select = (k, t) => {
+  sel = k; selRow = picks[k];
+  recNext = rows[selRow].who;
+  recEls.forEach((e) => e.classList.add("out"));
+  ptr.style.opacity = 0;
+  recSwapAt = t + 0.42;
+  logLine(`Record accessed  ·  ${who(recNext)}`);
+};
+// the starting state: a record already open
+loadPage(page); shownPage = page;
+showRecord(rows[picks[0]].who);
+for (let i = 0; i < 5; i++) logLine(L.pick(EVENTS)());
+
+let bandOp = 0, bandRow = 0, painted = -1, tPrev = null;
+L.move(band, 0, rowBase(0) - 40);
+L.tick((t) => {
+  const dt = tPrev === null ? 0 : Math.min(0.1, t - tPrev); tPrev = t;
+  const n = Math.floor(t / PAGE), u = t - n * PAGE;
+  const p = (page + n) % PAGES;
+  if (p !== shownPage) { shownPage = p; loadPage(p); selRow = -1; }   // the turn: every row is out
+  // rows: rise in at the start of a page (not the first), lift away at its end, top first
+  rows.forEach((r, i) => {
+    let k = 1, dy = 0;
+    if (u >= OUT0) { const x = L.ease(L.clamp((u - OUT0 - i * STAG) / FADE)); k = 1 - x; dy = -10 * x; }
+    else if (n > 0) { const x = L.ease(L.clamp((u - i * STAG) / FADE)); k = x; dy = 10 * (1 - x); }
+    const op = k.toFixed(3), y = dy.toFixed(1);
+    if (op !== r.op || y !== r.dy) { r.op = op; r.dy = y; r.e.style.opacity = op; L.move(r.e, 0, +y); }
+  });
+  // the two records of this page, in turn; none in the last moments before the turn
+  const k = u >= OUT0 - 0.6 ? -1 : u >= PICK[1] ? 1 : u >= PICK[0] ? 0 : -1;
+  if (k >= 0 && k !== sel) select(k, t);
+  if (k < 0) sel = -1;
+  if (recSwapAt > 0 && t >= recSwapAt) {
+    recSwapAt = -1;
+    showRecord(recNext);
+    recEls.forEach((e) => e.classList.remove("out"));
+    const start = pageStart(shownPage);
+    paintIndex(letterOf(crew[start]), letterOf(crew[start + ROWS - 1]), letterOf(recNext));
+  }
+  // the band fades out, moves while unseen, and fades in on its row; the row's text turns black under it
+  const want = sel >= 0 && selRow >= 0, there = want && bandRow === selRow;
+  if (want && !there && bandOp === 0) { bandRow = selRow; L.move(band, 0, rowBase(bandRow) - 40); }
+  const goal = want && bandRow === selRow ? 1 : 0, was = bandOp;
+  bandOp = L.clamp(bandOp + Math.sign(goal - bandOp) * dt / 0.35);
+  if (bandOp !== was) band.style.opacity = bandOp.toFixed(3);
+  const paint = bandOp > 0.5 ? bandRow : -1;
+  if (paint !== painted) { if (painted >= 0) paintRow(rows[painted], false); if (paint >= 0) paintRow(rows[paint], true); painted = paint; }
+  // the current shift's cell breathes
+  const nowCell = cells[NOW_SHIFT][TODAY];
+  css(nowCell, "opacity", nowCell.look === "now" && t > 2 ? (0.8 + 0.2 * Math.cos(t * 1.6)).toFixed(2) : "");
+});
+L.every(6500, (t) => { if (t > 2) logLine(L.pick(EVENTS)()); }, 0.4);
+});
+</script></body></html>

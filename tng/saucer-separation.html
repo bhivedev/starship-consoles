@@ -1,0 +1,302 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Saucer Separation</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .band { transition: background-color .9s ease, color .9s ease; }
+  .clip { position: absolute; overflow: hidden; }
+  .plate { position: absolute; border-radius: 24px; }
+  .jaw { position: absolute; }
+  .pin { border-radius: 12px; background: var(--butter); }
+  .sw { transition: background-color 1s ease; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: sidebar left, title top right ----------------
+L.frame({ type: "A", title: "Saucer Separation  •  Sequence", c: "peach", c2: "orange", accent: "tan", foot: "Separation",
+  side: [[140, "orange", "Sep 01"], [70, "tan", "Saucer"], [420, "peach", "Latches"], [70, "butter", "Impulse"],
+         [300, "orange", "Stardrive"], [70, "tan", "Loads"], [216, "peach", "Sequence"]] });
+
+// three equal columns: saucer · docking latches · stardrive
+const COLS = [[330, 1452], [1512, 2634], [2694, 3816]];
+const [A, B, C] = COLS;
+const TRACK = "#2a2016";
+const fill = (x, y, w, h, c, origin = "0 0") => {
+  const f = L.layer({ x, y, w, h });
+  f.style.background = c.startsWith("#") ? c : `var(--${c})`; f.style.transformOrigin = origin;
+  return f;
+};
+const fmt = (n) => Math.round(n).toLocaleString("en");
+const pad2 = (n) => String(n).padStart(2, "0");
+
+// ---------------- the cycle: docked → separation → separated → docking, one minute ----------------
+const CYCLE = 60;
+const PHASES = [["Docked", 0, 10, "tan"], ["Separation", 10, 28, "orange"], ["Separated", 28, 42, "peach"], ["Docking", 42, 60, "butter"]];
+const STATE = ["Saucer Docked", "Separation Sequence", "Sections Separated", "Docking Sequence"];
+const smooth = (k) => k * k * k * (k * (k * 6 - 15) + 10);
+const sm = (a, b, u) => smooth(L.clamp((u - a) / (b - a)));
+const bump = (a, b, c, u) => sm(a, b, u) - sm(b, c, u);
+const phaseAt = (u) => PHASES.findIndex(([, a, b]) => u >= a && u < b);
+
+// the latches: released one after another, engaged again the same way
+const NL = 6, REL0 = 20, ENG0 = 51.2, STEP = 0.7, MOVE = 0.6;
+const latchK = (i, u) => 1 - sm(REL0 + i * STEP, REL0 + i * STEP + MOVE, u) + sm(ENG0 + i * STEP, ENG0 + i * STEP + MOVE, u);   // 1 = locked
+const locked = (u) => { let s = 0; for (let i = 0; i < NL; i++) s += latchK(i, u); return s / NL; };
+// the range between the sections (m): thrust apart, coast, turn, approach, contact at 51 s
+const range = (u) => (u < 38 ? 1250 * sm(24.5, 38, u) : u < 42 ? 1250 : 1250 * (1 - sm(42, 51, u)));
+const rate = (u) => (range(u + 0.25) - range(u - 0.25)) / 0.5;
+// impulse output, % of full impulse
+const impSaucer = (u) => 25 + 15 * sm(24, 28, u) - 15 * sm(36, 42, u);
+const impStar = (u) => 25 * sm(19, 23, u) - 7 * sm(24, 28, u) + 12 * sm(36, 42, u) - 5 * sm(44, 51, u) - 25 * sm(54, 58, u);
+// alert posture, and the people who move to the saucer
+const alert = (u) => sm(10, 13, u) - sm(56, 60, u);
+const moved = (u) => sm(12, 16, u) * (1 - sm(56, 60, u));
+const thrust = (u) => bump(24, 26, 30, u), contact = (u) => bump(50.5, 53, 57, u);
+const apart = (u) => sm(22, 26, u) - sm(49, 53, u);
+
+// ---------------- status line ----------------
+const stateTxt = L.text({ x: A[0], cap: 150, s: 100, c: "lilac", txt: "" });
+L.text({ x: B[0], base: 222, s: 38, c: "peach", txt: "U.S.S. Enterprise NCC-1701-D  ·  Last combat separation, Stardate 44001.4" });
+const cond = L.box({ x: C[1] - 400, y: 150, w: 400, h: 72, c: "tan", label: "", r: "lr", fs: 36, cls: "sw" });
+
+// a section header with a status pill at its right end
+const pillHeader = (col, label, c1, c2, texts, pc) => {
+  const pw = Math.ceil(Math.max(...texts.map((s) => L.textWidth(s, 32))) / 10) * 10 + 90;
+  L.header({ x: col[0], y: 280, w: col[1] - col[0] - pw - L.GAP, label, c1, c2 });
+  return L.box({ x: col[1] - pw, y: 280, w: pw, h: 56, c: pc, label: "", fs: 32, r: "r", cls: "sw" });
+};
+
+// ---------------- the two sections: systems ----------------
+const ROW0 = 428, PITCH = 88, rowBase = (i) => ROW0 + i * PITCH + 52.5;
+const BOXW = 290, VALW = 160;
+const SECTIONS = [
+  { col: A, c: "peach", name: "Saucer Section", bridge: "Main Bridge", rows: [
+    ["EPS Power", (u) => 72 - 14 * sm(18, 20, u) + 14 * sm(56, 58, u)],
+    ["Structural Field", (u) => 85 + 15 * alert(u)],
+    ["Inertial Dampers", (u) => 80 + 20 * alert(u)],
+    ["Deflector Shields", (u) => 25 + 75 * alert(u)],
+    ["Life Support", (u) => 99 - 2 * apart(u)],
+    ["Phaser Arrays", (u) => 15 + 65 * alert(u)]] },
+  { col: C, c: "orange", name: "Stardrive Section", bridge: "Battle Bridge", rows: [
+    ["Warp Core", (u) => 34 + 18 * sm(18, 20, u) - 18 * sm(56, 58, u)],
+    ["Structural Field", (u) => 85 + 15 * alert(u)],
+    ["Inertial Dampers", (u) => 80 + 20 * alert(u)],
+    ["Deflector Shields", (u) => 25 + 75 * alert(u)],
+    ["Phaser Arrays", (u) => 15 + 75 * alert(u)],
+    ["Torpedo Launchers", (u) => 20 + 80 * sm(13, 18, u) - 80 * sm(56, 60, u)]] },
+];
+const BRIDGE_TXT = [
+  ["Main Bridge  ·  In Command", "Main Bridge  ·  Saucer Command"],
+  ["Battle Bridge  ·  Standby", "Battle Bridge  ·  Crew Reporting", "Battle Bridge  ·  In Command"],
+];
+SECTIONS.forEach((s, k) => {
+  const [x0, x1] = s.col;
+  s.pill = pillHeader(s.col, s.name, s.c, k ? "peach" : "orange", BRIDGE_TXT[k], "tan");
+  L.text({ x: x0, base: 400, s: 36, c: "lilac", txt: "System" });
+  L.text({ x: x0 + BOXW + L.GAP, base: 400, s: 36, c: "lilac", txt: "Level" });
+  L.text({ x: x1, base: 400, s: 36, c: "lilac", txt: "Percent", align: "r" });
+  const tx = x0 + BOXW + L.GAP, tw = x1 - VALW - tx;
+  s.gauges = s.rows.map(([label, f], i) => {
+    const base = rowBase(i);
+    L.box({ x: x0, y: ROW0 + i * PITCH, w: BOXW, h: 64, c: i % 2 ? "tan" : s.c, label, fs: 32, r: "l" });
+    L.rect({ x: tx, y: base - 26, w: tw, h: 26, c: TRACK });
+    return { f, bar: fill(tx, base - 26, tw, 26, i % 2 ? "tan" : s.c), val: L.text({ x: x1, base, s: 52, c: "white", txt: "", align: "r" }), v: -1 };
+  });
+});
+
+// ---------------- docking latches ----------------
+const latchPill = pillHeader(B, "Docking Latches", "orange", "tan", ["6 Of 6 Locked", "All Released"], "peach");
+const LBW = Math.ceil((L.textWidth("Latch 6", 32) + 80) / 10) * 10;
+const ST = ["Locked", "Releasing", "Released", "Engaging"];
+const STW = Math.ceil(Math.max(...ST.map((s) => L.textWidth(s, 40))) / 10) * 10;
+const TS = B[0] + LBW + L.GAP, TE = B[1] - STW - 2 * L.GAP, CX = Math.round((TS + TE) / 2);
+L.text({ x: B[0], base: 400, s: 36, c: "lilac", txt: "Latch" });
+L.text({ x: TS, base: 400, s: 36, c: "lilac", txt: "Saucer" });
+L.text({ x: TE, base: 400, s: 36, c: "lilac", txt: "Stardrive", align: "r" });
+L.text({ x: B[1], base: 400, s: 36, c: "lilac", txt: "Status", align: "r" });
+const SEAM = 6, J = 170, PW = 48;
+const DMAX = CX - SEAM - J - PW - TS - 16;               // the furthest the plates draw apart, clear of the track ends
+const latches = Array.from({ length: NL }, (_, i) => {
+  const y = ROW0 + i * PITCH;
+  L.box({ x: B[0], y, w: LBW, h: 64, c: i % 2 ? "tan" : "orange", label: "Latch " + (i + 1), fs: 32, r: "l" });
+  L.rect({ x: TS, y, w: TE - TS, h: 64, c: TRACK });
+  return { y, st: L.text({ x: B[1], base: rowBase(i), s: 40, c: "tan", txt: "", align: "r" }) };
+});
+L.rect({ x: CX - 1, y: ROW0 - 12, w: 2, h: NL * PITCH - 24 + 24, c: "#6b5233", free: true });   // the separation plane
+const GH = NL * PITCH - 24;                              // the plates span the six latch rows
+const comb = (x, side, c) => {                           // a plate and its six jaws, one layer
+  const g = L.layer({ x, y: ROW0, w: J + PW, h: GH });
+  const plate = L.el("div", "plate", g, { left: (side < 0 ? 0 : J) + "px", top: 0, width: PW + "px", height: GH + "px", background: `var(--${c})` });
+  latches.forEach((l, i) => L.el("div", "jaw", g, { left: (side < 0 ? PW + 8 : 0) + "px", top: i * PITCH + "px", width: J - 8 + "px", height: "64px", background: `var(--${c})` }));
+  return g;
+};
+const saucerComb = comb(CX - SEAM - J - PW, -1, "peach");
+const starComb = comb(CX + SEAM, 1, "orange");
+latches.forEach((l) => (l.pin = L.layer({ x: CX - 64, y: l.y + 20, w: 128, h: 24, cls: "pin" })));
+const PINRUN = 80;
+const gapAt = (u) => DMAX * (1 - Math.exp(-range(u) / 250));
+
+// ---------------- lower panels: impulse, range, impulse — each the whole cycle, and now ----------------
+const LH = 1000, RB = 1136, CT = 1176, CB = 1452, BY = 1476, NB = 48;
+const charts = [];
+const chart = (col, f, max, c) => {
+  const [x0, x1] = col, w = x1 - x0, p = (w + 6) / NB;
+  for (let i = 0; i < NB; i++) {
+    const v = L.clamp(f(((i + 0.5) * CYCLE) / NB) / max), x = x0 + i * p;
+    L.rect({ x, y: CT, w: p - 6, h: CB - CT, c: TRACK, noalign: true });
+    const h = Math.round(v * (CB - CT));
+    if (h >= 1) L.rect({ x, y: CB - h, w: p - 6, h, c, noalign: true });
+  }
+  const clip = L.el("div", "clip", L.stage, { left: x0 + "px", top: CT + "px", width: w + "px", height: CB - CT + "px" });
+  const cover = L.layer({ x: 0, y: 0, w, h: CB - CT }, clip);
+  cover.style.background = "#000";
+  const cursor = L.layer({ x: x0 - 2, y: CT - 10, w: 4, h: CB - CT + 10 });
+  cursor.style.background = "var(--white)";
+  // the four phases beneath, flush with the chart's ends
+  let bx = x0;
+  const bands = PHASES.map(([name, a, b, pc], i) => {
+    const bw = i === PHASES.length - 1 ? x1 - bx : Math.round(((b - a) / CYCLE) * (w + 6)) - 6;
+    const e = L.box({ x: bx, y: BY, w: bw, h: 64, c: pc, label: name, fs: 32, cls: "band" });
+    bx += bw + 6;
+    return e;
+  });
+  charts.push({ w, cover, cursor, bands });
+};
+// a readout pair: label and value at the left; label and value set right at the column's end
+const readouts = (col, l1, l2, wide2) => {
+  const [x0, x1] = col;
+  L.text({ x: x0, base: RB, s: 40, c: "tan", txt: l1 });
+  const v1 = L.text({ x: x0 + Math.max(130, Math.ceil(L.textWidth(l1, 40)) + 32), base: RB, s: 52, c: "white", txt: "" });
+  const l2e = L.text({ x: x1 - Math.max(130, Math.ceil(L.textWidth(wide2, 52)) + 32), base: RB, s: 40, c: "tan", txt: l2, align: "r" });
+  const v2 = L.text({ x: x1, base: RB, s: 52, c: "white", txt: "", align: "r" });
+  return { v1, l2: l2e, v2 };
+};
+L.header({ x: A[0], y: LH, w: A[1] - A[0], label: "Saucer Impulse", c1: "peach", c2: "tan" });
+L.header({ x: B[0], y: LH, w: B[1] - B[0], label: "Separation Range", c1: "orange", c2: "peach" });
+L.header({ x: C[0], y: LH, w: C[1] - C[0], label: "Stardrive Impulse", c1: "orange", c2: "tan" });
+const roA = readouts(A, "Impulse", "Aboard", "8,888");
+const roB = readouts(B, "Range", "Closing", "888 m/s");
+const roC = readouts(C, "Impulse", "Aboard", "8,888");
+chart(A, impSaucer, 50, "peach");
+chart(B, range, 1300, "butter");
+chart(C, impStar, 50, "orange");
+
+// ---------------- the sequences ----------------
+const SEP = [["Separation alert, all decks", 10], ["Civilians and families to the saucer", 12], ["Command to the Battle Bridge", 16],
+  ["EPS and turbolift links isolated", 18], ["Docking latches released, 1 to 6", 20], ["Separation thrust, sections clear", 24.5]];
+const DOCK = [["Approach vector laid in", 42], ["Alignment thrusters, final approach", 45], ["Docking latches engaged, 1 to 6", 51.2],
+  ["Structural integrity fields merged", 55.5], ["EPS and turbolift links restored", 56.5], ["Command returned to the Main Bridge", 58]];
+const checklist = (col, label, c1, c2, steps, end, idle) => {
+  const [x0, x1] = col;
+  L.header({ x: x0, y: 1620, w: x1 - x0, label, c1, c2, h: 48 });
+  const t0 = steps[0][1], TW = 230;
+  return steps.map(([txt, at], i) => {
+    const base = 1734 + i * 54;
+    L.box({ x: x0, y: base - 29, w: 96, h: 40, c: i % 2 ? "tan" : c1, label: pad2(i + 1), fs: 30, r: "l" });
+    const e = L.text({ x: x0 + 124, base, s: 36, c: "peach", txt });
+    L.text({ x: x1 - TW, base, s: 36, c: "lilac", txt: "T+" + pad2(Math.floor(at - t0)), align: "r" });
+    return { e, st: L.text({ x: x1, base, s: 36, c: "lilac", txt: "", align: "r" }), at, next: i + 1 < steps.length ? steps[i + 1][1] : end, t0, idle, look: "" };
+  });
+};
+const sepList = checklist(A, "Separation Sequence", "peach", "orange", SEP, 28, "Ready");
+const dockList = checklist(B, "Docking Sequence", "orange", "peach", DOCK, CYCLE, "Standby");
+
+// ---------------- structural loads ----------------
+L.header({ x: C[0], y: 1620, w: C[1] - C[0], label: "Structural Loads", c1: "peach", c2: "orange", h: 48 });
+const LOADS = [
+  ["Saucer Spaceframe", (u) => 31 + 5 * apart(u) + 9 * thrust(u) + 8 * contact(u)],
+  ["Stardrive Spaceframe", (u) => 28 + 3 * apart(u) + 10 * thrust(u) + 9 * contact(u)],
+  ["Connecting Dorsal", (u) => 46 * locked(u) + 8 * contact(u)],
+  ["Docking Latch Ring", (u) => 38 * locked(u) + 22 * contact(u)],
+  ["Saucer Field Load", (u) => 22 + 8 * apart(u) + 26 * thrust(u) + 14 * contact(u)],
+  ["Stardrive Field Load", (u) => 20 + 8 * apart(u) + 25 * thrust(u) + 15 * contact(u)],
+];
+const LX = C[0] + Math.ceil(Math.max(...LOADS.map(([n]) => L.textWidth(n, 36))) / 10) * 10 + 40, LW = C[1] - 130 - LX;
+const loads = LOADS.map(([name, f], i) => {
+  const base = 1734 + i * 54;
+  L.text({ x: C[0], base, s: 36, c: "tan", txt: name });
+  L.rect({ x: LX, y: base - 26, w: LW, h: 26, c: TRACK });
+  return { f, bar: fill(LX, base - 26, LW, 26, i < 2 ? "peach" : i < 4 ? "orange" : "tan"), val: L.text({ x: C[1], base, s: 40, c: "white", txt: "", align: "r" }), v: -1 };
+});
+
+// ---------------- the clock ----------------
+const OFFSET = 6;                                        // open on the docked ship, a few seconds before the alert
+const cyc = (t) => (t + OFFSET) % CYCLE;
+L.tick((t) => {
+  const u = cyc(t);
+  // gauges glide (their functions are already smooth): only write when they move
+  for (const s of SECTIONS) for (const g of s.gauges) {
+    const v = L.clamp(g.f(u) / 100);
+    if (Math.abs(v - g.v) > 0.0004) { g.v = v; g.bar.style.transform = `scaleX(${v.toFixed(4)})`; }
+  }
+  for (const g of loads) {
+    const v = L.clamp(g.f(u) / 100);
+    if (Math.abs(v - g.v) > 0.0004) { g.v = v; g.bar.style.transform = `scaleX(${v.toFixed(4)})`; }
+  }
+  // the latch diagram
+  const d = gapAt(u);
+  L.move(saucerComb, -d, 0); L.move(starComb, d, 0);
+  latches.forEach((l, i) => L.move(l.pin, -PINRUN * (1 - latchK(i, u)) - d, 0));
+  // now, on the three charts; the future dimmed. At the turn of the cycle the dimming fades back in
+  const fadeIn = sm(0, 1.4, u), cur = Math.min(sm(0, 0.8, u), 1 - sm(CYCLE - 0.8, CYCLE, u));
+  for (const ch of charts) {
+    const x = (ch.w * u) / CYCLE;
+    L.move(ch.cover, x, 0); ch.cover.style.opacity = (0.62 * fadeIn).toFixed(3);
+    L.move(ch.cursor, x, 0); ch.cursor.style.opacity = cur.toFixed(3);
+  }
+});
+let lastPhase = -1;
+const stepState = (s, u, ph) => {
+  if (s.idle === "Ready" ? ph === 0 : u < s.t0) return [s.idle, "lilac", "peach"];
+  if (u < s.at) return ["Pending", "lilac", "peach"];
+  if (u < s.next) return ["In Progress", "white", "white"];
+  return ["Complete", "tan", "peach"];
+};
+L.every(250, (t) => {
+  const u = cyc(t), ph = phaseAt(u);
+  if (ph !== lastPhase) {
+    lastPhase = ph;
+    L.set(stateTxt, STATE[ph]);
+    charts.forEach((ch) => ch.bands.forEach((b, i) => {        // the phase now is lit; the others dark, named in their colour
+      b.style.background = i === ph ? `var(--${PHASES[i][3]})` : TRACK; b.style.color = i === ph ? "#000" : `var(--${PHASES[i][3]})`;
+    }));
+  }
+  const al = u >= 10 && u < 58;
+  L.set(cond, al ? "Yellow Alert" : "Condition Green"); cond.style.background = `var(--${al ? "butter" : "tan"})`;
+  // who has the ship
+  const sc = u >= 16 && u < 58;
+  L.set(SECTIONS[0].pill, BRIDGE_TXT[0][sc ? 1 : 0]); SECTIONS[0].pill.style.background = `var(--${sc ? "peach" : "tan"})`;
+  const bs = sc ? 2 : u >= 10 && u < 16 ? 1 : 0;
+  L.set(SECTIONS[1].pill, BRIDGE_TXT[1][bs]); SECTIONS[1].pill.style.background = `var(--${bs === 2 ? "butter" : bs ? "peach" : "tan"})`;
+  for (const s of SECTIONS) for (const g of s.gauges) L.set(g.val, Math.round(g.f(u)) + "%");
+  for (const g of loads) L.set(g.val, Math.round(g.f(u)) + "%");
+  // latches
+  let n = 0;
+  latches.forEach((l, i) => {
+    const r0 = REL0 + i * STEP, e0 = ENG0 + i * STEP;
+    const st = u < r0 ? 0 : u < r0 + MOVE ? 1 : u < e0 ? 2 : u < e0 + MOVE ? 3 : 0;
+    if (st === 0) n++;
+    L.set(l.st, ST[st]); l.st.style.color = `var(--${st === 0 ? "tan" : st === 2 ? "orange" : "white"})`;
+  });
+  L.set(latchPill, n === 0 ? "All Released" : `${n} Of 6 Locked`);
+  latchPill.style.background = `var(--${n === 6 ? "peach" : n === 0 ? "orange" : "butter"})`;
+  // readouts
+  const mv = moved(u);
+  L.set(roA.v1, Math.round(impSaucer(u)) + "%"); L.set(roA.v2, fmt(642 + 226 * mv));
+  L.set(roC.v1, Math.round(impStar(u)) + "%"); L.set(roC.v2, fmt(372 - 226 * mv));
+  const r = range(u), v = rate(u);
+  L.set(roB.v1, fmt(r) + " m");
+  L.set(roB.l2, Math.abs(v) < 0.5 ? (r < 0.5 && locked(u) > 0.99 ? "Latched" : "Holding") : v > 0 ? "Opening" : "Closing");
+  L.set(roB.v2, fmt(Math.abs(v)) + " m/s");
+  // the checklists
+  for (const s of [...sepList, ...dockList]) {
+    const [txt, c, tc] = stepState(s, u, ph);
+    const look = txt + c;
+    if (look === s.look) continue;
+    s.look = look; L.set(s.st, txt); s.st.style.color = `var(--${c})`; s.e.style.color = `var(--${tc})`;
+  }
+}, 0);
+});
+</script></body></html>

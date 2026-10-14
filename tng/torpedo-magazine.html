@@ -1,0 +1,578 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Photon Torpedo Magazine</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* swapped text dips and comes back; colors change slowly; .boot (the start-up cascade) always wins */
+  .sw { transition: opacity .5s ease, color 1.2s ease, background-color 1.2s ease; }
+  .out:not(.boot) { opacity: .15; }
+  .cell { transition: fill .7s ease; }
+  .cap { border-radius: 16px; transition: background-color .9s ease, opacity .5s ease; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: sidebar left, title top right ----------------
+L.frame({ type: "A", title: "Photon Torpedo Magazine  •  Storage", c: "mars", c2: "tan", accent: "peach", foot: "Tactical",
+  side: [[140, "tan", "Deck 25"], [70, "peach", "25-07"], [420, "mars", "Magazine"], [70, "tan", "Fwd"],
+         [300, "mars", "Racks"], [70, "peach", "120"], [216, "tan", "Launcher"]] });
+
+// Two columns as Schoolroom's: 330–2490 | 2554–3816; the middle band and the strip split the left again at 1398 | 1422.
+const X0 = 330, ML = 1398, MR = 1422, GR = 2490, RX = 2554, X1 = 3816;
+const TRACK = "#2e1d15", SLOT = "#4a3328", TUBEC = "#47271b", GRID = "#5a3a2c";
+const cls = (e, ...c) => (e.classList.add(...c), e);
+const op = (e, v) => { v = v < 0.005 ? "0" : v > 0.995 ? "1" : v.toFixed(3); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const cv = (c) => (c.startsWith("#") ? c : `var(--${c})`);
+const fg = (e, c) => { const v = cv(c); if (e._fg !== v) { e._fg = v; e.style.color = v; } };
+const bg = (e, c) => { const v = cv(c); if (e._bg !== v) { e._bg = v; e.style.background = v; } };
+const fillOf = (e, c) => { const v = cv(c); if (e._fill !== v) { e._fill = v; e.style.fill = v; } };
+const fill = (x, y, w, h, c, origin = "0 0") => { const f = L.layer({ x, y, w, h }); f.style.background = cv(c); f._bg = cv(c); f.style.transformOrigin = origin; return f; };
+const scaleX = (e, k) => tf(e, `scaleX(${L.clamp(k).toFixed(4)})`);
+const scaleY = (e, k) => tf(e, `scaleY(${L.clamp(k).toFixed(4)})`);
+const swap = (els, f) => { els.forEach((e) => e.classList.add("out")); setTimeout(() => { f(); els.forEach((e) => e.classList.remove("out")); }, 520); };
+const pad = (n, k = 2) => String(n).padStart(k, "0");
+const range = (n) => Array.from({ length: n }, (_, i) => i);
+const shuffle = (a) => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = L.irand(0, i); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const bad = [];
+const fits = (txt, s, w, where) => { if (L.textWidth(txt, s) > w) bad.push(`${where}: "${txt}" ${Math.round(L.textWidth(txt, s))}>${Math.round(w)}`); };
+
+// ---------------- the magazine: five racks of 24, the kinds they hold ----------------
+const KIND = {
+  ready:  { name: "Photon Torpedo", c: "mars" },
+  casing: { name: "Torpedo Casing", c: "tan" },
+  p1:     { name: "Class 1 Probe", c: "peach" },
+  p2:     { name: "Class 2 Probe", c: "sand" },
+};
+const NR = 5, NS = 24, RACK = "ABCDE";
+const RACK_C = ["mars", "mars", "tan", "tan", "peach"];
+const kindOfSlot = (r, s) => (r < 2 ? "ready" : r < 4 ? "casing" : s < 12 ? "p1" : "p2");
+const slotName = (r, s) => `${RACK[r]}-${pad(s + 1)}`;
+// warhead yield settings: the antimatter load scales with the yield, 1.5 kg at full
+const BINS = [10, 25, 50, 75, 100], KG = (b) => (1.5 * BINS[b]) / 100;
+const TARGET = [5, 11, 14, 9, 5];                          // the mix of settings the magazine keeps
+const CAP = { ready: 48, casing: 48, p1: 12, p2: 12 };
+
+// ---------------- stardate: a screen second is a ship's minute ----------------
+const S0 = 47457.0 + L.rand(0, 0.6);
+const sdAt = (t) => (S0 + (t / 60) * 0.114).toFixed(1);
+
+// ---------------- the rounds ----------------
+const ids = shuffle(range(780).map((i) => pad(i + 110, 4)));
+let nid = 0;
+const newRound = (kind) => ({ id: ids[nid++], kind, bin: null, am: 0,
+  integ: L.rand(99.2, 99.9), guid: L.rand(99.6, 100), sust: L.rand(98.6, 99.8), insp: L.rand(-900, 0) });
+const slots = range(NR).map(() => range(NS).map(() => null));
+const jobs = ["inspect", "load", "arm", "inspect", "unload", "defuel"];
+let ji = L.irand(0, jobs.length - 1);
+let tube = null, carried = null, reserved = null;          // the round in the tube; on the cradle; the tube round's rack slot
+{
+  const binList = shuffle(TARGET.flatMap((n, b) => range(n).map(() => b)));
+  const tubeLoaded = ji >= 2 && ji <= 4;
+  const readySlots = shuffle(range(2 * NS));
+  binList.forEach((b, i) => {
+    const rd = newRound("ready"); rd.bin = b; rd.am = KG(b);
+    const k = readySlots[i], r = Math.floor(k / NS), s = k % NS;
+    if (tubeLoaded && i === binList.length - 1) { tube = rd; reserved = [r, s]; rd.home = [r, s]; }
+    else { slots[r][s] = rd; rd.home = [r, s]; }
+  });
+  shuffle(range(2 * NS)).slice(0, 42).forEach((k) => { const r = 2 + Math.floor(k / NS), s = k % NS; slots[r][s] = newRound("casing"); slots[r][s].home = [r, s]; });
+  range(NS).forEach((s) => { if (s === 17) return; const rd = newRound(s < 12 ? "p1" : "p2"); slots[4][s] = rd; rd.home = [4, s]; });
+}
+const allRounds = () => { const a = []; slots.forEach((row) => row.forEach((rd) => rd && a.push(rd))); if (tube) a.push(tube); if (carried) a.push(carried); return a; };
+const countKind = (k) => allRounds().filter((rd) => rd.kind === k).length;
+const binCounts = () => { const n = BINS.map(() => 0); allRounds().forEach((rd) => { if (rd.kind === "ready") n[rd.bin]++; }); return n; };
+
+// ---------------- status line ----------------
+const BIG = 100;
+const WORDS = ["Standing By", "Retrieving", "Transferring", "Inspecting", "Loading Warhead", "Verifying Yield", "Opening Breech",
+               "Loading Tube", "Sealing Breech", "Unloading Tube", "Safing Warhead", "Offloading", "Stowing", "Returning"];
+const state = cls(L.text({ x: X0, cap: 150, s: BIG, c: "mars", txt: "" }), "sw");
+const sub = cls(L.text({ x: X0, base: 222, s: 38, c: "tan", txt: "" }), "sw");
+const reading = (x, label, align) => {
+  const lw = L.textWidth(label, 40);
+  if (align === "r") {
+    const v = L.text({ x, cap: 150, s: BIG, c: "white", txt: "00000.0", align: "r" });
+    const lab = L.text({ x: 0, base: 222, s: 40, c: "tan", txt: label });
+    return { v, place: () => { lab.style.left = x - L.textWidth(v.textContent, BIG) - 36 - lw + "px"; } };
+  }
+  L.text({ x, base: 222, s: 40, c: "tan", txt: label });
+  return { v: L.text({ x: x + lw + 36, cap: 150, s: BIG, c: "white", txt: "" }), place: () => {} };
+};
+const placeSub = () => { sub.style.left = X0 + L.textWidth(state.textContent, BIG) + 48 + "px"; };
+const rAboard = reading(MR, "Rounds Aboard");
+const rReady = reading(RX, "Torpedoes Ready");
+const rSD = reading(X1, "Stardate", "r");
+
+// ---------------- the magazine plan: racks, transfer lift, loading rail, breech, tube ----------------
+L.header({ x: X0, y: 280, w: GR - X0, label: "Magazine Plan  ·  Forward Racks", c1: "mars", c2: "tan" });
+const RY = (r) => 372 + r * 80, RB = (r) => RY(r) + 44;    // a rack's top; its count's baseline (shared with the sequence rows)
+const CX0 = 454, PITCH = 64, RAILY = 828, LIFTX = 370;
+const cellC = (r, s) => [CX0 + 32 + PITCH * s, RY(r) + 28];
+const liftAt = (y) => [LIFTX, y], HOME = [LIFTX, RAILY];
+const ST = { ins: 1124, wh: 1624, br: 2049, tube: 2344 };
+L.rect({ x: 330, y: 372, w: 80, h: 484, c: TRACK, noalign: true });            // the transfer lift's shaft
+L.rect({ x: 330, y: 800, w: 1860, h: 56, c: TRACK, noalign: true });           // the loading rail
+L.rect({ x: 2198, y: 800, w: 292, h: 56, c: TUBEC, noalign: true });           // the launch tube
+const cells = [], rackBox = [], rackN = [];
+for (let r = 0; r < NR; r++) {
+  L.rect({ x: CX0, y: RY(r), w: NS * PITCH, h: 56, c: TRACK });
+  cells.push(range(NS).map((s) => { const [x, y] = cellC(r, s); return cls(L.rect({ x: x - 26, y: y - 16, w: 52, h: 32, rx: 16, c: SLOT, free: true }), "cell"); }));
+  rackBox.push(cls(L.box({ x: CX0 + NS * PITCH + 24, y: RY(r), w: 300, h: 56, c: RACK_C[r], label: `Rack ${RACK[r]}`, fs: 32, r: "r" }), "sw"));
+  rackN.push(L.text({ x: GR, base: RB(r), s: 40, c: "white", txt: "", align: "r" }));
+}
+const showCell = (r, s) => { const rd = slots[r][s]; fillOf(cells[r][s], rd ? KIND[rd.kind].c : SLOT); };
+range(NR).forEach((r) => range(NS).forEach((s) => showCell(r, s)));
+const SEGS = [["Transfer", 330, 900], ["Inspection", 908, 1340], ["Warhead Loading", 1348, 1900], ["Breech", 1908, 2190], ["Tube 1", 2198, 2490]];
+const segEls = SEGS.map(([lab, a, b], i) => cls(L.box({ x: a, y: 880, w: b - a, h: 48, c: "tan", label: lab, fs: 28, r: i === 0 ? "l" : i === 4 ? "r" : null }), "sw"));
+// moving parts: the breech door, the round in the tube, the round on the cradle, the cradle
+const door = fill(2186, 788, 16, 80, "peach", "50% 50%");
+const capsule = (c) => { const e = cls(L.layer({ x: 0, y: 0, w: 52, h: 32 }), "cap"); e.style.background = cv(c); e._bg = cv(c); op(e, 0); return e; };
+const tubeCap = capsule("mars"); L.move(tubeCap, ST.tube - 26, RAILY - 16);
+const carryCap = capsule("mars");
+const cradle = L.layer({ x: 0, y: 0, w: 68, h: 48 });
+Object.assign(cradle.style, { border: "4px solid var(--white)", borderRadius: "12px" });
+const placeCradle = (p) => {
+  tf(cradle, `translate3d(${(p[0] - 34).toFixed(1)}px,${(p[1] - 24).toFixed(1)}px,0)`);
+  if (carried) tf(carryCap, `translate3d(${(p[0] - 26).toFixed(1)}px,${(p[1] - 16).toFixed(1)}px,0)`);
+};
+placeCradle(HOME);
+if (tube) { bg(tubeCap, KIND[tube.kind].c); op(tubeCap, 1); }
+
+// ---------------- loading sequence: the round in hand, and its five steps ----------------
+L.header({ x: RX, y: 280, w: X1 - RX, label: "Loading Sequence", c1: "tan", c2: "mars" });
+const SQ = { where: 2880, bar: 3170, barR: 3560 };
+const qCase = cls(L.text({ x: RX, base: RB(0), s: 40, c: "white", txt: "" }), "sw");
+const qKind = cls(L.text({ x: SQ.where, base: RB(0), s: 36, c: "tan", txt: "" }), "sw");
+const qRoute = cls(L.text({ x: X1, base: RB(0), s: 36, c: "peach", txt: "", align: "r" }), "sw");
+[["Step", RX, ""], ["Station", SQ.where, ""], ["Progress", SQ.bar, ""], ["State", X1, "r"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: RB(1), s: 36, c: "peach", txt, align }));
+const qRows = range(5).map((k) => {
+  const base = RB(k + 2);
+  L.rect({ x: SQ.bar, y: base - 20, w: SQ.barR - SQ.bar, h: 20, c: TRACK });
+  return { name: cls(L.text({ x: RX, base, s: 36, c: "white", txt: "" }), "sw"),
+           where: cls(L.text({ x: SQ.where, base, s: 36, c: "tan", txt: "" }), "sw"),
+           bar: cls(fill(SQ.bar, base - 20, SQ.barR - SQ.bar, 20, "mars"), "sw"),
+           st: cls(L.text({ x: X1, base, s: 36, c: "white", txt: "", align: "r" }), "sw"), s: "" };
+});
+
+// ---------------- inventory ----------------
+const MB = (k) => 1116 + 84 * k;
+const BAR = [640, 1160, 1732, 2252], BH = 20;
+L.header({ x: X0, y: 1000, w: ML - X0, label: "Inventory  ·  Forward Magazine", c1: "mars", c2: "tan" });
+L.text({ x: X0, base: MB(0), s: 36, c: "peach", txt: "Stores" });
+L.text({ x: BAR[0], base: MB(0), s: 36, c: "peach", txt: "Stowage" });
+L.text({ x: ML, base: MB(0), s: 36, c: "peach", txt: "Count", align: "r" });
+const INV = [["Photon Torpedoes", "ready", () => countKind("ready"), CAP.ready], ["Torpedo Casings", "casing", () => countKind("casing"), CAP.casing],
+             ["Class 1 Probes", "p1", () => countKind("p1"), CAP.p1], ["Class 2 Probes", "p2", () => countKind("p2"), CAP.p2],
+             ["Tube 1", "ready", () => (tube ? 1 : 0), 1]];
+const inv = INV.map(([name, k, f, cap], i) => {
+  const base = MB(i + 1);
+  L.text({ x: X0, base, s: 36, c: "tan", txt: name });
+  L.rect({ x: BAR[0], y: base - BH, w: BAR[1] - BAR[0], h: BH, c: TRACK });
+  const v = f();
+  return { f, cap, bar: fill(BAR[0], base - BH, BAR[1] - BAR[0], BH, KIND[k].c), n: L.text({ x: ML, base, s: 36, c: "white", txt: "", align: "r" }),
+           from: v, to: v, cur: v, t0: -10 };
+});
+
+// ---------------- warhead yields: the photon torpedoes by yield setting ----------------
+L.header({ x: MR, y: 1000, w: GR - MR, label: "Warhead Yields  ·  Photon Torpedoes", c1: "tan", c2: "peach" });
+const YC = BINS.map((_, i) => 1590 + 188 * i), YB = 1404, YH = 246, YMAX = 30;
+for (const v of [0, 10, 20, 30]) {
+  const y = YB - (YH * v) / YMAX;
+  if (v) L.rect({ x: 1490, y: y - 1, w: GR - 1490, h: 2, c: GRID, free: true });
+  L.text({ x: 1470, base: y + 11, s: 30, c: "tan", txt: String(v), align: "r", legend: true });
+}
+L.text({ x: MR, base: MB(0), s: 36, c: "peach", txt: "Rounds" });
+L.text({ x: MR, base: MB(4), s: 36, c: "peach", txt: "Yield" });
+L.text({ x: MR, base: MB(5), s: 36, c: "peach", txt: "Load" });
+const yields = BINS.map((b, i) => {
+  L.rect({ x: YC[i] - 60, y: YB - YH, w: 120, h: YH, c: TRACK });
+  L.text({ x: YC[i], w: 200, base: MB(4), s: 36, c: "white", txt: `${b} %`, align: "c" });
+  L.text({ x: YC[i], w: 200, base: MB(5), s: 36, c: "tan", txt: `${KG(i).toFixed(2)} Kg`, align: "c" });
+  return { bar: fill(YC[i] - 60, YB - YH, 120, YH, "mars", "50% 100%"), n: L.text({ x: YC[i], w: 200, base: MB(0), s: 36, c: "white", txt: "", align: "c" }),
+           from: 0, to: 0, cur: 0, t0: -10 };
+});
+{ const n = binCounts(); yields.forEach((y, i) => { y.from = y.to = y.cur = n[i]; }); }
+
+// ---------------- station readings: the round on the cradle ----------------
+L.header({ x: RX, y: 1000, w: X1 - RX, label: "Station Readings", c1: "peach", c2: "mars" });
+const SRB = [3010, 3520];
+L.text({ x: RX, base: MB(0), s: 36, c: "peach", txt: "Reading" });
+L.text({ x: SRB[0], base: MB(0), s: 36, c: "peach", txt: "Level" });
+L.text({ x: X1, base: MB(0), s: 36, c: "peach", txt: "Value", align: "r" });
+const SR = ["Casing Integrity", "Guidance Package", "Warp Sustainer", "Antimatter Load", "Magnetic Containment"].map((name, i) => {
+  const base = MB(i + 1);
+  L.text({ x: RX, base, s: 36, c: "tan", txt: name });
+  L.rect({ x: SRB[0], y: base - BH, w: SRB[1] - SRB[0], h: BH, c: TRACK });
+  return { bar: fill(SRB[0], base - BH, SRB[1] - SRB[0], BH, i < 3 ? "tan" : "mars"), v: cls(L.text({ x: X1, base, s: 36, c: "white", txt: "", align: "r" }), "sw"),
+           cur: 0, target: 0 };
+});
+const pct = (v) => `${v.toFixed(1)} %`;
+const kgTxt = (v) => `${v.toFixed(2)} Kg`;
+let srRound = null;
+// show a round's readings: three from its last inspection, its antimatter, and the field that holds it
+function showReadings(rd, sweep) {
+  srRound = rd;
+  const vals = [rd.integ, rd.guid, rd.sust];
+  vals.forEach((v, i) => {
+    if (sweep && sweep[i] !== undefined) { SR[i].target = sweep[i].k * v / 100; L.set(SR[i].v, sweep[i].txt); fg(SR[i].v, sweep[i].txt === "Testing" ? "mars" : "tan"); }
+    else { SR[i].target = v / 100; L.set(SR[i].v, pct(v)); fg(SR[i].v, "white"); }
+  });
+  SR[3].target = rd.am / 1.5;
+  L.set(SR[3].v, kgTxt(rd.amShown ?? rd.am));
+  SR[4].target = rd.am > 0 ? 0.9996 : 0;
+  L.set(SR[4].v, rd.am > 0 ? "99.96 %" : "Offline"); fg(SR[4].v, rd.am > 0 ? "white" : "tan");
+}
+
+// ---------------- the bottom strip ----------------
+L.header({ x: X0, y: 1620, w: ML - X0, label: "Magazine Environment", c1: "tan", c2: "mars", h: 48 });
+L.header({ x: MR, y: 1620, w: GR - MR, label: "Forward Launcher", c1: "mars", c2: "peach", h: 48 });
+L.header({ x: RX, y: 1620, w: X1 - RX, label: "Magazine Log", c1: "peach", c2: "tan", h: 48 });
+const SB = (k) => 1734 + k * 54;
+
+// environment: steady readings that drift a little
+L.text({ x: X0, base: SB(0), s: 36, c: "peach", txt: "Reading" });
+L.text({ x: BAR[0], base: SB(0), s: 36, c: "peach", txt: "Level" });
+L.text({ x: ML, base: SB(0), s: 36, c: "peach", txt: "Value", align: "r" });
+const ENV = [
+  { name: "Temperature", v: 284.6, lo: 284.2, hi: 285.0, d: 0.1, min: 270, max: 300, f: (v) => `${v.toFixed(1)} K` },
+  { name: "Pressure", v: 101.3, lo: 101.2, hi: 101.4, d: 0.05, min: 90, max: 110, f: (v) => `${v.toFixed(1)} Kpa` },
+  { name: "Humidity", v: 14, lo: 13, hi: 15, d: 0.5, min: 0, max: 100, f: (v) => `${Math.round(v)} %` },
+  { name: "Blast Shielding", v: 100, lo: 100, hi: 100, d: 0, min: 0, max: 100, f: (v) => pct(v) },
+  { name: "Isolation Field", v: 99.6, lo: 99.4, hi: 99.8, d: 0.1, min: 0, max: 100, f: (v) => pct(v) },
+].map((e, i) => {
+  const base = SB(i + 1);
+  L.text({ x: X0, base, s: 36, c: "tan", txt: e.name });
+  L.rect({ x: BAR[0], y: base - BH, w: BAR[1] - BAR[0], h: BH, c: TRACK });
+  return Object.assign(e, { bar: fill(BAR[0], base - BH, BAR[1] - BAR[0], BH, i === 3 ? "mars" : "tan"), n: L.text({ x: ML, base, s: 36, c: "white", txt: "", align: "r" }), cur: (e.v - e.min) / (e.max - e.min) });
+});
+const showEnv = () => ENV.forEach((e) => L.set(e.n, e.f(e.v)));
+showEnv();
+L.every(4000, () => { const e = L.pick(ENV); if (!e.d) return; e.v = L.clamp(e.v + L.pick([-1, 1]) * e.d, e.lo, e.hi); L.set(e.n, e.f(e.v)); }, 0.3);
+
+// the launcher: the tube, its breech door, the warhead in it
+L.text({ x: MR, base: SB(0), s: 36, c: "peach", txt: "System" });
+L.text({ x: BAR[2], base: SB(0), s: 36, c: "peach", txt: "Status" });
+L.text({ x: GR, base: SB(0), s: 36, c: "peach", txt: "Detail", align: "r" });
+const LR = ["Tube 1", "Breech Door", "Warhead", "Firing Interlock", "Launch Sequencer"].map((name, i) => {
+  const base = SB(i + 1);
+  L.text({ x: MR, base, s: 36, c: "tan", txt: name });
+  return { st: cls(L.text({ x: BAR[2], base, s: 36, c: "white", txt: "" }), "sw"), dt: cls(L.text({ x: GR, base, s: 36, c: "white", txt: "", align: "r" }), "sw") };
+});
+let cycles = L.irand(2300, 2600), doorK = 0, doorWord = "Sealed";
+function showLauncher() {
+  const kg = tube ? KG(tube.bin) : 0;
+  const rows = [[tube ? "Loaded" : "Empty", tube ? `Casing ${tube.id}` : "Awaiting Round", tube ? "mars" : "tan"],
+                [doorWord, `${cycles.toLocaleString("en-US")} Cycles`, doorWord === "Sealed" ? "white" : "peach"],
+                [tube ? "Standby" : "None", tube ? `Yield ${BINS[tube.bin]} %  ·  ${kgTxt(kg)}` : kgTxt(0), tube ? "white" : "tan"],
+                ["Engaged", "Bridge Control", "white"], ["Offline", "Condition Green", "tan"]];
+  rows.forEach(([st, dt, c], i) => { L.set(LR[i].st, st); fg(LR[i].st, c); L.set(LR[i].dt, dt); });
+}
+
+// the log: oldest at the top, a new line arrives at the bottom
+const LG = { id: RX + 150, ev: RX + 290 };
+const LN = 6, LPH = 54, LY = SB(0) - 44;
+const logRows = range(LN).map((i) => {
+  const e = L.layer({ x: RX, y: LY, w: X1 - RX, h: LPH });
+  const r = { e, slot: i,
+    sd: L.text({ x: 0, base: 44, s: 36, c: "tan", txt: "" }, e),
+    id: L.text({ x: LG.id - RX, base: 44, s: 36, c: "white", txt: "" }, e),
+    ev: L.text({ x: LG.ev - RX, base: 44, s: 36, c: "sand", txt: "" }, e),
+    dt: L.text({ x: X1 - RX, base: 44, s: 36, c: "white", txt: "", align: "r", rightIn: true }, e) };
+  L.move(e, 0, i * LPH);
+  return r;
+});
+const showLog = (r, x) => { L.set(r.sd, x.sd); L.set(r.id, x.id); L.set(r.ev, x.ev); L.set(r.dt, x.dt); fg(r.ev, x.c || "sand"); };
+const pendingLog = [];
+const logEvent = (t, id, ev, dt, c) => pendingLog.push({ sd: sdAt(t), id, ev, dt, c });
+
+// ---------------- the jobs: each a path for the cradle, in five steps ----------------
+const SPEED = 520;
+const legDur = (a, b) => Math.max(0.7, Math.hypot(b[0] - a[0], b[1] - a[1]) / SPEED);
+const JOB_NAME = { inspect: "Inspection", load: "Tube Load", arm: "Arm Casing", unload: "Tube Unload", defuel: "Defuel" };
+function buildJob(type, t) {
+  const J = { type, acts: [], steps: [], T: 0 };
+  let pos = HOME, T = 0, k = -1;
+  const step = (name, where) => { J.steps.push({ name, where, t0: Infinity, t1: 0 }); k = J.steps.length - 1; };
+  const span = (a, b) => { const s = J.steps[k]; s.t0 = Math.min(s.t0, a); s.t1 = Math.max(s.t1, b); };
+  const move = (pts, o) => {
+    const legs = [], t0 = T;
+    for (const q of pts) { if (q[0] === pos[0] && q[1] === pos[1]) continue; const d = legDur(pos, q); legs.push({ a: pos, b: q, t0: T, d }); T += d; pos = q; }
+    J.acts.push(Object.assign({ kind: "move", legs, t0, t1: T, end: pos }, o)); span(t0, T);
+  };
+  const dwell = (d, o) => { J.acts.push(Object.assign({ kind: "dwell", t0: T, t1: T + d }, o)); span(T, T + d); T += d; };
+  const at = (f) => J.acts.push({ kind: "do", t0: T, t1: T, f });
+  const toRail = (x, o) => move(pos[1] === RAILY ? [[x, RAILY]] : [liftAt(pos[1]), HOME, [x, RAILY]], o);
+  const toCell = (r, s, o) => move([HOME, liftAt(RY(r) + 28), cellC(r, s)], o);
+  const goHome = () => move([liftAt(pos[1]), HOME], { status: "Returning", where: "Transfer" });
+  const rackWhere = (r, s) => "Rack " + slotName(r, s);
+  const retrieve = (r, s) => {
+    step("Retrieve", rackWhere(r, s));
+    toCell(r, s, { status: "Retrieving", where: rackWhere(r, s), rack: r });
+    dwell(1.2, { status: "Retrieving", where: rackWhere(r, s), rack: r });
+    at(() => pick(r, s));
+  };
+  const stow = (r, s, rd) => {
+    step("Stow", rackWhere(r, s));
+    toCell(r, s, { status: "Stowing", where: rackWhere(r, s), rack: r });
+    dwell(1.0, { status: "Stowing", where: rackWhere(r, s), rack: r });
+    at((t) => { place(r, s); logEvent(t, rd.id, "Stowed", rackWhere(r, s)); });
+    goHome();
+  };
+  const inspection = (rd) => dwell(6.6, { status: "Inspecting", where: "Inspection", seg: 1,
+    start: () => { [rd.integ, rd.guid, rd.sust] = [L.rand(99.2, 99.9), L.rand(99.6, 100), L.rand(98.6, 99.8)]; },
+    frame: (p) => showReadings(rd, [0, 1, 2].map((i) => { const u = L.clamp(p * 3 - i); return u <= 0 ? { k: 0, txt: "Pending" } : u < 1 ? { k: L.ease(u), txt: "Testing" } : undefined; })),
+    end: (t) => { rd.insp = t; showReadings(rd); logEvent(t, rd.id, "Casing Inspection Passed", `Integrity ${pct(rd.integ)}`); } });
+  const doorStep = (open, status) => dwell(1.6, { status, where: "Breech", seg: 3, door: open ? "open" : "close",
+    start: () => { if (open) cycles++; } });
+
+  const ready = [], casings = [], any = [], emptyReady = [], emptyCasing = [];
+  slots.forEach((row, r) => row.forEach((rd, s) => {
+    if (rd) { any.push([r, s, rd]); if (rd.kind === "ready") ready.push([r, s, rd]); if (rd.kind === "casing") casings.push([r, s, rd]); }
+    else if (r < 2) { if (!reserved || reserved[0] !== r || reserved[1] !== s) emptyReady.push([r, s]); }
+    else if (r < 4) emptyCasing.push([r, s]);
+  }));
+  if ((type === "load" && (tube || !ready.length)) || (type === "unload" && !tube) || (type === "arm" && (!casings.length || !emptyReady.length)) ||
+      (type === "defuel" && (!ready.length || !emptyCasing.length))) type = J.type = "inspect";
+
+  if (type === "inspect") {
+    const [r, s, rd] = any.reduce((m, a) => (a[2].insp < m[2].insp ? a : m));
+    J.rd = rd; J.route = rackWhere(r, s);
+    retrieve(r, s);
+    step("Transfer", "Transfer"); toRail(ST.ins, { status: "Transferring", where: "Transfer", carry: 1 });
+    step("Casing Inspection", "Inspection"); inspection(rd);
+    step("Transfer", "Transfer"); toRail(HOME[0], { status: "Transferring", where: "Transfer", carry: 1 });
+    stow(r, s, rd);
+  } else if (type === "arm") {
+    const [r, s, rd] = L.pick(casings), [r2, s2] = L.pick(emptyReady);
+    const n = binCounts(), d = TARGET.map((x, b) => x - n[b] + Math.random() * 0.5), bin = d.indexOf(Math.max(...d));
+    J.rd = rd; J.route = `${rackWhere(r, s)} to ${slotName(r2, s2)}`;
+    retrieve(r, s);
+    step("Casing Inspection", "Inspection");
+    toRail(ST.ins, { status: "Transferring", where: "Transfer", carry: 1 }); inspection(rd);
+    step("Warhead Loading", "Warhead Loading");
+    toRail(ST.wh, { status: "Transferring", where: "Transfer", carry: 1 });
+    dwell(7.2, { status: "Loading Warhead", where: "Warhead Loading", seg: 2,
+      frame: (p) => { rd.am = KG(bin) * L.ease(p); rd.amShown = p >= 1 ? KG(bin) : Math.floor(rd.am / 0.05) * 0.05; showReadings(rd); },
+      end: (t) => { rd.am = KG(bin); rd.amShown = undefined; rd.kind = "ready"; rd.bin = bin; bg(carryCap, "mars"); showReadings(rd); J.kindChanged = true;
+                    logEvent(t, rd.id, `Warhead Loaded  ·  Yield ${BINS[bin]} %`, kgTxt(KG(bin)), "peach"); } });
+    step("Transfer", "Transfer"); toRail(HOME[0], { status: "Transferring", where: "Transfer", carry: 1 });
+    stow(r2, s2, rd);
+  } else if (type === "defuel") {
+    const n = binCounts(), x = TARGET.map((v, b) => n[b] - v + Math.random() * 0.5);
+    const order = BINS.map((_, b) => b).sort((a, b) => x[b] - x[a]);
+    const b0 = order.find((b) => ready.some((a) => a[2].bin === b));
+    const [r, s, rd] = L.pick(ready.filter((a) => a[2].bin === b0)), [r2, s2] = L.pick(emptyCasing);
+    J.rd = rd; J.route = `${rackWhere(r, s)} to ${slotName(r2, s2)}`;
+    retrieve(r, s);
+    step("Transfer", "Transfer"); toRail(ST.wh, { status: "Transferring", where: "Transfer", carry: 1 });
+    step("Antimatter Offload", "Warhead Loading");
+    const kg0 = rd.am;
+    dwell(7.2, { status: "Offloading", where: "Warhead Loading", seg: 2,
+      frame: (p) => { rd.am = kg0 * (1 - L.ease(p)); rd.amShown = p >= 1 ? 0 : Math.ceil(rd.am / 0.05) * 0.05; if (rd.amShown > kg0) rd.amShown = kg0; showReadings(rd); },
+      end: (t) => { rd.am = 0; rd.amShown = undefined; rd.kind = "casing"; rd.bin = null; bg(carryCap, "tan"); showReadings(rd); J.kindChanged = true;
+                    logEvent(t, rd.id, "Antimatter Offloaded", kgTxt(kg0), "peach"); } });
+    step("Transfer", "Transfer"); toRail(HOME[0], { status: "Transferring", where: "Transfer", carry: 1 });
+    stow(r2, s2, rd);
+  } else if (type === "load") {
+    const [r, s, rd] = L.pick(ready);
+    J.rd = rd; J.route = `${rackWhere(r, s)} to Tube 1`;
+    retrieve(r, s);
+    at(() => { reserved = [r, s]; });
+    step("Yield Verification", "Warhead Loading");
+    toRail(ST.wh, { status: "Transferring", where: "Transfer", carry: 1 });
+    dwell(4.0, { status: "Verifying Yield", where: "Warhead Loading", seg: 2 });
+    step("Breech Open", "Breech");
+    toRail(ST.br, { status: "Transferring", where: "Transfer", carry: 1 }); doorStep(true, "Opening Breech");
+    step("Tube Load", "Tube 1");
+    toRail(ST.tube, { status: "Loading Tube", where: "Tube 1", carry: 1 });
+    dwell(1.2, { status: "Loading Tube", where: "Tube 1", seg: 4 });
+    at((t) => { tubeIn(); logEvent(t, rd.id, "Tube 1 Loaded  ·  Standby", `Yield ${BINS[rd.bin]} %`, "mars"); });
+    step("Breech Seal", "Breech");
+    toRail(ST.br, { status: "Sealing Breech", where: "Breech" }); doorStep(false, "Sealing Breech");
+    goHome();
+  } else {                                                // unload: the tube round goes back to the slot it came from
+    const rd = tube, [r, s] = reserved;
+    J.rd = rd; J.route = `Tube 1 to ${slotName(r, s)}`;
+    step("Breech Open", "Breech");
+    toRail(ST.br, { status: "Transferring", where: "Transfer" }); doorStep(true, "Opening Breech");
+    step("Tube Extraction", "Tube 1");
+    toRail(ST.tube, { status: "Unloading Tube", where: "Tube 1" });
+    dwell(1.2, { status: "Unloading Tube", where: "Tube 1", seg: 4 });
+    at((t) => { tubeOut(); logEvent(t, rd.id, "Tube 1 Unloaded", `Yield ${BINS[rd.bin]} %`); });
+    toRail(ST.br, { status: "Unloading Tube", where: "Tube 1", carry: 1 });
+    step("Breech Seal", "Breech"); doorStep(false, "Sealing Breech");
+    step("Warhead Safing", "Warhead Loading");
+    toRail(ST.wh, { status: "Transferring", where: "Transfer", carry: 1 });
+    dwell(4.0, { status: "Safing Warhead", where: "Warhead Loading", seg: 2 });
+    at(() => { reserved = null; });
+    stow(r, s, rd);
+  }
+  J.T = T;
+  return J;
+}
+
+// the hands: taking a round from a slot, putting it back, the tube
+function pick(r, s) {
+  carried = slots[r][s]; slots[r][s] = null; showCell(r, s);
+  bg(carryCap, KIND[carried.kind].c); op(carryCap, 1); showReadings(carried);
+}
+function place(r, s) {
+  slots[r][s] = carried; carried.home = [r, s]; carried = null; showCell(r, s); op(carryCap, 0);
+}
+function tubeIn() { tube = carried; carried = null; op(carryCap, 0); bg(tubeCap, KIND[tube.kind].c); op(tubeCap, 1); }
+function tubeOut() { carried = tube; tube = null; op(tubeCap, 0); bg(carryCap, KIND[carried.kind].c); op(carryCap, 1); showReadings(carried); }
+
+// ---------------- the guard: every word fits its place ----------------
+for (const w of WORDS) for (const sb of ["Casing 0417  ·  Warhead Loading", "Forward Magazine  ·  Deck 25", "Casing 0417  ·  Rack A-24"])
+  fits(w, BIG, MR - 72 - X0 - 48 - L.textWidth(sb, 38), "state + subtitle");
+for (const n of ["Retrieve", "Transfer", "Casing Inspection", "Warhead Loading", "Antimatter Offload", "Yield Verification", "Breech Open",
+                 "Tube Load", "Breech Seal", "Tube Extraction", "Warhead Safing", "Stow"]) fits(n, 36, SQ.where - RX - 36, "step");
+for (const n of ["Rack A-24", "Warhead Loading", "Inspection", "Transfer"]) fits(n, 36, SQ.bar - SQ.where - 36, "station");
+for (const n of ["Complete", "Active", "Pending"]) fits(n, 36, X1 - SQ.barR - 36, "state word");
+fits("Casing 0417", 40, SQ.where - RX - 36, "casing");
+for (const k in KIND) fits(KIND[k].name, 36, X1 - SQ.where - L.textWidth("Rack C-14 to A-07", 36) - 48, "kind");
+fits("Magnetic Containment", 36, SRB[0] - RX - 36, "reading"); fits("100.0 %", 36, X1 - SRB[1] - 36, "value"); fits("Testing", 36, X1 - SRB[1] - 36, "value");
+for (const [n] of INV) fits(n, 36, BAR[0] - X0 - 36, "inventory");
+for (const e of ENV) { fits(e.name, 36, BAR[0] - X0 - 36, "env"); fits(e.f(e.hi), 36, ML - BAR[1] - 36, "env value"); }
+fits("Launch Sequencer", 36, BAR[2] - MR - 36, "launcher"); fits("Standby", 36, GR - BAR[2] - L.textWidth("Yield 100 %  ·  1.50 Kg", 36) - 48, "launcher");
+fits("Awaiting Round", 36, GR - BAR[2] - L.textWidth("Loaded", 36) - 48, "launcher");
+fits("Class 2 Probe Launched  ·  Typhon Expanse", 36, X1 - LG.ev - L.textWidth("Rack E-18", 36) - 48, "log");
+fits("Warhead Loaded  ·  Yield 100 %", 36, X1 - LG.ev - L.textWidth("1.50 Kg", 36) - 48, "log");
+fits("Casing Inspection Passed", 36, X1 - LG.ev - L.textWidth("Integrity 99.9 %", 36) - 48, "log");
+fits("0417", 36, LG.ev - LG.id - 30, "log id"); fits("47457.3", 36, LG.id - RX - 30, "log stardate");
+if (bad.length) setTimeout(() => { throw new Error("torpedo-magazine: " + bad.join(" | ")); });
+
+// ---------------- the starting picture ----------------
+{
+  // the log's history: the probe that left the empty slot in Rack E, an audit, then recent work on rounds still in the racks
+  const pickIn = (f) => L.pick(allRounds().filter((rd) => rd.home && f(rd)));
+  const a = pickIn((rd) => rd.kind === "casing"), b = pickIn((rd) => rd.kind === "ready" && rd !== tube), c = pickIn((rd) => rd.kind === "p1");
+  const hist = [
+    { sd: (S0 - 1.4).toFixed(1), id: ids[nid++], ev: "Class 2 Probe Launched  ·  Typhon Expanse", dt: "Rack E-18", c: "peach" },
+    { sd: (S0 - 1.1).toFixed(1), id: "Mag", ev: "Inventory Audit  ·  Forward Magazine", dt: `${allRounds().length} Rounds` },
+    { sd: (S0 - 0.8).toFixed(1), id: c.id, ev: "Casing Inspection Passed", dt: `Integrity ${pct(c.integ)}` },
+    { sd: (S0 - 0.6).toFixed(1), id: a.id, ev: "Stowed", dt: "Rack " + slotName(...a.home) },
+    { sd: (S0 - 0.3).toFixed(1), id: b.id, ev: `Warhead Loaded  ·  Yield ${BINS[b.bin]} %`, dt: kgTxt(KG(b.bin)), c: "peach" },
+    tube ? { sd: (S0 - 0.1).toFixed(1), id: tube.id, ev: "Tube 1 Loaded  ·  Standby", dt: `Yield ${BINS[tube.bin]} %`, c: "mars" }
+         : { sd: (S0 - 0.1).toFixed(1), id: b.id, ev: "Stowed", dt: "Rack " + slotName(...b.home) },
+  ];
+  logRows.forEach((r, i) => showLog(r, hist[i]));
+}
+showReadings(tube || L.pick(allRounds()));
+showLauncher();
+
+// ---------------- running ----------------
+let qRd = null, job = null, nextAt = 2.2, word = "", subTxt = "", lit = { rack: -1, seg: -1 };
+const segColor = (i) => (i === lit.seg ? "mars" : "tan");
+function startJob(t) {
+  job = buildJob(jobs[ji], t); job.T0 = t; ji = (ji + 1) % jobs.length;
+  job.acts.forEach((a) => { a.done = a.started = a.ended = false; });
+  const rd = job.rd;
+  swap([qCase, qKind, qRoute, ...qRows.flatMap((r) => [r.name, r.where, r.bar, r.st])], () => {
+    qRd = rd; L.set(qCase, `Casing ${rd.id}`); L.set(qKind, KIND[rd.kind].name); L.set(qRoute, job.route);
+    qRows.forEach((r, i) => { L.set(r.name, job.steps[i].name); L.set(r.where, job.steps[i].where); });
+  });
+}
+function showSteps(u, done) {
+  qRows.forEach((r, i) => {
+    const s = job.steps[i], p = done ? 1 : L.clamp((u - s.t0) / (s.t1 - s.t0));
+    scaleX(r.bar, p);
+    const st = p >= 1 ? "Complete" : p > 0 ? "Active" : "Pending";
+    if (st !== r.s) { r.s = st; L.set(r.st, st); fg(r.st, st === "Complete" ? "tan" : st === "Active" ? "mars" : "white"); fg(r.name, st === "Active" ? "mars" : "white"); }
+  });
+}
+function showStatus(w, s) {
+  if (w !== word) { word = w; subTxt = s; swap([state, sub], () => { L.set(state, w); L.set(sub, s); placeSub(); }); }
+  else if (s !== subTxt) { subTxt = s; swap([sub], () => L.set(sub, s)); }
+}
+
+// the log moves one line at a time: the oldest fades, the rest slide up, the new one fades in
+let logAnim = null;
+const stepLog = (t) => {
+  if (!logAnim) { if (!pendingLog.length) return; logAnim = { phase: "fade", t0: t, row: logRows.find((r) => r.slot === 0) }; }
+  const u = t - logAnim.t0, r0 = logAnim.row;
+  if (logAnim.phase === "fade") {
+    op(r0.e, 1 - L.clamp(u / 0.6));
+    if (u >= 0.6) logAnim = { phase: "slide", t0: t, row: r0 };
+  } else if (logAnim.phase === "slide") {
+    const k = L.ease(L.clamp(u / 0.9));
+    logRows.forEach((r) => { if (r.slot > 0) L.move(r.e, 0, (r.slot - k) * LPH); });
+    if (k >= 1) {
+      logRows.forEach((r) => (r.slot = r === r0 ? LN - 1 : r.slot - 1));
+      showLog(r0, pendingLog.shift()); L.move(r0.e, 0, (LN - 1) * LPH);
+      logAnim = { phase: "in", t0: t, row: r0 };
+    }
+  } else {
+    op(r0.e, L.clamp(u / 0.7));
+    if (u >= 0.7) logAnim = null;
+  }
+};
+
+// readings a few times a second
+function readings() {
+  range(NR).forEach((r) => L.set(rackN[r], `${slots[r].filter(Boolean).length} / ${NS}`));
+  L.set(rReady.v, countKind("ready"));
+  L.set(rAboard.v, allRounds().length);
+  if (qRd) L.set(qKind, KIND[qRd.kind].name);
+  L.set(rSD.v, sdAt(L.t)); rSD.place();
+  showLauncher();
+}
+readings();
+L.every(250, readings, 0);
+
+L.tick((t) => {
+  if (!job && t >= nextAt) startJob(t);
+  let w = "Standing By", s = "Forward Magazine  ·  Deck 25", rack = -1, seg = -1, pos = HOME;
+  if (job) {
+    const u = t - job.T0;
+    for (const a of job.acts) {
+      if (a.kind === "do") { if (!a.done && u >= a.t0) { a.done = true; a.f(t); } continue; }
+      if (a.kind === "dwell") {
+        if (!a.started && u >= a.t0) { a.started = true; if (a.start) a.start(t); }
+        if (a.started && !a.ended) {
+          const p = L.clamp((u - a.t0) / (a.t1 - a.t0));
+          if (a.frame) a.frame(p);
+          if (a.door) { doorK = a.door === "open" ? L.ease(p) : 1 - L.ease(p); doorWord = p >= 1 ? (a.door === "open" ? "Open" : "Sealed") : a.door === "open" ? "Opening" : "Closing"; }
+          if (u >= a.t1) { a.ended = true; if (a.end) a.end(t); }
+        }
+      }
+    }
+    // where the cradle is, and what it is doing
+    for (const a of job.acts) {
+      if (a.kind !== "move") continue;
+      if (u >= a.t1) { pos = a.end; continue; }
+      if (u >= a.t0) { const g = a.legs.find((g) => u < g.t0 + g.d) || a.legs[a.legs.length - 1]; const k = L.ease(L.clamp((u - g.t0) / g.d)); pos = [L.mix(g.a[0], g.b[0], k), L.mix(g.a[1], g.b[1], k)]; }
+      break;
+    }
+    const cur = job.acts.find((a) => a.kind !== "do" && u >= a.t0 && u < a.t1);
+    if (cur) { w = cur.status; s = `Casing ${job.rd.id}  ·  ${cur.where}`; rack = cur.rack ?? -1; seg = cur.seg ?? -1; }
+    else if (u < job.T) { w = word; s = subTxt; }
+    if (u >= job.T) { showSteps(u, true); job.finished = true; job = null; nextAt = t + 5; w = "Standing By"; s = "Forward Magazine  ·  Deck 25"; rack = seg = -1; }
+    else showSteps(u, false);
+  }
+  showStatus(w, s);
+  placeCradle(pos);
+  if (rack !== lit.rack) { if (lit.rack >= 0) bg(rackBox[lit.rack], RACK_C[lit.rack]); if (rack >= 0) bg(rackBox[rack], "white"); lit.rack = rack; }
+  if (seg !== lit.seg) { const old = lit.seg; lit.seg = seg; if (old >= 0) bg(segEls[old], segColor(old)); if (seg >= 0) bg(segEls[seg], segColor(seg)); }
+  scaleY(door, 1 - 0.88 * doorK);
+  // bars ease to their counts; the counts beside them follow the bars
+  inv.forEach((v) => {
+    const n = v.f(); if (n !== v.to) { v.from = v.cur; v.to = n; v.t0 = t; }
+    v.cur = L.mix(v.from, v.to, L.ease(L.clamp((t - v.t0) / 1.2)));
+    scaleX(v.bar, v.cur / v.cap); L.set(v.n, `${Math.round(v.cur)} / ${v.cap}`);
+  });
+  const bc = binCounts();
+  yields.forEach((y, i) => {
+    if (bc[i] !== y.to) { y.from = y.cur; y.to = bc[i]; y.t0 = t; }
+    y.cur = L.mix(y.from, y.to, L.ease(L.clamp((t - y.t0) / 1.2)));
+    scaleY(y.bar, y.cur / YMAX); L.set(y.n, String(Math.round(y.cur)));
+  });
+  SR.forEach((r) => { r.cur += (r.target - r.cur) * 0.14; scaleX(r.bar, r.cur); });
+  ENV.forEach((e) => { const k = (e.v - e.min) / (e.max - e.min); e.cur += (k - e.cur) * 0.05; scaleX(e.bar, e.cur); });
+  stepLog(t);
+});
+});
+</script></body></html>

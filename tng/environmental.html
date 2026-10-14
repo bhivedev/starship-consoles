@@ -1,0 +1,377 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Environmental Control</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .heat { transition: opacity 4s ease-in-out; }          /* the climate map drifts on the compositor */
+  .pkt { border-radius: 6px; }
+  .drop { border-radius: 4px; background: var(--ice); }
+  .pill { transition: background-color 1.2s ease; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame, mirrored: sidebar on the right, title at top left ----------------
+const BAR = 64, TS = BAR / (L.BASELINE - L.CAP_TOP);
+L.box({ x: 40, y: 40, w: 92, h: BAR, c: "ice", r: "l" });
+const TITLE = "Environmental Control  •  Life Support";
+const titleEl = L.text({ x: 132 + L.GAP, cap: 40, s: TS, c: "ice", txt: TITLE });
+const afterTitle = 132 + L.GAP + titleEl.offsetWidth + L.GAP;          // the page's own width, not the canvas's
+L.rect({ x: afterTitle, y: 40, w: 320, h: BAR, c: "butter" });
+L.rect({ x: afterTitle + 320 + L.GAP, y: 40, w: 2600 - L.GAP - (afterTitle + 320 + L.GAP), h: BAR, c: "sky" });
+L.elbow({ corner: "tr", x: 2600, y: 40, w: 1216, h: 250, bw: 240, bh: BAR, R: 150, r: 60, c: "sky" });
+[[298, 140, "ice", "Env 01"], [446, 70, "butter", "Atmos"], [524, 420, "sky", "Recycling"], [952, 70, "olive", "Climate"],
+ [1030, 300, "ice", "Gravity"], [1338, 70, "butter", "Water"], [1416, 216, "sky", "Hydroponics"]]
+  .forEach(([y, h, c, label]) => L.box({ x: 3576, y, w: 240, h, c, label }));
+L.elbow({ corner: "br", x: 2600, y: 1640, w: 1216, h: 480, bw: 240, bh: BAR, R: 150, r: 60, c: "olive" });
+L.text({ x: 3794, base: 1712, s: 40, c: "#000", txt: "Life Support", align: "r", on: true });
+L.box({ x: 40, y: 2056, w: 92, h: BAR, c: "olive", r: "l" });
+[[132 + L.GAP, 700, "butter"], [132 + L.GAP + 700 + L.GAP, 900, "sky"]].forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
+L.rect({ x: 132 + 3 * L.GAP + 1600, y: 2056, w: 2600 - L.GAP - (132 + 3 * L.GAP + 1600), h: BAR, c: "olive" });
+
+const header = (x, y, w, label, c1, c2, h = 56, fs = 32) => {
+  const lw = Math.round((L.textWidth(label, fs) + 64) / 10) * 10;
+  L.box({ x, y, w: lw, h, c: c1, label, fs, r: "l" });
+  L.rect({ x: x + lw + L.GAP, y, w: w - lw - L.GAP, h, c: c2 });
+};
+const fill = (x, y, w, h, c, origin = "0 0", cls = "") => {
+  const f = L.layer({ x, y, w, h, cls });
+  f.style.background = c.startsWith("#") ? c : `var(--${c})`; f.style.transformOrigin = origin;
+  return f;
+};
+// write only what changed: an unchanged reading costs nothing
+const put = (e, txt) => { if (e.textContent !== txt) e.textContent = txt; };
+const css = (e, k, v) => { if (e.style[k] !== v) e.style[k] = v; };
+const later = (ms, f, jitter) => L.every(ms, (t) => { if (t > 2) f(t); }, jitter);
+const D2 = (d) => String(d).padStart(2, "0");
+const wave = (t, a, f, p) => a * Math.sin(t * f + p);
+
+// The grid: upper panels split at 1660 | 1720, the middle and lower ones at 2380 | 2440 (and 1660 | 1720).
+const AR = 1660, BX = 1720, CR = 2380, DX = 2440, RR = 3520;
+const ROW0 = 428, PITCH = 88, rowBase = (i) => ROW0 + i * PITCH + 52.5;
+// six atmosphere sections, seven decks each — the same groups on the climate map and the gravity plating
+const GROUPS = Array.from({ length: 6 }, (_, i) => ({ d0: i * 7 + 1, d1: i * 7 + 7, name: `Decks ${D2(i * 7 + 1)} – ${D2(i * 7 + 7)}` }));
+
+// ---------------- the environmental log (filled from everywhere below) ----------------
+let stardate = 47783.2;
+const logged = [];
+let logRows = null;
+function logEvent(txt, where, sys) {
+  stardate += 0.1;
+  logged.push([stardate.toFixed(1), txt, where, sys]);
+  if (logged.length > 6) logged.shift();
+  if (logRows) logRows.forEach((r, i) => { const e = logged[i] || ["", "", "", ""]; put(r.sd, e[0]); put(r.tx, e[1]); put(r.at, e[2]); put(r.sys, e[3]); });
+}
+
+// ---------------- status line ----------------
+const STATE = "Life Support Nominal";
+L.text({ x: 40, cap: 150, s: 100, c: "ice", txt: STATE });
+const stateSub = L.text({ x: 40 + L.textWidth(STATE, 100) + 40, base: 222, s: 38, c: "butter", txt: "" });
+L.box({ x: RR - 400, y: 150, w: 400, h: 72, c: "sky", label: "Class M Atmosphere", r: "lr", fs: 36 });
+
+// ---------------- atmosphere processing: partial pressures by section ----------------
+header(40, 280, AR - 40, "Atmosphere Processing", "ice", "sky");
+const AC = { o2: 520, n2: 720, co2: 900, tr: 1080, bar: 1120, barW: 260, pill: 1420 };
+[["Section", 40, "l"], ["O2 kPa", AC.o2, "r"], ["N2 kPa", AC.n2, "r"], ["CO2 kPa", AC.co2, "r"], ["Trace ppm", AC.tr, "r"],
+ ["Scrubbers", AC.bar, "l"], ["Status", AC.pill, "l"]].forEach(([txt, x, align]) => L.text({ x, base: 400, s: 36, c: "ice", txt, align }));
+const PILLC = { Nominal: "sky", Regenerating: "butter", Adjusting: "ice" };
+const atmo = GROUPS.map((g, i) => {
+  const y = ROW0 + i * PITCH, base = rowBase(i);
+  L.box({ x: 40, y, w: 280, h: 64, c: i % 2 ? "ice" : "sky", label: g.name, fs: 32, r: "l" });
+  const v = (x) => L.text({ x, base, s: 52, c: "white", txt: "", align: "r" });
+  L.rect({ x: AC.bar, y: base - 26, w: AC.barW, h: 26, c: "#14223a" });
+  return Object.assign(g, {
+    o2: v(AC.o2), n2: v(AC.n2), co2: v(AC.co2), tr: v(AC.tr),
+    bar: fill(AC.bar, base - 26, AC.barW, 26, "sky"),
+    pill: L.box({ x: AC.pill, y, w: AR - AC.pill, h: 64, c: "sky", label: "Nominal", fs: 32, r: "lr", cls: "pill" }),
+    state: "Nominal", t0: 0, seed: L.rand(0, 6), load: L.rand(0.4, 0.62), shown: 0.5, goal: 0.5, o2dip: 0,
+  });
+});
+// what each section breathes, now: Class M at 101.3 kPa, drifting by hundredths
+const air = (s, t) => {
+  const k = s.state === "Adjusting" ? Math.sin(L.clamp((t - s.t0) / 12) * Math.PI) : 0;     // a small dip, then trimmed back
+  return {
+    o2: 21.22 + wave(t, 0.05, 0.05, s.seed) + wave(t, 0.02, 0.17, s.seed * 2) - 0.28 * k,
+    n2: 79.08 + wave(t, 0.06, 0.04, s.seed + 1) + 0.12 * k,
+    co2: 0.045 + wave(t, 0.008, 0.07, s.seed + 3) + (s.state === "Regenerating" ? 0.012 : 0),
+    tr: 7 + 3 * Math.sin(t * 0.03 + s.seed * 3),
+  };
+};
+const showAtmo = (t) => atmo.forEach((s) => {
+  const a = air(s, t);
+  put(s.o2, a.o2.toFixed(1)); put(s.n2, a.n2.toFixed(1)); put(s.co2, a.co2.toFixed(2)); put(s.tr, String(Math.round(a.tr)));
+});
+const setState = (s, st, t) => {
+  s.state = st; s.t0 = t;
+  s.pill.textContent = st; s.pill.style.background = `var(--${PILLC[st]})`;
+  s.bar.style.background = `var(--${st === "Regenerating" ? "butter" : "sky"})`;
+};
+later(15000, (t) => {                                         // a scrubber bed regenerates, or oxygen is trimmed
+  const busy = atmo.filter((s) => s.state !== "Nominal");
+  if (busy.length && (busy.length >= 2 || Math.random() < 0.5)) {
+    const s = L.pick(busy);
+    logEvent(s.state === "Regenerating" ? "CO2 scrubber bed regenerated" : "Oxygen partial pressure trimmed", s.name, "Atmosphere");
+    if (s.state === "Regenerating") beds = Math.max(0.18, beds - 0.16);
+    setState(s, "Nominal", t);
+  } else {
+    const s = L.pick(atmo.filter((s) => s.state === "Nominal"));
+    setState(s, Math.random() < 0.55 ? "Regenerating" : "Adjusting", t);
+  }
+}, 0.3);
+L.tick((t) => atmo.forEach((s) => {
+  s.goal = s.state === "Regenerating" ? 0.9 + wave(t, 0.03, 0.4, s.seed) : s.load + wave(t, 0.06, 0.05, s.seed);
+  if (Math.abs(s.goal - s.shown) < 0.0005 && s.drawn) return;
+  s.shown += (s.goal - s.shown) * 0.03; s.drawn = true;
+  s.bar.style.transform = `scaleX(${s.shown.toFixed(4)})`;
+}));
+
+// ---------------- air recycling: the loop, with air moving through it ----------------
+header(BX, 280, RR - BX, "Air Recycling", "butter", "olive");
+L.text({ x: BX, base: 400, s: 36, c: "butter", txt: "Primary Recycling Loop  ·  Atmospheric Processing, Deck 29" });
+const flowTxt = L.text({ x: RR, base: 400, s: 36, c: "ice", txt: "", align: "r" });
+// four processors above, four below; the pipe runs through their centres
+const PW = 300, PX = [BX, BX + 500, BX + 1000, BX + 1500], TOPY = ROW0, BOTY = ROW0 + 5 * PITCH;
+const LX = BX + PW / 2, RX = PX[3] + PW / 2, TY = TOPY + 32, BY = BOTY + 32;
+L.svg("path", { d: `M${LX},${TY} H${RX} V${BY} H${LX} Z`, fill: "none", stroke: "#1b2c48", "stroke-width": 16, class: "boot" });
+// the air: small packets carried round the loop (made first, so the processors stand in front of them)
+const LOOP = 2 * (RX - LX) + 2 * (BY - TY), NPK = 36;
+const at = (s) => {                                           // a point on the loop, clockwise from Return Air
+  s = ((s % LOOP) + LOOP) % LOOP;
+  const a = RX - LX, b = BY - TY;
+  if (s < a) return [LX + s, TY, 0];
+  if (s < a + b) return [RX, TY + s - a, 90];
+  if (s < 2 * a + b) return [RX - (s - a - b), BY, 0];
+  return [LX, BY - (s - 2 * a - b), 90];
+};
+// stale air from the decks, scrubbed air, then regenerated: the colour changes inside a processor
+const DECKS_S = 2 * (RX - LX) + (BY - TY) + (BY - TY) / 2;
+const stage = (s) => { s = ((s % LOOP) + LOOP) % LOOP; return s < 1000 || s >= DECKS_S ? "olive" : s < (RX - LX) + (BY - TY) ? "sand" : "ice"; };
+const packets = Array.from({ length: NPK }, (_, i) => {
+  const e = fill(0, 0, 30, 12, "olive", "50% 50%", "pkt");
+  return { e, s0: (i * LOOP) / NPK, c: "" };
+});
+[["Return Air", "sand"], ["Filtration", "olive"], ["CO2 Scrubbers", "butter"], ["Trace Removal", "olive"]]
+  .forEach(([label, c], i) => L.box({ x: PX[i], y: TOPY, w: PW, h: 64, c, label, fs: 32, r: "lr" }));
+const procBot = [["Distribution", "sky"], ["Humidity Control", "ice"], ["Thermal Exchange", "sky"], ["O2 Regeneration", "ice"]]
+  .map(([label, c], i) => L.box({ x: PX[i], y: BOTY, w: PW, h: 64, c, label, fs: 32, r: "lr" }));
+L.box({ x: LX - 110, y: ROW0 + 2.5 * PITCH, w: 220, h: 64, c: "butter", label: "Decks 01 – 42", fs: 32, r: "lr" });
+const SPEED = 100;                                            // px a second: about forty seconds round
+L.tick((t) => packets.forEach((p) => {
+  const s = p.s0 + t * SPEED, [x, y, rot] = at(s), c = stage(s);
+  if (c !== p.c) { p.c = c; p.e.style.background = `var(--${c})`; }
+  L.move(p.e, x - 15, y - 6, rot);
+}));
+// inside the loop: what keeps it going
+const IX = BX + 320, IB0 = 2350, IB1 = 3150, IV = PX[3];
+let beds = 0.38, filter = 0.74;
+const inner = [["O2 Reserve", "ice", () => 0.962 + wave(L.t, 0.004, 0.02, 0)], ["N2 Reserve", "sky", () => 0.978 + wave(L.t, 0.003, 0.015, 1)],
+  ["Scrubber Beds", "butter", () => beds], ["Filter Life", "olive", () => filter]].map(([name, c, get], i) => {
+  const base = rowBase(i + 1);
+  L.text({ x: IX, base, s: 40, c: "butter", txt: name });
+  L.rect({ x: IB0, y: base - 26, w: IB1 - IB0, h: 26, c: "#14223a" });
+  return { get, f: fill(IB0, base - 26, IB1 - IB0, 26, c), v: L.text({ x: IV, base, s: 52, c: "white", txt: "" }), shown: get() };
+});
+L.tick(() => inner.forEach((r) => {
+  const g = r.get();
+  if (Math.abs(g - r.shown) < 0.0003 && r.drawn) return;
+  r.shown += (g - r.shown) * 0.04; r.drawn = true;
+  r.f.style.transform = `scaleX(${r.shown.toFixed(4)})`;
+}));
+L.every(2000, () => {                                         // the beds load up, the filters wear, slowly
+  beds = Math.min(0.92, beds + 0.004 * atmo.filter((s) => s.state !== "Regenerating").length / 6);
+  filter = Math.max(0.12, filter - 0.003);
+}, 0);
+later(52000, () => {
+  if (filter < 0.5 || Math.random() < 0.3) { filter = 1; logEvent("Particulate filters exchanged", "Recycling, Deck 29", "Recycling"); }
+}, 0.3);
+
+// ---------------- deck climate: temperature and humidity, every deck, four zones ----------------
+header(40, 1000, CR - 40, "Deck Climate", "sky", "ice");
+const HX = 414, CWD = 41, CGAP = 4, GGAP = 20, CH = 44, CP = 50;
+const cellX = (d) => HX + d * (CWD + CGAP) + Math.floor(d / 7) * (GGAP - CGAP);       // d from 0
+const GW = 7 * CWD + 6 * CGAP;
+GROUPS.forEach((g, i) => L.text({ x: cellX(i * 7) + GW / 2, base: 1112, s: 32, c: "ice", txt: `${D2(g.d0)} – ${D2(g.d1)}`, align: "c", w: GW, legend: true }));
+const ZONES = ["Fore", "Port", "Stbd", "Aft"];
+// a map: base colour drawn once, the other end of the scale a layer over it whose opacity drifts
+const MAPS = [
+  { name: "Temperature", y: 1136, lo: 19.5, hi: 23.5, cold: "#1a2438", warm: "butter", lc: "butter", fmt: (v) => v.toFixed(1) + " °C", range: "19.5 – 23.5 °C" },
+  { name: "Humidity", y: 1358, lo: 30, hi: 70, cold: "#1c3460", warm: "ice", lc: "ice", fmt: (v) => Math.round(v) + "%", range: "30 – 70%" },
+];
+// what the decks hold: engineering runs warm, the arboretum and hydroponics humid, the antimatter decks cool
+const TB = { 10: 0.4, 11: 0.7, 12: 0.2, 24: 0.8, 27: 0.4, 34: 0.6, 35: 0.9, 36: 1.2, 37: 0.8, 40: -0.6, 41: -0.7, 42: -0.8 };
+const HB = { 10: 4, 11: 15, 12: 3, 24: 19, 23: 5, 25: 4, 39: 7, 34: -6, 35: -8, 36: -8, 37: -6 };
+const pert = { d: 0, kind: 0, amp: 0, t0: -99 };
+const env = (u) => (u < 0 ? 0 : u < 5 ? L.ease(u / 5) : u < 7 ? 1 : Math.max(0, 1 - (u - 7) / 11));
+const climate = (m, d, z, t) => {                             // d from 1
+  const p = pert.d === d && pert.kind === m ? pert.amp * env(t - pert.t0) : 0;
+  return m === 0
+    ? 21.3 + wave(t, 0.45, 0.06, 0.42 * d + 1.7 * z) + wave(t, 0.3, -0.037, 0.17 * d - 0.9 * z + 2) + (TB[d] || 0) + p
+    : 45 + wave(t, 4, -0.05, 0.33 * d + 2.1 * z) + wave(t, 2.5, 0.031, 0.21 * d - 1.3 * z) + (HB[d] || 0) + p;
+};
+const cells = [];
+MAPS.forEach((m, mi) => {
+  L.text({ x: 40, cap: m.y, s: 40, c: m.lc, txt: m.name });
+  m.mean = L.text({ x: 40, base: m.y + 112, s: 52, c: "white", txt: "" });
+  L.text({ x: 40, base: m.y + 4 * CP - 6, s: 36, c: "sky", txt: m.range });
+  ZONES.forEach((z, zi) => {
+    const y = m.y + zi * CP;
+    L.text({ x: HX - 20, base: y + 35, s: 36, c: "sky", txt: z, align: "r" });
+    for (let d = 0; d < 42; d++) {
+      L.rect({ x: cellX(d), y, w: CWD, h: CH, c: m.cold, noalign: true });
+      const e = fill(cellX(d), y, CWD, CH, m.warm, "0 0", "heat");
+      cells.push({ e, m: mi, d: d + 1, z: zi, o: -1 });
+    }
+  });
+});
+const shade = (c, t, now) => {
+  const m = MAPS[c.m], v = (climate(c.m, c.d, c.z, t) - m.lo) / (m.hi - m.lo);
+  const o = Math.round(L.clamp(v, 0.04, 1) * 100) / 100;
+  if (o !== c.o) { c.o = o; c.e.style.opacity = o; }
+};
+cells.forEach((c) => shade(c, 0));
+// an eighth of the cells are given a new value every half second: each fades there over four seconds
+let cellK = 0;
+L.every(500, (t) => { for (let i = 0; i < cells.length / 8; i++) shade(cells[cellK++ % cells.length], t + 4); }, 0);
+const means = (t) => MAPS.forEach((m, mi) => {
+  let s = 0;
+  for (let d = 1; d <= 42; d++) for (let z = 0; z < 4; z++) s += climate(mi, d, z, t);
+  m.v = s / 168; put(m.mean, m.fmt(m.v));
+});
+// a deck drifts off its setting and is brought back; a mark under the map shows which
+const mark = fill(0, MAPS[1].y + 4 * CP + 2, CWD, 8, "butter");
+mark.style.opacity = 0;
+const PERTS = [
+  [1, 11, 12, "Humidity adjusted", "Arboretum, Deck 11"], [0, 10, 1.4, "Temperature adjusted", "Ten Forward, Deck 10"],
+  [1, 24, 10, "Humidity adjusted", "Hydroponics, Deck 24"], [0, 8, 1.6, "Quarters set to Vulcan standard", "Deck 08"],
+  [0, 11, -1.3, "Holodeck environment isolated", "Holodeck 3, Deck 11"], [0, 36, 1.2, "Thermal load balanced", "Main Engineering, Deck 36"],
+  [1, 12, 8, "Humidity adjusted", "Sickbay, Deck 12"], [0, 7, 1.3, "Quarters set to Klingon standard", "Deck 07"],
+  [0, 4, -1.2, "Temperature adjusted", "Stellar Cartography, Deck 04"], [1, 39, 9, "Humidity adjusted", "Recycling, Deck 39"],
+];
+let pertDeck = [];
+later(21000, (t) => {
+  if (t - pert.t0 < 20) return;
+  if (!pertDeck.length) pertDeck = PERTS.slice().sort(() => Math.random() - 0.5);
+  const [kind, d, amp, msg, where] = pertDeck.pop();
+  Object.assign(pert, { kind, d, amp, msg, where, t0: t, logged: false });
+  L.move(mark, cellX(d - 1), 0);
+}, 0.3);
+L.tick((t) => {
+  const u = t - pert.t0;
+  css(mark, "opacity", (u < 0 || u > 19 ? 0 : Math.min(1, u / 1.5, (19 - u) / 1.5)).toFixed(2));
+  if (u > 17 && !pert.logged && pert.t0 > 0) { pert.logged = true; logEvent(pert.msg, pert.where, "Climate"); }
+});
+
+// ---------------- gravity plating and inertial dampers ----------------
+header(DX, 1000, RR - DX, "Gravity Plating", "olive", "sand");
+const GC = { field: 2840, g0: 2900, g1: 3340 }, GMID = (GC.g0 + GC.g1) / 2, GSPAN = (GC.g1 - GC.g0) / 2;
+[["Section", DX, "l"], ["Field g", GC.field, "r"], ["Deviation ±0.5%", GC.g0, "l"], ["Damper Load", RR, "r"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: 1112, s: 36, c: "sand", txt, align }));
+const GB0 = 1191, GP = 70;
+let jolt = { t0: -99, amp: 0 }, recal = { i: -1, t0: -99 };
+const grav = GROUPS.map((g, i) => {
+  const base = GB0 + i * GP;
+  L.box({ x: DX, y: base - 41, w: 240, h: 52, c: i % 2 ? "sand" : "olive", label: g.name, fs: 30, r: "l" });
+  L.rect({ x: GC.g0, y: base - 24, w: GC.g1 - GC.g0, h: 20, c: "#14223a" });
+  L.rect({ x: GMID - 2, y: base - 34, w: 4, h: 40, c: "#4e5d6c", free: true });          // 1.000 g
+  const m = fill(0, base - 36, 10, 44, "butter");
+  return { m, base, seed: L.rand(0, 6), f: L.text({ x: GC.field, base, s: 52, c: "white", txt: "", align: "r" }),
+           dl: L.text({ x: RR, base, s: 52, c: "white", txt: "", align: "r" }) };
+});
+const field = (g, i, t) => 1 + wave(t, 0.0011, 0.07 + i * 0.013, g.seed) + wave(t, 0.0005, 0.23, g.seed * 2)
+  + (recal.i === i ? 0.0034 * env(t - recal.t0) : 0) + (t - jolt.t0 > 0 ? 0.0012 * jolt.amp * Math.exp(-(t - jolt.t0) / 3) * Math.sin((t - jolt.t0) * 2.2) : 0);
+const damper = (i, t) => 11 + wave(t, 1.5, 0.05, i * 1.3) + (t - jolt.t0 > 0 ? jolt.amp * 38 * (1 - Math.exp(-(t - jolt.t0) / 0.6)) * Math.exp(-(t - jolt.t0) / 6) : 0);
+L.tick((t) => grav.forEach((g, i) => {
+  const x = GMID + L.clamp((field(g, i, t) - 1) / 0.005, -1, 1) * GSPAN;
+  L.move(g.m, x - 5, 0);
+}));
+const showGrav = (t) => grav.forEach((g, i) => { put(g.f, field(g, i, t).toFixed(3)); put(g.dl, Math.round(damper(i, t)) + "%"); });
+const COURSES = ["Course correction", "Helm  ·  heading 214 mark 6", "Helm  ·  full impulse", "Station keeping"];
+later(30000, (t) => {
+  if (Math.random() < 0.65) { jolt = { t0: t, amp: L.rand(0.6, 1) }; logEvent("Inertial dampers compensated", L.pick(COURSES), "Dampers"); }
+  else {
+    recal = { i: L.irand(0, 5), t0: t };
+    setTimeout(() => logEvent("Gravity plating recalibrated", GROUPS[recal.i].name, "Gravity"), 17000);
+  }
+}, 0.3);
+
+// ---------------- environmental log ----------------
+header(40, 1620, AR - 40, "Environmental Log", "ice", "sky", 48, 28);
+const LC = { tx: 230, at: 1000 };
+logRows = Array.from({ length: 6 }, (_, i) => {
+  const base = 1734 + i * 54;
+  return { sd: L.text({ x: 40, base, s: 36, c: "sky", txt: "" }), tx: L.text({ x: LC.tx, base, s: 36, c: "ice", txt: "" }),
+           at: L.text({ x: LC.at, base, s: 36, c: "butter", txt: "" }), sys: L.text({ x: AR, base, s: 36, c: "sky", txt: "", align: "r" }) };
+});
+[["Humidity adjusted", "Arboretum, Deck 11", "Climate"], ["CO2 scrubber bed regenerated", "Decks 22 – 28", "Atmosphere"],
+ ["Water reclamation cycle complete", "Recycling, Deck 39", "Water"], ["Trace contaminants purged", "Replicator Shop, Deck 27", "Atmosphere"],
+ ["Gravity plating recalibrated", "Decks 15 – 21", "Gravity"], ["Temperature adjusted", "Ten Forward, Deck 10", "Climate"]]
+  .forEach((e) => logEvent(...e));
+
+// ---------------- water reclamation ----------------
+header(BX, 1620, CR - BX, "Water Reclamation", "sky", "ice", 48, 28);
+const TKW = 120, TKY = 1708, TKH = 188, TKX = (i) => BX + i * (TKW + 60);
+L.svg("rect", { x: TKX(0) + TKW / 2, y: TKY + TKH - 24, width: TKX(3) - TKX(0), height: 10, fill: "#1b2c48", class: "boot" });
+const drops = [];
+for (let i = 0; i < 3; i++) for (let k = 0; k < 2; k++) drops.push({ e: L.layer({ x: TKX(i) + TKW, y: TKY + TKH - 23, w: 14, h: 8, cls: "drop" }), k });
+const TANKS = [["Waste", "olive", 0.46, 0.07], ["Process", "sand", 0.61, 0.09], ["Potable", "ice", 0.83, 0.04], ["Reserve", "sky", 0.94, 0.01]]
+  .map(([name, c, lvl, sw], i) => {
+    L.rect({ x: TKX(i), y: TKY, w: TKW, h: TKH, c: "#14223a" });
+    const f = fill(TKX(i), TKY, TKW, TKH, c, "50% 100%");
+    L.text({ x: TKX(i) + TKW / 2, base: 2004, s: 36, c: "sky", txt: name, align: "c", w: TKW + 60 });
+    return { f, lvl, sw, p: i * 1.9, v: L.text({ x: TKX(i) + TKW / 2, base: 1950, s: 44, c: "white", txt: "", align: "c", w: TKW + 60 }) };
+  });
+const level = (k, t) => k.lvl + wave(t, k.sw, 0.045, k.p);
+L.tick((t) => {
+  TANKS.forEach((k) => k.f.style.transform = `scaleY(${level(k, t).toFixed(4)})`);
+  drops.forEach((d) => {                                       // water moving along, between the tanks
+    const u = ((t * 0.5 + d.k * 0.5) % 1);
+    L.move(d.e, 6 + u * 34, 0);
+    d.e.style.opacity = Math.sin(u * Math.PI).toFixed(2);
+  });
+});
+later(47000, () => logEvent("Water reclamation cycle complete", "Recycling, Deck 39", "Water"), 0.3);
+
+// ---------------- hydroponics ----------------
+header(DX, 1620, RR - DX, "Hydroponics  ·  Deck 24", "olive", "butter", 48, 28);
+const HC = { crop: 2564, b0: 2820, b1: 3380 };
+const BAYS = [["Leafy Greens", 0.82], ["Legumes", 0.35], ["Root Vegetables", 0.58], ["Plomeek", 0.14], ["Katterpods", 0.71], ["Algae Culture", 0.46]]
+  .map(([crop, p], i) => {
+    const base = 1734 + i * 54;
+    L.text({ x: DX, base, s: 36, c: "olive", txt: `Bay ${i + 1}` });
+    L.text({ x: HC.crop, base, s: 36, c: "sand", txt: crop });
+    L.rect({ x: HC.b0, y: base - 22, w: HC.b1 - HC.b0, h: 22, c: "#14223a" });
+    return { crop, p, shown: p, rate: 1 / L.rand(260, 420), yield: L.rand(91, 99), c: "",
+             f: fill(HC.b0, base - 22, HC.b1 - HC.b0, 22, "olive"), v: L.text({ x: RR, base, s: 36, c: "white", txt: "", align: "r" }) };
+  });
+let hPrev = null;
+L.tick((t) => {
+  const dt = hPrev === null ? 0 : Math.min(0.1, t - hPrev); hPrev = t;
+  BAYS.forEach((b, i) => {
+    b.p += dt * b.rate;
+    if (b.p >= 1) {
+      b.p = 0; b.rate = 1 / L.rand(260, 420);
+      logEvent(`Harvest complete, Bay ${i + 1}`, `${b.crop}  ·  ${b.yield.toFixed(1)}% yield`, "Hydroponics");
+      b.yield = L.rand(91, 99);
+    }
+    b.shown += (b.p - b.shown) * (b.p < b.shown ? 0.05 : 0.2);
+    const c = b.p > 0.92 ? "butter" : "olive";
+    if (c !== b.c) { b.c = c; b.f.style.background = `var(--${c})`; }
+    b.f.style.transform = `scaleX(${b.shown.toFixed(4)})`;
+  });
+});
+
+// ---------------- readings: a few times a second at most ----------------
+L.every(1000, (t) => {
+  showAtmo(t); means(t); showGrav(t);
+  inner.forEach((r) => put(r.v, (r.get() * 100).toFixed(1) + "%"));
+  TANKS.forEach((k) => put(k.v, Math.round(level(k, t) * 100) + "%"));
+  BAYS.forEach((b) => put(b.v, b.p > 0.92 ? "Harvest" : `${Math.round(b.p * 100)}%`));
+  const a = atmo.map((s) => air(s, t)), avg = (k) => a.reduce((x, y) => x + y[k], 0) / a.length;
+  const kpa = avg("o2") + avg("n2") + 0.95 + avg("co2");
+  put(stateSub, `Shipwide  ${kpa.toFixed(1)} kPa  ·  ${MAPS[0].v.toFixed(1)} °C  ·  ${Math.round(MAPS[1].v)}% humidity  ·  1.00 g`);
+  const flow = 18400 + Math.round(wave(t, 160, 0.03, 0) / 10) * 10;
+  put(flowTxt, `Throughput  ${flow.toLocaleString("en")} m³/min  ·  ${(6.4 + wave(t, 0.1, 0.03, 0)).toFixed(1)} air changes per hour`);
+}, 0);
+});
+</script></body></html>

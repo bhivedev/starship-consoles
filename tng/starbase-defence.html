@@ -1,0 +1,518 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Defense Perimeter</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .sw { transition: background-color .8s ease, color .8s ease; }
+  .pc { transition: fill .8s ease; }
+  .ml { text-shadow: 0 0 6px #000, 0 0 3px #000, 0 0 2px #000; }
+  .clip { position: absolute; overflow: hidden; }
+  .sweep { border-radius: 50%; background: conic-gradient(from 0deg, rgba(92,157,255,0) 0deg, rgba(92,157,255,0) 300deg, rgba(92,157,255,.16) 360deg); }
+  .pulse { border-radius: 50%; border: 4px solid var(--butter); }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: sidebar left, title top right ----------------
+L.frame({ type: "A", title: "Sector 001  •  Defense Perimeter", c: "sky", c2: "mars", accent: "ice", foot: "Sol",
+  side: [[140, "mars", "Sector 001"], [70, "ice", "Earth"], [420, "sky", "Fleet"], [70, "mars", "Mars"],
+         [300, "ice", "Pickets"], [70, "sky", "Drill"], [216, "mars", "Perimeter"]] });
+
+const PANEL = "#020814", TRACK = "#14223a";
+const col = (c) => (c.startsWith("#") ? c : `var(--${c})`);
+const pad2 = (n) => String(n).padStart(2, "0");
+const widest = (items, s) => Math.ceil(Math.max(...items.map((t) => L.textWidth(t, s))));
+const bad = [];
+const fits = (txt, s, w, where) => { if (L.textWidth(txt, s) > w) bad.push(`${where}: "${txt}"`); };
+const rng = (seed) => () => {
+  seed = (seed + 0x6d2b79f5) | 0;
+  let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+};
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const op = (e, v) => { v = v.toFixed(3); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const bg = (e, c) => { if (e._bg !== c) { e._bg = c; e.style.background = col(c); } };
+const fg = (e, c) => { if (e._fg !== c) { e._fg = c; e.style.color = col(c); } };
+const fillOf = (e, c) => { if (e._fl !== c) { e._fl = c; e.style.fill = col(c); } };
+const columns = (x0, x1, widths) => {                        // a table's columns spread evenly: [left, right] of each
+  const total = widths.reduce((a, b) => a + b, 0), gap = (x1 - x0 - total) / (widths.length - 1);
+  let x = x0;
+  return widths.map((w) => { const c = [Math.round(x), Math.round(x + w)]; x += w + gap; return c; });
+};
+const now = () => new Date();
+const shipTime = (d = now()) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+const dayFrac = (d = now()) => (d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds()) / 86400;
+const SD0 = 47780;                                           // today's stardate at midnight (2.74 a day)
+const stardate = (d = now()) => SD0 + dayFrac(d) * 2.74;
+const mmss = (s) => `${pad2(Math.floor(s / 60))}:${pad2(Math.floor(s % 60))}`;
+
+// ---------------- the grid ----------------
+// The map 330–1770; the right-hand column 1830–3816, split 1830–2793 | 2853–3816 below the fleet.
+const MX0 = 330, MX1 = 1770, MY0 = 360, MY1 = 1580;
+const RX0 = 1830, RX1 = 3816, AX1 = 2793, BX0 = 2853;
+
+// ---------------- the exercise: one every five minutes ----------------
+// A simulated contact comes in from the direction of Wolf 359; the pickets find it, Outpost 92 confirms it,
+// the Mars perimeter raises its shields, Task Force 3 intercepts it short of Jupiter, and everyone stands down.
+const PH = [["Standby", 30], ["Detection", 50], ["Tracking", 50], ["Intercept", 70], ["Stand Down", 60], ["Debrief", 40]];
+const PH0 = []; { let a = 0; PH.forEach(([, d]) => { PH0.push(a); a += d; }); }
+const CYCLE = PH.reduce((a, p) => a + p[1], 0);              // 300 s
+const E0 = (() => {                                          // (dev: #u=150 starts the screen 150 s into a cycle)
+  const now = Date.now() / 1000, m = /u=(\d+)/.exec(location.hash);
+  return m ? now - (now % 300) + +m[1] : now;
+})();
+const exNo = (k) => 100 + (((k % 900) + 900) % 900);          // the exercise number, 100–999
+const phaseAt = (u) => { let i = PH.length - 1; while (u < PH0[i]) i--; return i; };
+const T_INT = 175;                                           // the intercept, in cycle seconds
+
+// ================= status line =================
+const STATES = [["Perimeter Secure", "sky"], ["Exercise Under Way", "butter"], ["Exercise Complete", "ice"]];
+const stateTxt = L.text({ x: MX0, cap: 150, s: 100, c: "sky", txt: STATES[0][0] });
+const subX = MX0 + widest(STATES.map((s) => s[0]), 100) + 48;
+const subTxt = L.text({ x: subX, base: 222, s: 38, c: "ice", txt: "" });
+const subFor = (n, sd) => `Sector 001  ·  Sol System  ·  Exercise ${n}  ·  Simulated Borg Approach from Wolf 359  ·  Stardate ${sd}`;
+const PILLW = 480;
+const pill = L.box({ x: RX1 - PILLW, y: 150, w: PILLW, h: 72, c: "sky", label: "", r: "lr", fs: 36, cls: "sw" });
+
+// ================= the strategic map =================
+L.header({ x: MX0, y: 280, w: MX1 - MX0, label: "Sol System  ·  Strategic Display", c1: "sky", c2: "blue" });
+L.rect({ x: MX0, y: MY0, w: MX1 - MX0, h: MY1 - MY0, c: PANEL, panel: true });
+const CX = 1050, CY = 970;
+const AU = (a) => 100 + 90.7 * Math.log(a / 0.39);            // orbits on a logarithmic scale
+const fromR = (r) => 0.39 * Math.exp((r - 100) / 90.7);
+const pt = (r, a) => [CX + r * Math.sin((a * Math.PI) / 180), CY - r * Math.cos((a * Math.PI) / 180)];
+const map = L.svg("g", { class: "boot" });
+const defs = L.svg("defs", {}, map);
+const clip = L.svg("clipPath", { id: "sdClip" }, defs);
+L.svg("rect", { x: MX0, y: MY0, width: MX1 - MX0, height: MY1 - MY0 }, clip);
+const sunG = L.svg("radialGradient", { id: "sdSun" }, defs);
+[[0, "#fff6d8", 1], [0.35, "#ffcc66", 0.95], [0.6, "#ff9c1a", 0.35], [1, "#ff9c1a", 0]].forEach(([o, c, a]) =>
+  L.svg("stop", { offset: o, "stop-color": c, "stop-opacity": a }, sunG));
+const g = L.svg("g", { "clip-path": "url(#sdClip)" }, map);
+// stars, faint
+{
+  const r = rng(9411), cs = ["#5c7dff", "#8fd3ff", "#c9d6ff", "#ffffff"];
+  for (let k = 0; k < 260; k++) L.svg("circle", { cx: (MX0 + r() * (MX1 - MX0)).toFixed(1), cy: (MY0 + r() * (MY1 - MY0)).toFixed(1),
+    r: (0.8 + r() ** 3 * 1.8).toFixed(2), fill: cs[Math.floor(r() * 4)], opacity: (0.2 + r() * 0.35).toFixed(2) }, g);
+}
+// the sector grid: range rings every 10 degrees of bearing are too busy; quarters only
+[0, 90].forEach((a) => {
+  const [x1, y1] = pt(620, a), [x2, y2] = pt(620, a + 180);
+  L.svg("line", { x1, y1, x2, y2, stroke: "#1d3cc4", "stroke-width": 2, "stroke-dasharray": "3 9", opacity: 0.7 }, g);
+});
+// the asteroid belt
+{
+  const r = rng(2207);
+  for (let k = 0; k < 240; k++) {
+    const [x, y] = pt(AU(2.2) + r() * (AU(3.3) - AU(2.2)), r() * 360);
+    L.svg("circle", { cx: x.toFixed(1), cy: y.toFixed(1), r: (0.9 + r() * 1.4).toFixed(2), fill: "#c9a77c", opacity: (0.25 + r() * 0.3).toFixed(2) }, g);
+  }
+}
+// orbits
+const PLANETS = [
+  { name: "Mercury", a: 0.39, ang: 330, rad: 7, c: "tan" },
+  { name: "Venus", a: 0.72, ang: 45, rad: 10, c: "peach" },
+  { name: "Earth", a: 1.0, ang: 160, rad: 12, c: "sky" },
+  { name: "Mars", a: 1.52, ang: 240, rad: 10, c: "mars" },
+  { name: "Jupiter", a: 5.2, ang: 110, rad: 20, c: "tan" },
+  { name: "Saturn", a: 9.54, ang: 200, rad: 17, c: "sand" },
+  { name: "Uranus", a: 19.2, ang: 290, rad: 13, c: "ice" },
+  { name: "Neptune", a: 30.1, ang: 345, rad: 13, c: "sky" },
+];
+PLANETS.forEach((p) => {
+  p.r = AU(p.a); [p.x, p.y] = pt(p.r, p.ang);
+  L.svg("circle", { cx: CX, cy: CY, r: p.r.toFixed(1), fill: "none", stroke: "#2b4f8f", "stroke-width": 2, "stroke-dasharray": p.a < 2 ? "" : "6 8", opacity: 0.85 }, g);
+});
+// the Mars defense perimeter: a shell at Mars's distance, twelve platforms on it
+const RP = AU(1.52);
+L.svg("circle", { cx: CX, cy: CY, r: RP, fill: "none", stroke: "var(--mars)", "stroke-width": 14, opacity: 0.16 }, g);
+L.svg("circle", { cx: CX, cy: CY, r: RP, fill: "none", stroke: "var(--mars)", "stroke-width": 3, opacity: 0.8 }, g);
+const PLAT = Array.from({ length: 12 }, (_, k) => {
+  const [x, y] = pt(RP, 15 + 30 * k);
+  return L.svg("rect", { x: x - 8, y: y - 8, width: 16, height: 16, fill: "var(--mars)", class: "pc", transform: `rotate(${15 + 30 * k} ${x} ${y})` }, g);
+});
+// the sensor picket line: sixteen pickets at 50 AU
+const RK = AU(50), RKL = RK + 38;
+L.svg("circle", { cx: CX, cy: CY, r: RK, fill: "none", stroke: "var(--sky)", "stroke-width": 3, "stroke-dasharray": "2 12", opacity: 0.9 }, g);
+const PICK = Array.from({ length: 16 }, (_, k) => {
+  const a = 22.5 * k, [x, y] = pt(RK, a);
+  const e = L.svg("rect", { x: x - 11, y: y - 11, width: 22, height: 22, fill: "var(--sky)", class: "pc", transform: `rotate(45 ${x} ${y})` }, g);
+  return { k, a, e };
+});
+// the sun and the planets
+L.svg("circle", { cx: CX, cy: CY, r: 46, fill: "url(#sdSun)" }, g);
+PLANETS.forEach((p) => L.svg("circle", { cx: p.x.toFixed(1), cy: p.y.toFixed(1), r: p.rad, fill: `var(--${p.c})` }, g));
+L.svg("ellipse", { cx: PLANETS[5].x.toFixed(1), cy: PLANETS[5].y.toFixed(1), rx: 32, ry: 9, fill: "none", stroke: "var(--sand)", "stroke-width": 3, opacity: 0.8 }, g);
+// the way to Wolf 359, out past the pickets
+const BEAR = 56.25;
+{
+  const [x1, y1] = pt(RK + 70, BEAR), [x2, y2] = pt(RK + 200, BEAR);
+  L.svg("line", { x1, y1, x2, y2, stroke: "var(--butter)", "stroke-width": 3, "stroke-dasharray": "10 8", opacity: 0.8 }, g);
+  const ux = (x2 - x1) / 130, uy = (y2 - y1) / 130, nx = -uy, ny = ux;
+  L.svg("path", { d: `M${x2 + ux * 22},${y2 + uy * 22} L${x2 + nx * 13},${y2 + ny * 13} L${x2 - nx * 13},${y2 - ny * 13} Z`, fill: "var(--butter)" }, g);
+}
+
+// ---- map labels (static text, kept off the shapes) ----
+const ml = (x, base, txt, c, align = "l") => L.text({ x, base, s: 36, c, txt, align, cls: "ml", w: align === "c" ? Math.ceil(L.textWidth(txt, 36)) + 8 : undefined });
+PICK.forEach((p) => { const [x, y] = pt(RKL, p.a); p.lab = ml(x, y + 13, pad2(p.k + 1), "sky", "c"); });
+const P = Object.fromEntries(PLANETS.map((p) => [p.name, p]));
+ml(P.Mercury.x, P.Mercury.y - 24, "Mercury", "tan", "c");
+ml(P.Venus.x + 22, P.Venus.y + 13, "Venus", "peach");
+ml(P.Earth.x + 30, P.Earth.y + 82, "Earth", "sky");
+ml(P.Earth.x + 30, P.Earth.y + 126, "Task Force 1", "white");
+ml(P.Mars.x - 60, P.Mars.y + 13, "Mars  ·  Utopia Planitia", "mars", "r");
+ml(P.Mars.x - 60, P.Mars.y + 57, "Task Force 2", "white", "r");
+ml(P.Jupiter.x + 34, P.Jupiter.y + 13, "Jupiter", "tan");
+ml(P.Jupiter.x + 34, P.Jupiter.y + 57, "Outpost 92", "tan");
+ml(P.Jupiter.x + 34, P.Jupiter.y + 101, "Task Force 3", "white");
+ml(P.Saturn.x + 44, P.Saturn.y + 13, "Saturn", "sand");
+ml(P.Uranus.x + 26, P.Uranus.y + 13, "Uranus", "ice");
+ml(P.Neptune.x + 26, P.Neptune.y + 13, "Neptune", "sky");
+ml(CX, CY + 92, "Sol", "butter", "c");
+ml(CX, CY - RP - 24, "Mars Defense Perimeter", "mars", "c");
+// the corners: what the map is, the key, the way to Wolf 359
+ml(MX0 + 24, MY0 + 60, "Ecliptic Plane", "sky");
+ml(MX0 + 24, MY0 + 104, "Logarithmic Scale", "sky");
+ml(MX1 - 24, MY0 + 60, "Wolf 359", "butter", "r");
+ml(MX1 - 24, MY0 + 104, "7.8 Light-Years", "butter", "r");
+ml(MX1 - 24, MY1 - 68, "Mars Perimeter  ·  1.5 AU", "mars", "r");
+ml(MX1 - 24, MY1 - 24, "Picket Line  ·  50 AU", "sky", "r");
+{
+  const KEY = [["Starfleet Vessel", "white", "ship"], ["Sensor Picket", "sky", "pick"], ["Defense Platform", "mars", "plat"], ["Simulated Contact", "butter", "cont"]];
+  KEY.forEach(([txt, c, kind], i) => {
+    const base = MY1 - 24 - 44 * (3 - i), x = MX0 + 40, y = base - 13;
+    if (kind === "ship") L.svg("path", { d: `M${x + 12},${y} L${x - 9},${y - 11} L${x - 4},${y} L${x - 9},${y + 11} Z`, fill: "var(--white)" }, g);
+    if (kind === "pick") L.svg("rect", { x: x - 9, y: y - 9, width: 18, height: 18, fill: "var(--sky)", transform: `rotate(45 ${x} ${y})` }, g);
+    if (kind === "plat") L.svg("rect", { x: x - 8, y: y - 8, width: 16, height: 16, fill: "var(--mars)" }, g);
+    if (kind === "cont") L.svg("rect", { x: x - 10, y: y - 10, width: 20, height: 20, fill: "none", stroke: "var(--butter)", "stroke-width": 4, transform: `rotate(45 ${x} ${y})` }, g);
+    ml(MX0 + 72, base, txt, c);
+  });
+}
+
+// ---- what moves on the map: all composited layers ----
+// the sweep, once round in 24 s, out to the picket line
+const sweep = L.layer({ x: CX - RK, y: CY - RK, w: 2 * RK, h: 2 * RK, cls: "sweep" });
+const shipSvg = (n, offs) => {                              // a layer holding n chevrons, pointing along +x
+  const W = 120, e = L.layer({ x: 0, y: 0, w: W, h: W });
+  const s = L.svg("svg", { width: W, height: W, viewBox: `0 0 ${W} ${W}` }, e);
+  offs.slice(0, n).forEach(([dx, dy]) => {
+    const x = W / 2 + dx, y = W / 2 + dy;
+    L.svg("path", { d: `M${x + 12},${y} L${x - 9},${y - 11} L${x - 4},${y} L${x - 9},${y + 11} Z`, fill: "var(--white)" }, s);
+  });
+  e.style.transformOrigin = "50% 50%";
+  return e;
+};
+const place = (e, x, y, rot) => tf(e, `translate3d(${(x - 60).toFixed(2)}px,${(y - 60).toFixed(2)}px,0) rotate(${rot.toFixed(2)}deg)`);
+// Task Force 1 holds orbit round Earth; Task Force 2 patrols the perimeter beside Mars
+const tf1 = [0, 1, 2].map(() => shipSvg(1, [[0, 0]]));
+const tf2 = [0, 1].map(() => shipSvg(1, [[0, 0]]));
+// Task Force 3 waits at Outpost 92 and makes the intercept
+const tf3 = shipSvg(3, [[14, 0], [-14, -22], [-14, 22]]);
+const T3HOME = pt(P.Jupiter.r, P.Jupiter.ang - 15);
+// the contact's course: from beyond the pickets, on the bearing of Wolf 359, straight for Earth
+const C0 = pt(RK + 70, BEAR), CE = [P.Earth.x, P.Earth.y];
+const CL = Math.hypot(CE[0] - C0[0], CE[1] - C0[1]), CD = [(CE[0] - C0[0]) / CL, (CE[1] - C0[1]) / CL];
+const onCourse = (s) => [C0[0] + CD[0] * s, C0[1] + CD[1] * s];
+const sAtR = (r) => {                                        // how far along the course it is r from Sol
+  const ox = C0[0] - CX, oy = C0[1] - CY, b = ox * CD[0] + oy * CD[1], c = ox * ox + oy * oy - r * r;
+  return -b - Math.sqrt(b * b - c);
+};
+const S_INT = sAtR(AU(7.0));                                 // the intercept, 7 AU out
+const PI0 = onCourse(S_INT);
+const T3INT = [PI0[0] + CD[0] * 60 + CD[1] * 10, PI0[1] + CD[1] * 60 - CD[0] * 10];   // just inside the contact
+const contactS = (u) => S_INT * (1 - Math.pow(1 - L.clamp((u - 30) / (T_INT - 30)), 1.6));
+const contactAU = (u) => { const [x, y] = onCourse(contactS(u)); return fromR(Math.hypot(x - CX, y - CY)).toFixed(0 + (u >= T_INT ? 1 : 0)); };
+const courseAng = Math.atan2(CD[1], CD[0]) * 180 / Math.PI;
+const projected = L.layer({ x: C0[0], y: C0[1] - 2, w: CL, h: 4 });
+projected.style.transformOrigin = "0 50%";
+projected.style.background = "repeating-linear-gradient(90deg, rgba(255,204,102,.75) 0 14px, rgba(255,204,102,0) 14px 26px)";
+tf(projected, `rotate(${courseAng.toFixed(3)}deg)`);
+const track = L.layer({ x: C0[0], y: C0[1] - 3, w: CL, h: 6 });
+track.style.transformOrigin = "0 50%"; track.style.background = "var(--butter)";
+const contact = L.layer({ x: 0, y: 0, w: 200, h: 60 });
+{
+  const s = L.svg("svg", { width: 60, height: 60, viewBox: "0 0 60 60" }, contact);
+  L.svg("rect", { x: 18, y: 18, width: 24, height: 24, fill: "none", stroke: "var(--butter)", "stroke-width": 5, transform: "rotate(45 30 30)" }, s);
+  L.svg("circle", { cx: 30, cy: 30, r: 5, fill: "var(--butter)" }, s);
+  L.text({ x: 62, base: 60, s: 36, c: "butter", txt: "Contact", cls: "ml" }, contact);
+}
+const pulse = L.layer({ x: PI0[0] - 60, y: PI0[1] - 60, w: 120, h: 120, cls: "pulse" });
+[projected, track, contact, pulse].forEach((e) => op(e, 0));
+
+// ================= defense fleet (top right) =================
+L.header({ x: RX0, y: 280, w: RX1 - RX0, label: "Defense Fleet  ·  Sector 001", c1: "mars", c2: "sky" });
+const FLEET = [
+  ["U.S.S. Excalibur", "NCC-26517", "Ambassador", 1], ["U.S.S. Zhukov", "NCC-26136", "Ambassador", 1], ["U.S.S. Hood", "NCC-42296", "Excelsior", 1],
+  ["U.S.S. Sutherland", "NCC-72015", "Nebula", 2], ["U.S.S. Victory", "NCC-9754", "Constellation", 2],
+  ["U.S.S. Endeavour", "NCC-71805", "Nebula", 3], ["U.S.S. Repulse", "NCC-2544", "Excelsior", 3], ["U.S.S. Bozeman", "NCC-1941", "Soyuz", 3],
+];
+const STATION = { 1: "Earth Orbit", 2: "Mars Perimeter", 3: "Outpost 92" };
+const FCAP = ["Vessel", "Registry", "Class", "Group", "Station", "Range", "Status"];
+const FAL = ["l", "l", "l", "l", "l", "r", "r"];
+const FW = [widest(["Vessel", ...FLEET.map((f) => f[0])], 40), widest(["Registry", ...FLEET.map((f) => f[1])], 40),
+  widest(["Class", ...FLEET.map((f) => f[2])], 40), widest(["Group", "Task Force 0"], 40), widest(["Station", ...Object.values(STATION)], 40),
+  widest(["Range", "00.0 AU"], 40), widest(["Status", "On Station", "Intercept", "Returning", "Patrol"], 40)];
+const fcols = columns(RX0, RX1, FW);
+const fx = (j) => (FAL[j] === "l" ? fcols[j][0] : fcols[j][1]);
+FCAP.forEach((txt, j) => L.text({ x: fx(j), base: 396, s: 36, c: "sky", txt, align: FAL[j] }));
+const frows = FLEET.map((f, i) => {
+  const base = 460 + 64 * i;
+  L.text({ x: fx(0), base, s: 40, c: "white", txt: f[0] });
+  L.text({ x: fx(1), base, s: 40, c: "ice", txt: f[1] });
+  L.text({ x: fx(2), base, s: 40, c: "sky", txt: f[2] });
+  L.text({ x: fx(3), base, s: 40, c: "sky", txt: `Task Force ${f[3]}` });
+  L.text({ x: fx(4), base, s: 40, c: "sky", txt: STATION[f[3]] });
+  return { tfn: f[3], range: L.text({ x: fx(5), base, s: 40, c: "white", txt: "", align: "r", cls: "sw" }),
+           status: L.text({ x: fx(6), base, s: 40, c: "sky", txt: "", align: "r", cls: "sw" }) };
+});
+
+// ================= Mars defense perimeter (middle right): twelve platforms' shields =================
+L.header({ x: RX0, y: 1000, w: AX1 - RX0, label: "Mars Defense Perimeter", c1: "mars", c2: "ice" });
+L.text({ x: RX0, base: 1116, s: 36, c: "mars", txt: "Utopia Planitia  ·  12 Platforms" });
+const shieldCap = L.text({ x: AX1, base: 1116, s: 36, c: "sky", txt: "", align: "r" });
+const BY0 = 1148, BY1 = 1500, BGAP = 24, BW = (AX1 - RX0 - 11 * BGAP) / 12, STANDBY = 0.3;
+// a scale behind the bars: standby and full
+const bars = Array.from({ length: 12 }, (_, k) => {
+  const x = RX0 + k * (BW + BGAP);
+  L.rect({ x, y: BY0, w: BW, h: BY1 - BY0, c: TRACK, noalign: true });
+  const f = L.layer({ x, y: BY0, w: BW, h: BY1 - BY0 });
+  f.style.background = "var(--mars)"; f.style.transformOrigin = "50% 100%";
+  L.text({ x: x + BW / 2, base: 1564, s: 36, c: "sky", txt: pad2(k + 1), align: "c", w: 80, legend: true });
+  return { f, lvl: STANDBY };
+});
+L.rect({ x: RX0, y: BY1 - (BY1 - BY0) * STANDBY - 1, w: AX1 - RX0, h: 2, c: "#4e5d6c", free: true });
+
+// ================= sensor picket line (middle right): sixteen pickets =================
+L.header({ x: BX0, y: 1000, w: RX1 - BX0, label: "Sensor Picket Line", c1: "sky", c2: "mars" });
+L.text({ x: BX0, base: 1116, s: 36, c: "sky", txt: "16 Pickets  ·  50 AU" });
+const pickCap = L.text({ x: RX1, base: 1116, s: 36, c: "sky", txt: "", align: "r" });
+const TG = 16, TW = (RX1 - BX0 - 3 * TG) / 4, TH = (MY1 - BY0 - 3 * TG) / 4;
+const tiles = PICK.map((p) => {
+  const x = BX0 + (p.k % 4) * (TW + TG), y = BY0 + Math.floor(p.k / 4) * (TH + TG);
+  const b = L.box({ x, y, w: TW, h: TH, c: "sky", label: "", fs: 32, cls: "sw" });
+  L.text({ x: x + 18, cap: y + 14, s: 36, c: "#000", txt: `Picket ${pad2(p.k + 1)}`, on: true });
+  return b;
+});
+
+// ================= exercise log (bottom left) =================
+L.header({ x: MX0, y: 1620, w: MX1 - MX0, label: "Exercise Log", c1: "sky", c2: "mars", h: 48 });
+const EVENTS = [   // [cycle second, source, event, result, colour]
+  [30, "Exercise Control", (n) => `Exercise ${n}  ·  Simulation Begins`, "Begin", "butter"],
+  [34, "Picket 04", () => `Contact  ·  Bearing 056  ·  ${contactAU(34)} AU`, "Detected", "butter"],
+  [80, "Outpost 92", () => `Track Confirmed  ·  ${contactAU(80)} AU`, "Confirmed", "butter"],
+  [110, "Mars Perimeter", () => "Platform Shields Raised", "12 / 12", "mars"],
+  [130, "Task Force 3", () => "Intercept Course Laid In", "Under Way", "white"],
+  [T_INT, "Task Force 3", () => `Intercept  ·  ${contactAU(T_INT)} AU from Sol`, "Intercept", "butter"],
+  [200, "Exercise Control", () => "Simulation Ended  ·  Stand Down", "Secure", "sky"],
+  [236, "Mars Perimeter", () => "Platform Shields to Standby", "12 / 12", "mars"],
+  [255, "Task Force 3", () => "On Station  ·  Outpost 92", "On Station", "sky"],
+  [262, "Exercise Control", (n) => `Exercise ${n}  ·  Debrief`, "Complete", "ice"],
+];
+const LOGW = [widest(["Ship Time", "00:00:00"], 36), widest(["Source", ...EVENTS.map((e) => e[1])], 36),
+  widest(["Event", ...EVENTS.map((e) => e[2](888))], 36), widest(["Result", ...EVENTS.map((e) => e[3])], 36)];
+const lcols = columns(MX0, MX1, LOGW);
+const LAL = ["l", "l", "l", "r"];
+["Ship Time", "Source", "Event", "Result"].forEach((txt, j) =>
+  L.text({ x: LAL[j] === "l" ? lcols[j][0] : lcols[j][1], base: 1716, s: 36, c: "sky", txt, align: LAL[j] }));
+const LOGN = 5, LP = 54;
+const logClip = L.el("div", "clip", L.stage, { left: MX0 + "px", top: 1776 - 46 + "px", width: MX1 - MX0 + "px", height: LOGN * LP + 4 + "px" });
+const logRows = Array.from({ length: LOGN + 1 }, (_, i) => {
+  const e = L.layer({ x: 0, y: 0, w: MX1 - MX0, h: LP }, logClip);
+  const cells = LOGW.map((_, j) => L.text({ x: LAL[j] === "l" ? lcols[j][0] - MX0 : lcols[j][1] - MX0, base: 46, s: 36,
+    c: ["ice", "sky", "white", "sky"][j], txt: "", align: LAL[j], rightIn: LAL[j] === "r" }, e));
+  const row = { e, slot: i, cells };
+  row.fill = (d) => { d.slice(0, 4).forEach((v, j) => L.set(cells[j], v)); fg(cells[3], d[4]); };
+  L.move(e, 0, i * LP);
+  return row;
+});
+logRows[LOGN].e.style.opacity = 0;
+const logQueue = [];
+let logT0 = -1, logLanded = null, logT1 = 0, logPending = null;
+L.tick((t) => {                                               // all slide up one place; the top row fades away
+  if (logT0 < 0) { if (logQueue.length) { logPending = logQueue.shift(); logT0 = t; } else return; }
+  const u = t - logT0;
+  if (!logLanded) {
+    const topRow = logRows.find((r) => r.slot === 0), k = L.ease(L.clamp(u / 1.1));
+    logRows.forEach((r) => { if (r.slot <= LOGN - 1) L.move(r.e, 0, (r.slot - k) * LP); });
+    topRow.e.style.opacity = (1 - L.clamp(u / 0.4)).toFixed(3);
+    if (k < 1) return;
+    const spare = logRows.find((r) => r.slot === LOGN);
+    logRows.forEach((r) => { if (r !== spare) r.slot = r.slot === 0 ? LOGN : r.slot - 1; });
+    spare.slot = LOGN - 1; spare.fill(logPending); spare.e.style.opacity = 0; L.move(spare.e, 0, (LOGN - 1) * LP);
+    logLanded = spare; logT1 = t;
+  } else {
+    const a = L.clamp((t - logT1) / 0.8);
+    logLanded.e.style.opacity = a.toFixed(3);
+    if (a >= 1) { logT0 = -1; logLanded = null; }
+  }
+});
+const logLine = (ev, k, at) => [shipTime(at), ev[1], ev[2](exNo(k)), ev[3], ev[4]];
+
+// ================= exercise phases (bottom middle) =================
+L.header({ x: RX0, y: 1620, w: AX1 - RX0, label: "Exercise Phases", c1: "butter", c2: "sky", h: 48 });
+const phCap = L.text({ x: RX0, base: 1716, s: 36, c: "butter", txt: "" });
+const phRight = L.text({ x: AX1, base: 1716, s: 36, c: "sky", txt: "", align: "r" });
+const PNW = widest(PH.slice(1).map((p) => p[0]), 36), PCW = widest(["00:00 / 00:00"], 36), PRW = widest(["Under Way", "Complete", "Pending"], 36);
+const PCNT = AX1 - PRW - 32, PBX = RX0 + PNW + 32, PBX1 = PCNT - PCW - 32;
+const phases = PH.slice(1).map(([name, dur], i) => {
+  const base = 1776 + LP * i;
+  L.text({ x: RX0, base, s: 36, c: "sky", txt: name });
+  L.rect({ x: PBX, y: base - 28, w: PBX1 - PBX, h: 28, c: TRACK });
+  const f = L.layer({ x: PBX, y: base - 28, w: PBX1 - PBX, h: 28 });
+  f.style.background = "var(--butter)"; f.style.transformOrigin = "0 0"; f.style.transform = "scaleX(0)";
+  return { dur, f, cnt: L.text({ x: PCNT, base, s: 36, c: "white", txt: "", align: "r" }),
+           res: L.text({ x: AX1, base, s: 36, c: "sky", txt: "", align: "r", cls: "sw" }) };
+});
+
+// ================= perimeter history (bottom right) =================
+L.header({ x: BX0, y: 1620, w: RX1 - BX0, label: "Perimeter History", c1: "mars", c2: "ice", h: 48 });
+const HIST = [
+  ["43989.1", "New Providence Colony Lost", "Jouret IV"],
+  ["44002.3", "Borg Engagement  ·  39 Ships Lost", "Wolf 359"],
+  ["44390.2", "Mars Perimeter Reinforced", "Sol System"],
+  ["46213.8", "Picket Line Extended to 50 AU", "Sector 001"],
+];
+const HW = [widest(["Stardate", "47999.9"], 36), widest(["Event", ...HIST.map((h) => h[1]), "Exercise 888  ·  Stand Down"], 36),
+  widest(["Location", ...HIST.map((h) => h[2])], 36)];
+const hcols = columns(BX0, RX1, HW);
+const HAL = ["l", "l", "r"];
+const hx = (j) => (HAL[j] === "l" ? hcols[j][0] : hcols[j][1]);
+["Stardate", "Event", "Location"].forEach((txt, j) => L.text({ x: hx(j), base: 1716, s: 36, c: "sky", txt, align: HAL[j] }));
+HIST.forEach((h, i) => h.forEach((txt, j) =>
+  L.text({ x: hx(j), base: 1776 + LP * i, s: 36, c: [i === 1 ? "mars" : "ice", i === 1 ? "mars" : "white", "sky"][j], txt, align: HAL[j] })));
+const histNow = [0, 1, 2].map((j) => L.text({ x: hx(j), base: 1776 + LP * 4, s: 36, c: ["butter", "butter", "butter"][j], txt: j === 2 ? "Sector 001" : "", align: HAL[j], cls: "sw" }));
+
+// ================= the clock =================
+let lastKey = null;
+{ // the log starts with the last five events before now, oldest at the top
+  const E = E0, k = Math.floor(E / CYCLE), u = E - k * CYCLE, past = [];
+  for (let kk = k; kk >= k - 1 && past.length < LOGN; kk--)
+    for (let i = EVENTS.length - 1; i >= 0 && past.length < LOGN; i--) {
+      const ev = EVENTS[i], ago = (k - kk) * CYCLE + u - ev[0];
+      if (ago >= 0) past.push(logLine(ev, kk, new Date(Date.now() - ago * 1000)));
+    }
+  past.reverse().forEach((d, i) => logRows[i].fill(d));
+  lastKey = k * 1000 + EVENTS.filter((ev) => ev[0] <= u).length;
+}
+const easeIn = (u, a, d) => L.ease(L.clamp((u - a) / d));
+L.tick((t) => {
+  const E = E0 + t, k = Math.floor(E / CYCLE), u = E - k * CYCLE;
+  // events into the log, in order
+  const key = k * 1000 + EVENTS.filter((ev) => ev[0] <= u).length;
+  if (key !== lastKey) {
+    const n = key % 1000;
+    if (n > 0) logQueue.push(logLine(EVENTS[n - 1], k, now()));
+    lastKey = key;
+  }
+  // the sweep
+  tf(sweep, `rotate(${((t / 24) * 360 % 360).toFixed(2)}deg)`);
+  // Task Forces 1 and 2
+  tf1.forEach((e, i) => {
+    const a = t / 90 * 2 * Math.PI + i * 2.094, x = P.Earth.x + 36 * Math.cos(a), y = P.Earth.y + 36 * Math.sin(a);
+    place(e, x, y, a * 180 / Math.PI + 90);
+  });
+  tf2.forEach((e, i) => {
+    const a = -t / 110 * 2 * Math.PI + i * Math.PI, x = P.Mars.x + 32 * Math.cos(a), y = P.Mars.y + 32 * Math.sin(a);
+    place(e, x, y, a * 180 / Math.PI - 90);
+  });
+  // the contact: in from beyond the pickets (30 s), held at the intercept, then gone
+  const s = contactS(u);
+  const [cx, cy] = onCourse(s);
+  tf(contact, `translate3d(${(cx - 30).toFixed(2)}px,${(cy - 30).toFixed(2)}px,0)`);
+  op(contact, Math.min(L.clamp((u - 30) / 4), 1 - L.clamp((u - T_INT - 4) / 6)));
+  tf(track, `rotate(${courseAng.toFixed(3)}deg) scaleX(${(s / CL).toFixed(4)})`);
+  op(track, 0.9 * Math.min(L.clamp((u - 30) / 4), 1 - L.clamp((u - 200) / 5)));
+  op(projected, 0.8 * Math.min(L.clamp((u - 36) / 6), 1 - L.clamp((u - T_INT) / 4)));
+  const pu = (u - T_INT) / 3.5;
+  if (pu >= 0 && pu <= 2) { const f = pu % 1; tf(pulse, `scale(${(0.4 + 1.4 * f).toFixed(3)})`); op(pulse, 1 - f); } else op(pulse, 0);
+  // Task Force 3: out to meet it, then home
+  const go = easeIn(u, 130, T_INT - 130 - 3), back = easeIn(u, 205, 50), m = go * (1 - back);
+  const tx = L.mix(T3HOME[0], T3INT[0], m), ty = L.mix(T3HOME[1], T3INT[1], m);
+  const out = Math.atan2(T3INT[1] - T3HOME[1], T3INT[0] - T3HOME[0]) * 180 / Math.PI;
+  place(tf3, tx, ty, out + 180 * easeIn(u, 201, 3) * (1 - easeIn(u, 256, 3)));
+  tf3._r = Math.hypot(tx - CX, ty - CY);
+  // the platforms' shields: up in the Tracking phase, one after another; down after the stand-down
+  bars.forEach((b, i) => {
+    const up = easeIn(u, 84 + 2 * i, 4), dn = easeIn(u, 210 + 2 * i, 4);
+    b.lvl = STANDBY + (1 - STANDBY) * up * (1 - dn);
+    tf(b.f, `scaleY(${b.lvl.toFixed(4)})`);
+  });
+});
+
+// readings, a few times a second
+const PICK_STATE = (u, k) => {                               // which pickets follow the contact
+  if (u < 32 || u > T_INT + 4) return "Clear";
+  if (k === 2 || k === 3) return "Tracking";
+  if ((k === 1 || k === 4) && u < 130) return "Relay";
+  return "Clear";
+};
+L.every(250, (t) => {
+  const E = E0 + t, k = Math.floor(E / CYCLE), u = E - k * CYCLE, ph = phaseAt(u), n = exNo(k);
+  const sd = stardate().toFixed(1);
+  const st = ph === 0 ? 0 : ph === 5 ? 2 : 1;
+  L.set(stateTxt, STATES[st][0]); fg(stateTxt, STATES[st][1]);
+  L.set(subTxt, subFor(ph === 0 ? exNo(k) : n, sd));
+  L.set(pill, ph === 0 ? "Condition Green" : `Exercise  ·  ${PH[ph][0]}`);
+  bg(pill, ph === 0 ? "sky" : ph === 5 ? "ice" : "butter");
+  // phases
+  L.set(phCap, ph === 0 ? `Exercise ${n}  ·  Begins in ${mmss(30 - u + 0.999)}` : `Exercise ${n}  ·  Approach from Wolf 359`);
+  fg(phCap, ph === 0 ? "sky" : "butter");
+  L.set(phRight, `Cycle ${mmss(u)} / ${mmss(CYCLE)}`);
+  phases.forEach((p, i) => {
+    const a = PH0[i + 1], e = L.clamp(u - a, 0, p.dur), done = u >= a + p.dur, on = u >= a && !done;
+    tf(p.f, `scaleX(${(e / p.dur).toFixed(4)})`);
+    L.set(p.cnt, `${mmss(e)} / ${mmss(p.dur)}`);
+    const r = done ? "Complete" : on ? "Under Way" : "Pending";
+    L.set(p.res, r); fg(p.res, done ? "sky" : on ? "butter" : "#4e5d6c");
+  });
+  // the fleet
+  frows.forEach((f) => {
+    let r, s, c = "sky";
+    if (f.tfn === 1) { r = 1.0; s = "On Station"; }
+    else if (f.tfn === 2) { r = 1.52; s = "Patrol"; }
+    else {
+      r = fromR(tf3._r || AU(5.2));
+      if (u >= 130 && u < 200) { s = "Intercept"; c = "butter"; }
+      else if (u >= 200 && u < 255) { s = "Returning"; c = "ice"; }
+      else s = "On Station";
+    }
+    L.set(f.range, `${r.toFixed(1)} AU`);
+    L.set(f.status, s); fg(f.status, c);
+  });
+  // shields
+  const raised = bars.filter((b) => b.lvl > 0.995).length;
+  const moving = bars.some((b) => b.lvl > STANDBY + 0.002 && b.lvl < 0.995), rising = u < 150;
+  L.set(shieldCap, raised ? `Shields Raised  ${raised} / 12` : moving ? (rising ? "Shields Raising" : "Shields Lowering") : "Shields at Standby  ·  30%");
+  fg(shieldCap, raised || moving ? "mars" : "sky");
+  // pickets
+  let tracking = 0;
+  tiles.forEach((b, i) => {
+    const s = PICK_STATE(u, i);
+    if (s === "Tracking") tracking++;
+    L.set(b, s);
+    const c = s === "Tracking" ? "butter" : s === "Relay" ? "ice" : "sky";
+    bg(b, c); fillOf(PICK[i].e, c);
+  });
+  L.set(pickCap, tracking ? `${tracking} Tracking  ·  Bearing 056` : "All Clear");
+  fg(pickCap, tracking ? "butter" : "sky");
+  // the history's last line is this exercise
+  L.set(histNow[0], sd);
+  L.set(histNow[1], ph === 0 ? `Exercise ${n}  ·  Standby` : `Exercise ${n}  ·  ${PH[ph][0]}`);
+}, 0);
+
+// ---------------- a guard: every line fits its place ----------------
+fits(subFor(888, "47782.7"), 38, RX1 - PILLW - 60 - subX, "subtitle");
+for (const n of [100, 888]) {
+  const x1 = subX + L.textWidth(subFor(n, "47782.7"), 38);
+  for (const e of [MX1, RX0]) if (Math.abs(e - x1) <= 124) bad.push(`subtitle end ${Math.round(x1)} near ${e}`);
+}
+fits("Exercise  ·  Stand Down", 36, PILLW - 70, "pill");
+fits("Exercise 888  ·  Approach from Wolf 359", 36, AX1 - RX0 - L.textWidth("Cycle 00:00 / 00:00", 36) - 48, "phase caption");
+fits("Shields at Standby  ·  30%", 36, AX1 - RX0 - L.textWidth("Utopia Planitia  ·  12 Platforms", 36) - 48, "shield caption");
+fits("2 Tracking  ·  Bearing 056", 36, RX1 - BX0 - L.textWidth("16 Pickets  ·  50 AU", 36) - 48, "picket caption");
+fits("Tracking", 32, TW - 40, "tile");
+if (bad.length) setTimeout(() => { throw new Error("starbase-defence: " + bad.join(" | ")); });
+});
+</script></body></html>

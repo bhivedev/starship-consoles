@@ -1,0 +1,528 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Cargo Bay</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* a container on the bay plan: a block in its category's color, its id printed on it */
+  .crate { border-radius: 10px; display: flex; align-items: center; justify-content: center; color: #000;
+           font-size: 30px; line-height: 1; padding-top: 2px; }
+  /* the anti-grav sled: a cradle drawn round whatever it carries */
+  .sled { border: 5px solid var(--white); border-radius: 16px; background: rgba(242,242,255,.07); z-index: 3; }
+  /* a stasis field round a block of slots */
+  .zone { border: 3px solid var(--ice); border-radius: 12px; }
+  .clip { overflow: hidden; z-index: 4; }
+  .spark { background:
+      radial-gradient(circle, rgba(242,242,255,.95) 0 3px, transparent 4px) 0 0 / 34px 34px,
+      radial-gradient(circle, rgba(143,211,255,.85) 0 2px, transparent 3px) 17px 17px / 34px 34px,
+      linear-gradient(180deg, rgba(143,211,255,.06), rgba(143,211,255,.30) 50%, rgba(143,211,255,.06)); }
+  .cell { transition: opacity .8s ease; }
+  .tot { transition: transform 1.2s ease; }
+  .pill { transition: background-color 1s ease; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: sidebar on the left, title at top right ----------------
+const BAR = 64;
+L.title({ x: 3700, y: 40, h: BAR, c: "tan", txt: "Cargo Bay 4  •  Inventory Control" });
+// (L.title measures with a canvas, which sets this line ~11px wider than the page draws it; use the page's own width)
+const titleLeft = 3700 - document.querySelector("[data-title]").offsetWidth;
+L.box({ x: 3724, y: 40, w: 92, h: BAR, c: "gold", r: "r" });
+L.elbow({ corner: "tl", x: 40, y: 40, w: 1360, h: 250, bw: 240, bh: BAR, R: 150, r: 60, c: "tan" });
+L.rect({ x: 1400 + L.GAP, y: 40, w: 300, h: BAR, c: "gold" });
+L.rect({ x: 1724 + L.GAP, y: 40, w: titleLeft - L.GAP - (1724 + L.GAP), h: BAR, c: "tan" });
+[[298, 140, "tan", "CB 04"], [446, 70, "gold", "Deck 22"], [524, 420, "sand", "Bay Plan"], [952, 70, "olive", "Stasis"],
+ [1030, 300, "tan", "Manifest"], [1338, 70, "gold", "Queue"], [1416, 216, "sand", "Transport"]]
+  .forEach(([y, h, c, label]) => L.box({ x: 40, y, w: 240, h, c, label }));
+L.elbow({ corner: "bl", x: 40, y: 1640, w: 1500, h: 480, bw: 240, bh: BAR, R: 150, r: 60, c: "gold" });
+L.text({ x: 258, base: 1712, s: 40, c: "#000", txt: "Inventory", align: "r", on: true });
+[[1540 + L.GAP, 600, "tan"], [2164 + L.GAP, 900, "olive"], [3088 + L.GAP, 3700 - (3088 + L.GAP), "sand"]]
+  .forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
+L.box({ x: 3724, y: 2056, w: 92, h: BAR, c: "gold", r: "r" });
+
+const header = (x, y, w, label, c1, c2, h = 56, fs = 32) => {
+  const lw = Math.round((L.textWidth(label, fs) + 64) / 10) * 10;
+  L.box({ x, y, w: lw, h, c: c1, label, fs, r: "l" });
+  L.rect({ x: x + lw + L.GAP, y, w: w - lw - L.GAP, h, c: c2 });
+};
+const fill = (x, y, w, h, c, origin = "0 0", cls = "") => {
+  const f = L.layer({ x, y, w, h, cls });
+  f.style.background = c.startsWith("#") ? c : `var(--${c})`; f.style.transformOrigin = origin;
+  return f;
+};
+// write only what changed: an unchanged reading costs nothing
+const put = (e, txt) => { txt = String(txt); if (e.textContent !== txt) e.textContent = txt; };
+const css = (e, k, v) => { if (e.style[k] !== v) e.style[k] = v; };
+const smooth = (k) => k * k * k * (k * (k * 6 - 15) + 10);
+const pad2 = (n) => String(n).padStart(2, "0");
+const mss = (s) => { s = Math.max(0, Math.ceil(s)); return `${Math.floor(s / 60)}:${pad2(s % 60)}`; };
+const fmt = (n) => n.toLocaleString("en");
+const V = (c) => `var(--${c})`;
+
+// columns: left 330–2380, right 2440–3816; the bottom strip splits the left at 1290 | 1350
+const C1 = 330, C1R = 2380, C3 = 2440, C3R = 3816, MID = 1290, C2 = 1350;
+
+// ---------------- what the bay holds ----------------
+const CATS = {
+  med: { name: "Medical Supplies", code: "MED", c: "sky", tint: "#0f2340", stasis: true, mass: [180, 620],
+    items: [["Hyronalin  ·  400 Doses", "Stasis"], ["Inaprovaline  ·  600 Doses", "Stasis"], ["Tricordrazine  ·  250 Doses", "Stasis"],
+            ["Plasma Infusion Units", "Stasis"], ["Anti-Radiation Serum", "Stasis"], ["Dermal Regenerators", "Fragile"], ["Kironide Supply", "Stasis"]],
+    from: ["Starbase 133", "Starbase 74", "Deep Space 4", "U.S.S. Hood"],
+    to: [["Sickbay  ·  Deck 12", 0], ["Starbase 133", 2140], ["U.S.S. Hood", 1860]] },
+  dil: { name: "Dilithium", code: "DIL", c: "lilac", tint: "#2b1f36", mass: [420, 1180],
+    items: [["Dilithium Crystals  ·  Grade 1", "Secure"], ["Dilithium Crystals  ·  Grade 2", "Secure"], ["Raw Dilithium Ore", "Secure"],
+            ["Recrystallized Dilithium", "Secure"]],
+    from: ["Coridan", "Starbase 74", "U.S.S. Hood"],
+    to: [["Main Engineering", 0], ["U.S.S. Hood", 1860]] },
+  prv: { name: "Food Stores", code: "PRV", c: "olive", tint: "#26240e", stasis: true, mass: [300, 980],
+    items: [["Emergency Rations", "Stasis"], ["Relief Grain", "Stasis"], ["Protein Concentrate", "Stasis"], ["Fresh Produce", "Stasis"],
+            ["Replicator Base Stock", "Standard"], ["Seed Stock", "Stasis"]],
+    from: ["Starbase 133", "Ogus II", "Hydroponics  ·  Deck 24", "Starbase 211"],
+    to: [["Ten Forward", 0], ["Starbase 133", 2140], ["U.S.S. Hood", 1860]] },
+  sci: { name: "Scientific Equipment", code: "SCI", c: "butter", tint: "#2e2710", mass: [120, 760],
+    items: [["Subspace Field Monitors", "Fragile"], ["Geological Survey Kit", "Fragile"], ["Isolinear Chip Stock", "Fragile"],
+            ["Spectrometer Array", "Fragile"], ["Class 1 Sensor Probe", "Fragile"], ["Tricorder Components", "Standard"], ["Atmospheric Samplers", "Fragile"]],
+    from: ["Daystrom Institute", "Starbase 74", "Science Lab 4", "Velara III"],
+    to: [["Science Lab 4", 0], ["Stellar Cartography", 0], ["Starbase 133", 2140]] },
+  haz: { name: "Hazardous Materials", code: "HAZ", c: "mars", tint: "#36170f", mass: [200, 900],
+    items: [["Liquid Plasma Coolant", "Hazmat 3"], ["Trilithium Resin", "Hazmat 5"], ["Industrial Solvents", "Hazmat 2"],
+            ["Medical Radioisotopes", "Hazmat 4"], ["Deuterium Slush", "Hazmat 3"]],
+    from: ["Starbase 133", "Main Engineering", "Starbase 211"],
+    to: [["Starbase 133", 2140], ["Main Engineering", 0]] },
+  per: { name: "Personal Effects", code: "PER", c: "peach", tint: "#36261a", mass: [60, 340],
+    items: [["Crew Effects  ·  Deck 8", "Standard"], ["Diplomatic Baggage", "Standard"], ["Musical Instruments", "Fragile"],
+            ["Crew Effects  ·  Deck 15", "Standard"], ["Archaeological Finds", "Fragile"], ["Diplomatic Gifts", "Fragile"]],
+    from: ["Starbase 133", "U.S.S. Hood", "Starbase 74", "Deep Space 4"],
+    to: [["Starbase 133", 2140], ["U.S.S. Hood", 1860], ["Guest Quarters  ·  Deck 8", 0]] },
+};
+const ORDER = ["med", "dil", "prv", "sci", "haz", "per"];
+const HANDC = { Stasis: "ice", Secure: "lilac", Fragile: "butter", Standard: "sand", "Hazmat 2": "mars", "Hazmat 3": "mars", "Hazmat 4": "mars", "Hazmat 5": "mars" };
+const used = new Set();
+const newId = (code) => { let id; do id = `${code}-${L.irand(1, 9)}${L.irand(0, 9)}${L.irand(0, 9)}${L.irand(0, 9)}`; while (used.has(id)); used.add(id); return id; };
+const makeContainer = (k, origin) => {
+  const cat = CATS[k];                                                    // the next of its kind, so no two rows match
+  cat.n = cat.n === undefined ? L.irand(0, cat.items.length - 1) : (cat.n + 1) % cat.items.length;
+  const [item, hand] = cat.items[cat.n];
+  return { id: newId(cat.code), k, cat, item, hand, origin: origin || L.pick(cat.from), dest: "Ship's Stores",
+           mass: Math.round(L.rand(...cat.mass) / 10) * 10, slot: null, e: null, status: "Stowed" };
+};
+
+// ---------------- status line ----------------
+const STATES = ["Standing By", "Materializing", "Stowing", "Retrieving", "Dematerializing"];
+const STATE_W = Math.max(...STATES.map((s) => L.textWidth(s, 100)));
+const state = L.text({ x: C1, cap: 150, s: 100, c: "tan", txt: "Standing By" });
+const sub = L.text({ x: C1 + Math.ceil(STATE_W / 10) * 10 + 60, base: 222, s: 38, c: "peach", txt: "" });
+const pill = L.box({ x: C3R - 420, y: 150, w: 420, h: 72, c: "sky", label: "Stasis Fields Holding", r: "lr", fs: 36, cls: "pill" });
+
+// ---------------- the bay plan ----------------
+header(C1, 280, C1R - C1, "Cargo Bay 4  ·  Deck 22", "tan", "sand");
+// the walls: an open bracket of two elbows, and the aft wall with the doors to the cargo lift
+const PT = 368, PH = 296, ARM = 28;
+L.elbow({ corner: "tl", x: C1, y: PT, w: C1R - C1, h: PH, bw: 40, bh: ARM, R: 64, r: 22, c: "tan" });
+L.elbow({ corner: "bl", x: C1, y: PT + PH, w: C1R - C1, h: PH, bw: 40, bh: ARM, R: 64, r: 22, c: "tan" });
+L.rect({ x: C1, y: PT + PH - 40, w: 40, h: 80, c: "tan", free: true });      // the two walls meet without a seam
+const FX = C1 + 40, FY = PT + ARM, FR = C1R - ARM, FB = PT + 2 * PH - ARM;    // the floor: 370–2352, 396–932
+const MIDY = (FY + FB) / 2;                                                   // 664
+L.rect({ x: FX, y: FY, w: FR - FX, h: FB - FY, c: "#17120b", panel: true, noalign: true });
+L.rect({ x: FR, y: FY, w: ARM, h: MIDY - 104 - L.GAP - FY, c: "tan" });
+L.rect({ x: FR, y: MIDY - 104, w: ARM, h: 208, c: "orange" });               // the lift doors
+L.rect({ x: FR, y: MIDY + 104 + L.GAP, w: ARM, h: FB - (MIDY + 104 + L.GAP), c: "tan" });
+
+// four rows of seven slots; an aisle between A and B, another between C and D
+const ROWS = [{ k: "A", y: 412, aisle: 534, a: 1 }, { k: "B", y: 572, aisle: 534, a: 1 },
+              { k: "C", y: 672, aisle: 794, a: 2 }, { k: "D", y: 832, aisle: 794, a: 2 }];
+const ZONE = ["med med med med sci sci sci", "prv prv prv prv prv sci sci", "prv prv per per per per per", "dil dil dil haz haz haz haz"]
+  .map((r) => r.split(" "));
+const SX = 818, SP = 216, SW = 196, SH = 84, CW = 176, CH = 60;
+const PAD = [504, MIDY], HOME = [708, MIDY], CX = HOME[0];               // the sled parks 8px clear of pad and slots
+const deco = L.svg("g", { class: "boot" });
+// aisle markings, and the cross aisle from the transporter pad
+for (const ay of [534, 794]) for (let x = SX; x < SX + 7 * SP - 20; x += 64) L.svg("rect", { x, y: ay - 2, width: 32, height: 4, fill: "#3a2f1c" }, deco);
+for (let y = 424; y < 912; y += 64) if (Math.abs(y + 16 - MIDY) > 60) L.svg("rect", { x: CX - 2, y, width: 4, height: 32, fill: "#3a2f1c" }, deco);
+const slots = [];
+ROWS.forEach((row, ri) => {
+  for (let col = 0; col < 7; col++) {
+    const k = ZONE[ri][col], x = SX + col * SP;
+    L.rect({ x, y: row.y, w: SW, h: SH, c: CATS[k].tint, panel: true });
+    const id = row.k + (col + 1);
+    L.text({ x: x + 20, base: row.y + 55, s: 36, c: CATS[k].c, txt: id });
+    slots.push({ id, row, col, k, x, y: row.y, cx: x + SW / 2, cy: row.y + SH / 2, c: null, plan: null });
+  }
+});
+const slotBy = (id) => slots.find((s) => s.id === id);
+// the cargo transporter pad
+L.rect({ x: PAD[0] - 100, y: MIDY - 100, w: 200, h: 200, c: "#2a2114", panel: true });
+const emitters = L.svg("g", { class: "boot" });                          // drawn over the pad
+for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) L.svg("circle", { cx: PAD[0] + i * 60, cy: MIDY + j * 60, r: 20, fill: "#4a3b22" }, emitters);
+L.text({ x: PAD[0] - 100, base: 467, s: 36, c: "tan", txt: "Cargo Transporter" });
+const padState = L.text({ x: PAD[0] - 100, base: 887, s: 36, c: "sand", txt: "Standby" });
+// the stasis fields: round the medical block and the two blocks of food stores
+const ZONES = [["A1", "A4"], ["B1", "B5"], ["C1", "C2"]].map(([a, b]) => {
+  const s0 = slotBy(a), s1 = slotBy(b);
+  const e = L.layer({ x: s0.x - 6, y: s0.y - 4, w: s1.x + SW - s0.x + 12, h: SH + 8, cls: "zone" });
+  return { e, from: a, to: b, open: false, k: 1, name: `${a} – ${b}`, slots: slots.filter((s) => s.row === s0.row && s.col >= s0.col && s.col <= s1.col) };
+});
+const zoneOf = (slot) => ZONES.find((z) => z.slots.includes(slot));
+// the transporter's shimmer over the pad
+const sparkBox = L.layer({ x: PAD[0] - 100, y: MIDY - 100, w: 200, h: 200, cls: "clip" });
+const spark = L.layer({ x: 0, y: 0, w: 200, h: 268, cls: "spark" }, sparkBox);
+sparkBox.style.opacity = 0;
+// the sled
+const sled = { e: L.layer({ x: 0, y: 0, w: 192, h: 72, cls: "sled boot" }), x: HOME[0], y: HOME[1], legs: [], cargo: null, v: 0 };
+const placeCrate = (c, x, y) => L.move(c.e, x - CW / 2, y - CH / 2);
+const placeSled = (x, y) => { sled.x = x; sled.y = y; L.move(sled.e, x - 96, y - 36); if (sled.cargo) placeCrate(sled.cargo, x, y); };
+const crate = (c, boot) => {
+  c.e = L.layer({ x: 0, y: 0, w: CW, h: CH, cls: "crate" + (boot ? " boot" : "") });
+  c.e.style.background = V(c.cat.c); c.e.textContent = c.id;
+  sled.e.parentNode.appendChild(sled.e);                                  // the sled stays in front
+};
+placeSled(...HOME);
+
+// ---------------- capacity by category ----------------
+header(C3, 280, C3R - C3, "Capacity by Category", "gold", "tan");
+const KX = C3 + 340 + L.GAP, KW = 72, KG = 12, KR = KX + 7 * KW + 6 * KG;   // the cells: 2804–3380
+const CAPROW = (i) => PT + i * 88;
+ORDER.forEach((k, i) => {
+  const cat = CATS[k], y = CAPROW(i);
+  cat.slots = slots.filter((s) => s.k === k);
+  L.box({ x: C3, y, w: 340, h: 64, c: cat.c, label: cat.name, fs: 30, r: "l" });
+  cat.cells = Array.from({ length: 7 }, (_, j) => {
+    L.rect({ x: KX + j * (KW + KG), y, w: KW, h: 64, c: j < cat.slots.length ? cat.tint : "#100d08" });
+    if (j >= cat.slots.length) return null;
+    const f = fill(KX + j * (KW + KG), y, KW, 64, cat.c, "0 0", "cell");
+    f.style.opacity = 0;
+    return f;
+  });
+  cat.count = L.text({ x: 3580, base: y + 50, s: 52, c: "white", txt: "", align: "r" });
+  cat.tons = L.text({ x: C3R, base: y + 50, s: 52, c: cat.c, txt: "", align: "r" });
+});
+const TY = CAPROW(6);
+L.box({ x: C3, y: TY, w: 340, h: 64, c: "tan", label: "All Cargo  ·  28 Slots", fs: 30, r: "l" });
+L.rect({ x: KX, y: TY, w: KR - KX, h: 64, c: "#2a2114" });
+const totBar = fill(KX, TY, KR - KX, 64, "tan", "0 0", "tot");
+totBar.style.transform = "scaleX(0)";
+const totCount = L.text({ x: 3580, base: TY + 50, s: 52, c: "white", txt: "", align: "r" });
+const totTons = L.text({ x: C3R, base: TY + 50, s: 52, c: "tan", txt: "", align: "r" });
+const showCapacity = () => {
+  let n = 0, m = 0;
+  ORDER.forEach((k) => {
+    const cat = CATS[k];
+    let cn = 0, cm = 0;
+    cat.slots.forEach((s, j) => { const on = !!s.c; css(cat.cells[j], "opacity", on ? "1" : "0"); if (on) { cn++; cm += s.c.mass; } });
+    put(cat.count, `${cn} of ${cat.slots.length}`); put(cat.tons, `${(cm / 1000).toFixed(1)} t`);
+    n += cn; m += cm;
+  });
+  put(totCount, `${n} of ${slots.length}`); put(totTons, `${(m / 1000).toFixed(1)} t`);
+  css(totBar, "transform", `scaleX(${(n / slots.length).toFixed(4)})`);
+};
+
+// ---------------- the manifest: what has moved lately, and what is waiting to ----------------
+header(C1, 1000, C1R - C1, "Cargo Manifest", "sand", "tan");
+const MC = { item: 590, from: 1080, to: 1380, mass: 1880, hand: 1940, slot: 2150 };
+const HB = 1110, RB = 1172, RP = 62;
+[["Container", C1], ["Contents", MC.item], ["Origin", MC.from], ["Destination", MC.to], ["Handling", MC.hand], ["Slot", MC.slot]]
+  .forEach(([h, x]) => L.text({ x, base: HB, s: 36, c: "tan", txt: h }));
+L.text({ x: MC.mass, base: HB, s: 36, c: "tan", txt: "Mass kg", align: "r" });
+L.text({ x: C1R, base: HB, s: 36, c: "tan", txt: "Status", align: "r" });
+const mrows = Array.from({ length: 7 }, (_, i) => {
+  const base = RB + i * RP, t = (x, c, align) => L.text({ x, base, s: 40, c, txt: "", align });
+  return { box: L.box({ x: C1, y: base - 41, w: 230, h: 52, c: "slate", label: "", fs: 30, r: "l" }),
+           item: t(MC.item, "white"), from: t(MC.from, "sand"), to: t(MC.to, "sand"), mass: t(MC.mass, "white", "r"),
+           hand: t(MC.hand, "sand"), slot: t(MC.slot, "tan"), st: t(C1R, "white", "r") };
+});
+const STC = { Stowed: "tan", "Queued Out": "peach", Materializing: "ice", "On Sled": "white", Dematerializing: "ice", Transferred: "slate" };
+const recent = [];
+const showManifest = () => mrows.forEach((r, i) => {
+  const c = recent[i];
+  put(r.box, c ? c.id : ""); css(r.box, "background", c ? V(c.status === "Transferred" ? "slate" : c.cat.c) : V("slate"));
+  put(r.item, c ? c.item : ""); put(r.from, c ? c.origin : ""); put(r.to, c ? c.dest : ""); put(r.mass, c ? fmt(c.mass) : "");
+  put(r.hand, c ? c.hand : ""); css(r.hand, "color", c ? V(HANDC[c.hand]) : "");
+  put(r.slot, c ? (c.slot ? c.slot.id : "—") : ""); put(r.st, c ? c.status : ""); css(r.st, "color", c ? V(STC[c.status]) : "");
+});
+const touch = (c, status) => {
+  if (status) c.status = status;
+  const i = recent.indexOf(c); if (i >= 0) recent.splice(i, 1);
+  recent.unshift(c); if (recent.length > 7) recent.pop();
+  showManifest();
+};
+
+// ---------------- the transfer queue ----------------
+header(C3, 1000, C3R - C3, "Transfer Queue", "sky", "ice");
+const QC = { id: 2690, cat: 2850, place: 3150, range: 3640 };
+[["Transfer", C3], ["Container", QC.id], ["Contents", QC.cat], ["To  ·  From", QC.place]].forEach(([h, x]) => L.text({ x, base: HB, s: 36, c: "sky", txt: h }));
+L.text({ x: QC.range, base: HB, s: 36, c: "sky", txt: "Range", align: "r" });
+L.text({ x: C3R, base: HB, s: 36, c: "sky", txt: "Start", align: "r" });
+const qrows = Array.from({ length: 7 }, (_, i) => {
+  const base = RB + i * RP, t = (x, c, align) => L.text({ x, base, s: 40, c, txt: "", align });
+  return { box: L.box({ x: C3, y: base - 41, w: 220, h: 52, c: "sky", label: "", fs: 30, r: "l", cls: "pill" }),
+           id: t(QC.id, "white"), cat: t(QC.cat, "white"), place: t(QC.place, "sand"), range: t(QC.range, "tan", "r"), eta: t(C3R, "white", "r") };
+});
+
+// ---------------- bay environment ----------------
+header(C1, 1620, MID - C1, "Bay Environment", "tan", "olive", 48, 28);
+const EV = 700, EB = 860, EBW = MID - EB;
+const ENV = [["Temperature", "°C", "tan"], ["Humidity", "%", "sand"], ["Pressure", "kPa", "sand"], ["Stasis Field", "%", "ice"], ["Stasis Zones", ""], ["Gravity", "g", "sand"]]
+  .map(([k, u, c], i) => {
+    const base = 1734 + i * 54;
+    L.text({ x: C1, base, s: 36, c: "tan", txt: k });
+    if (u) L.text({ x: EV + 20, base, s: 36, c: "sand", txt: u });
+    const r = { v: L.text({ x: EV, base, s: 44, c: "white", txt: "", align: "r" }), base };
+    if (c) {
+      L.rect({ x: EB, y: base - 24, w: EBW, h: 20, c: "#2a2114" });
+      r.bar = fill(EB, base - 24, EBW, 20, c); r.bar.style.transform = "scaleX(0)";
+    }
+    return r;
+  });
+const LAMP_GAP = 12;
+ZONES.forEach((z, k) => {
+  const w = (EBW - 2 * LAMP_GAP) / 3;
+  z.lamp = L.box({ x: EB + k * (w + LAMP_GAP), y: ENV[4].base - 33, w, h: 40, c: "ice", label: z.name, fs: 26, cls: "pill" });
+});
+
+// ---------------- the cargo transporter and the sled ----------------
+header(C2, 1620, C1R - C2, "Cargo Transporter  ·  Sled AG-1", "peach", "orange", 48, 28);
+const TV = 1800, TB = 1940, TBW = C1R - TB;
+const TR = [["Pattern Lock", "%", "ice"], ["Confinement", "%", "sky"], ["Sled Load", "kg", "peach"], ["Lift Field", "%", "orange"], ["Velocity", "m/s", "peach"], ["Sled Position", ""]]
+  .map(([k, u, c], i) => {
+    const base = 1734 + i * 54;
+    L.text({ x: C2, base, s: 36, c: "peach", txt: k });
+    if (u) L.text({ x: TV + 20, base, s: 36, c: "orange", txt: u });
+    const r = { v: L.text({ x: TV, base, s: i < 5 ? 44 : 40, c: "white", txt: "", align: "r" }), base };
+    if (c) {
+      L.rect({ x: TB, y: base - 24, w: TBW, h: 20, c: "#2a2114" });
+      r.bar = fill(TB, base - 24, TBW, 20, c); r.bar.style.transform = "scaleX(0)";
+    }
+    return r;
+  });
+const POS = ["Pad", "Aisle 1", "Aisle 2", "Slot"].map((k, i) => {
+  const w = (TBW - 3 * LAMP_GAP) / 4;
+  return L.box({ x: TB + i * (w + LAMP_GAP), y: TR[5].base - 33, w, h: 40, c: "slate", label: k, fs: 26, cls: "pill" });
+});
+
+// ---------------- the cargo log ----------------
+header(C3, 1620, C3R - C3, "Cargo Log", "olive", "sand", 48, 28);
+const logRows = Array.from({ length: 6 }, (_, i) => {
+  const base = 1734 + i * 54;
+  return { sd: L.text({ x: C3, base, s: 36, c: "gold", txt: "" }), tx: L.text({ x: C3 + 170, base, s: 36, c: "sand", txt: "" }),
+           sys: L.text({ x: C3R, base, s: 36, c: "tan", txt: "", align: "r" }) };
+});
+let sd = 47790.4;
+const logged = [];
+const log = (txt, sys) => {
+  logged.push([sd.toFixed(1), txt, sys]); if (logged.length > 6) logged.shift();
+  logRows.forEach((r, i) => { const e = logged[i] || ["", "", ""]; put(r.sd, e[0]); put(r.tx, e[1]); put(r.sys, e[2]); });
+};
+
+// ---------------- the bay as it stands ----------------
+// about three in four slots full; never fewer than two of a kind to send out
+slots.forEach((s) => { if (Math.random() < 0.72) { const c = makeContainer(s.k); c.slot = s; s.c = s.plan = c; crate(c, true); placeCrate(c, s.cx, s.cy); } });
+ORDER.forEach((k) => {
+  const free = CATS[k].slots.filter((s) => !s.c);
+  while (CATS[k].slots.length - free.length < 2) { const s = free.splice(L.irand(0, free.length - 1), 1)[0]; const c = makeContainer(k); c.slot = s; s.c = s.plan = c; crate(c, true); placeCrate(c, s.cx, s.cy); }
+});
+const planned = () => slots.filter((s) => s.plan).length;
+
+// ---------------- the transfer queue: planned ahead, so no slot is promised twice ----------------
+let opN = 418, lastDir = "in";
+const queue = [];
+const plan = () => {
+  const P = planned();
+  let dir = P >= 23 ? "out" : P <= 17 ? "in" : lastDir === "in" ? "out" : "in";
+  if (dir === "in") {
+    const ks = ORDER.filter((k) => CATS[k].slots.some((s) => !s.plan) && !queue.some((q) => q.dir === "in" && q.c.k === k));
+    if (!ks.length) dir = "out";
+    else {
+      const k = L.pick(ks), [place, rng] = L.pick(CATS[k].to);          // beamed aboard from within range
+      const c = makeContainer(k, place), s = L.pick(CATS[k].slots.filter((s) => !s.plan));
+      s.plan = c; c.slot = s; c.status = "Inbound";
+      queue.push({ dir, c, slot: s, place, range: rng, n: opN++ });
+    }
+  }
+  if (dir === "out") {
+    const cs = slots.filter((s) => s.plan && s.plan === s.c && !s.c.queued).map((s) => s.c)
+      .filter((c) => CATS[c.k].slots.filter((s) => s.plan).length >= 2);
+    const c = L.pick(cs), [place, range] = L.pick(CATS[c.k].to);
+    c.queued = true; c.dest = place; c.status = "Queued Out"; c.slot.plan = null;
+    queue.push({ dir, c, slot: c.slot, place, range, n: opN++ });
+  }
+  lastDir = dir;
+};
+while (queue.length < 7) plan();
+// the manifest opens on what is waiting to go out, then whatever was stowed last
+queue.filter((q) => q.dir === "out").reverse().forEach((q) => touch(q.c));
+slots.filter((s) => s.c && !s.c.queued).slice(0, 7).forEach((s) => { if (recent.length < 7) recent.push(s.c); });
+showManifest();
+showCapacity();
+
+// the log, as the last watch left it
+sd -= 0.6;
+[["DIL-4417  ·  materialized  ·  from U.S.S. Hood", "Transporter"], ["DIL-4417  ·  stowed  ·  D2", "Sled AG-1"],
+ ["Stasis field cycled  ·  B1 – B5", "Stasis"], ["PER-2208  ·  retrieved from C5", "Sled AG-1"],
+ ["PER-2208  ·  to U.S.S. Hood  ·  1,860 km", "Transporter"], ["Inventory scan complete  ·  no discrepancies", "Inventory"]]
+  .forEach(([e, y], i) => { if (i % 2) sd += 0.1; log(e, y); });
+
+// ---------------- the operation: timed events and the sled's routes ----------------
+const events = [];
+const at = (t, f) => { events.push({ t, f }); events.sort((a, b) => a.t - b.t); };
+const route = (pts, t0, gap = 0.25) => {
+  let t = t0;
+  for (let i = 1; i < pts.length; i++) {
+    const [x0, y0] = pts[i - 1], [x1, y1] = pts[i], len = Math.hypot(x1 - x0, y1 - y0);
+    if (len < 1) continue;
+    const dur = 0.55 + len / 430;
+    sled.legs.push({ t0: t, dur, x0, y0, x1, y1 });
+    t += dur + gap;
+  }
+  return t - gap;
+};
+let op = null, phase = "Standing By", beam = { t0: -99, t1: -98, out: false }, fades = [];
+const fade = (c, t0, t1, a, b) => fades.push({ c, t0, t1, a, b });
+const setZone = (slot, open) => { const z = zoneOf(slot); if (z) z.open = open; };
+const AVG = 30;                                                            // seconds an operation takes, near enough
+
+const startOp = (T) => {
+  const q = queue.shift(); plan();
+  const c = q.c, s = q.slot, ay = s.row.aisle, A = [CX, ay], B = [s.cx, ay], S = [s.cx, s.cy];
+  op = { q, T, end: T + AVG };
+  sd += 0.1;
+  if (q.dir === "in") {
+    phase = "Materializing";
+    const b0 = T + 0.6, b1 = b0 + 3.8;
+    beam = { t0: b0, t1: b1, out: false };
+    crate(c, false); c.e.style.opacity = 0; placeCrate(c, ...PAD);
+    fade(c, b0 + 0.8, b1 - 0.5, 0, 1);
+    c.status = "Materializing"; touch(c);
+    log(`${c.id}  ·  energizing  ·  from ${q.place}`, "Transporter");
+    at(b1, () => { log(`${c.id}  ·  materialized  ·  ${c.item}`, "Transporter"); });
+    const e1 = route([HOME, PAD], b1 + 0.4);
+    at(e1 + 0.15, () => { sled.cargo = c; phase = "Stowing"; c.status = "On Sled"; touch(c); });
+    const e2 = route([PAD, HOME, A, B, S], e1 + 0.6);
+    at(e2 - 2.5, () => setZone(s, true));
+    at(e2 + 0.15, () => { sled.cargo = null; s.c = c; c.status = "Stowed"; touch(c); showCapacity(); log(`${c.id}  ·  stowed  ·  ${s.id}`, "Sled AG-1"); });
+    const e3 = route([S, B, A, HOME], e2 + 0.6);
+    at(e2 + 2.2, () => setZone(s, false));
+    op.end = e3 + 0.8;
+  } else {
+    phase = "Retrieving";
+    touch(c);
+    log(`${c.id}  ·  retrieval from ${s.id}`, "Sled AG-1");
+    at(T + 0.6, () => setZone(s, true));
+    const e1 = route([HOME, A, B, S], T + 0.6);
+    at(e1 + 0.15, () => { sled.cargo = c; s.c = null; c.status = "On Sled"; touch(c); showCapacity(); });
+    at(e1 + 2.4, () => setZone(s, false));
+    const e2 = route([S, B, A, HOME, PAD], e1 + 0.6);
+    at(e2 + 0.15, () => { sled.cargo = null; });
+    const e3 = route([PAD, HOME], e2 + 0.5);
+    const b0 = e3 + 0.3, b1 = b0 + 3.8;
+    at(b0, () => { phase = "Dematerializing"; beam = { t0: b0, t1: b1, out: true }; fade(c, b0 + 0.5, b1 - 0.8, 1, 0);
+                   c.status = "Dematerializing"; touch(c); });
+    at(b1, () => { c.e.remove(); c.slot = null; c.status = "Transferred"; touch(c);
+                   log(`${c.id}  ·  to ${q.place}${q.range ? `  ·  ${fmt(q.range)} km` : ""}`, "Transporter"); });
+    op.end = b1 + 0.6;
+  }
+  at(op.end, () => { op = null; phase = "Standing By"; at(L.t + 2.4, startOp); });
+};
+at(2.2, startOp);
+
+// ---------------- the clock ----------------
+L.tick((t) => {
+  while (events.length && events[0].t <= t) events.shift().f(t);
+  // the sled, leg by leg
+  let v = 0;
+  while (sled.legs.length && t >= sled.legs[0].t0 + sled.legs[0].dur) { const l = sled.legs.shift(); placeSled(l.x1, l.y1); }
+  const l = sled.legs[0];
+  if (l && t >= l.t0) {
+    const u = L.clamp((t - l.t0) / l.dur), k = smooth(u);
+    placeSled(L.mix(l.x0, l.x1, k), L.mix(l.y0, l.y1, k));
+    v = (Math.hypot(l.x1 - l.x0, l.y1 - l.y0) * 30 * u * u * (u * (u - 2) + 1)) / l.dur;   // smooth's slope: 30u²(1-u)²
+  }
+  sled.v = v;
+  // containers fading in and out under the beam
+  fades = fades.filter((f) => {
+    const k = L.clamp((t - f.t0) / (f.t1 - f.t0));
+    css(f.c.e, "opacity", L.mix(f.a, f.b, smooth(k)).toFixed(3));
+    return k < 1;
+  });
+  // the transporter's shimmer
+  const bk = t < beam.t0 || t > beam.t1 ? 0 : Math.min(1, (t - beam.t0) / 0.5, (beam.t1 - t) / 0.6);
+  css(sparkBox, "opacity", (bk * (0.82 + 0.12 * Math.sin(t * 5.3))).toFixed(3));
+  if (bk > 0) L.move(spark, 0, -((t * 40) % 68));
+  // the stasis fields breathe; an open one fades back
+  ZONES.forEach((z, i) => {
+    z.k += ((z.open ? 0 : 1) - z.k) * 0.08;
+    css(z.e, "opacity", (z.k * (0.5 + 0.2 * Math.sin(t * 0.7 + i * 2.1))).toFixed(3));
+  });
+});
+
+// readings, four times a second
+const PXM = 90;                                                           // the plan: 90 px to the metre
+const where = () => {
+  const { x, y } = sled;
+  if (Math.abs(x - HOME[0]) < 2 && Math.abs(y - HOME[1]) < 2) return ["Standby", -1];
+  if (x < CX - 4) return ["Pad", 0];
+  const row = ROWS.find((r) => y >= r.y && y <= r.y + SH && x > SX - 20);
+  if (row) { const col = L.clamp(Math.round((x - SX - SW / 2) / SP), 0, 6); return [row.k + (col + 1), 3]; }
+  if (Math.abs(y - 534) < 40) return [x > CX + 4 ? `Aisle 1  ·  ${Math.round((x - CX) / PXM)} m` : "Aisle 1", 1];
+  if (Math.abs(y - 794) < 40) return [x > CX + 4 ? `Aisle 2  ·  ${Math.round((x - CX) / PXM)} m` : "Aisle 2", 2];
+  return ["Cross Aisle", -1];
+};
+const PILL = { Materializing: ["Transporter Energized", "orange"], Dematerializing: ["Transporter Energized", "orange"],
+  Stowing: ["Sled in Motion", "peach"], Retrieving: ["Sled in Motion", "peach"], "Standing By": ["Stasis Fields Holding", "sky"] };
+L.every(250, (t) => {
+  put(state, phase);
+  const q = op && op.q;
+  put(sub, q ? `Transfer ${q.n}  ·  ${q.c.id}  ·  ${q.c.cat.name}  ·  ${q.dir === "in" ? "from" : "to"} ${q.place}`
+             : `Bay 4  ·  Deck 22 Aft  ·  next transfer  ${queue[0].c.id}  ·  ${queue[0].dir === "in" ? "from" : "to"} ${queue[0].place}`);
+  const [pl, pc] = PILL[phase];
+  put(pill, pl); css(pill, "background", V(pc));
+  // the queue: the transfer under way first, then what is waiting
+  const list = (op ? [op.q] : []).concat(queue).slice(0, 7);
+  let next = op ? op.end + 2.4 : events.length ? events[events.length - 1].t : t;
+  list.forEach((q, i) => {
+    const r = qrows[i], live = op && i === 0;
+    put(r.box, q.dir === "in" ? "Inbound" : "Outbound");
+    css(r.box, "background", V(live ? "orange" : q.dir === "in" ? "sky" : "peach"));
+    put(r.id, q.c.id); css(r.id, "color", V(q.c.cat.c));
+    put(r.cat, q.c.cat.name); put(r.place, q.place);
+    put(r.range, q.range ? `${fmt(q.range)} km` : "Internal");
+    if (live) put(r.eta, "Now");
+    else { put(r.eta, mss(next - t)); next += AVG; }
+    css(r.eta, "color", V(live ? "orange" : "white"));
+  });
+  // the transporter
+  const bk = t < beam.t0 || t > beam.t1 + 0.4 ? 0 : L.clamp((t - beam.t0) / 1.2);
+  const lock = bk ? 99.2 * smooth(L.clamp((t - beam.t0 - 0.4) / 2)) + (bk >= 1 ? 0.7 + 0.08 * Math.sin(t * 3) : 0) : 0;
+  put(TR[0].v, lock.toFixed(1)); css(TR[0].bar, "transform", `scaleX(${(lock / 100).toFixed(3)})`);
+  const conf = bk ? 100 * smooth(bk) : 0;
+  put(TR[1].v, Math.round(conf)); css(TR[1].bar, "transform", `scaleX(${(conf / 100).toFixed(3)})`);
+  put(padState, bk ? (beam.out ? "Dematerializing" : "Materializing") : sled.x < CX - 4 ? "Sled on Pad" : "Standby");
+  css(padState, "color", V(bk ? "ice" : "sand"));
+  // the sled
+  const load = sled.cargo ? sled.cargo.mass : 0;
+  put(TR[2].v, fmt(load)); css(TR[2].bar, "transform", `scaleX(${(load / 1200).toFixed(3)})`);
+  const lift = (sled.cargo ? 34 + 52 * load / 1200 : 12) + 0.6 * Math.sin(t * 1.3);
+  put(TR[3].v, Math.round(lift)); css(TR[3].bar, "transform", `scaleX(${(lift / 100).toFixed(3)})`);
+  const vel = sled.v / PXM;
+  put(TR[4].v, vel.toFixed(1)); css(TR[4].bar, "transform", `scaleX(${L.clamp(vel / 3).toFixed(3)})`);
+  const [pos, lamp] = where();
+  put(TR[5].v, pos);
+  POS.forEach((b, i) => css(b, "background", V(i === lamp ? "peach" : "slate")));
+}, 0);
+
+// the bay's air, once a second: cold, dry, steady
+L.every(1000, (t) => {
+  const temp = 4.0 + 0.15 * Math.sin(t * 0.05), hum = 31 + 1.4 * Math.sin(t * 0.031 + 1), kpa = 101.3 + 0.04 * Math.sin(t * 0.07);
+  const open = ZONES.filter((z) => z.open).length;
+  const field = 99.4 + 0.2 * Math.sin(t * 0.09) - open * 0.9;
+  const g = 1 + 0.002 * Math.sin(t * 0.11);
+  put(ENV[0].v, temp.toFixed(1)); css(ENV[0].bar, "transform", `scaleX(${(temp / 12).toFixed(3)})`);
+  put(ENV[1].v, Math.round(hum)); css(ENV[1].bar, "transform", `scaleX(${(hum / 100).toFixed(3)})`);
+  put(ENV[2].v, kpa.toFixed(1)); css(ENV[2].bar, "transform", `scaleX(${(kpa / 120).toFixed(3)})`);
+  put(ENV[3].v, field.toFixed(1)); css(ENV[3].bar, "transform", `scaleX(${(field / 100).toFixed(3)})`);
+  put(ENV[4].v, `${3 - open} of 3`);
+  ZONES.forEach((z) => css(z.lamp, "background", V(z.open ? "peach" : "ice")));
+  put(ENV[5].v, g.toFixed(2)); css(ENV[5].bar, "transform", `scaleX(${(g / 1.5).toFixed(3)})`);
+}, 0);
+});
+</script></body></html>

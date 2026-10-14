@@ -1,0 +1,539 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Boarding Protocols</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* markers on the deck plan: composited layers that move and fade */
+  .tm { border-radius: 20px; background: var(--sand); color: #000; font-size: 30px; line-height: 40px; text-align: center; }
+  .ix { background: var(--mars); }
+  .ring { border: 4px solid var(--white); border-radius: 14px; }
+  .tag { background: var(--white); color: #000; font-size: 26px; line-height: 32px; text-align: center; border-radius: 16px 0 0 16px; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: a bracket, title centred ----------------
+L.frame({ type: "C", title: "Boarding Protocols  •  Intruder Control", c: "mars", c2: "sand", accent: "red", foot: "Security",
+  side: [[140, "sand", "Security"], [70, "red", "0812"], [420, "mars", "Intruder"], [70, "sand", "B-4"],
+         [300, "red", "Control"], [70, "mars", "24"], [216, "sand", "Decks"]],
+  side2: [[140, "mars", "Protocol"], [70, "sand", "35"], [420, "red", "Fields"], [70, "mars", "36"],
+          [300, "sand", "Teams"], [70, "red", "37"], [216, "mars", "Isolate"]] });
+
+const colr = (c) => (c.startsWith("#") ? c : `var(--${c})`);
+const bg = (e, c) => { if (e._bg !== c) { e._bg = c; e.style.backgroundColor = colr(c); } };
+const ink = (e, c) => { if (e._ink !== c) { e._ink = c; e.style.color = colr(c); } };
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const op = (e, v) => { v = v.toFixed(3); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const paint = (r, c) => { if (r._c !== c) { r._c = c; r.setAttribute("fill", colr(c)); } };
+const grow = (x, y, w, h, c) => {                            // a bar that fills: a composited layer
+  const f = L.layer({ x, y, w, h }); f.style.background = colr(c); f.style.transformOrigin = "0 0"; f.style.transform = "scaleX(0)";
+  return f;
+};
+const DARK = "#2a1913", TRACK = "#2e1c15", ROOM = "#22140f", CORR = "#3d241a", LIFT = "#3a2419", TUBE = "#2f1d15";
+
+// ---------------- the grid ----------------
+// Columns: plan 220–2380 (deck boxes 220–380, plan 404–2380), tables 2440–3620.
+// Right-hand tables on a 60 grid from 460; the bottom strip on 54 from 1734.
+const AX = 220, AR = 2380, CX = 2440, CR = 3620;
+const C2 = 2584, C3 = 2840, GX = 3040, GR = 3340;           // second column, deck column, graphic column
+const ROW = (k) => 460 + k * 60;
+const STRIP = (i) => 1734 + i * 54;
+
+// ---------------- the deck plan ----------------
+// Three decks, one above another; each a corridor between two rows of rooms. Turbolifts and
+// Jefferies tubes run through all three, in the gaps between the rooms.
+const DECKS = [35, 36, 37];
+const PX0 = 404, PX1 = 2380, PT = 440, PB = 1540;
+const SEGW = [338, 337, 338, 337, 338];
+const SEG = [], LX = [];
+{ let x = PX0; SEGW.forEach((w, i) => { SEG.push([x, x + w]); x += w; if (i < 4) { LX.push(x + 36); x += 72; } }); }
+const IS_LIFT = [true, false, true, false];
+const LINK = ["Turbolift 1", "Jefferies Tube 1", "Turbolift 2", "Jefferies Tube 2"];
+const DY = (d) => PT + d * 380, CT = (d) => DY(d) + 140, CB = (d) => DY(d) + 200, CYc = (d) => DY(d) + 170;
+const FFX = (k, side) => LX[k] + side * 56;                  // corridor field emitters either side of each junction
+const SEALY = (d, up) => (up ? CT(d) - 76 : CB(d) + 64);     // tube seals above and below the corridor
+
+// rooms: [top row, bottom row], each a list per section of the rooms in it
+const ROOMS = {
+  35: [[["Quarters", "Quarters"], ["Fabrication Shop"], ["Upper Core Access"], ["Engineering Lab 2"], ["Quarters", "Quarters"]],
+       [["Transporter Room 9"], ["Stores", "Lockers"], ["EPS Control"], ["Science Lab 7"], ["Replicator Shop"]]],
+  36: [[["Chief Engineer"], ["Engineering Office"], ["Main Engineering"], ["Matter Stores"], ["Quarters", "Quarters"]],
+       [["Fabrication Shop"], ["Plasma Conduits"], ["Warp Core"], ["Dilithium Chamber"], ["Cargo Bay 7"]]],
+  37: [[["Quarters", "Quarters"], ["Antimatter Control"], ["Lower Core Access"], ["Engineering Lab 3"], ["Stores", "Lockers"]],
+       [["Shuttle Repair"], ["Deuterium Control"], ["Core Shielding"], ["Life Support"], ["Cargo Bay 8"]]],
+};
+
+L.header({ x: AX, y: 280, w: AR - AX, label: "Decks 35 – 37  ·  Engineering Section  ·  Section Plan", c1: "mars", c2: "sand" });
+// the ruler: sections over the corridors, lifts and tubes over their shafts
+const segLbl = SEG.map(([a, b], i) => L.text({ x: (a + b) / 2, base: 400, s: 36, c: "red", txt: `Section ${i + 1}`, align: "c", w: b - a }));
+const linkLbl = LX.map((x, k) => L.text({ x, base: 400, s: 36, c: IS_LIFT[k] ? "sand" : "tan", txt: LINK[k], align: "c", w: 300 }));
+
+// shafts first, so the corridors cross over them
+const liftRect = LX.map((x, k) => L.rect({ x: x - (IS_LIFT[k] ? 20 : 12), y: PT, w: IS_LIFT[k] ? 40 : 24, h: PB - PT, c: IS_LIFT[k] ? LIFT : TUBE, free: true }));
+const deckBox = DECKS.map((n, d) => {
+  const y0 = DY(d);
+  L.rect({ x: PX0, y: CT(d), w: PX1 - PX0, h: 60, c: CORR, free: true });
+  let room = 1;
+  ROOMS[n].forEach((row, r) => {
+    const ry = r ? CB(d) + 16 : y0;
+    row.forEach((names, i) => {
+      const [a, b] = SEG[i], w = (b - a - 12 * (names.length - 1)) / names.length;
+      names.forEach((name, j) => {
+        const x = a + j * (w + 12);
+        L.rect({ x, y: ry, w, h: 124, c: ROOM, panel: true, noalign: true });
+        L.rect({ x, y: r ? ry + 116 : ry, w, h: 8, c: "#5e4a36", free: true });
+        L.text({ x: x + 18, cap: r ? ry + 24 : ry + 30, s: 30, c: "#8f8068", txt: `${n}-${String(room++).padStart(2, "0")}`, legend: true });
+        L.text({ x: x + 18, base: ry + 102, s: 36, c: "sand", txt: name });
+      });
+    });
+  });
+  // field emitters along the corridor, and on the tubes
+  LX.forEach((x, k) => {
+    for (const side of [-1, 1]) {
+      L.rect({ x: FFX(k, side) - 6, y: CT(d) - 8, w: 12, h: 8, c: "#7a5a2a", free: true });
+      L.rect({ x: FFX(k, side) - 6, y: CB(d), w: 12, h: 8, c: "#7a5a2a", free: true });
+    }
+    if (!IS_LIFT[k]) for (const up of [true, false]) {
+      L.rect({ x: x - 22, y: SEALY(d, up), w: 8, h: 12, c: "#7a5a2a", free: true });
+      L.rect({ x: x + 14, y: SEALY(d, up), w: 8, h: 12, c: "#7a5a2a", free: true });
+    }
+  });
+  return L.box({ x: AX, y: y0, w: 160, h: 340, c: "sand", label: `Deck ${n}`, fs: 32 });
+});
+
+// the moving parts: fields, the held section, control points, teams and intruders
+const field = (x, y, w, h) => { const f = L.layer({ x, y, w, h }); f.style.background = "var(--butter)"; f.style.opacity = 0; return f; };
+const corrFF = DECKS.map((_, d) => LX.map((_, k) => [-1, 1].map((side) => ({ e: field(FFX(k, side) - 6, CT(d) - 14, 12, 88), on: -1, off: -1, ph: L.rand(0, 6) }))));
+const seals = [];
+DECKS.forEach((_, d) => LX.forEach((x, k) => { if (!IS_LIFT[k]) for (const up of [true, false]) seals.push({ d, k, e: field(x - 14, SEALY(d, up), 28, 12), ph: L.rand(0, 6) }); }));
+const held = L.layer({ x: 0, y: 0, w: 10, h: 60 }); held.style.background = "var(--mars)"; held.style.opacity = 0; held.style.transformOrigin = "0 0";
+const cpMark = [0, 1, 2, 3].map((i) => {
+  const ring = L.layer({ x: 0, y: 0, w: 80, h: 76, cls: "ring" }); ring.style.opacity = 0;
+  const tag = L.layer({ x: 0, y: 0, w: 80, h: 32, cls: "tag" }); tag.textContent = `CP ${i + 1}`; tag.style.opacity = 0;
+  return { ring, tag };
+});
+const TEAMS = [["Lt. Worf", 5], ["Lt. T. Vance", 5], ["Ens. R. Okafor", 5], ["Lt. M. Rhee", 4], ["CPO D. Halloran", 5], ["Ens. S. Adeyemi", 5]]
+  .map(([leader, n], i) => { const e = L.layer({ x: 0, y: 0, w: 60, h: 40, cls: "tm" }); e.textContent = i + 1; e.style.opacity = 0; return { i, leader, n, e }; });
+const intr = [0, 1, 2, 3].map(() => { const e = L.layer({ x: 0, y: 0, w: 26, h: 26, cls: "ix" }); e.style.opacity = 0; return e; });
+
+// ---------------- status line ----------------
+const WORDS = ["Standby", "Intruder Alert", "Isolating", "Containing", "Contained", "Transporting", "Secured"];
+const SUBX = AX + Math.ceil(Math.max(...WORDS.map((w) => L.textWidth(w, 100))) / 10) * 10 + 56;
+const state = L.text({ x: AX, cap: 150, s: 100, c: "sand", txt: "" });
+const stateSub = L.text({ x: SUBX, base: 222, s: 38, c: "mars", txt: "" });
+L.box({ x: CX, y: 158, w: 520, h: 64, c: "mars", label: "Security Control  ·  Deck 8", fs: 32, r: "l" });
+L.box({ x: CX + 520 + L.GAP, y: 158, w: CR - (CX + 520 + L.GAP), h: 64, c: "sand", label: "Boarding Protocol  ·  Revision 4", fs: 32, r: "r" });
+
+// ---------------- control points ----------------
+L.header({ x: CX, y: 280, w: CR - CX, label: "Control Points", c1: "sand", c2: "mars" });
+[["Junction", C2], ["Deck", C3], ["Approach", GX]].forEach(([t, x]) => L.text({ x, base: 400, s: 36, c: "red", txt: t }));
+L.text({ x: CR, base: 400, s: 36, c: "red", txt: "Team  ·  Status", align: "r" });
+const cpRow = [0, 1, 2, 3].map((i) => {
+  const b = ROW(i);
+  const box = L.box({ x: CX, y: b - 40, w: 120, h: 44, c: DARK, label: `CP ${i + 1}`, fs: 24, r: "l" });
+  const jn = L.text({ x: C2, base: b, s: 36, c: "sand", txt: "" });
+  const dk = L.text({ x: C3, base: b, s: 36, c: "sand", txt: "" });
+  L.rect({ x: GX, y: b - 30, w: GR - GX, h: 30, c: TRACK });
+  const bar = grow(GX, b - 30, GR - GX, 30, "sand");
+  const st = L.text({ x: CR, base: b, s: 36, c: "white", txt: "", align: "r" });
+  return { box, jn, dk, bar, st };
+});
+
+// ---------------- security teams ----------------
+L.header({ x: CX, y: 700, w: CR - CX, label: "Security Teams", c1: "mars", c2: "sand" });
+[["Leader", C2], ["Deck", C3], ["Strength", GX]].forEach(([t, x]) => L.text({ x, base: 820, s: 36, c: "red", txt: t }));
+L.text({ x: CR, base: 820, s: 36, c: "red", txt: "Status", align: "r" });
+TEAMS.forEach((tm, i) => {
+  const b = ROW(7 + i);
+  tm.box = L.box({ x: CX, y: b - 40, w: 120, h: 44, c: i ? "sand" : "mars", label: `Team ${i + 1}`, fs: 24, r: "l" });
+  L.text({ x: C2, base: b, s: 36, c: "sand", txt: tm.leader });
+  tm.dk = L.text({ x: C3, base: b, s: 36, c: "sand", txt: "Deck 8" });
+  const pw = (GR - GX - 4 * 12) / 5;
+  for (let k = 0; k < 5; k++) L.rect({ x: GX + k * (pw + 12), y: b - 30, w: pw, h: 30, c: k < tm.n ? (i ? "#bdb497" : "#ff5a3c") : TRACK, noalign: true });
+  tm.st = L.text({ x: CR, base: b, s: 36, c: "white", txt: "", align: "r" });
+});
+
+// ---------------- forcefields ----------------
+L.header({ x: CX, y: 1240, w: CR - CX, label: "Forcefields", c1: "sand", c2: "red" });
+const blocks = (b, n, groups = 1, gg = 16, g = 8) => {
+  const w = (GR - GX - (groups - 1) * gg - (n - groups) * g) / n, per = n / groups;
+  return Array.from({ length: n }, (_, k) => L.rect({ x: GX + k * (w + g) + Math.floor(k / per) * (gg - g), y: b - 30, w, h: 30, c: TRACK, noalign: true }));
+};
+const FFROW = ["Corridor Fields", "Tube Seals", "Turbolifts", "Field Power"].map((name, i) => {
+  L.text({ x: CX, base: ROW(15 + i), s: 36, c: "sand", txt: name });
+  return { where: L.text({ x: C3, base: ROW(15 + i), s: 36, c: "sand", txt: "" }), val: L.text({ x: CR, base: ROW(15 + i), s: 36, c: "white", txt: "", align: "r" }) };
+});
+const corrBlk = blocks(ROW(15), 8), sealBlk = blocks(ROW(16), 12, 3), liftBlk = blocks(ROW(17), 6, 3);
+L.rect({ x: GX, y: ROW(18) - 30, w: GR - GX, h: 30, c: TRACK });
+const powBar = grow(GX, ROW(18) - 30, GR - GX, 30, "butter");
+
+// ---------------- protocol checklist ----------------
+const KR = 1260, KB0 = 760, KB1 = 1100;
+L.header({ x: AX, y: 1620, w: KR - AX, label: "Protocol Checklist", c1: "mars", c2: "sand", h: 48 });
+const STEPS = ["Sound Intruder Alert", "Fix Intruder Positions", "Seal Jefferies Tubes", "Raise Section Forcefields", "Hold Control Points", "Transport to Brig"];
+const steps = STEPS.map((name, i) => {
+  const b = STRIP(i);
+  const m = L.box({ x: AX, y: b - 40, w: 100, h: 44, c: DARK, label: String(i + 1).padStart(2, "0"), fs: 24, r: "l" });
+  const n = L.text({ x: AX + 124, base: b, s: 36, c: "sand", txt: name });
+  L.rect({ x: KB0, y: b - 30, w: KB1 - KB0, h: 30, c: TRACK });
+  const bar = grow(KB0, b - 30, KB1 - KB0, 30, "sand");
+  const v = L.text({ x: KR, base: b, s: 36, c: "white", txt: "", align: "r" });
+  return { m, n, bar, v };
+});
+
+// ---------------- security log ----------------
+const GR2 = 1320;
+L.header({ x: GR2, y: 1620, w: AR - GR2, label: "Security Log", c1: "sand", c2: "mars", h: 48 });
+const logRows = Array.from({ length: 6 }, (_, i) => ({
+  sd: L.text({ x: GR2, base: STRIP(i), s: 36, c: "mars", txt: "" }),
+  tx: L.text({ x: GR2 + 170, base: STRIP(i), s: 36, c: "sand", txt: "" }),
+  wh: L.text({ x: AR, base: STRIP(i), s: 36, c: "tan", txt: "", align: "r" }) }));
+let stardate = 46471.31;
+const logged = [];
+const log = (txt, where) => {
+  stardate += 0.02;
+  logged.push([stardate.toFixed(1), txt, where]);
+  if (logged.length > logRows.length) logged.shift();
+  logRows.forEach((r, i) => { const e = logged[i]; L.set(r.sd, e ? e[0] : ""); L.set(r.tx, e ? e[1] : ""); L.set(r.wh, e ? e[2] : ""); });
+};
+
+// ---------------- intruders: the sensor fix ----------------
+L.header({ x: CX, y: 1620, w: CR - CX, label: "Intruders  ·  Sensor Fix", c1: "red", c2: "sand", h: 48 });
+const FIX = ["Life Signs", "Weapons", "Position", "Sensor Fix", "Transporter Lock", "Brig Cells"].map((name, i) => {
+  L.text({ x: CX, base: STRIP(i), s: 36, c: "sand", txt: name });
+  return { sec: L.text({ x: C3, base: STRIP(i), s: 36, c: "sand", txt: "" }), val: L.text({ x: CR, base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }) };
+});
+// life signs: four slots, one diamond per intruder
+const lifeSlot = Array.from({ length: 4 }, (_, k) => {
+  const w = (GR - GX - 3 * 12) / 4;
+  return L.rect({ x: GX + k * (w + 12), y: STRIP(0) - 30, w, h: 30, c: TRACK, noalign: true });
+});
+L.rect({ x: GX, y: STRIP(1) - 30, w: GR - GX, h: 30, c: TRACK });
+const wpnBar = grow(GX, STRIP(1) - 30, GR - GX, 30, "mars");
+const posBlk = (() => {                                      // fifteen sections: three decks of five
+  const g = 6, gg = 18, w = (GR - GX - 2 * gg - 12 * g) / 15;
+  return Array.from({ length: 15 }, (_, k) => L.rect({ x: GX + k * (w + g) + Math.floor(k / 5) * (gg - g), y: STRIP(2) - 30, w, h: 30, c: TRACK, noalign: true }));
+})();
+L.rect({ x: GX, y: STRIP(3) - 30, w: GR - GX, h: 30, c: TRACK });
+const fixBar = grow(GX, STRIP(3) - 30, GR - GX, 30, "sand");
+L.rect({ x: GX, y: STRIP(4) - 30, w: GR - GX, h: 30, c: TRACK });
+const lockBar = grow(GX, STRIP(4) - 30, GR - GX, 30, "butter");
+const cellBlk = Array.from({ length: 4 }, (_, k) => {
+  const w = (GR - GX - 3 * 12) / 4;
+  return L.rect({ x: GX + k * (w + 12), y: STRIP(5) - 30, w, h: 30, c: TRACK, noalign: true });
+});
+
+// ---------------- one boarding: the timeline (seconds from its start) ----------------
+const TA = 6, TFIX = 4, TISO = 10, TFF = [14, 16], TLOCK = [32, 44], TBEAM = [44, 47], TSEC = 48,
+      TDROP = [50, 51], TUNSEAL = 52, TRET = 55, TCLEAR = 72, RUN = 80, STAG = 1.2;
+const SPECIES = [["Cardassian", "Disruptors", 0.78], ["Romulan", "Disruptors", 0.84], ["Klingon", "Disruptors", 0.72],
+                 ["Ferengi", "Energy Weapons", 0.46], ["Unidentified", "Energy Weapons", 0.6]];
+let runs = 0, run = null, prev = null;
+
+const pathOf = (pts) => {
+  const seg = []; let len = 0;
+  for (let i = 1; i < pts.length; i++) { const l = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); seg.push(l); len += l; }
+  return { pts, seg, len };
+};
+const along = (p, dist) => {
+  for (let i = 0; i < p.seg.length; i++) {
+    if (dist <= p.seg[i] || i === p.seg.length - 1) {
+      const k = p.seg[i] ? L.clamp(dist / p.seg[i]) : 1, a = p.pts[i], b = p.pts[i + 1];
+      return [L.mix(a[0], b[0], k), L.mix(a[1], b[1], k)];
+    }
+    dist -= p.seg[i];
+  }
+  return p.pts[p.pts.length - 1];
+};
+// how a team reaches its control point without crossing the held section: by a turbolift
+// (from above or below the plan) or along the corridor from the end of the deck
+const routeTo = (cp, d) => {
+  const y = CYc(cp.deck);
+  let tl = null;
+  if (cp.side === "L") tl = cp.link >= 2 ? 2 : 0;
+  else if (cp.side === "R") tl = cp.link <= 2 ? 2 : null;
+  else tl = cp.link === 1 ? 0 : 2;
+  if (tl === null) return pathOf([[PX1, y], [LX[cp.link], y]]);
+  const fromTop = cp.deck < d || (cp.deck === d && d < 2);
+  return pathOf([[LX[tl], fromTop ? PT : PB], [LX[tl], y], [LX[cp.link], y]]);
+};
+
+const makeRun = () => {
+  let d, s;
+  do { d = L.irand(0, 2); s = L.irand(1, 3); } while (prev && d === prev.d && s === prev.s);
+  const dir = L.pick([-1, 1]), n = L.irand(2, 4), [species, weapon, wpn] = SPECIES[runs % SPECIES.length];
+  const cps = [{ deck: d, link: s - 1, side: "L" }, { deck: d, link: s, side: "R" }];
+  const j = s === 3 ? 3 : 1;                                  // the tube beside the held section, on the decks either side
+  for (const a of [d - 1, d + 1]) if (a >= 0 && a <= 2) cps.push({ deck: a, link: j, side: "A" });
+  const first = runs % 5;                                     // teams 1–5 take turns; team 6 stays on patrol
+  cps.forEach((cp, i) => {
+    cp.team = TEAMS[(first + i) % 5];
+    cp.path = routeTo(cp, d);
+    cp.dur = L.clamp(cp.path.len / 70, 7, 17);
+    cp.t0 = TA + 2 + i * STAG; cp.t1 = TRET + i * STAG;
+  });
+  // the boarders: in from the transporter, walking towards the far field until it goes up in front of them
+  const ahead = dir > 0 ? FFX(s, -1) : FFX(s - 1, 1), behind = dir > 0 ? FFX(s - 1, 1) : FFX(s, -1);
+  const half = ((n - 1) / 2) * 30 + 13, stop = ahead - dir * (half + 22);
+  const x0 = stop - dir * 150, halt = stop - dir * 28;
+  return { d, s, dir, n, species, weapon, wpn, cps, ahead, behind, x0, stop, halt, no: ++runs };
+};
+
+// where the boarders are at time u
+const boarders = (r, u) => {
+  if (u < TFF[0]) return r.x0 + (r.stop - r.x0) * L.clamp((u - TA) / (TFF[0] - TA));
+  const back = L.ease(L.clamp((u - TFF[0]) / 3)), sway = Math.sin((u - 17) * 0.5) * 8 * L.clamp((u - 17) / 2);
+  return L.mix(r.stop, r.halt, back) + sway;
+};
+// a team's progress: 0 at the start of its route, 1 at its control point
+const teamAt = (cp, u) => {
+  if (u < cp.t0) return { k: 0, vis: false, out: true };
+  if (u < cp.t1) return { k: L.ease(L.clamp((u - cp.t0) / cp.dur)), vis: true, out: true };
+  const k = 1 - L.ease(L.clamp((u - cp.t1) / cp.dur));
+  return { k, vis: k > 0, out: false };
+};
+const fieldOn = (u, on, off) => (on < 0 ? 0 : L.clamp((u - on) / 0.8) * (1 - L.clamp((u - off) / 0.8)));
+const sealOn = (i, u) => L.clamp((u - (TISO + i * 0.2)) / 0.6) * (1 - L.clamp((u - (TUNSEAL + i * 0.2)) / 0.6));
+const sealsUp = (u) => (u < TISO ? 0 : u < TUNSEAL ? Math.min(12, Math.floor((u - TISO) / 0.2) + 1) : Math.max(0, 12 - Math.floor((u - TUNSEAL) / 0.2) - 1));
+const ffUp = (u) => (u >= TFF[1] && u < TDROP[1] ? 2 : u >= TFF[0] && u < TDROP[0] ? 1 : u >= TDROP[0] && u < TDROP[1] ? 1 : 0);
+const override = (u) => u >= TISO && u < TUNSEAL + 2.4;
+const heldAt = (r) => Math.max(...r.cps.map((cp) => cp.t0 + cp.dur));
+const phase = (r, u) => {
+  if (u < TA) return 0;
+  if (u < TISO) return 1;
+  if (u < TFF[1] + 0.8) return 2;
+  if (u < heldAt(r)) return 3;
+  if (u < TBEAM[0]) return 4;
+  if (u < TSEC) return 5;
+  return u < TCLEAR ? 6 : 0;
+};
+
+// ---------------- drawing one moment ----------------
+const where = (r) => `Deck ${DECKS[r.d]}, Section ${r.s + 1}`;
+const pct = (k) => Math.floor(k * 100) + "%";
+const showState = (r, u) => {
+  const p = phase(r, u), w = WORDS[p];
+  L.set(state, w); ink(state, ["sand", "mars", "mars", "butter", "sand", "butter", "sand"][p]);
+  const sub = [
+    "Decks 35 – 37  ·  Engineering section  ·  Internal sensors clear",
+    `${r.n} unidentified life signs  ·  ${where(r)}  ·  Teams dispatched`,
+    `Jefferies tubes sealed  ·  Turbolifts on security override  ·  ${where(r)}`,
+    `Forcefields up  ·  ${where(r)}  ·  Teams moving to control points`,
+    `${r.n} ${r.species} intruders held  ·  ${where(r)}  ·  ${u < TLOCK[0] ? "Control points held" : "Transporter Room 3 locking on"}`,
+    `Transporting ${r.n} to the Brig  ·  Deck 8`,
+    u < TDROP[1] + 0.8 ? `${r.n} intruders in the Brig  ·  Lowering section forcefields`
+      : u < TUNSEAL + 3 ? "Section forcefields lowered  ·  Unsealing Jefferies tubes"
+      : u < Math.max(...r.cps.map((cp) => cp.t1 + cp.dur)) ? "Tubes unsealed  ·  Lifts restored  ·  Teams returning"
+      : "Teams back at readiness  ·  Deck 8  ·  Decks 35 – 37 clear"][p];
+  L.set(stateSub, sub);
+};
+
+const showPlan = (r, u, t) => {
+  const live = u >= TA && u < TCLEAR;
+  DECKS.forEach((_, d) => { const hot = live && d === r.d && u < TSEC; bg(deckBox[d], hot ? "mars" : "sand"); });
+  segLbl.forEach((e, i) => ink(e, live && i === r.s && u < TSEC ? "white" : "red"));
+  const ov = override(u);
+  liftRect.forEach((e, k) => { if (IS_LIFT[k]) paint(e, ov ? "#6e2a1c" : LIFT); });
+  linkLbl.forEach((e, k) => ink(e, IS_LIFT[k] ? (ov ? "mars" : "sand") : sealsUp(u) ? "butter" : "tan"));
+  // corridor fields: shimmer softly while up
+  corrFF.forEach((deck, d) => deck.forEach((pair, k) => pair.forEach((f, si) => {
+    let on = -1, off = 1e9;
+    if (d === r.d) {
+      const x = FFX(k, si ? 1 : -1);
+      if (x === r.ahead) on = TFF[0], off = TDROP[0];
+      if (x === r.behind) on = TFF[1], off = TDROP[1];
+    }
+    const v = fieldOn(u, on, off);
+    op(f.e, v * 0.9);
+  })));
+  seals.forEach((s, i) => op(s.e, sealOn(i, u) * 0.9));
+  // the held section
+  const both = fieldOn(u, TFF[1], TDROP[0]);
+  const a = Math.min(r.ahead, r.behind), b = Math.max(r.ahead, r.behind);
+  if (!held._at || held._at !== r.no) { held._at = r.no; L.move(held, a + 8, CT(r.d)); held.style.width = b - a - 16 + "px"; }
+  op(held, 0.28 * both);
+  // control points
+  cpMark.forEach((m, i) => {
+    const cp = r.cps[i];
+    const v = cp && u >= TA ? L.clamp((u - TA - 2) / 0.8) * (1 - L.clamp((u - TSEC - 6) / 1)) : 0;
+    if (cp && m._at !== r.no) {
+      m._at = r.no;
+      L.move(m.ring, LX[cp.link] - 40, CYc(cp.deck) - 38);
+      L.move(m.tag, LX[cp.link] - 40, CT(cp.deck) - 50);
+    }
+    op(m.ring, v); op(m.tag, v);
+  });
+  // teams
+  const busy = new Set();
+  r.cps.forEach((cp) => {
+    const tm = cp.team, a = teamAt(cp, u);
+    busy.add(tm);
+    if (!a.vis) { op(tm.e, 0); return; }
+    const dist = a.k * cp.path.len, [x, y] = along(cp.path, dist);
+    L.move(tm.e, x - 30, y - 20);
+    op(tm.e, L.clamp(dist / 40));
+  });
+  TEAMS.forEach((tm) => { if (!busy.has(tm)) op(tm.e, 0); });
+  // intruders
+  const beam = L.clamp((u - TA) / 1.5), gone = L.clamp((u - TBEAM[0] - 0.6) / 2.2);
+  intr.forEach((e, k) => {
+    if (k >= r.n || u < TA || u >= TBEAM[1] + 0.5) { op(e, 0); return; }
+    const gx = boarders(r, u), ox = (k - (r.n - 1) / 2) * 30, oy = k % 2 ? 12 : -12;
+    L.move(e, gx + ox - 13, CYc(r.d) + oy - 13, 45);
+    const white = u < TA + 1 || (u >= TBEAM[0] && u < TBEAM[1]);
+    bg(e, white ? "white" : "mars");
+    op(e, beam * (1 - gone) * (u >= TBEAM[0] ? 0.75 + 0.25 * Math.sin(u * 9 + k) : 1));
+  });
+};
+
+const showTables = (r, u, t) => {
+  // control points: before an alert, the last boarding's points, stood down
+  const live = u >= TA, R = live ? r : prev;
+  cpRow.forEach((row, i) => {
+    const cp = R && R.cps[i];
+    if (!cp) {
+      bg(row.box, DARK); ink(row.box, "sand");
+      L.set(row.jn, "Not Required"); ink(row.jn, "#8f8068"); L.set(row.dk, ""); L.set(row.st, "Reserve"); ink(row.st, "#8f8068");
+      tf(row.bar, "scaleX(0)"); return;
+    }
+    L.set(row.jn, LINK[cp.link]); ink(row.jn, "sand");
+    L.set(row.dk, `Deck ${DECKS[cp.deck]}`);
+    let st, k = 0, c = "white";
+    if (!live) st = "Stood Down", c = "#8f8068";
+    else {
+      const a = teamAt(cp, u);
+      if (u < cp.t0) st = "Assigned";
+      else if (a.out && a.k < 1) st = "En Route", k = a.k, c = "butter";
+      else if (a.out) st = "Held", k = 1, c = "white";
+      else st = "Stood Down", c = "#8f8068";
+    }
+    L.set(row.st, `Team ${cp.team.i + 1}  ·  ${st}`); ink(row.st, c);
+    tf(row.bar, `scaleX(${k.toFixed(4)})`);
+    bg(row.box, live && u < TSEC ? (st === "Held" ? "sand" : "mars") : DARK); ink(row.box, live && u < TSEC ? "#000" : "sand");
+  });
+  // teams
+  TEAMS.forEach((tm) => {
+    const cp = live ? r.cps.find((c) => c.team === tm) : null;
+    let st = tm.i === 5 ? "Patrol" : "Standby", dk = tm.i === 5 ? "Deck 14" : "Deck 8", c = "#8f8068";
+    if (cp) {
+      const a = teamAt(cp, u), j = r.cps.indexOf(cp) + 1;
+      if (u < cp.t0) st = "Dispatched", dk = `Deck ${DECKS[cp.deck]}`, c = "butter";
+      else if (a.out && a.k < 1) st = `En Route  ·  CP ${j}`, dk = `Deck ${DECKS[cp.deck]}`, c = "butter";
+      else if (a.out) st = `At CP ${j}`, dk = `Deck ${DECKS[cp.deck]}`, c = "white";
+      else if (a.vis) st = "Returning", dk = "Deck 8", c = "sand";
+    }
+    L.set(tm.st, st); ink(tm.st, c); L.set(tm.dk, dk);
+  });
+  // forcefields
+  const fu = live ? ffUp(u) : 0, su = live ? sealsUp(u) : 0, ov = live && override(u);
+  L.set(FFROW[0].where, fu ? `Deck ${DECKS[r.d]}` : "All Decks"); L.set(FFROW[0].val, fu ? `${fu} Raised` : "Lowered"); ink(FFROW[0].val, fu ? "butter" : "white");
+  corrBlk.forEach((b, k) => {
+    const x = FFX(k >> 1, k & 1 ? 1 : -1);
+    const on = fu && ((x === r.ahead && u >= TFF[0] && u < TDROP[0]) || (x === r.behind && u >= TFF[1] && u < TDROP[1]));
+    paint(b, on ? "butter" : TRACK);
+  });
+  L.set(FFROW[1].where, "Decks 35 – 37"); L.set(FFROW[1].val, `${su} / 12`); ink(FFROW[1].val, su ? "butter" : "white");
+  sealBlk.forEach((b, k) => {
+    // block k: deck k/4, then the two tubes, above and below — in the order they went up
+    paint(b, k < su && u < TUNSEAL ? "butter" : u >= TUNSEAL && k < su ? "butter" : TRACK);
+  });
+  L.set(FFROW[2].where, "Lifts 1 – 2"); L.set(FFROW[2].val, ov ? "Override" : "Normal"); ink(FFROW[2].val, ov ? "mars" : "white");
+  liftBlk.forEach((b) => paint(b, ov ? "mars" : "#6b6050"));
+  const power = 0.02 + 0.018 * (live ? seals.reduce((a, _, i) => a + sealOn(i, u), 0) : 0)
+    + 0.09 * (live ? fieldOn(u, TFF[0], TDROP[0]) + fieldOn(u, TFF[1], TDROP[1]) : 0);
+  L.set(FFROW[3].where, "Emitters"); L.set(FFROW[3].val, Math.round(power * 100) + "%");
+  tf(powBar, `scaleX(${power.toFixed(4)})`);
+};
+
+const showFix = (r, u) => {
+  const live = u >= TA && u < TBEAM[1], fix = L.clamp((u - TA) / TFIX), named = fix >= 1;
+  const n = live ? r.n : 0;
+  L.set(FIX[0].sec, live ? (named ? r.species : "Analyzing") : "Internal Sensors");
+  L.set(FIX[0].val, live ? String(n) : "None");
+  lifeSlot.forEach((b, k) => paint(b, k < n ? "mars" : TRACK));
+  L.set(FIX[1].sec, live ? (named ? r.weapon : "Analyzing") : "No Signature");
+  L.set(FIX[1].val, live ? (named ? "Armed" : "Scanning") : "None"); ink(FIX[1].val, live && named ? "mars" : "white");
+  tf(wpnBar, `scaleX(${(live ? r.wpn * fix : 0).toFixed(4)})`);
+  L.set(FIX[2].sec, live ? `Deck ${DECKS[r.d]}` : "Decks 35 – 37");
+  L.set(FIX[2].val, live ? `Section ${r.s + 1}` : "Clear");
+  posBlk.forEach((b, k) => paint(b, live && k === r.d * 5 + r.s ? "mars" : TRACK));
+  L.set(FIX[3].sec, "Internal Sensors");
+  L.set(FIX[3].val, live ? pct(fix) : "Sweeping");
+  tf(fixBar, `scaleX(${(live ? fix : 0).toFixed(4)})`);
+  const lock = L.clamp((u - TLOCK[0]) / (TLOCK[1] - TLOCK[0]));
+  L.set(FIX[4].sec, "Transporter 3");
+  L.set(FIX[4].val, live && u >= TLOCK[0] ? pct(lock) : u >= TBEAM[1] && u < TCLEAR ? "Complete" : "Standing By");
+  tf(lockBar, `scaleX(${(live ? lock : 0).toFixed(4)})`);
+  const inBrig = u >= TBEAM[1] && u < TCLEAR ? r.n : 0;
+  L.set(FIX[5].sec, "Deck 8");
+  L.set(FIX[5].val, inBrig ? `${inBrig} Held` : "4 Ready");
+  cellBlk.forEach((b, k) => paint(b, k < inBrig ? "mars" : "#6b6050"));
+};
+
+// the checklist: [progress 0–1, value]
+const stepState = (r, u) => {
+  if (u < TA) return STEPS.map(() => [1, "Done"]);
+  const fix = L.clamp((u - TA) / TFIX), su = sealsUp(u), fu = u >= TFF[1] ? 2 : u >= TFF[0] ? 1 : 0;
+  const nh = r.cps.filter((cp) => u >= cp.t0 + cp.dur).length, lock = L.clamp((u - TLOCK[0]) / (TLOCK[1] - TLOCK[0]));
+  return [
+    [1, "Done"],
+    [fix, fix >= 1 ? "Done" : pct(fix)],
+    [u < TISO ? 0 : u >= TISO + 2.4 ? 1 : su / 12, u < TISO ? "Pending" : u >= TISO + 2.4 ? "Done" : `${su} / 12`],
+    [fu / 2, fu === 2 ? "Done" : fu ? "1 / 2" : "Pending"],
+    [u < TA + 2 ? 0 : nh / r.cps.length, u < TA + 2 ? "Pending" : nh === r.cps.length ? "Done" : `${nh} / ${r.cps.length}`],
+    [u < TLOCK[0] ? 0 : u >= TBEAM[1] ? 1 : lock * 0.9 + 0.1 * L.clamp((u - TBEAM[0]) / 3), u < TLOCK[0] ? "Pending" : u >= TBEAM[1] ? "Done" : u >= TBEAM[0] ? "Energizing" : pct(lock)],
+  ];
+};
+const showSteps = (r, u) => {
+  const ss = stepState(r, u);
+  steps.forEach((s, i) => {
+    const [k, v] = ss[i], done = v === "Done", wait = v === "Pending";
+    bg(s.m, done ? "sand" : wait ? DARK : "butter"); ink(s.m, wait ? "sand" : "#000");
+    ink(s.n, done ? "sand" : wait ? "#8f8068" : "white");
+    L.set(s.v, v); ink(s.v, done ? "sand" : wait ? "#8f8068" : "butter");
+    bg(s.bar, done ? "sand" : "butter");
+    tf(s.bar, `scaleX(${k.toFixed(4)})`);
+  });
+};
+
+// ---------------- the log, as things happen ----------------
+const events = (r) => {
+  const names = r.cps.map((cp) => cp.team.i + 1).sort((a, b) => a - b), last = names.pop();
+  return [
+    [TA, `Intruder alert  ·  ${r.n} life signs  ·  Section ${r.s + 1}`, `Deck ${DECKS[r.d]}`],
+    [TA + 2, `Teams ${names.join(", ")} and ${last} dispatched`, "Security"],
+    [TISO + 2.4, "Jefferies tubes sealed  ·  lifts on override", "Decks 35 – 37"],
+    [TFF[1] + 0.8, `Section ${r.s + 1} forcefields raised`, `Deck ${DECKS[r.d]}`],
+    [heldAt(r), `Control points held  ·  ${r.cps.length} of ${r.cps.length}`, "Security"],
+    [TBEAM[1], `${r.n} ${r.species} intruders transported`, "Brig"],
+    [TUNSEAL + 2.4, "Fields lowered  ·  lifts restored", `Deck ${DECKS[r.d]}`],
+    [TCLEAR, `${r.n} detainees processed  ·  cells cleared`, "Brig"],
+  ];
+};
+
+// ---------------- running it ----------------
+let t0 = 0, ev = [], evi = 0;
+const begin = (t) => { prev = run; run = makeRun(); t0 = t; ev = events(run); evi = 0; };
+L.tick((t) => {
+  if (t - t0 >= RUN) begin(t);
+  const u = t - t0;
+  while (evi < ev.length && u >= ev[evi][0]) { log(ev[evi][1], ev[evi][2]); evi++; }
+  showPlan(run, u, t);
+});
+L.every(200, (t) => { const u = t - t0; showState(run, u); showTables(run, u, t); showFix(run, u); showSteps(run, u); }, 0);
+
+// ---------------- before the first alert: the last boarding, stood down ----------------
+{
+  run = makeRun(); prev = run;
+  [["Boarding protocol revision 4 in force  ·  after Wolf 359", "Starfleet"],
+   ["Internal sensor sweep  ·  decks 35 – 37 clear", "Security"],
+   ["Tube field emitters tested  ·  12 of 12", "Deck 36"],
+   ["Turbolift security override tested", "Ops"],
+   ["Level 2 intruder drill logged  ·  Lt. Worf", "Security"],
+   ["Teams 1 – 5 at readiness  ·  Team 6 on patrol", "Deck 8"]].forEach(([txt, w]) => log(txt, w));
+  begin(0);
+  showState(run, 0); showTables(run, 0, 0); showFix(run, 0); showSteps(run, 0);
+}
+});
+</script></body></html>

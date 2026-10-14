@@ -1,0 +1,341 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Warp Field</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .contour { transform-origin: 0 0; }
+  .contour svg { position: absolute; left: 0; top: 0; overflow: visible; }
+  .coil { border-radius: 6px; background: linear-gradient(var(--ice), var(--sky)); }
+  .seg { border-radius: 4px; background: var(--ice); }
+  .glow { border-radius: 50%; background: radial-gradient(closest-side, rgba(255,140,110,.85), rgba(255,90,60,.35) 55%, rgba(255,90,60,0)); }
+  .mk { background: var(--orange); border-radius: 6px; }
+  .dot { border-radius: 50%; background: var(--white); box-shadow: 0 0 0 6px rgba(255,156,26,.55); }
+  .tag { color: var(--white); font-size: 36px; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame, mirrored: sidebar on the right, title at top left ----------------
+const BAR = 64, TS = BAR / (L.BASELINE - L.CAP_TOP);
+L.box({ x: 40, y: 40, w: 92, h: BAR, c: "sky", r: "l" });
+const titleEl = L.text({ x: 132 + L.GAP, cap: 40, s: TS, c: "ice", txt: "Warp Propulsion  •  Field Geometry" });
+const afterTitle = 132 + L.GAP + titleEl.offsetWidth + L.GAP;          // the page's own width, not the canvas's
+L.rect({ x: afterTitle, y: 40, w: 320, h: BAR, c: "orange" });
+L.rect({ x: afterTitle + 320 + L.GAP, y: 40, w: 2600 - L.GAP - (afterTitle + 320 + L.GAP), h: BAR, c: "sky" });
+L.elbow({ corner: "tr", x: 2600, y: 40, w: 1216, h: 250, bw: 240, bh: BAR, R: 150, r: 60, c: "sky" });
+[[298, 140, "ice", "Warp 02"], [446, 70, "orange", "Field"], [524, 420, "sky", "Geometry"], [952, 70, "ice", "9 Layers"],
+ [1030, 300, "blue", "Cochrane"], [1338, 70, "peach", "Coils"], [1416, 216, "sky", "Course"]]
+  .forEach(([y, h, c, label]) => L.box({ x: 3576, y, w: 240, h, c, label }));
+L.elbow({ corner: "br", x: 2600, y: 1640, w: 1216, h: 480, bw: 240, bh: BAR, R: 150, r: 60, c: "blue" });
+L.text({ x: 3794, base: 1712, s: 40, c: "#000", txt: "Propulsion", align: "r", on: true });
+L.box({ x: 40, y: 2056, w: 92, h: BAR, c: "blue", r: "l" });
+[[132 + L.GAP, 700, "ice"], [132 + L.GAP + 700 + L.GAP, 900, "peach"]].forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
+L.rect({ x: 132 + 3 * L.GAP + 1600, y: 2056, w: 2600 - L.GAP - (132 + 3 * L.GAP + 1600), h: BAR, c: "blue" });
+
+const header = (x, y, w, label, lw, c1, c2) => {
+  L.box({ x, y, w: lw, h: 56, c: c1, label, fs: 32, r: "l" });
+  L.rect({ x: x + lw + L.GAP, y, w: w - lw - L.GAP, h: 56, c: c2 });
+};
+const small = (x, y, w, label, lw, c1, c2) => {
+  L.box({ x, y, w: lw, h: 48, c: c1, label, fs: 28, r: "l" });
+  L.rect({ x: x + lw + L.GAP, y, w: w - lw - L.GAP, h: 48, c: c2 });
+};
+// write only what changed: an unchanged reading costs nothing
+const put = (e, txt) => { if (e.textContent !== txt) e.textContent = txt; };
+const css = (e, k, v) => { if (e.style[k] !== v) e.style[k] = v; };
+const fmt = (v, d = 0) => v.toLocaleString("en", { minimumFractionDigits: d, maximumFractionDigits: d });
+
+// Columns: the field 40–2160; the layers and the curve 2220–3520. The bottom strip: coils 40–1100,
+// symmetry 1160–2160, course 2220–3520.
+const FX = 40, FR = 2160, RX = 2220, RR = 3520;
+
+// ---------------- the warp scale (TNG Technical Manual): v = w^(10/3) c to warp 9, then towards the asymptote at 10 ----------------
+// Above 9 a smooth curve through the manual's figures (9.2 = 1,649 c, 9.6 = 1,909 c, 9.9 = 3,053 c, 9.99 = 7,912 c),
+// nudged so that it passes through each of them exactly.
+const HIGH = [[9, 1516], [9.2, 1649], [9.6, 1909], [9.9, 3053], [9.99, 7912], [9.9999, 199516]];
+const smooth = (w) => Math.pow(w, 10 / 3) * (w <= 9 ? 1 : 1 + 0.09 * Math.pow(w - 9, 2.2) * Math.pow(Math.max(1e-6, 10 - w), -0.75));
+const NUDGE = HIGH.map(([w, v]) => [w, Math.log(v / smooth(w))]);
+NUDGE[0][1] = 0;
+const vel = (w) => {
+  if (w <= 9) return Math.pow(w, 10 / 3);
+  for (let i = 1; i < NUDGE.length; i++) if (w <= NUDGE[i][0]) {
+    const [w0, n0] = NUDGE[i - 1], [w1, n1] = NUDGE[i], k = (w - w0) / (w1 - w0);
+    return smooth(w) * Math.exp(L.mix(n0, n1, k));
+  }
+  return smooth(w);
+};
+// power drawn per cochrane: a step at each whole warp factor, easing off until the next one
+const power = (w) => {
+  const n = Math.floor(w), f = w - n;
+  return 0.16 + 0.05 * w + 0.17 * Math.exp(-f / 0.16) * (n >= 1 ? 1 : 0) + (w > 9 ? 0.6 * Math.pow((w - 9), 2) : 0);
+};
+
+// ---------------- the warp factor drives everything ----------------
+const SPEEDS = [5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 9.2, 9.4, 9.6];
+let warp = L.pick([6, 7, 8]), warpFrom = warp, warpTo = warp, warpT0 = -99, moving = 0;
+const SHIFT = 9;                                           // seconds to change speed
+let nextShift = 14;
+L.tick((t) => {
+  if (t < nextShift) return;
+  nextShift = t + L.rand(27, 33);
+  let next; do next = L.pick(SPEEDS); while (Math.abs(next - warpTo) < 0.4 || Math.abs(next - warpTo) > 2.6);
+  warpFrom = warp; warpTo = next; warpT0 = t;
+});
+L.tick((t) => {
+  const k = L.clamp((t - warpT0) / SHIFT);
+  warp = L.mix(warpFrom, warpTo, L.ease(k));
+  moving = k < 1 ? Math.sin(Math.PI * k) : 0;             // 0 when steady, 1 in the middle of a change
+});
+const stretch = (w) => 0.95 + 0.09 * L.clamp((w - 5) / 4.6);   // the field draws out aft as speed rises
+
+// ---------------- status line ----------------
+const stateTxt = L.text({ x: FX, cap: 150, s: 100, c: "ice", txt: "" });
+const stateSub = L.text({ x: FR, base: 222, s: 38, c: "sky", txt: "", align: "r" });
+const courseSub = L.text({ x: RX, base: 222, s: 38, c: "peach", txt: "" });
+const pill = L.box({ x: 3120, y: 150, w: 400, h: 72, c: "sky", label: "Field Stable", r: "lr", fs: 36 });
+pill.style.transition = "background-color 1.2s ease";
+
+// ---------------- field geometry: a dorsal projection of the nacelles inside their nine field layers ----------------
+header(FX, 280, FR - FX, "Field Geometry", 340, "orange", "peach");
+const PX = FX, PY = 360, PW = FR - FX, PH = 1200;
+L.rect({ x: PX, y: PY, w: PW, h: PH, c: "#040a20", panel: true });
+const CX = 1210, CY = PY + PH / 2, NL = 9;
+// each layer: compressed ahead (af), drawn out astern (ab), half-height b
+const LAY = Array.from({ length: NL }, (_, i) => ({ af: 470 + i * 43.75, ab: 640 + i * 42.5, b: 262 + i * 32.25, k: 1 - i * 0.091 }));
+const INKS = ["#bfe6ff", "#a6dcff", "#8fd3ff", "#78bdff", "#5c9dff", "#4a86ff", "#3a6fff", "#2c57ec", "#1f3fd6"];
+// faint grid and the axis, drawn once
+{
+  const g = L.svg("g", { class: "boot" });
+  for (let x = CX - 1100; x < PX + PW - 40; x += 100) L.svg("rect", { x: x - 1, y: PY, width: 2, height: PH, fill: "#0b1638" }, g);
+  for (let y = CY - 500; y <= CY + 500; y += 100) L.svg("rect", { x: PX, y: y - 1, width: PW, height: 2, fill: "#0b1638" }, g);
+  L.svg("line", { x1: PX + 130, y1: CY, x2: CX + 420, y2: CY, stroke: "#2c57ec", "stroke-width": 3, "stroke-dasharray": "18 12" }, g);
+}
+// the contours: each its own layer, so breathing never repaints. The front of each layer stays put.
+const contours = LAY.map((l, i) => {
+  const pad = 12, x0 = CX - l.ab - pad, y0 = CY - l.b - pad, w = l.af + l.ab + 2 * pad, h = 2 * l.b + 2 * pad;
+  const e = L.layer({ x: x0, y: y0, w, h, cls: "contour" });
+  const s = L.svg("svg", { width: w, height: h, viewBox: `${x0} ${y0} ${w} ${h}` }, e);
+  L.svg("path", {
+    d: `M${CX},${CY - l.b} A${l.af},${l.b} 0 0 1 ${CX},${CY + l.b} A${l.ab},${l.b} 0 0 1 ${CX},${CY - l.b} Z`,
+    fill: `rgba(92,157,255,${(0.045).toFixed(3)})`, stroke: INKS[i], "stroke-width": i === 0 ? 6 : 4,
+  }, s);
+  e.style.transformOrigin = `${CX + l.af - x0}px ${CY - y0}px`;
+  return { e, i, op: -1, tr: "" };
+});
+// the layers' numbers, between the contours ahead of the nacelles
+LAY.forEach((l, i) => {
+  const x = i === 0 ? CX + l.af - 26 : CX + (l.af + LAY[i - 1].af) / 2;
+  L.text({ x, base: CY + 11, s: 30, c: i < 3 ? "ice" : "sky", txt: String(i + 1), align: "c", w: 40, legend: true });
+});
+L.text({ x: PX + PW - 20, base: CY + 13, s: 36, c: "orange", txt: "Fore", align: "r" });
+L.text({ x: PX + 24, base: CY + 13, s: 36, c: "orange", txt: "Aft" });
+
+// the nacelle pair: geometric blocks — pylons, the coil housing, a Bussard collector ahead
+const NAC = [{ y: CY - 150, name: "Port" }, { y: CY + 150 - 64, name: "Starboard" }];
+const NX0 = CX - 430, NX1 = CX + 330, NH = 64, SEGS = 12, SX0 = CX - 330, SX1 = CX + 230, SG = 8;
+const SW = (SX1 - SX0 - (SEGS - 1) * SG) / SEGS;
+L.rect({ x: CX - 210, y: CY - 86, w: 40, h: 172, c: "#26407a", free: true });            // the pylons and the spar
+L.rect({ x: CX - 300, y: CY - 20, w: 300, h: 40, rx: 20, c: "#26407a", free: true });
+const nacSegs = NAC.map((n) => {
+  L.svg("rect", { x: NX0, y: n.y, width: NX1 - NX0, height: NH, rx: NH / 2, fill: "#2a4a8c", class: "boot" });
+  L.svg("rect", { x: SX0 - 14, y: n.y + 10, width: SX1 - SX0 + 28, height: NH - 20, rx: 8, fill: "#0b1638", class: "boot" });
+  L.svg("rect", { x: NX1 - 64, y: n.y + 6, width: 52, height: NH - 12, rx: (NH - 12) / 2, fill: "var(--mars)", class: "boot" });
+  const glow = L.layer({ x: NX1 - 108, y: n.y - 36, w: 140, h: 136, cls: "glow" });
+  const segs = Array.from({ length: SEGS }, (_, k) => {
+    const s = L.layer({ x: SX0 + k * (SW + SG), y: n.y + 14, w: SW, h: NH - 28, cls: "seg" });
+    s.style.opacity = 0.15;
+    return { e: s, shown: -1 };
+  });
+  return { glow, segs };
+});
+// corner readouts
+L.text({ x: PX + 40, base: PY + 72, s: 36, c: "sky", txt: "Dorsal projection  ·  Nine field layers" });
+L.text({ x: PX + PW - 40, base: PY + 72, s: 36, c: "sky", txt: "Grid interval 160 m", align: "r" });
+L.text({ x: PX + 40, base: PY + PH - 98, s: 36, c: "sky", txt: "Field Envelope" });
+const envTxt = L.text({ x: PX + 40, base: PY + PH - 40, s: 52, c: "white", txt: "" });
+L.text({ x: PX + PW - 40, base: PY + PH - 98, s: 36, c: "sky", txt: "Bow Compression", align: "r" });
+const bowTxt = L.text({ x: PX + PW - 40, base: PY + PH - 40, s: 52, c: "white", txt: "", align: "r" });
+
+// ---------------- field layers ----------------
+header(RX, 280, RR - RX, "Field Layers", 300, "sky", "ice");
+const COCH = 2580, BX0 = 2640, BX1 = 3300;
+L.text({ x: RX, base: 404, s: 36, c: "sky", txt: "Layer" });
+L.text({ x: COCH, base: 404, s: 36, c: "sky", txt: "Cochranes", align: "r" });
+L.text({ x: BX0, base: 404, s: 36, c: "sky", txt: "Field Strength" });
+L.text({ x: RR, base: 404, s: 36, c: "sky", txt: "Envelope", align: "r" });
+const layerRows = LAY.map((l, i) => {
+  const base = 460 + i * 58;
+  L.text({ x: RX, base, s: 40, c: i < 3 ? "ice" : "sky", txt: "Layer " + (i + 1) });
+  L.rect({ x: BX0, y: base - 26, w: BX1 - BX0, h: 26, c: "#0f1a3c" });
+  const bar = L.layer({ x: BX0, y: base - 26, w: BX1 - BX0, h: 26 });
+  bar.style.background = INKS[i]; bar.style.transformOrigin = "0 0";
+  return {
+    v: L.text({ x: COCH, base, s: 40, c: "white", txt: "", align: "r" }),
+    env: L.text({ x: RR, base, s: 40, c: "white", txt: "", align: "r" }),
+    bar, j: L.rand(-1, 1), tr: "", op: "",
+  };
+});
+
+// ---------------- the warp curve ----------------
+header(RX, 1000, RR - RX, "Warp Velocity Curve", 380, "orange", "peach");
+const GX = RX, GY = 1080, GW = RR - RX, GH = 480;
+L.rect({ x: GX, y: GY, w: GW, h: GH, c: "#040a20", panel: true });
+const X0 = GX + 130, X1 = GX + GW - 40, Y0 = GY + GH - 84, Y1 = GY + 40;         // the plot: warp 1–10, 1–10,000 c
+const wx = (w) => X0 + (w - 1) / 9 * (X1 - X0);
+const vy = (v) => Y0 - L.clamp(Math.log10(v) / 4, 0, 1) * (Y0 - Y1);
+let VTOP = 9.9; while (vel(VTOP + 0.0005) < 10000) VTOP += 0.0005;          // where the curve leaves the chart
+const py = (p) => Y0 - p * (Y0 - Y1) * 0.62;
+{
+  const g = L.svg("g", { class: "boot" });
+  for (let d = 0; d <= 4; d++) L.svg("rect", { x: X0, y: vy(Math.pow(10, d)) - 1, width: X1 - X0, height: 2, fill: d ? "#13224c" : "#2c57ec" }, g);
+  for (let w = 1; w <= 10; w++) L.svg("rect", { x: wx(w) - 1, y: Y1, width: 2, height: Y0 - Y1, fill: w === 1 ? "#2c57ec" : "#13224c" }, g);
+  L.svg("rect", { x: wx(10) - 2, y: Y1, width: 4, height: Y0 - Y1, fill: "#d94a3a", opacity: 0.7 }, g);          // the limit
+  const pts = (f, y, a, b, n) => Array.from({ length: n + 1 }, (_, i) => { const w = a + (b - a) * i / n; return `${wx(w).toFixed(1)},${y(f(w)).toFixed(1)}`; }).join(" ");
+  L.svg("polyline", { points: pts(power, (p) => py(p), 1, 9.9, 600), fill: "none", stroke: "var(--orange)", "stroke-width": 4, "stroke-linejoin": "round", opacity: 0.9 }, g);
+  L.svg("polyline", { points: pts(vel, vy, 1, VTOP, 900), fill: "none", stroke: "var(--sky)", "stroke-width": 7, "stroke-linejoin": "round", "stroke-linecap": "round" }, g);
+}
+[[1, "1 c"], [10, "10"], [100, "100"], [1000, "1,000"], [10000, "10,000"]]
+  .forEach(([v, s]) => L.text({ x: X0 - 18, base: vy(v) + 11, s: 30, c: "sky", txt: s, align: "r", legend: true }));
+for (let w = 1; w <= 10; w++) L.text({ x: wx(w), base: Y0 + 44, s: 30, c: w === 10 ? "mars" : "sky", txt: String(w), align: "c", w: 60, legend: true });
+L.rect({ x: X0 + 30, y: Y1 + 22, w: 40, h: 8, c: "sky", free: true });
+L.text({ x: X0 + 86, base: Y1 + 40, s: 36, c: "sky", txt: "Velocity" });
+L.rect({ x: X0 + 30, y: Y1 + 80, w: 40, h: 6, c: "orange", free: true });
+L.text({ x: X0 + 86, base: Y1 + 98, s: 36, c: "orange", txt: "Power per cochrane" });
+const cursor = L.layer({ x: 0, y: Y1, w: 3, h: Y0 - Y1 });
+cursor.style.background = "rgba(242,242,255,.55)";
+const pdot = L.layer({ x: 0, y: 0, w: 18, h: 18, cls: "dot" }); pdot.style.background = "var(--orange)"; pdot.style.boxShadow = "none";
+const vdot = L.layer({ x: 0, y: 0, w: 26, h: 26, cls: "dot" });
+const vtag = L.layer({ x: 0, y: 0, w: 320, h: 40, cls: "t tag" });
+
+// ---------------- coil firing sequence ----------------
+small(FX, 1620, 1100 - FX, "Coil Firing Sequence", 380, "orange", "peach");
+L.text({ x: FX, base: 1734, s: 40, c: "sky", txt: "Firing Frequency" });
+const hzTxt = L.text({ x: 1100, base: 1734, s: 44, c: "white", txt: "", align: "r" });
+const CX0 = 300, CX1 = 1100, NCOIL = 12, CG = 14, CW = (CX1 - CX0 - (NCOIL - 1) * CG) / NCOIL, CH = 86;
+const coilRows = [["Port", 1772], ["Starboard", 1918]].map(([name, y]) => {
+  L.text({ x: FX, base: y + CH / 2 + 14, s: 40, c: "sky", txt: name });
+  return Array.from({ length: NCOIL }, (_, k) => {
+    const x = CX0 + k * (CW + CG);
+    L.rect({ x, y, w: CW, h: CH, rx: 6, c: "#0f1a3c" });
+    L.rect({ x: x + 8, y: y + CH - 14, w: CW - 16, h: 5, c: "#26407a", free: true });
+    const lit = L.layer({ x, y, w: CW, h: CH, cls: "coil" });
+    lit.style.opacity = 0;
+    return { e: lit, shown: -1 };
+  });
+});
+
+// ---------------- field symmetry ----------------
+const SYX = 1160;
+small(SYX, 1620, FR - SYX, "Field Symmetry", 320, "sky", "ice");
+L.text({ x: SYX, base: 1734, s: 40, c: "sky", txt: "Symmetry" });
+const symTxt = L.text({ x: FR, base: 1734, s: 44, c: "white", txt: "", align: "r" });
+const TY = 1764, TH = 30, TMID = (SYX + FR) / 2;
+L.rect({ x: SYX, y: TY, w: FR - SYX, h: TH, c: "#0f1a3c" });
+for (let k = -5; k <= 5; k++) L.rect({ x: TMID + k * 96 - 1.5, y: TY + (k ? 8 : 0), w: 3, h: k ? TH - 16 : TH, c: k ? "#26407a" : "#5c9dff", free: true });
+L.text({ x: SYX, base: 1840, s: 30, c: "sky", txt: "Port 0.5%", legend: true });
+L.text({ x: TMID, base: 1840, s: 30, c: "sky", txt: "0", align: "c", w: 60, legend: true });
+L.text({ x: FR, base: 1840, s: 30, c: "sky", txt: "Starboard 0.5%", align: "r", legend: true });
+const symMark = L.layer({ x: TMID - 7, y: TY - 8, w: 14, h: TH + 16, cls: "mk" });
+const SYM = [["Bubble Integrity", 1896], ["Field Coherence", 1950], ["Subspace Variance", 2004]].map(([name, base]) => {
+  L.text({ x: SYX, base, s: 40, c: "sky", txt: name });
+  return L.text({ x: FR, base, s: 44, c: "white", txt: "", align: "r" });
+});
+
+// ---------------- course projection ----------------
+small(RX, 1620, RR - RX, "Course Projection", 340, "sky", "ice");
+const DEST = [
+  ["Starbase 74", "042 mark 7", 3.214],
+  ["Deneva", "118 mark 22", 7.95],
+  ["Earth  ·  Sector 001", "201 mark 4", 18.62],
+  ["Vulcan", "236 mark 11", 21.37],
+  ["Bajor", "317 mark 15", 52.6],
+].map(([name, brg, d]) => ({ name, brg, d: d + L.rand(-0.02, 0.02) }));
+const DB = 2780, DD = 3140;
+L.text({ x: RX, base: 1734, s: 36, c: "sky", txt: "Destination" });
+L.text({ x: DB, base: 1734, s: 36, c: "sky", txt: "Bearing" });
+L.text({ x: DD, base: 1734, s: 36, c: "sky", txt: "Distance", align: "r" });
+L.text({ x: RR, base: 1734, s: 36, c: "sky", txt: "Time at Warp", align: "r" });
+const destRows = DEST.map((d, i) => {
+  const base = 1788 + i * 54, c = i === 0 ? "butter" : "white";
+  L.text({ x: RX, base, s: 40, c: i === 0 ? "butter" : "ice", txt: d.name });
+  L.text({ x: DB, base, s: 40, c, txt: d.brg });
+  return { dist: L.text({ x: DD, base, s: 40, c, txt: "", align: "r" }), eta: L.text({ x: RR, base, s: 40, c, txt: "", align: "r" }) };
+});
+const eta = (ly, c) => {
+  const h = ly / c * 8766;
+  return h < 48 ? h.toFixed(1) + " hours" : h < 24 * 400 ? (h / 24).toFixed(1) + " days" : (h / 8766).toFixed(2) + " years";
+};
+
+// ---------------- the clock ----------------
+let tPrev = null, phase = 0, sym = 0, symGoal = 0;
+L.tick((t) => {
+  const dt = tPrev === null ? 0 : Math.min(0.1, t - tPrev); tPrev = t;
+  const sx = stretch(warp);
+  // the pressure wave runs outward through the layers; each layer breathes a little with it
+  for (const c of contours) {
+    const w = 0.5 + 0.5 * Math.sin(t * 1.15 - c.i * 0.62);
+    const op = (0.42 + 0.58 * w).toFixed(2);
+    if (op !== c.op) { c.e.style.opacity = op; c.op = op; }
+    const br = 1 + 0.004 * (w - 0.5);
+    const tr = `scale(${(sx * br).toFixed(4)},${br.toFixed(4)})`;
+    if (tr !== c.tr) { c.e.style.transform = tr; c.tr = tr; }
+  }
+  layerRows.forEach((r, i) => {
+    const w = 0.5 + 0.5 * Math.sin(t * 1.15 - i * 0.62);
+    const s = Math.sqrt(vel(warp) * LAY[i].k / vel(9.6));
+    const tr = `scaleX(${L.clamp(s, 0.02, 1).toFixed(4)})`;
+    if (tr !== r.tr) { r.bar.style.transform = tr; r.tr = tr; }
+    const op = (0.75 + 0.25 * w).toFixed(2);
+    if (op !== r.op) { r.bar.style.opacity = op; r.op = op; }
+  });
+  // the coils fire fore to aft; the sweep quickens a little with speed
+  phase = (phase + dt / (2.3 - 0.11 * warp)) % 1;
+  for (let k = 0; k < NCOIL; k++) {
+    const d = (phase - (NCOIL - 1 - k) / NCOIL + 1) % 1;
+    const v = Math.round((0.12 + 0.88 * Math.exp(-d * 7)) * 40) / 40;
+    for (const row of coilRows) { const c = row[k]; if (c.shown !== v) { c.e.style.opacity = v; c.shown = v; } }
+    for (const n of nacSegs) { const c = n.segs[k]; const o = Math.round((0.15 + 0.85 * Math.exp(-d * 7)) * 40) / 40; if (c.shown !== o) { c.e.style.opacity = o; c.shown = o; } }
+  }
+  const gl = (0.7 + 0.3 * Math.sin(t * 0.9)).toFixed(2);
+  for (const n of nacSegs) css(n.glow, "opacity", gl);
+  // the symmetry marker drifts near the centre; it wanders further while the field is changing
+  symGoal = 0.05 * Math.sin(t * 0.21) + 0.03 * Math.sin(t * 0.53 + 1) + 0.22 * moving * Math.sin(t * 0.7);
+  sym += (symGoal - sym) * Math.min(1, dt * 1.5);
+  css(symMark, "transform", `translate3d(${(sym / 0.5 * 480).toFixed(1)}px,0,0)`);
+  // the warp curve's cursor
+  const x = wx(warp), y = vy(vel(warp));
+  css(cursor, "transform", `translate3d(${(x - 1.5).toFixed(1)}px,0,0)`);
+  css(vdot, "transform", `translate3d(${(x - 13).toFixed(1)}px,${(y - 13).toFixed(1)}px,0)`);
+  css(pdot, "transform", `translate3d(${(x - 9).toFixed(1)}px,${(py(power(warp)) - 9).toFixed(1)}px,0)`);
+  const left = warp > 7.4;
+  css(vtag, "transform", `translate3d(${(left ? x - 340 : x + 26).toFixed(1)}px,${(y - 62).toFixed(1)}px,0)`);
+  css(vtag, "textAlign", left ? "right" : "left");
+  // the ship moves: every distance closes at the current speed (ly per second of screen time)
+  const lyps = vel(warp) / 31557600;
+  DEST[0].d -= lyps * dt; DEST.slice(1).forEach((d, i) => (d.d -= lyps * dt * [0.62, 0.41, 0.33, -0.12][i]));
+});
+L.every(250, (t) => {
+  const c = vel(warp), sx = stretch(warp);
+  put(stateTxt, "Warp " + warp.toFixed(2));
+  put(stateSub, `Velocity ${fmt(c, 1)} c  ·  Nacelle output ${(22 + 7.4 * warp).toFixed(1)}%`);
+  put(courseSub, `Course Starbase 74  ·  Arrival in ${eta(DEST[0].d, c)}`);
+  put(pill, moving ? "Field Transition" : "Field Stable");
+  css(pill, "backgroundColor", moving ? "var(--orange)" : "var(--sky)");
+  put(vtag, `Warp ${warp.toFixed(2)}  ·  ${fmt(c, 0)} c`);
+  layerRows.forEach((r, i) => {
+    put(r.v, fmt(c * LAY[i].k * (1 + 0.00012 * r.j), 1));
+    put(r.env, fmt(Math.round((LAY[i].af + LAY[i].ab * sx) * 1.6), 0) + " m");
+  });
+  put(envTxt, `${fmt(Math.round((LAY[8].af + LAY[8].ab * sx) * 1.6), 0)} m  ×  ${fmt(Math.round(LAY[8].b * 2 * 1.6), 0)} m`);
+  put(bowTxt, (LAY[8].ab * sx / LAY[8].af).toFixed(2) + " : 1");
+  put(hzTxt, `${(38 + 6.2 * warp).toFixed(1)} Hz  ·  Fore to aft`);
+  put(symTxt, (100 - Math.abs(sym) * 0.4).toFixed(3) + "%");
+  put(SYM[0], (100 - 0.38 * moving).toFixed(1) + "%");
+  put(SYM[1], (99.97 - 0.21 * moving).toFixed(2) + "%");
+  put(SYM[2], (0.012 + 0.04 * moving + 0.002 * warp).toFixed(3) + " millicochranes");
+  DEST.forEach((d, i) => { put(destRows[i].dist, d.d.toFixed(3) + " ly"); put(destRows[i].eta, eta(d.d, c)); });
+}, 0);
+L.every(3000, () => layerRows.forEach((r) => (r.j = L.clamp(r.j + L.rand(-0.5, 0.5), -1, 1))), 0.3);
+});
+</script></body></html>

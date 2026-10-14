@@ -1,0 +1,540 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Search and Rescue</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .cell { transition: fill 1.2s ease; }
+  .fd { transition: opacity 1.2s ease; }
+  .sw { transition: color .8s ease, background-color .8s ease; }
+  .fl { transform-origin: 0 0; transition: transform .6s ease; }
+  .chev { clip-path: polygon(50% 0, 100% 100%, 50% 70%, 0 100%); }
+  .foot { box-sizing: border-box; border: 3px solid; }
+  .ring { box-sizing: border-box; border: 5px solid var(--butter); border-radius: 50%; }
+  .lkp { box-sizing: border-box; background: var(--white); border: 3px solid #000; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame, mirrored: sidebar on the right, title at top left ----------------
+L.frame({ type: "B", title: "Search and Rescue  •  Grid Search", c: "peach", c2: "sky", accent: "ice", foot: "Rescue",
+  side: [[140, "sky", "SAR 07"], [70, "peach", "Grid"], [420, "sky", "Search Area"], [70, "ice", "128"],
+         [300, "peach", "Sensors"], [70, "tan", "Sweep"], [216, "sky", "Navigation"]] });
+
+// The map on the left (40–2140), a column of tables on the right (2200–3520), a three-panel strip.
+// The grid's cells are 128 square from x 92, y 424; the right column's rows on a 64 grid from 400;
+// the strip on a 54 grid from 1716.
+const LX = 40, MR = 2140, RX = 2200, RR = 3520;
+const GX0 = 92, GY0 = 424, CS = 128, NC = 16, NR = 8, N = NC * NR;
+const SB = (k) => 1716 + 54 * k;
+const KEY1 = 1530, KEY2 = 1580;
+const PANEL = "#07101f", TRACK = "#14223f";
+const col = (c) => (c.startsWith("#") ? c : `var(--${c})`);
+const ink = (e, c) => { if (e._ink !== c) { e._ink = c; e.style.color = col(c); } };
+const op = (e, v) => { v = v < 0.005 ? "0" : v > 0.995 ? "1" : v.toFixed(2); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const fmt = (n) => Math.round(n).toLocaleString("en-US");
+const pad = (n, k = 2) => String(n).padStart(k, "0");
+const hms = (s) => { s = Math.max(0, Math.floor(s)); return `${pad(Math.floor(s / 3600))}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)}`; };
+const LETTER = "ABCDEFGHIJKLMNOP";
+const WORD = ["None", "One", "Two", "Three", "Four", "Five"];
+const bad = [];
+const fits = (txt, s, w, where) => { if (L.textWidth(txt, s) > w) bad.push(`${where}: "${txt}"`); };
+const lerp = (a, b, k) => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k];
+
+// ---------------- the search craft and the incidents ----------------
+const ASSETS = [
+  { name: "Enterprise", c: "peach", pod: 0.70, cellT: 2.2, size: 48 },
+  { name: "Onizuka", c: "orange", pod: 0.56, cellT: 2.45, size: 36 },
+  { name: "Goddard", c: "lilac", pod: 0.55, cellT: 2.6, size: 36 },
+  { name: "Sakharov", c: "sand", pod: 0.58, cellT: 2.35, size: 36 },
+];
+// lkp: last known position in cells (x across, y down); hdg: bearing of the drift (0 up, clockwise)
+const INC = [
+  { craft: "Fermi", cls: "Type 6 Shuttle", crew: 2, loc: "Hekaras Corridor", cause: "Tetryon Surge", effect: "Navigation Lost",
+    lkp: [3.4, 2.4], hdg: 112, drift: 4.2, k: 0.86, overdue: "2 h 40 m", ls: 38.2, note: "Tetryon interference, sensor range reduced" },
+  { craft: "Curie", cls: "Type 7 Shuttle", crew: 3, loc: "Typhon Expanse", cause: "Dekyon Emissions", effect: "Sensors Lost",
+    lkp: [12.6, 1.6], hdg: 222, drift: 3.6, k: 0.90, overdue: "1 h 55 m", ls: 44.6, note: "Dekyon emissions, scan resolution reduced" },
+  { craft: "Magellan", cls: "Type 6 Shuttle", crew: 2, loc: "Amargosa Diaspora", cause: "Ion Storm", effect: "Comms Lost",
+    lkp: [2.6, 6.2], hdg: 58, drift: 4.0, k: 0.92, overdue: "3 h 05 m", ls: 35.4, note: "Ion storm in sector, returns degraded" },
+  { craft: "Hawking", cls: "Type 7 Shuttle", crew: 4, loc: "Paulson Nebula", cause: "Plasma Discharge", effect: "Power Lost",
+    lkp: [13.2, 6.4], hdg: 296, drift: 4.0, k: 0.80, overdue: "2 h 15 m", ls: 31.8, note: "Nebular gas scattering, POD reduced" },
+];
+// the craft go missing in turn, seven names against four places, so none is lost twice in a sitting
+const CRAFT = [["Fermi", "Type 6 Shuttle", 2], ["Curie", "Type 7 Shuttle", 3], ["Magellan", "Type 6 Shuttle", 2], ["Hawking", "Type 7 Shuttle", 4],
+  ["Kepler", "Type 6 Shuttle", 2], ["Halley", "Type 7 Shuttle", 3], ["Faraday", "Type 6 Shuttle", 2]].map(([craft, cls, crew]) => ({ craft, cls, crew }));
+const PAUSE = 1.6, RT = 0.3;                            // pause between passes; corner rounding (cells)
+
+// =====================================================================================
+// STATUS LINE
+// =====================================================================================
+const WORDS = { search: ["Searching", "peach"], contact: ["Contact", "butter"], recovery: ["Recovery", "sky"], done: ["Concluded", "ice"] };
+const SUBX = LX + Math.ceil(Math.max(...Object.values(WORDS).map(([w]) => L.textWidth(w, 100))) / 10) * 10 + 56;
+const stateTxt = L.text({ x: LX, cap: 150, s: 100, c: "peach", txt: "", cls: "sw" });
+const stateSub = L.text({ x: SUBX, base: 222, s: 38, c: "sky", txt: "" });
+L.text({ x: RX, base: 222, s: 40, c: "sky", txt: "Stardate" });
+const sdVal = L.text({ x: RX + L.textWidth("Stardate", 40) + 24, base: 222, s: 52, c: "white", txt: "" });
+L.box({ x: RR - 400, y: 150, w: 400, h: 72, c: "sky", label: "Rescue Operation", r: "lr", fs: 36 });
+
+// =====================================================================================
+// THE SEARCH GRID: probability of containment per cell, the craft on their tracks
+// =====================================================================================
+L.header({ x: LX, y: 280, w: MR - LX, label: "Search Grid  ·  Probability Map", c1: "peach", c2: "sky" });
+const letters = Array.from({ length: NC }, (_, c) =>
+  L.text({ x: GX0 + c * CS + CS / 2, base: 400, s: 36, c: "tan", txt: LETTER[c], align: "c", w: 60, legend: true, cls: "sw" }));
+for (let r = 0; r < NR; r++) L.text({ x: LX, base: GY0 + r * CS + CS / 2 + 13, s: 36, c: "tan", txt: String(r + 1), legend: true });
+
+// the colour of a probability: dark to bright blue, ten steps of half a percent
+const STOPS = [[0, [14, 26, 54]], [0.3, [24, 58, 122]], [0.6, [58, 116, 214]], [0.8, [92, 157, 255]], [1, [176, 224, 255]]];
+const ramp = (u) => {
+  let i = 0; while (i < STOPS.length - 2 && u > STOPS[i + 1][0]) i++;
+  const [a, ca] = STOPS[i], [b, cb] = STOPS[i + 1], k = L.clamp((u - a) / (b - a));
+  return "#" + ca.map((v, j) => Math.round(v + (cb[j] - v) * k).toString(16).padStart(2, "0")).join("");
+};
+const LEVELS = 10, PMAX = 0.05;
+const LEVEL_C = Array.from({ length: LEVELS }, (_, i) => ramp(i / (LEVELS - 1)));
+const cellXY = (i) => [GX0 + (i % NC) * CS, GY0 + Math.floor(i / NC) * CS];
+const C = (i) => { const [x, y] = cellXY(i); return [x + CS / 2, y + CS / 2]; };
+const gridName = (i) => `${LETTER[i % NC]}${Math.floor(i / NC) + 1}`;
+const cells = Array.from({ length: N }, (_, i) => {
+  const [x, y] = cellXY(i);
+  const e = L.rect({ x: x + 2, y: y + 2, w: CS - 4, h: CS - 4, c: "#0e1a36", noalign: true });
+  e.classList.add("cell"); e.style.fill = LEVEL_C[0];
+  return { e, lv: 0 };
+});
+// sector boundaries: a faint line in the gutter every four columns
+for (let s = 1; s < 4; s++) L.rect({ x: GX0 + s * 4 * CS - 1, y: GY0, w: 2, h: NR * CS, c: "#3c5a8c", free: true });
+// the drift line from the last known position, and what is drawn as the search goes
+const drift = L.svg("line", { x1: 0, y1: 0, x2: 0, y2: 0, stroke: "rgba(242,242,255,.6)", "stroke-width": 3, "stroke-dasharray": "14 10" });
+const driftEnd = L.svg("circle", { cx: 0, cy: 0, r: 7, fill: "none", stroke: "rgba(242,242,255,.6)", "stroke-width": 3 });
+const marks = L.svg("g", {});                             // pips and tracks, cleared with each search
+const lkp = L.layer({ x: 0, y: 0, w: 26, h: 26, cls: "lkp fd" }); op(lkp, 0);
+const ring = L.layer({ x: 0, y: 0, w: 84, h: 84, cls: "ring" }); op(ring, 0);
+ASSETS.forEach((a) => {
+  a.foot = L.layer({ x: 0, y: 0, w: CS, h: CS, cls: "foot fd" });
+  a.foot.style.borderColor = col(a.c); a.foot.style.background = "rgba(255,255,255,.06)"; op(a.foot, 0);
+  a.mk = L.layer({ x: 0, y: 0, w: a.size, h: a.size, cls: "chev fd" });
+  a.mk.style.background = col(a.c); op(a.mk, 0);
+  a.ang = 0; a.x = 0; a.y = 0;
+});
+
+// ---------------- the key, under the grid ----------------
+L.text({ x: LX, base: KEY1, s: 36, c: "tan", txt: "Containment" });
+L.text({ x: LX, base: KEY2, s: 36, c: "tan", txt: "Percent" });
+const KX0 = GX0 + 2 * CS, KS = 6 * CS, KW = KS / LEVELS;
+LEVEL_C.forEach((c, i) => L.rect({ x: KX0 + i * KW + 2, y: KEY1 - 26, w: KW - 4, h: 26, c, noalign: true }));
+for (let v = 0; v <= 5; v++)
+  L.text({ x: KX0 + (v / 5) * KS, base: KEY2, s: 30, c: "tan", txt: String(v), align: v === 0 ? "l" : v === 5 ? "r" : "c", w: 60, legend: true });
+const KM1 = 1320, KM2 = 1660;
+L.svg("polygon", { points: `${KM1 + 13},${KEY1 - 26} ${KM1 + 26},${KEY1 - 13} ${KM1 + 13},${KEY1} ${KM1},${KEY1 - 13}`, fill: "var(--white)" });
+L.text({ x: KM1 + 48, base: KEY1, s: 36, c: "tan", txt: "Last Known Position" });
+L.svg("line", { x1: KM1, y1: KEY2 - 13, x2: KM1 + 30, y2: KEY2 - 13, stroke: "rgba(242,242,255,.6)", "stroke-width": 3, "stroke-dasharray": "10 6" });
+L.text({ x: KM1 + 48, base: KEY2, s: 36, c: "tan", txt: "Projected Drift" });
+L.svg("circle", { cx: KM2 + 13, cy: KEY1 - 13, r: 12, fill: "none", stroke: "var(--butter)", "stroke-width": 4 });
+L.text({ x: KM2 + 48, base: KEY1, s: 36, c: "tan", txt: "Contact" });
+[0, 1, 2].forEach((k) => L.svg("rect", { x: KM2 + k * 10, y: KEY2 - 19, width: 7, height: 12, fill: "var(--peach)" }));
+L.text({ x: KM2 + 48, base: KEY2, s: 36, c: "tan", txt: "Sweeps" });
+const locTxt = L.text({ x: MR, base: KEY1, s: 36, c: "sky", txt: "", align: "r" });
+L.text({ x: MR, base: KEY2, s: 36, c: "tan", txt: "2,500 km Cells", align: "r" });
+
+// =====================================================================================
+// MISSING CRAFT
+// =====================================================================================
+L.header({ x: RX, y: 280, w: RR - RX, label: "Missing Craft", c1: "sky", c2: "peach" });
+const MV = RX + 360;
+const miss = ["Craft", "Crew Aboard", "Last Contact", "Last Known", "Probable Cause", "Life Support"].map((label, i) => {
+  const base = 400 + 64 * i;
+  L.text({ x: RX, base, s: 40, c: "tan", txt: label });
+  return { v: L.text({ x: MV, base, s: 52, c: "white", txt: "", cls: "sw" }), cp: L.text({ x: RR, base, s: 36, c: "sky", txt: "", align: "r", cls: "sw" }) };
+});
+
+// =====================================================================================
+// SEARCH ASSETS
+// =====================================================================================
+L.header({ x: RX, y: 784, w: RR - RX, label: "Search Assets", c1: "peach", c2: "ice" });
+const AC = { sec: RX + 304, st: RX + 480, pod: 3010, bar: 3060, barW: 300 };
+[["Asset", RX, "l"], ["Sector", AC.sec, "l"], ["State", AC.st, "l"], ["POD", AC.pod, "r"], ["Swept This Pass", AC.bar, "l"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: 904, s: 36, c: "sky", txt, align }));
+ASSETS.forEach((a, i) => {
+  const y = 928 + 72 * i, base = y + 44.56;
+  L.box({ x: RX, y, w: 280, h: 56, c: a.c, label: a.name, fs: 32, r: "l" });
+  a.tSec = L.text({ x: AC.sec, base, s: 40, c: "tan", txt: "" });
+  a.tSt = L.text({ x: AC.st, base, s: 40, c: "white", txt: "", cls: "sw" });
+  a.tPod = L.text({ x: AC.pod, base, s: 52, c: "white", txt: "", align: "r" });
+  L.rect({ x: AC.bar, y: base - 26, w: AC.barW, h: 26, c: TRACK });
+  a.bar = L.layer({ x: AC.bar, y: base - 26, w: AC.barW, h: 26, cls: "fl" });
+  a.bar.style.background = col(a.c); a.bar.style.transform = "scaleX(0)";
+  a.tCnt = L.text({ x: RR, base, s: 40, c: "white", txt: "", align: "r" });
+});
+
+// =====================================================================================
+// SEARCH EFFORT
+// =====================================================================================
+L.header({ x: RX, y: 1260, w: RR - RX, label: "Search Effort", c1: "ice", c2: "peach" });
+L.text({ x: RX, base: 1386, s: 40, c: "tan", txt: "Probability of Success" });
+const posBig = L.text({ x: RX, base: 1530, s: 140, c: "butter", txt: "" });
+const EX = 2760, EV = 3010;
+const eff = ["Cells Swept", "Search Time", "Search Pass"].map((label, i) => {
+  const base = 1386 + 72 * i;
+  L.text({ x: EX, base, s: 40, c: "tan", txt: label });
+  return { v: L.text({ x: EV, base, s: 52, c: "white", txt: "" }), base };
+});
+L.rect({ x: 3220, y: eff[0].base - 26, w: RR - 3220, h: 26, c: TRACK });
+const sweptBar = L.layer({ x: 3220, y: eff[0].base - 26, w: RR - 3220, h: 26, cls: "fl" });
+sweptBar.style.background = "var(--sky)"; sweptBar.style.transform = "scaleX(0)";
+const effCap = [null, L.text({ x: RR, base: eff[1].base, s: 36, c: "sky", txt: "1,000 km/s", align: "r" }),
+  L.text({ x: RR, base: eff[2].base, s: 36, c: "sky", txt: "", align: "r" })];
+
+// =====================================================================================
+// THE STRIP: search log, the success curve, the rescue record
+// =====================================================================================
+// ---------------- search log ----------------
+const GL1 = GX0 + 9 * CS - 64;                            // 1180: the strip splits under the grid's columns
+L.header({ x: LX, y: 1620, w: GL1 - LX, label: "Search Log", c1: "sky", c2: "peach", h: 48 });
+const logRows = Array.from({ length: 6 }, (_, i) => ({
+  sd: L.text({ x: LX, base: SB(i), s: 36, c: "sky", txt: "" }), tx: L.text({ x: LX + 156, base: SB(i), s: 36, c: "peach", txt: "" }) }));
+const logged = [];
+const log = (txt, sd = stardate()) => {
+  fits(txt, 36, GL1 - LX - 156, "log");
+  logged.push([sd.toFixed(1), txt]); if (logged.length > 6) logged.shift();
+  logRows.forEach((r, i) => { const e = logged[i]; L.set(r.sd, e ? e[0] : ""); L.set(r.tx, e ? e[1] : ""); ink(r.tx, i === logged.length - 1 ? "white" : "peach"); });
+};
+
+// ---------------- the success curve ----------------
+const CX0 = GX0 + 9 * CS, CPX0 = CX0 + 148, CPX1 = MR - 24, CTOP = 1703, CBOT = 1919, CMAX = 300;
+L.header({ x: CX0, y: 1620, w: MR - CX0, label: "Success Curve", c1: "peach", c2: "sky", h: 48 });
+L.rect({ x: CX0 + 124, y: 1690, w: MR - CX0 - 124, h: 250, c: PANEL, panel: true });
+const cx = (s) => CPX0 + (Math.min(s, CMAX) / CMAX) * (CPX1 - CPX0), cy = (p) => CBOT - p * (CBOT - CTOP);
+[0, 0.25, 0.5, 0.75, 1].forEach((p) => {
+  L.rect({ x: CPX0, y: cy(p) - 1, w: CPX1 - CPX0, h: 2, c: p === 0 ? "#3c5a8c" : "#16284a", free: true });
+  if (p % 0.5 === 0) L.text({ x: CX0 + 100, base: cy(p) + 13, s: 30, c: "tan", txt: String(p * 100), align: "r", legend: true });
+});
+for (let m = 1; m <= 5; m++) L.rect({ x: Math.round(cx(m * 60)) - 1, y: CTOP, w: 2, h: CBOT - CTOP, c: "#16284a", free: true });
+for (let m = 0; m <= 5; m++)
+  L.text({ x: m === 5 ? MR : cx(m * 60), base: SB(5), s: 30, c: "tan", txt: m === 5 ? "5 Min" : String(m), align: m === 5 ? "r" : "c", w: 60, legend: true });
+const prevLine = L.svg("polyline", { points: "", fill: "none", stroke: "#4a5f8c", "stroke-width": 3, "stroke-dasharray": "10 8" });
+const curArea = L.svg("polygon", { points: "", fill: "rgba(92,157,255,.18)" });
+const curLine = L.svg("polyline", { points: "", fill: "none", stroke: "var(--sky)", "stroke-width": 4, "stroke-linejoin": "round" });
+const contactLine = L.svg("rect", { x: 0, y: CTOP, width: 3, height: CBOT - CTOP, fill: "var(--butter)", opacity: 0 });
+// the key, in the top left of the plot where the curve never goes
+{ // one line, between the 100 and 75 lines, on a backing that hides the gridlines behind it
+  const KB = Math.round((cy(1) + cy(0.75)) / 2 + 11), k1 = CPX0 + 16, t1 = k1 + 56, k2 = t1 + Math.ceil(L.textWidth("This Search", 30)) + 40, t2 = k2 + 56;
+  L.svg("rect", { x: k1 - 8, y: KB - 30, width: t2 + L.textWidth("Previous", 30) + 16 - (k1 - 8), height: 38, fill: PANEL });
+  L.svg("rect", { x: k1, y: KB - 13, width: 40, height: 4, fill: "var(--sky)" });
+  L.text({ x: t1, base: KB, s: 30, c: "sky", txt: "This Search", legend: true });
+  L.svg("line", { x1: k2, y1: KB - 11, x2: k2 + 40, y2: KB - 11, stroke: "#4a5f8c", "stroke-width": 3, "stroke-dasharray": "10 6" });
+  L.text({ x: t2, base: KB, s: 30, c: "tan", txt: "Previous", legend: true });
+}
+let curve = [], prevCurve = [];
+for (let s = 0; s <= 176; s += 2) prevCurve.push([s, 0.93 * (1 - Math.exp(-s / 95))]);   // the last search, Copernicus
+const ptsOf = (pts) => pts.map(([s, p]) => `${cx(s).toFixed(1)},${cy(p).toFixed(1)}`).join(" ");
+const drawCurve = () => {
+  const s = ptsOf(curve);
+  if (curLine._k === s) return; curLine._k = s;
+  curLine.setAttribute("points", s);
+  curArea.setAttribute("points", curve.length ? `${s} ${cx(curve[curve.length - 1][0]).toFixed(1)},${CBOT} ${cx(0)},${CBOT}` : "");
+};
+
+// ---------------- rescue record ----------------
+L.header({ x: RX, y: 1620, w: RR - RX, label: "Rescue Record", c1: "ice", c2: "sky", h: 48 });
+const HC = { sd: RX, craft: RX + 170, loc: RX + 600 };
+[["Stardate", HC.sd, "l"], ["Craft", HC.craft, "l"], ["Location", HC.loc, "l"], ["Outcome", RR, "r"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: SB(0), s: 36, c: "sky", txt, align }));
+const OUTC = { "Four Recovered": "tan", Recovered: "sky", Located: "peach", "Crew Recovered": "ice" };
+const history = [
+  ["45703.9", "Nova Squadron", "Titan  ·  Saturn", "Four Recovered"],
+  ["46154.8", "Shuttlepod El-Baz", "Mar Oscura Nebula", "Recovered"],
+  ["46902.3", "Shuttlecraft Justman", "Bre'el System", "Recovered"],
+  ["47310.2", "S.S. Fleming", "Hekaras Corridor", "Located"],
+  ["47457.1", "Shuttlecraft Copernicus", "Kavis Alpha Sector", "Recovered"],
+];
+const histRows = Array.from({ length: 5 }, (_, i) => ({
+  sd: L.text({ x: HC.sd, base: SB(i + 1), s: 36, c: "orange", txt: "" }), craft: L.text({ x: HC.craft, base: SB(i + 1), s: 36, c: "white", txt: "" }),
+  loc: L.text({ x: HC.loc, base: SB(i + 1), s: 36, c: "sky", txt: "" }), out: L.text({ x: RR, base: SB(i + 1), s: 36, c: "sky", txt: "", align: "r" }) }));
+const showHistory = (fresh) => histRows.forEach((r, i) => {
+  const h = history[history.length - 5 + i];
+  L.set(r.sd, h[0]); L.set(r.craft, h[1]); L.set(r.loc, h[2]); L.set(r.out, h[3]); ink(r.out, OUTC[h[3]]);
+  ink(r.craft, fresh && i === 4 ? "white" : "tan");
+});
+showHistory(false);
+
+// =====================================================================================
+// THE SEARCH
+// =====================================================================================
+const p = new Float64Array(N), sweeps = new Uint8Array(N), cov = new Float64Array(N);
+let inc = null, incN = -1, T = 0, contactXY = [0, 0], finder = null;
+let phase = "idle", tInc = 0, tSearch = 0, tc = 0, posAtContact = 0, elapsedAtContact = 0;
+let sd0 = 47612.4 + Math.random() * 0.5, sdT = 0, lsEnd = 0, lsLeft = 0;
+const stardate = (t = L.t) => sd0 + (t - sdT) / 3600 / 8.766;
+const pos = () => 1 - p.reduce((a, b) => a + b, 0);
+
+// cells by probability, normalized, painted only when their step changes
+const paint = (collapse) => {
+  const sum = p.reduce((a, b) => a + b, 0) || 1;
+  cells.forEach((c, i) => {
+    const lv = collapse === undefined ? Math.min(LEVELS - 1, Math.floor((p[i] / sum / PMAX) * LEVELS)) : i === collapse ? LEVELS - 1 : 0;
+    if (lv !== c.lv) { c.lv = lv; c.e.style.fill = LEVEL_C[lv]; }
+  });
+};
+
+// each craft flies its sector in parallel tracks: down a column, up the next
+const sectorSeq = (s) => {
+  const out = [];
+  for (let j = 0; j < 4; j++) for (let r = 0; r < NR; r++) out.push((j % 2 ? NR - 1 - r : r) * NC + 4 * s + j);
+  return out;
+};
+const isTurn = (q, k) => {
+  const [a, b, c] = [C(q[k - 1]), C(q[k]), C(q[k + 1])];
+  return Math.abs((b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0])) > 1;
+};
+const posAt = (a, e) => {
+  const q = a.seq, last = q.length - 1, f = Math.max(0, e) / a.cellT;
+  if (f >= last) return C(q[last]);
+  const k = Math.round(f);
+  if (k > 0 && k < last && Math.abs(f - k) < RT && isTurn(q, k)) {     // round the corner
+    const A = lerp(C(q[k - 1]), C(q[k]), 1 - RT), B = lerp(C(q[k]), C(q[k + 1]), RT), M = C(q[k]);
+    const s = (f - (k - RT)) / (2 * RT), u = 1 - s;
+    return [u * u * A[0] + 2 * u * s * M[0] + s * s * B[0], u * u * A[1] + 2 * u * s * M[1] + s * s * B[1]];
+  }
+  const i = Math.floor(f);
+  return lerp(C(q[i]), C(q[i + 1]), f - i);
+};
+const trail = (a, k) => {                                 // the piece of track round cell k, drawn just behind the craft
+  const q = a.seq, last = q.length - 1, mid = (i, j) => lerp(C(q[i]), C(q[j]), 0.5), P = (v) => `${v[0].toFixed(1)},${v[1].toFixed(1)}`;
+  const s0 = k === 0 ? C(q[0]) : mid(k - 1, k), s1 = k === last ? C(q[last]) : mid(k, k + 1);
+  let d = `M${P(s0)} `;
+  if (k > 0 && k < last && isTurn(q, k)) d += `L${P(lerp(C(q[k - 1]), C(q[k]), 1 - RT))} Q${P(C(q[k]))} ${P(lerp(C(q[k]), C(q[k + 1]), RT))} `;
+  d += `L${P(s1)}`;
+  L.svg("path", { d, fill: "none", stroke: col(a.c), "stroke-width": 3, opacity: a.pass === 1 ? 0.6 : 0.4 }, marks);
+};
+const pip = (i, a) => {
+  if (sweeps[i] > 3) return;
+  const [x, y] = cellXY(i);
+  L.svg("rect", { x: x + 12 + (sweeps[i] - 1) * 18, y: y + CS - 30, width: 12, height: 12, fill: col(a.c) }, marks);
+};
+const secName = (s) => `${LETTER[4 * s]} – ${LETTER[4 * s + 3]}`;
+
+const newIncident = (t) => {
+  incN++; inc = Object.assign({}, INC[incN % INC.length], CRAFT[incN % CRAFT.length]);
+  if (incN > 0) { sd0 = stardate(t) + L.rand(2.2, 5.8); }
+  sdT = t;
+  // the prior: a Gaussian along the projected drift, with a floor so no cell is ruled out
+  const a = (inc.hdg * Math.PI) / 180, u = [Math.sin(a), -Math.cos(a)], n = [-u[1], u[0]];
+  const m = [inc.lkp[0] + u[0] * inc.drift, inc.lkp[1] + u[1] * inc.drift];
+  let max = 0;
+  for (let i = 0; i < N; i++) {
+    const d = [(i % NC) + 0.5 - m[0], Math.floor(i / NC) + 0.5 - m[1]];
+    const al = d[0] * u[0] + d[1] * u[1], ac = d[0] * n[0] + d[1] * n[1];
+    p[i] = Math.exp(-0.5 * ((al / 2.4) ** 2 + (ac / 1.3) ** 2)); max = Math.max(max, p[i]);
+  }
+  for (let i = 0; i < N; i++) p[i] += 0.06 * max;
+  const sum = p.reduce((x, y) => x + y, 0); for (let i = 0; i < N; i++) p[i] /= sum;
+  // where the craft really is: drawn from the same distribution
+  let r = Math.random(); T = 0; while (T < N - 1 && (r -= p[T]) > 0) T++;
+  const [tx, ty] = C(T); contactXY = [tx + L.rand(-28, 28), ty + L.rand(-28, 28)];
+  sweeps.fill(0); cov.fill(0); while (marks.firstChild) marks.firstChild.remove();
+  paint();
+  // the Enterprise takes the sector most likely to hold the craft; the shuttles the rest
+  const mass = [0, 1, 2, 3].map((s) => sectorSeq(s).reduce((x, i) => x + p[i], 0));
+  const order = [0, 1, 2, 3].sort((x, y) => mass[y] - mass[x]);
+  const shuttles = order.slice(1).sort((x, y) => x - y);
+  ASSETS.forEach((as, j) => {
+    as.sector = j === 0 ? order[0] : shuttles[j - 1];
+    as.seq = sectorSeq(as.sector); as.pass = 1; as.next = 0; as.trailNext = 0; as.u0 = t + 3; as.state = "On Station";
+    [as.x, as.y] = C(as.seq[0]); as.ang = 180; as.alpha = 1; as.done = false;
+    L.move(as.mk, as.x - as.size / 2, as.y - as.size / 2, as.ang); L.move(as.foot, as.x - CS / 2, as.y - CS / 2);
+    op(as.mk, 1); op(as.foot, 1);
+    L.set(as.tSec, secName(as.sector)); L.set(as.tPod, Math.round(as.pod * inc.k * 100) + "%");
+    for (let c = 0; c < 4; c++) ink(letters[4 * as.sector + c], as.c);
+  });
+  // the last known position and the drift from it
+  const lx = GX0 + inc.lkp[0] * CS, ly = GY0 + inc.lkp[1] * CS, ex = GX0 + m[0] * CS, ey = GY0 + m[1] * CS;
+  L.move(lkp, lx - 13, ly - 13, 45); op(lkp, 1);
+  const dl = Math.hypot(ex - lx, ey - ly), k0 = 22 / dl, k1 = 1 - 9 / dl;
+  [["x1", lx + (ex - lx) * k0], ["y1", ly + (ey - ly) * k0], ["x2", lx + (ex - lx) * k1], ["y2", ly + (ey - ly) * k1]].forEach(([k, v]) => drift.setAttribute(k, v.toFixed(1)));
+  driftEnd.setAttribute("cx", ex.toFixed(1)); driftEnd.setAttribute("cy", ey.toFixed(1));
+  drift.setAttribute("opacity", 1); driftEnd.setAttribute("opacity", 1);
+  // the record of the missing craft
+  const lk = gridName(Math.floor(inc.lkp[1]) * NC + Math.floor(inc.lkp[0]));
+  const rows = [[`Shuttlecraft ${inc.craft}`, inc.cls], [WORD[inc.crew], "Life Signs Unknown"], [(sd0 - 0.3).toFixed(1), `Overdue ${inc.overdue}`],
+    [`Grid ${lk}`, `Drifting ${pad(inc.hdg, 3)}`], [inc.cause, inc.effect], ["", "Remaining"]];
+  rows.forEach(([v, c], i) => { L.set(miss[i].v, v); L.set(miss[i].cp, c); ink(miss[i].v, "white"); ink(miss[i].cp, "sky"); });
+  lsEnd = t + inc.ls * 3600; lsLeft = 0;
+  L.set(locTxt, inc.loc);
+  prevCurve = curve.length ? curve : prevCurve; curve = [];
+  prevLine.setAttribute("points", ptsOf(prevCurve)); drawCurve(); contactLine.setAttribute("opacity", 0);
+  op(ring, 0);
+  tInc = t; tSearch = t + 3; phase = "search"; finder = null;
+  if (incN === 0) {                                       // how this one began
+    log(`${inc.craft} departed on survey, ${inc.loc}`, sd0 - 0.6);
+    log(`Last subspace contact with ${inc.craft}`, sd0 - 0.3);
+    log(`${inc.craft} missed rendezvous, hails unanswered`, sd0 - 0.1);
+  }
+  log(`Shuttlecraft ${inc.craft} overdue, ${inc.loc}`);
+  log(`Grid search ordered, ${N} cells in four sectors`);
+};
+
+const contact = (a, t) => {
+  phase = "contact"; tc = t; finder = a;
+  posAtContact = pos(); elapsedAtContact = t - tSearch;
+  lsLeft = lsEnd - t;
+  paint(T);
+  ASSETS.forEach((as) => { as.fx = as.x; as.fy = as.y; op(as.foot, 0); });
+  L.move(ring, contactXY[0] - 42, contactXY[1] - 42); op(ring, 1);
+  curve.push([elapsedAtContact, posAtContact]); drawCurve();
+  contactLine.setAttribute("x", (cx(elapsedAtContact) - 1.5).toFixed(1)); contactLine.setAttribute("opacity", 1);
+  log(`Contact, grid ${gridName(T)}, ${a.name} sensors`);
+  // the Enterprise comes alongside, stopping short on the side it comes from
+  const E = ASSETS[0], dx = E.x - contactXY[0], dy = E.y - contactXY[1], dl = Math.hypot(dx, dy) || 1;
+  E.tx = contactXY[0] + (dx / dl) * 86; E.ty = contactXY[1] + (dy / dl) * 86;
+};
+
+const sweep = (a, i, t) => {
+  sweeps[i]++; pip(i, a);
+  const d = a.pod * inc.k;
+  cov[i] = 1 - (1 - cov[i]) * (1 - d);
+  // (returns in the first minute are too faint to call: the search runs at least that long)
+  if (i === T && t - tSearch > 50 && (a.pass >= 3 || Math.random() < d)) { contact(a, t); return; }
+  p[i] *= 1 - d;
+  paint();
+};
+
+const advance = (a, t) => {
+  const last = a.seq.length - 1;
+  let e = t - a.u0;
+  if (e >= 0) {
+    const i = Math.min(last, Math.floor(e / a.cellT + 1e-9));
+    while (a.next <= i && phase === "search") { sweep(a, a.seq[a.next], t); a.next++; }
+    if (phase !== "search") return;
+    while (a.trailNext <= last && e >= (a.trailNext === last ? last : a.trailNext + 0.5) * a.cellT) { trail(a, a.trailNext); a.trailNext++; }
+    if (e >= last * a.cellT) {                            // pass complete: turn about and fly it back
+      log(`${a.name} pass ${a.pass} complete, sector ${secName(a.sector)}`);
+      a.pass++; a.seq = a.seq.slice().reverse(); a.u0 = t + PAUSE; a.next = 1; a.trailNext = 0; e = -PAUSE;
+    }
+  }
+  [a.x, a.y] = posAt(a, e);
+  const q = posAt(a, Math.max(0, e) + 0.08), b = posAt(a, Math.max(0, e) - 0.08);
+  let dx = q[0] - b[0], dy = q[1] - b[1];
+  if (Math.hypot(dx, dy) < 0.5) { const f = posAt(a, 0.2), s = posAt(a, 0); dx = f[0] - s[0]; dy = f[1] - s[1]; }
+  a.want = (Math.atan2(dx, -dy) * 180) / Math.PI;
+};
+
+// a glide from where a craft stopped to where it is going, eased
+const glide = (a, t0, dur, tx, ty, t) => {
+  const k = L.ease(L.clamp((t - t0) / dur));
+  a.x = L.mix(a.fx, tx, k); a.y = L.mix(a.fy, ty, k);
+  if (k > 0 && k < 1) a.want = (Math.atan2(tx - a.fx, -(ty - a.fy)) * 180) / Math.PI;
+  return k;
+};
+
+let lastT = null;
+L.tick((t) => {
+  const dt = lastT === null ? 0 : Math.min(0.1, t - lastT); lastT = t;
+  if (phase === "idle") newIncident(t);
+  if (phase === "search") for (const a of ASSETS) { if (phase === "search") advance(a, t); }
+  if (phase === "contact" || phase === "recovery" || phase === "done") {
+    const r = t - tc, E = ASSETS[0];
+    if (r >= 8 && phase === "contact") phase = "recovery";
+    glide(E, tc + 8, 10, E.tx, E.ty, t);
+    ASSETS.slice(1).forEach((a) => {                      // the shuttles return to the ship and dock
+      const k = glide(a, tc + 10, 12, E.tx, E.ty, t);
+      if (k > 0.86 && !a.done) { a.done = true; op(a.mk, 0); }
+    });
+    if (r >= 4 && !tc4) { tc4 = true; log(`Life signs detected, crew of ${WORD[inc.crew].toLowerCase()}`); }
+    if (r >= 18 && !tc18) { tc18 = true; log(`Tractor beam engaged, ${inc.craft} secured`); }
+    if (r >= 22 && !tc22) { tc22 = true; log(`Crew of ${WORD[inc.crew].toLowerCase()} beamed aboard, sickbay notified`); }
+    if (r >= 26 && phase === "recovery") {
+      phase = "done";
+      history.push([stardate(t).toFixed(1), `Shuttlecraft ${inc.craft}`, inc.loc, "Crew Recovered"]);
+      if (history.length > 8) history.shift();
+      showHistory(true);
+      log(`Search concluded, ${inc.craft} recovered`);
+    }
+    if (r >= 34 && !tc34) {                               // clear the map for the next search
+      tc34 = true;
+      op(E.mk, 0); op(ring, 0); op(lkp, 0);
+      drift.setAttribute("opacity", 0); driftEnd.setAttribute("opacity", 0);
+      p.fill(0); paint();
+      while (marks.firstChild) marks.firstChild.remove();
+    }
+    if (r >= 38) { tc4 = tc18 = tc22 = tc34 = false; newIncident(t); }
+  }
+  // place the craft
+  for (const a of ASSETS) {
+    if (a.want !== undefined) { let d = ((a.want - a.ang + 540) % 360) - 180; a.ang += d * Math.min(1, dt * 6); }
+    const key = `${a.x.toFixed(1)},${a.y.toFixed(1)},${a.ang.toFixed(1)}`;
+    if (a._k !== key) { a._k = key; L.move(a.mk, a.x - a.size / 2, a.y - a.size / 2, a.ang); L.move(a.foot, a.x - CS / 2, a.y - CS / 2); }
+  }
+  if (phase !== "search" && phase !== "idle") { const k = 1 + 0.12 * Math.sin(t * 2.4); ring.style.transform = `translate3d(${contactXY[0] - 42}px,${contactXY[1] - 42}px,0) scale(${k.toFixed(3)})`; }
+});
+let tc4 = false, tc18 = false, tc22 = false, tc34 = false;
+
+// ---------------- readings, a few times a second ----------------
+L.every(250, (t) => {
+  if (!inc) return;
+  const [w, c] = WORDS[phase === "idle" ? "search" : phase];
+  L.set(stateTxt, w); ink(stateTxt, c);
+  const crew = `crew of ${WORD[inc.crew].toLowerCase()}`;
+  const sub = {
+    search: `Shuttlecraft ${inc.craft} overdue  ·  ${inc.loc}  ·  ${N} cells, four sectors`,
+    contact: `Shuttlecraft ${inc.craft} located  ·  Grid ${gridName(T)}  ·  ${finder ? finder.name : ""} sensors`,
+    recovery: `Enterprise alongside ${inc.craft}  ·  ${t - tc < 18 ? "Closing" : "Tractor beam engaged"}`,
+    done: `Shuttlecraft ${inc.craft} recovered  ·  ${crew[0].toUpperCase() + crew.slice(1)} aboard`,
+  }[phase];
+  L.set(stateSub, sub || "");
+  L.set(sdVal, stardate(t).toFixed(1));
+  // the missing craft
+  const r = phase === "search" ? -1 : t - tc;
+  L.set(miss[5].v, hms(phase === "search" ? lsEnd - t : lsLeft));
+  L.set(miss[5].cp, phase === "search" ? "Remaining" : "At Contact");
+  L.set(miss[1].cp, phase === "search" ? "Life Signs Unknown" : r < 4 ? "Scanning" : r < 22 ? "Life Signs Stable" : "Aboard Enterprise");
+  ink(miss[1].cp, phase === "search" ? "sky" : r < 4 ? "butter" : "ice");
+  // the craft
+  ASSETS.forEach((a, j) => {
+    let st;
+    if (phase === "search") st = t < a.u0 && a.pass === 1 ? "On Station" : t < a.u0 ? "Turning" : `Pass ${a.pass}`;
+    else if (j === 0) st = r < 8 ? (finder === a ? "Contact" : "Holding") : r < 18 ? "Closing" : r < 22 ? "Tractor Beam" : r < 26 ? "Transport" : "Standing By";
+    else st = r < 10 ? (finder === a ? "Contact" : "Holding") : a.done ? "Docked" : "Returning";
+    L.set(a.tSt, st); ink(a.tSt, st === "Contact" ? "butter" : "white");
+    const n = phase === "search" || a._n === undefined ? a.next : a._n;
+    if (phase === "search") a._n = undefined; else if (a._n === undefined) a._n = a.next;
+    L.set(a.tCnt, `${n} / ${a.seq.length}`);
+    const v = `scaleX(${(n / a.seq.length).toFixed(4)})`;
+    if (a.bar._v !== v) { a.bar._v = v; a.bar.style.transform = v; }
+  });
+  // the effort
+  const swept = sweeps.reduce((x, s) => x + (s > 0 ? 1 : 0), 0);
+  L.set(eff[0].v, `${swept} / ${N}`);
+  const sv = `scaleX(${(swept / N).toFixed(4)})`; if (sweptBar._v !== sv) { sweptBar._v = sv; sweptBar.style.transform = sv; }
+  const el = phase === "search" ? Math.max(0, t - tSearch) : elapsedAtContact;
+  L.set(eff[1].v, `${pad(Math.floor(el / 60))}:${pad(Math.floor(el) % 60)}`);
+  const minPass = Math.min(...ASSETS.map((a) => a.pass));
+  L.set(eff[2].v, phase === "search" ? String(minPass) : "Ended");
+  L.set(effCap[2], phase === "search" ? `Coverage ${Math.round((100 * cov.reduce((x, c) => x + c, 0)) / N)}%` : `Found on Pass ${finder.pass}`);
+  L.set(posBig, `${Math.round(100 * (phase === "search" ? pos() : posAtContact))}%`);
+}, 0);
+
+// the success curve, a point every two seconds
+L.every(2000, (t) => {
+  if (phase !== "search" || t < tSearch) return;
+  curve.push([t - tSearch, pos()]); drawCurve();
+}, 0);
+L.every(1000, () => {
+  if (phase === "search" && t1note(L.t)) log(inc.note);
+}, 0);
+let noted = -1;
+const t1note = (t) => { if (noted === incN || t - tSearch < 40) return false; noted = incN; return true; };
+
+// ---------------- a guard: every line of words fits its place ----------------
+[...INC, ...CRAFT].forEach((c) => { if (!c.loc) c = Object.assign({}, INC[0], c);
+  fits(`Shuttlecraft ${c.craft} overdue  ·  ${c.loc}  ·  ${N} cells, four sectors`, 38, RX - 60 - SUBX, "subtitle");
+  fits(`Shuttlecraft ${c.craft} located  ·  Grid P8  ·  Enterprise sensors`, 38, RX - 60 - SUBX, "subtitle");
+  fits(`Shuttlecraft ${c.craft}`, 52, RR - L.textWidth(c.cls, 36) - 40 - MV, "craft");
+  fits(c.cause, 52, RR - L.textWidth(c.effect, 36) - 40 - MV, "cause");
+  fits(`Shuttlecraft ${c.craft}`, 36, HC.loc - HC.craft - 30, "record craft");
+  fits(c.loc, 36, RR - L.textWidth("Crew Recovered", 36) - 30 - HC.loc, "record loc");
+  fits(c.loc, 36, MR - (KM2 + 48 + L.textWidth("Contact", 36)) - 40, "key loc");
+});
+history.forEach((h) => { fits(h[1], 36, HC.loc - HC.craft - 30, "record craft"); fits(h[2], 36, RR - L.textWidth(h[3], 36) - 30 - HC.loc, "record loc"); });
+if (bad.length) setTimeout(() => { throw new Error("search-rescue: " + bad.join(" | ")); });
+});
+</script></body></html>

@@ -1,0 +1,669 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Course Plotting</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* swapped text dips and comes back; colors change slowly; .boot (the start-up cascade) always wins */
+  .sw { transition: opacity .45s ease, background-color 1s ease, color 1s ease; }
+  .out:not(.boot) { opacity: .15; }
+  .rc { transition: color .8s ease, background-color .8s ease; }
+  .fd { transition: opacity 1s ease; }
+  .ml .t { text-shadow: 0 0 6px #000, 0 0 3px #000; }
+  .dash { background: repeating-linear-gradient(90deg, var(--gold) 0 16px, transparent 16px 28px); border-radius: 3px; }
+  .solid { background: var(--butter); border-radius: 3px; }
+  .old { background: repeating-linear-gradient(90deg, var(--mars) 0 10px, transparent 10px 24px); border-radius: 3px; }
+  .ring { border-radius: 50%; border: 4px solid var(--gold); transition: border-color .8s ease, opacity 1s ease; }
+  .halo { border-radius: 50%; background: radial-gradient(closest-side, rgba(255,204,102,.55), rgba(255,204,102,0)); }
+  .storm { border-radius: 50%; background: radial-gradient(closest-side, rgba(255,90,60,.42) 0%, rgba(255,90,60,.2) 60%, rgba(255,90,60,0) 100%); }
+  .sring { border-radius: 50%; border: 3px dashed var(--mars); }
+  .dia { background: var(--mars); transform-origin: 50% 50%; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: mirrored, sidebar on the right ----------------
+L.frame({ type: "B", title: "Course Plotting  •  Multi-Waypoint Route", c: "gold", c2: "sky", accent: "butter", foot: "Navigation",
+  side: [[140, "butter", "Nav 04"], [70, "sky", "2291"], [420, "gold", "Course"], [70, "butter", "Plot"], [300, "sky", "Waypoints"],
+         [70, "butter", "06"], [216, "gold", "Helm"]] });
+
+const INK = "#8fa9d8", DIM = "#3c4f7a", TRACK = "#141d33", BAND = "#1b2744", GRIDC = "#1d3cc4";
+const cls = (e, ...c) => (e.classList.add(...c), e);
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const op = (e, v) => { v = v < 0.005 ? "0" : v > 0.995 ? "1" : v.toFixed(2); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const bg = (e, c) => { if (e._bg !== c) { e._bg = c; e.style.background = c.startsWith("#") ? c : `var(--${c})`; } };
+const fg = (e, c) => { if (e._fg !== c) { e._fg = c; e.style.color = c.startsWith("#") ? c : `var(--${c})`; } };
+const bc = (e, c) => { if (e._bc !== c) { e._bc = c; e.style.borderColor = c.startsWith("#") ? c : `var(--${c})`; } };
+const fill = (x, y, w, h, c, origin = "0 0", parent) => {
+  const f = L.layer({ x, y, w, h, cls: "boot" }, parent);
+  f.style.background = c.startsWith("#") ? c : `var(--${c})`; f.style.transformOrigin = origin;
+  return f;
+};
+const D2 = (n) => String(n).padStart(2, "0");
+const D3 = (n) => String(n).padStart(3, "0");
+const swap = (els, f) => { els.forEach((e) => e.classList.add("out")); setTimeout(() => { f(); els.forEach((e) => e.classList.remove("out")); }, 460); };
+const rng = (seed) => () => { seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t ^= t + Math.imul(t ^ (t >>> 7), 61 | t); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+const clock = () => { const d = new Date(); return `${D2(d.getHours())}:${D2(d.getMinutes())}`; };
+const clockAgo = (min) => { const d = new Date(Date.now() - min * 60000); return `${D2(d.getHours())}:${D2(d.getMinutes())}`; };
+
+// columns: the plot 40–2200, the projection 2260–3520; legs full width; strip 40–1100, 1160–2200, 2260–3520
+const MX = 40, MY = 360, MW = 2160, MH = 596, RX0 = 2260, RX1 = 3520;
+const ROW0 = 428, P = 60, RH = 48, rowY = (i) => ROW0 + i * P, rowBase = (i) => rowY(i) + 37;
+const LROW0 = 1148, lrowY = (i) => LROW0 + i * P, lrowBase = (i) => lrowY(i) + 37;
+const STRIP = (i) => 1734 + i * 54;
+const P1 = [40, 1100], P2 = [1160, 2200], P3 = [2260, 3520];
+
+// columns as wide as what they hold, the space left shared equally between them; returns each column's anchor
+const spread = (x0, x1, cols, s = 36) => {
+  const wd = cols.map(([h, vals]) => Math.max(L.textWidth(h, 36), ...vals.map((v) => L.textWidth(v, s))));
+  const gap = (x1 - x0 - wd.reduce((a, b) => a + b, 0)) / (cols.length - 1);
+  let x = x0;
+  return cols.map(([, , align], k) => { const at = align === "r" ? (k === cols.length - 1 ? x1 : x + wd[k]) : x; x += wd[k] + gap; return Math.round(at); });
+};
+
+// ---------------- navigation: the chart, in light-years ----------------
+const PXLY = 90;                                                    // map pixels per light-year
+const WARPC = { 5: 214, 6: 392, 7: 656, 8: 1024, 9: 1516 };         // TNG warp factors, in multiples of c
+const HPY = 8766;                                                   // hours in a year
+const legHours = (ly, w) => (ly * HPY) / WARPC[w];
+const HPSD = 8.766;                                                 // hours per stardate unit
+const PLACES = {
+  sb74:   { name: "Starbase 74",  x: 130,  y: 300, kind: "base",   lab: [0, 58, "c"] },
+  argus:  { name: "Argus Array",  x: 470,  y: 160, kind: "base",   lab: [0, -36, "c"] },
+  b7:     { name: "Beacon 7",     x: 790,  y: 116, kind: "beacon", lab: [0, -34, "c"] },
+  norpin: { name: "Norpin V",     x: 1180, y: 240, kind: "world",  lab: [-40, 64, "c"] },
+  b12:    { name: "Beacon 12",    x: 1540, y: 280, kind: "beacon", lab: [0, 62, "c"] },
+  b19:    { name: "Beacon 19",    x: 1800, y: 140, kind: "beacon", lab: [0, -34, "c"] },
+  breel:  { name: "Bre'el IV",    x: 2040, y: 300, kind: "world",  lab: [-46, 13, "r"] },
+  sb133:  { name: "Starbase 133", x: 1720, y: 480, kind: "base",   lab: [0, 76, "c"] },
+  b14:    { name: "Beacon 14",    x: 1400, y: 440, kind: "beacon", lab: [0, -32, "c"] },
+  kavis:  { name: "Kavis Alpha",  x: 1090, y: 520, kind: "world",  lab: [0, 54, "c"] },
+  b4:     { name: "Beacon 4",     x: 720,  y: 520, kind: "beacon", lab: [0, 52, "c"] },
+  ogus:   { name: "Ogus II",      x: 420,  y: 440, kind: "world",  lab: [0, 66, "c"] },
+};
+for (const k in PLACES) PLACES[k].k = k;
+// charted hazards: centre, radius (px), the margin a course keeps from them (ly)
+const HAZ = [
+  { name: "Typhon Expanse",    nature: "Spatial Distortion",  x: 905,  y: 330, r: 110, margin: 0.50, c: "mars" },
+  { name: "Black Cluster",     nature: "Gravity Wavefronts",  x: 1320, y: 130, r: 48,  margin: 0.75, c: "sunset" },
+  { name: "Tyken's Rift",      nature: "Energy Drain",        x: 1990, y: 455, r: 40,  margin: 0.40, c: "red" },
+  { name: "Quantum Filaments", nature: "Filament Field",      x: 250,  y: 132, r: 40,  margin: 0.30, c: "orange" },
+];
+// the two tracks between Starbase 74 and Bre'el IV, flown in turn
+const ROUTES = [
+  { name: "Northern Track", pts: ["sb74", "argus", "b7", "norpin", "b12", "b19", "breel"], warp: [7, 6, 7, 6, 8, 7], sectors: "21 to 26" },
+  { name: "Southern Track", pts: ["breel", "sb133", "b14", "kavis", "b4", "ogus", "sb74"], warp: [6, 8, 7, 6, 8, 7], sectors: "26 to 21" },
+];
+// hazards reported while a course is being checked: each run meets the next one
+const TRANSIENT = [
+  { name: "Ion Storm",          nature: "Class 4  ·  Drifting",   by: "Starbase 133",        margin: 0.50 },
+  { name: "Plasma Storm",       nature: "Plasma Discharges",      by: "U.S.S. Hood",         margin: 0.60 },
+  { name: "Subspace Shear",     nature: "Gravimetric Shear",      by: "Argus Array",         margin: 0.40 },
+  { name: "Quantum Filament",   nature: "Single Filament",        by: "Long Range Sensors",  margin: 0.40 },
+];
+const SECTOR0 = 21;
+
+// geometry
+const dist = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
+const segDist = (p, a, b) => {                                    // a point to a segment
+  const dx = b.x - a.x, dy = b.y - a.y, l2 = dx * dx + dy * dy;
+  const u = l2 ? L.clamp(((p.x - a.x) * dx + (p.y - a.y) * dy) / l2) : 0;
+  return Math.hypot(a.x + u * dx - p.x, a.y + u * dy - p.y);
+};
+const pathOf = (leg) => (leg.via ? [leg.a, leg.via, leg.b] : [leg.a, leg.b]);
+const pathDist = (p, path) => Math.min(...path.slice(1).map((b, i) => segDist(p, path[i], b)));
+const heading = (a, b) => (Math.round((Math.atan2(b.x - a.x, -(b.y - a.y)) * 180) / Math.PI) + 360) % 360;
+const hazClear = (h, path) => (pathDist(h, path) - h.r) / PXLY;   // ly from a course to a hazard's edge
+
+// a course: legs with distance, warp, hours, heading and the nearest hazard
+const plan = (ri, run) => {
+  const R = ROUTES[ri], rnd = rng(run * 131 + 7);
+  const legs = R.warp.map((w, i) => {
+    const a = PLACES[R.pts[i]], b = PLACES[R.pts[i + 1]];
+    return { i, a, b, via: null, warp: w, mark: Math.floor(rnd() * 24) + 2, replot: false };
+  });
+  return { ri, run, R, legs, hz: [...HAZ], storm: null };
+};
+const measure = (c) => {
+  let h0 = 0;
+  c.legs.forEach((g) => {
+    const path = pathOf(g);
+    g.px = path.slice(1).reduce((s, b, i) => s + dist(path[i], b), 0);
+    g.ly = g.px / PXLY;
+    g.hours = legHours(g.ly, g.warp);
+    g.h0 = h0; h0 += g.hours;
+    g.hdg = heading(path[0], path[1]);
+    const near = c.hz.map((h) => [h, hazClear(h, path)]).sort((p, q) => p[1] - q[1])[0];
+    g.near = near[0]; g.clear = near[1];
+  });
+  c.ly = c.legs.reduce((s, g) => s + g.ly, 0);
+  c.hours = h0;
+};
+
+// ---------------- status line ----------------
+const state = cls(L.text({ x: MX, cap: 150, s: 100, c: "butter", txt: "Plotting Course" }), "sw");
+const STATES = ["Plotting Course", "Course Plotted", "Projecting Course", "Hazard Reported", "Re-Plotting", "Course Revised", "Course Laid In"];
+const subX = MX + Math.max(...STATES.map((s) => L.textWidth(s, 100))) + 48;
+const stateSub = cls(L.text({ x: subX, base: 222, s: 38, c: "sky", txt: "" }), "sw");
+const pill = L.box({ x: RX1 - 440, y: 150, w: 440, h: 72, c: "sky", label: "Nav Computer Online", r: "lr", fs: 36 });
+pill.style.willChange = "opacity";
+
+// a section header with a status pill at its right end
+const pillHeader = (col, y, label, c1, c2, texts, pc, h = 56) => {
+  const fs = h >= 56 ? 32 : 28;
+  const pw = Math.ceil(Math.max(...texts.map((s) => L.textWidth(s, fs))) / 10) * 10 + 90;
+  L.header({ x: col[0], y, w: col[1] - col[0] - pw - L.GAP, label, c1, c2, h });
+  return cls(L.box({ x: col[1] - pw, y, w: pw, h, c: pc, label: "", fs, r: "r" }), "sw");
+};
+
+// ---------------- the navigational plot: drawn once ----------------
+const mapPill = pillHeader([MX, MX + MW], 280, "Navigational Plot  ·  Sectors 21 to 26", "gold", "sky", ["Southern Track"], "butter");
+L.rect({ x: MX, y: MY, w: MW, h: MH, c: "#000206", panel: true });
+const map = L.svg("g", { class: "boot", transform: `translate(${MX},${MY})` });
+const defs = L.svg("defs", {}, map);
+L.svg("clipPath", { id: "cpClip" }, defs).appendChild(L.svg("rect", { x: 0, y: 0, width: MW, height: MH }, defs));
+const inner = L.svg("g", { "clip-path": "url(#cpClip)" }, map);
+{
+  // the light-year grid: faint dots; sector boundaries every four light-years
+  let dots = "";
+  for (let x = PXLY; x < MW; x += PXLY) for (let y = PXLY / 2 + 8; y < MH; y += PXLY) dots += `M${x - 3},${y}h6M${x},${y - 3}v6`;
+  L.svg("path", { d: dots, stroke: GRIDC, "stroke-width": 2, fill: "none", opacity: 0.7 }, inner);
+  let sec = "";
+  for (let k = 1; k < 6; k++) sec += `M${k * 360},0V${MH}`;
+  L.svg("path", { d: sec, stroke: GRIDC, "stroke-width": 2, "stroke-dasharray": "3 9", fill: "none", opacity: 0.9 }, inner);
+  const rnd = rng(46154), cols = ["#8fd3ff", "#5c7dff", "#c9d6ff", "#ffffff", "#ffcc66"];
+  for (let k = 0; k < 300; k++) L.svg("circle", { cx: (rnd() * MW).toFixed(1), cy: (rnd() * MH).toFixed(1), r: (0.9 + rnd() ** 3 * 2.2).toFixed(2),
+    fill: cols[Math.floor(rnd() * cols.length)], opacity: (0.25 + rnd() * 0.5).toFixed(2) }, inner);
+  // hazards: a soft core, the edge, and the margin a course keeps (dotted)
+  const grad = L.svg("radialGradient", { id: "cpHaz" }, defs);
+  [[0, 0.34], [0.7, 0.16], [1, 0.04]].forEach(([o, a]) => L.svg("stop", { offset: o, "stop-color": "#ff5a3c", "stop-opacity": a }, grad));
+  HAZ.forEach((h) => {
+    L.svg("circle", { cx: h.x, cy: h.y, r: h.r, fill: "url(#cpHaz)" }, inner);
+    L.svg("circle", { cx: h.x, cy: h.y, r: h.r, fill: "none", stroke: `var(--${h.c})`, "stroke-width": 3, "stroke-dasharray": "10 8", opacity: 0.9 }, inner);
+    L.svg("circle", { cx: h.x, cy: h.y, r: h.r + h.margin * PXLY, fill: "none", stroke: `var(--${h.c})`, "stroke-width": 2, "stroke-dasharray": "2 10", opacity: 0.55 }, inner);
+  });
+  // places
+  Object.values(PLACES).forEach((p) => {
+    if (p.kind === "base") {
+      L.svg("circle", { cx: p.x, cy: p.y, r: 16, fill: "none", stroke: "var(--ice)", "stroke-width": 4 }, map);
+      L.svg("circle", { cx: p.x, cy: p.y, r: 6, fill: "var(--ice)" }, map);
+    } else if (p.kind === "world") {
+      L.svg("circle", { cx: p.x, cy: p.y, r: 11, fill: "var(--sky)" }, map);
+    } else {
+      L.svg("rect", { x: p.x - 9, y: p.y - 9, width: 18, height: 18, fill: "var(--sky)", transform: `rotate(45 ${p.x} ${p.y})` }, map);
+    }
+  });
+  // the scale
+  L.svg("path", { d: `M24,${MH - 54}v-12M24,${MH - 60}h${2 * PXLY}M${24 + 2 * PXLY},${MH - 54}v-12`, stroke: "var(--sky)", "stroke-width": 3, fill: "none" }, map);
+}
+// labels: place names, hazards, sectors (all static)
+const placeLab = {};
+Object.values(PLACES).forEach((p) => {
+  const [dx, dy, al] = p.lab;
+  placeLab[p.k] = cls(L.text({ x: MX + p.x + dx, base: MY + p.y + dy, s: 36, c: INK, txt: p.name, align: al, w: 400 }), "rc");
+});
+// a label's box in chart coordinates (x given in chart coordinates too)
+const labBox = (x, base, al, txt) => { const w = L.textWidth(txt, 36), x0 = al === "c" ? x - w / 2 : al === "r" ? x - w : x;
+  return { x0, x1: x0 + w, y0: base - 28, y1: base + 2 }; };
+const hazLabBoxes = [];
+// hazard names: Typhon inside its own region, the others clear of their margin rings
+HAZ.forEach((h) => {
+  const m = h.r + h.margin * PXLY;
+  const [x, base, al] = { "Typhon Expanse": [h.x, h.y + 13, "c"], "Black Cluster": [h.x + m + 16, h.y + 13, "l"],
+    "Tyken's Rift": [h.x, h.y + m + 36, "c"], "Quantum Filaments": [h.x, h.y - m - 14, "c"] }[h.name];
+  L.text({ x: MX + x, base: MY + base, s: 36, c: h.c, txt: h.name, align: al, w: 400 });
+  hazLabBoxes.push(labBox(x, base, al, h.name));
+});
+for (let k = 0; k < 6; k++) L.text({ x: MX + k * 360 + 16, base: MY + 40, s: 32, c: DIM, txt: `Sector ${SECTOR0 + k}`, legend: true });
+L.text({ x: MX + 24, base: MY + MH - 18, s: 32, c: "sky", txt: "2 Light-Years", legend: true });
+
+// ---------------- the course projection ----------------
+const prPill = pillHeader([RX0, RX1], 280, "Course Projection", "sky", "gold", ["Leg 06 of 06", "Plotting"], "butter");
+const PRX = [RX0, RX0 + 340, RX0 + 700];
+L.text({ x: PRX[0], base: 400, s: 36, c: INK, txt: "Reading" });
+L.text({ x: PRX[1], base: 400, s: 36, c: INK, txt: "Projected" });
+L.text({ x: PRX[2], base: 400, s: 36, c: INK, txt: "Course" });
+const PRL = ["Projected Time", "Distance Run", "Current Leg", "Heading", "Velocity", "To Waypoint", "Nearest Hazard", "Re-Plots", "Arrival"];
+const pr = PRL.map((label, i) => {
+  L.text({ x: PRX[0], base: rowBase(i), s: 36, c: "sky", txt: label });
+  return [cls(L.text({ x: PRX[1], base: rowBase(i), s: 40, c: "white", txt: "" }), "sw", "rc"),
+          cls(L.text({ x: PRX[2], base: rowBase(i), s: 36, c: INK, txt: "" }), "sw", "rc")];
+});
+
+// ---------------- the legs ----------------
+const lgPill = pillHeader([MX, RX1], 1000, "Course Legs", "gold", "sky", ["6 Legs  ·  99.99 Light-Years"], "butter");
+const LBOX = 170, BX0 = RX1 - 300, BX1 = RX1;
+const LGCOLS = [["From", ["Starbase 133"], "l"], ["To", ["Starbase 133"], "l"], ["Heading", ["000 Mark 00"], "l"], ["Distance", ["0.00 LY"], "r"],
+  ["Warp", ["Warp 8"], "r"], ["Duration", ["000.0 H"], "r"], ["Nearest Hazard", ["Quantum Filaments"], "l"], ["Clearance", ["0.00 LY"], "r"],
+  ["Status", ["Re-Plotting"], "l"]];
+const LGX = spread(MX + LBOX + 48, BX0 - 72, LGCOLS);
+L.text({ x: MX, base: 1120, s: 36, c: INK, txt: "Leg" });
+LGCOLS.forEach(([txt, , align], k) => L.text({ x: LGX[k], base: 1120, s: 36, c: INK, txt, align }));
+L.text({ x: BX0, base: 1120, s: 36, c: INK, txt: "Projected" });
+const lgBand = fill(MX + LBOX - 24, lrowY(0), BX0 - 48 - (MX + LBOX - 24), RH, BAND);
+lgBand.style.borderRadius = `0 ${RH / 2}px ${RH / 2}px 0`;
+lgBand.style.transition = "transform 1.2s cubic-bezier(.45,0,.55,1), opacity .8s ease";
+const legRows = Array.from({ length: 7 }, (_, i) => {
+  const base = lrowBase(i), tot = i === 6;
+  const box = cls(L.box({ x: MX, y: lrowY(i), w: LBOX, h: RH, c: tot ? "sky" : "gold", label: tot ? "Route" : `Leg ${D2(i + 1)}`, fs: 28, r: "l" }), "rc");
+  const t = LGCOLS.map(([, , align], j) => cls(L.text({ x: LGX[j], base, s: 36, c: "white", txt: "", align }), "sw", "rc"));
+  L.rect({ x: BX0, y: base - 24, w: BX1 - BX0, h: 24, c: TRACK });
+  const bar = fill(BX0, base - 24, BX1 - BX0, 24, tot ? "sky" : "butter");
+  tf(bar, "scaleX(0)");
+  return { box, t, bar, tot };
+});
+
+// ---------------- the strip: course log, hazards, warp profile ----------------
+const logPill = pillHeader(P1, 1620, "Course Log", "gold", "sky", ["Today  ·  99"], "butter", 48);
+const LGLX = [P1[0], P1[0] + 124, P1[1]];
+const logRows = Array.from({ length: 6 }, (_, i) => [
+  L.text({ x: LGLX[0], base: STRIP(i), s: 36, c: INK, txt: "" }), L.text({ x: LGLX[1], base: STRIP(i), s: 36, c: "white", txt: "" }),
+  L.text({ x: LGLX[2], base: STRIP(i), s: 36, c: "butter", txt: "", align: "r" }),
+].map((e) => cls(e, "sw")));
+const log = [];
+let logCount = 37;
+const showLog = () => {
+  logRows.forEach((r, i) => { const e = log[log.length - 6 + i]; r.forEach((t, k) => L.set(t, e ? e[k] : "")); });
+  L.set(logPill, `Today  ·  ${logCount}`);
+};
+const addLog = (what, detail) => { log.push([clock(), what, detail]); while (log.length > 6) log.shift(); logCount++; swap(logRows.flat(), showLog); };
+
+L.header({ x: P2[0], y: 1620, w: P2[1] - P2[0], label: "Hazards Avoided", c1: "sky", c2: "gold", h: 48 });
+const HZBOX = 290, HZX = [P2[0], P2[0] + HZBOX + 24, P2[0] + 820, P2[1]];
+L.text({ x: HZX[0], base: STRIP(0), s: 36, c: INK, txt: "Hazard" });
+L.text({ x: HZX[1], base: STRIP(0), s: 36, c: INK, txt: "Nature" });
+L.text({ x: HZX[2], base: STRIP(0), s: 36, c: INK, txt: "Margin", align: "r" });
+L.text({ x: HZX[3], base: STRIP(0), s: 36, c: INK, txt: "Clearance", align: "r" });
+const hzRows = Array.from({ length: 5 }, (_, i) => {
+  const base = STRIP(i + 1);
+  const box = cls(L.box({ x: HZX[0], y: base - 36, w: HZBOX, h: 42, c: i < 4 ? HAZ[i].c : DIM, label: i < 4 ? HAZ[i].name : "Transient", fs: 28, r: "l" }), "sw", "rc");
+  const t = [cls(L.text({ x: HZX[1], base, s: 36, c: "sky", txt: "" }), "sw", "rc"), cls(L.text({ x: HZX[2], base, s: 36, c: INK, txt: "", align: "r" }), "sw", "rc"),
+    cls(L.text({ x: HZX[3], base, s: 36, c: "white", txt: "", align: "r" }), "sw", "rc")];
+  return { box, t };
+});
+
+const wpPill = pillHeader(P3, 1620, "Warp Profile", "gold", "sky", ["Warp 8  ·  1,024 c"], "butter", 48);
+const WX0 = P3[0] + 96, WX1 = P3[1], WT = 1700, WB = 1950, WWID = WX1 - WX0, WHT = WB - WT;
+const wy = (w) => WB - ((w - 5) / 4) * WHT;
+[5, 6, 7, 8, 9].forEach((w) => {
+  L.rect({ x: WX0, y: wy(w) - 1, w: WWID, h: 2, c: w === 5 ? DIM : "#1a2648", free: true });
+  L.text({ x: WX0 - 24, base: wy(w) + 11, s: 32, c: INK, txt: `W${w}`, align: "r", legend: true });
+});
+const prof = L.svg("g", { class: "boot" });
+const profFill = L.svg("path", { d: "", fill: "#d6a032", opacity: 0.16 }, prof);
+const profLine = L.svg("path", { d: "", fill: "none", stroke: "var(--gold)", "stroke-width": 4, "stroke-linejoin": "round" }, prof);
+const profMarks = Array.from({ length: 8 }, () => cls(L.text({ x: 0, base: STRIP(5), s: 32, c: INK, txt: "", legend: true }), "sw"));
+const profTicks = Array.from({ length: 8 }, () => fill(0, WB + 4, 2, 12, DIM));
+const profCur = fill(WX0 - 1, WT - 8, 3, WHT + 8, "white");
+const profDot = fill(WX0 - 9, 0, 18, 18, "butter");
+profDot.style.borderRadius = "50%";
+const drawProfile = (c) => {
+  const hx = (h) => WX0 + (h / c.hours) * WWID;
+  let d = "";
+  c.legs.forEach((g, i) => { d += `${i ? "L" : "M"}${hx(g.h0).toFixed(1)},${wy(g.warp).toFixed(1)}L${hx(g.h0 + g.hours).toFixed(1)},${wy(g.warp).toFixed(1)}`; });
+  profLine.setAttribute("d", d);
+  profFill.setAttribute("d", `${d}L${WX1},${WB}L${WX0},${WB}Z`);
+  const step = c.hours > 260 ? 50 : 40;
+  profMarks.forEach((m, k) => {
+    const h = k * step, x = hx(h), txt = `${h} H`, w = L.textWidth(txt, 32);
+    const ok = h <= c.hours && (k === 0 || x + w / 2 <= WX1 - 4);
+    L.set(m, ok ? txt : "");
+    m.style.left = (k === 0 ? WX0 : x - w / 2).toFixed(1) + "px";
+    tf(profTicks[k], `translate3d(${(x - WX0 + (k === 0 ? 1 : 0)).toFixed(1)}px,0,0)`);
+    op(profTicks[k], ok ? 1 : 0);
+  });
+};
+
+// ---------------- route layers on the plot (made per course, removed after) ----------------
+const ROUTE_LAYERS = [];
+const legLayer = (a, b, kind) => {
+  const len = dist(a, b), ang = Math.atan2(b.y - a.y, b.x - a.x);
+  const e = L.layer({ x: 0, y: 0, w: len, h: 6, cls: kind });
+  e.style.transformOrigin = "0 50%";
+  e._base = `translate3d(${(MX + a.x).toFixed(1)}px,${(MY + a.y - 3).toFixed(1)}px,0) rotate(${ang.toFixed(4)}rad)`;
+  tf(e, e._base + " scaleX(0)");
+  ROUTE_LAYERS.push(e);
+  return e;
+};
+const setLen = (e, k) => tf(e, `${e._base} scaleX(${L.clamp(k).toFixed(4)})`);
+const ringLayer = (p, r, c) => {
+  const e = cls(L.layer({ x: MX + p.x - r, y: MY + p.y - r, w: 2 * r, h: 2 * r }), "ring");
+  bc(e, c); op(e, 0); ROUTE_LAYERS.push(e);
+  return e;
+};
+
+// the projection marker: a chevron on the course, with a soft halo
+const halo = cls(L.layer({ x: 0, y: 0, w: 120, h: 120 }), "halo");
+const chev = L.layer({ x: 0, y: 0, w: 64, h: 64 });
+chev.innerHTML = '<svg width="64" height="64" viewBox="0 0 64 64"><path d="M58,32 L12,8 L24,32 L12,56 Z" fill="var(--white)" stroke="#000" stroke-width="3" stroke-linejoin="round"/></svg>';
+op(halo, 0); op(chev, 0);
+const putMarker = (x, y, ang) => {
+  tf(chev, `translate3d(${(MX + x - 34).toFixed(1)}px,${(MY + y - 32).toFixed(1)}px,0) rotate(${ang.toFixed(3)}rad)`);
+  tf(halo, `translate3d(${(MX + x - 60).toFixed(1)}px,${(MY + y - 60).toFixed(1)}px,0)`);
+};
+
+// the reported hazard: a layer with its label
+const storm = cls(L.layer({ x: 0, y: 0, w: 10, h: 10 }), "fd");
+const stormCore = cls(L.layer({ x: 0, y: 0, w: 10, h: 10 }, storm), "storm");
+const stormRing = cls(L.layer({ x: 0, y: 0, w: 10, h: 10 }, storm), "sring");
+const stormLab = cls(L.layer({ x: 0, y: 0, w: 400, h: 50 }), "ml", "fd");
+const stormTxt = L.text({ x: 0, y: 4, s: 36, c: "mars", txt: "", align: "c", w: 400 }, stormLab);
+op(storm, 0);
+const viaMark = cls(L.layer({ x: 0, y: 0, w: 20, h: 20 }), "dia", "fd");
+const viaLab = cls(L.layer({ x: 0, y: 0, w: 400, h: 50 }), "ml", "fd");
+const viaTxt = L.text({ x: 0, y: 4, s: 36, c: "butter", txt: "Course Correction", align: "c", w: 400 }, viaLab);
+op(viaMark, 0); op(viaLab, 0);
+
+// ---------------- the run ----------------
+let run = 0, C = null, phase = "plot", pt = 0, tau = 0, sd = 46154.2, outArrive = 0, replotLeg = 2, replotDone = false;
+let legEls = [], rings = [], oldLeg = null;
+const RATE = 3.2;                                                  // projected hours per second
+const T_DRAW = 1.4, T_LEG = 1.5;
+
+const statusWord = (txt) => { if (state.textContent !== txt) swap([state], () => L.set(state, txt)); };
+const subText = () => {
+  const a = C.R.pts[0], b = C.R.pts[6];
+  return `${PLACES[a].name} to ${PLACES[b].name}  ·  ${C.R.name}, Sectors ${C.R.sectors}  ·  Stardate ${sd.toFixed(1)}`;
+};
+const legStatus = (g) => {
+  if (phase === "plot") return pt >= T_DRAW + g.i * T_LEG + T_LEG ? "Plotted" : pt >= T_DRAW + g.i * T_LEG ? "Plotting" : "";
+  if (g.i === replotLeg && (phase === "hazard" || phase === "replot")) return phase === "hazard" ? "Hazard" : "Re-Plotting";
+  const done = tau >= g.h0 + g.hours - 1e-6;
+  if (done) return g.replot ? "Re-Plotted" : "Verified";
+  if (tau > g.h0 || (phase !== "plot" && phase !== "plotted" && tau >= g.h0 && legAt() === g.i)) return "Projecting";
+  return g.replot ? "Re-Plotted" : "Plotted";
+};
+const legAt = () => { for (const g of C.legs) if (tau < g.h0 + g.hours - 1e-6) return g.i; return 5; };
+const fmtH = (h) => `${h.toFixed(1)} H`;
+const fmtLY = (l) => `${l.toFixed(2)} LY`;
+const hdgTxt = (g) => `${D3(g.hdg)} Mark ${D2(g.mark)}`;
+
+// the table and the hazard list, written whole (on a new course, or a re-plot)
+const showLegs = (plotting) => {
+  C.legs.forEach((g, i) => {
+    const row = legRows[i], shown = !plotting;
+    const vals = [g.a.name, g.b.name, hdgTxt(g), fmtLY(g.ly), `Warp ${g.warp}`, fmtH(g.hours), g.near.name, fmtLY(g.clear), ""];
+    row.t.forEach((t, j) => { if (j < 8) L.set(t, shown || legStatus(g) === "Plotted" ? vals[j] : "—"); });
+  });
+  const tot = legRows[6];
+  const minG = C.legs.slice().sort((p, q) => p.clear - q.clear)[0];
+  const meanW = C.ly / C.legs.reduce((s, g) => s + g.ly / g.warp, 0);
+  [C.legs[0].a.name, C.legs[5].b.name, (n => n ? `${n} Re-Plot${n > 1 ? "s" : ""}` : "No Re-Plots")(C.legs.filter((g) => g.replot).length), fmtLY(C.ly), `Mean ${meanW.toFixed(1)}`, fmtH(C.hours), minG.near.name, fmtLY(minG.clear)]
+    .forEach((v, j) => L.set(tot.t[j], plotting && j > 1 ? "—" : v));
+  L.set(lgPill, `6 Legs  ·  ${C.ly.toFixed(2)} Light-Years`);
+};
+const showHazards = () => {
+  C.hz.slice(0, 4).forEach((h, i) => {
+    const r = hzRows[i], cl = Math.min(...C.legs.map((g) => hazClear(h, pathOf(g))));
+    L.set(r.t[0], h.nature); L.set(r.t[1], h.margin.toFixed(2)); L.set(r.t[2], fmtLY(cl));
+  });
+  const r = hzRows[4], s = C.storm;
+  if (s && s.shown) {
+    L.set(r.box, s.name); bg(r.box, "mars");
+    L.set(r.t[0], s.nature); L.set(r.t[1], s.margin.toFixed(2));
+    L.set(r.t[2], s.cleared ? fmtLY(Math.min(...C.legs.map((g) => hazClear(s, pathOf(g))))) : "Inside Margin");
+    fg(r.t[2], s.cleared ? "white" : "mars");
+  } else {
+    L.set(r.box, "Transient"); bg(r.box, DIM);
+    L.set(r.t[0], "None Reported"); L.set(r.t[1], "—"); L.set(r.t[2], "—"); fg(r.t[2], INK);
+  }
+};
+
+const newCourse = () => {
+  ROUTE_LAYERS.splice(0).forEach((e) => e.remove());
+  C = plan(run % 2, run);
+  measure(C);
+  // the outbound course leaves now; the return leaves Bre'el IV a day after the outbound arrives
+  C.depart = run % 2 ? outArrive + 2.7 : sd + 0.4;
+  replotLeg = [4, 5, 1, 2][run % 4];
+  replotDone = false;
+  tau = 0; pt = 0; phase = "plot";
+  legEls = C.legs.map((g) => ({ dash: legLayer(g.a, g.b, "dash"), solid: legLayer(g.a, g.b, "solid") }));
+  rings = C.R.pts.map((k, i) => ringLayer(PLACES[k], i === 0 || i === 6 ? 30 : 24, i === 0 || i === 6 ? "butter" : "gold"));
+  oldLeg = null;
+  op(storm, 0); op(stormLab, 0); op(viaMark, 0); op(viaLab, 0); op(chev, 0); op(halo, 0);
+  // the places on this course lit; the others dim
+  for (const k in placeLab) fg(placeLab[k], C.R.pts.includes(k) ? "ice" : DIM);
+  L.set(mapPill, C.R.name);
+  swap([stateSub], () => L.set(stateSub, subText()));
+  swap([...legRows.flatMap((r) => r.t), ...hzRows.flatMap((r) => [r.box, ...r.t])], () => { showLegs(true); showHazards(); });
+  drawProfile(C);
+  addLog("Course Requested", `${PLACES[C.R.pts[0]].name} to ${PLACES[C.R.pts[6]].name}`);
+};
+
+// the reported hazard sits across the leg ahead; the course bends round it through a correction point
+const placeStorm = () => {
+  const g = C.legs[replotLeg], a = g.a, b = g.b;
+  const T = TRANSIENT[run % TRANSIENT.length];
+  const mx = L.mix(a.x, b.x, 0.52), my = L.mix(a.y, b.y, 0.52);
+  const len = dist(a, b), nx = -(b.y - a.y) / len, ny = (b.x - a.x) / len;
+  // detour to the side with more room on the chart
+  const room = (s) => { const q = { x: mx + s * nx * 140, y: my + s * ny * 140 }; return Math.min(q.y - 40, MH - 40 - q.y, ...HAZ.map((h) => dist(q, h) - h.r)); };
+  const side = room(1) >= room(-1) ? 1 : -1;
+  const s = Object.assign({}, T, { r: 52, x: mx - side * nx * 18, y: my - side * ny * 18, shown: false, cleared: false });
+  let off = s.r + 40, via;
+  for (; off < 400; off += 4) {
+    via = { x: mx + side * nx * off, y: my + side * ny * off, name: "Course Correction" };
+    if (Math.min(segDist(s, a, via), segDist(s, via, b)) - s.r >= s.margin * PXLY + 6) break;
+  }
+  s.via = via;
+  C.storm = s;
+  const D = 2 * (s.r + s.margin * PXLY);
+  storm.style.left = MX + s.x - D / 2 + "px"; storm.style.top = MY + s.y - D / 2 + "px";
+  Object.assign(stormCore.style, { left: "0px", top: "0px", width: D + "px", height: D + "px" });
+  Object.assign(stormRing.style, { left: s.margin * PXLY + "px", top: s.margin * PXLY + "px", width: 2 * s.r + "px", height: 2 * s.r + "px" });
+  // the labels: the first spot round each mark that is clear of every name, mark and course line on the chart
+  const boxes = [
+    ...Object.values(PLACES).map((p) => labBox(p.x + p.lab[0], p.lab[1] + p.y, p.lab[2], p.name)),
+    ...Object.values(PLACES).map((p) => ({ x0: p.x - 22, x1: p.x + 22, y0: p.y - 22, y1: p.y + 22 })),
+    ...HAZ.map((h) => ({ x0: h.x - h.r, x1: h.x + h.r, y0: h.y - h.r, y1: h.y + h.r })),
+    ...hazLabBoxes, { x0: 0, x1: MW, y0: 0, y1: 52 }, { x0: 0, x1: 260, y0: MH - 80, y1: MH },
+  ];
+  const pts = [];
+  C.legs.forEach((q) => { const path = q === g ? [a, via, b] : pathOf(q);
+    for (let i = 1; i < path.length; i++) { const n = Math.ceil(dist(path[i - 1], path[i]) / 8);
+      for (let j = 0; j <= n; j++) pts.push({ x: L.mix(path[i - 1].x, path[i].x, j / n), y: L.mix(path[i - 1].y, path[i].y, j / n) }); } });
+  const bad = (bx, extra = []) => {
+    if (bx.x0 < 16 || bx.x1 > MW - 16 || bx.y0 < 16 || bx.y1 > MH - 16) return 99;
+    const hit = (q) => bx.x0 < q.x1 + 8 && q.x0 < bx.x1 + 8 && bx.y0 < q.y1 + 8 && q.y0 < bx.y1 + 8;
+    return [...boxes, ...extra].filter(hit).length + pts.filter((q) => q.x > bx.x0 - 10 && q.x < bx.x1 + 10 && q.y > bx.y0 - 10 && q.y < bx.y1 + 10).length;
+  };
+  const around = (cx, cy, m, txt, extra) => {
+    const c = [];
+    for (const R of [m + 14, m + 50, m + 100]) for (let a = 0; a < 360; a += 30) {
+      const sn = Math.sin((a * Math.PI) / 180), cs = Math.cos((a * Math.PI) / 180), px = cx + R * sn, py = cy - R * cs;
+      c.push([px, cs > 0.3 ? py - 4 : cs < -0.3 ? py + 30 : py + 13, sn > 0.3 ? "l" : sn < -0.3 ? "r" : "c"]);
+    }
+    return c.map(([x, base, al]) => { const bx = labBox(x, base, al, txt); bx.at = [x, base, al]; return bx; })
+      .map((bx, k) => [bad(bx, extra) + k * 0.001, bx]).sort((p, q) => p[0] - q[0])[0][1];
+  };
+  const sm = s.r + s.margin * PXLY;
+  const vb = around(via.x, via.y, 16, "Course Correction", [{ x0: s.x - sm, x1: s.x + sm, y0: s.y - sm, y1: s.y + sm }]);
+  boxes.push(vb, { x0: via.x - 16, x1: via.x + 16, y0: via.y - 16, y1: via.y + 16 });
+  const sb = { at: [s.x, s.y + 13, "c"] };                         // the name inside it, as Typhon's is
+  const putLab = (e, bx) => { const [x, base, al] = bx.at, w = L.textWidth(e.textContent, 36);
+    e.parentElement.style.left = MX + (al === "c" ? x : al === "l" ? x + w / 2 : x - w / 2) + "px";
+    e.parentElement.style.top = MY + base - 0.83 * 36 - 4 + "px"; };
+  L.set(stormTxt, s.name);
+  putLab(stormTxt, sb); putLab(viaTxt, vb);
+  viaMark.style.left = MX + via.x - 10 + "px"; viaMark.style.top = MY + via.y - 10 + "px";
+  tf(viaMark, "rotate(45deg)");
+};
+
+// where the marker is at projected hour h
+const markerAt = (h) => {
+  const g = C.legs.find((q) => h < q.h0 + q.hours) || C.legs[5];
+  const f = L.clamp((h - g.h0) / g.hours), path = pathOf(g);
+  let d = f * g.px;
+  for (let i = 1; i < path.length; i++) {
+    const s = dist(path[i - 1], path[i]);
+    if (d <= s || i === path.length - 1) {
+      const k = L.clamp(d / s);
+      return { x: L.mix(path[i - 1].x, path[i].x, k), y: L.mix(path[i - 1].y, path[i].y, k), ang: Math.atan2(path[i].y - path[i - 1].y, path[i].x - path[i - 1].x) };
+    }
+    d -= s;
+  }
+};
+// how far along leg g's own drawn layers the projection has come (per segment of a bent leg)
+const drawProgress = () => {
+  C.legs.forEach((g, i) => {
+    const f = L.clamp((tau - g.h0) / g.hours), E = legEls[i];
+    if (!g.via) { setLen(E.solid, f); return; }
+    const s1 = dist(g.a, g.via), s2 = dist(g.via, g.b), d = f * (s1 + s2);
+    setLen(E.solid, d / s1); setLen(E.solid2, (d - s1) / s2);
+  });
+  C.R.pts.forEach((k, i) => { if (i > 0 && i < 6) bc(rings[i], tau >= C.legs[i].h0 - 1e-6 && phase !== "plot" && phase !== "plotted" ? "butter" : "gold"); });
+  legRows.slice(0, 6).forEach((r, i) => tf(r.bar, `scaleX(${L.clamp((tau - C.legs[i].h0) / C.legs[i].hours).toFixed(4)})`));
+  tf(legRows[6].bar, `scaleX(${L.clamp(tau / C.hours).toFixed(4)})`);
+};
+
+// the readouts and the table's live columns, a few times a second
+const showReadings = () => {
+  if (!C) return;
+  const live = phase !== "plot";
+  const li = legAt(), g = C.legs[li];
+  const sets = [
+    [live ? `T+ ${tau.toFixed(1)} H` : "T+ 0.0 H", `of ${fmtH(C.hours)}`],
+    [live ? fmtLY(C.legs.slice(0, li).reduce((s, q) => s + q.ly, 0) + L.clamp((tau - g.h0) / g.hours) * g.ly) : "0.00 LY", `of ${fmtLY(C.ly)}`],
+    [`Leg ${D2(li + 1)}`, `${g.a.name} to ${g.b.name}`],
+    [hdgTxt(g), li < 5 ? `Next  ${hdgTxt(C.legs[li + 1])}` : `Final Leg`],
+    [`Warp ${g.warp}`, `${WARPC[g.warp].toLocaleString("en")} c`],
+    [fmtLY((1 - L.clamp((tau - g.h0) / g.hours)) * g.ly), fmtH((1 - L.clamp((tau - g.h0) / g.hours)) * g.hours)],
+    [fmtLY(g.clear), g.near.name],
+    [String(C.legs.filter((q) => q.replot).length), C.legs.some((q) => q.replot) ? `+ ${fmtH(C.added || 0)}` : "None This Course"],
+    [`Stardate ${(C.depart + C.hours / HPSD).toFixed(1)}`, PLACES[C.R.pts[6]].name],
+  ];
+  sets.forEach(([v, c], i) => { L.set(pr[i][0], v); L.set(pr[i][1], c); });
+  fg(pr[6][0], g.clear < 0.6 ? "butter" : "white");
+  L.set(prPill, phase === "plot" ? "Plotting" : `Leg ${D2(li + 1)} of 06`);
+  L.set(wpPill, `Warp ${g.warp}  ·  ${WARPC[g.warp].toLocaleString("en")} c`);
+  // the live columns of the leg table
+  C.legs.forEach((q, i) => {
+    const st = legStatus(q), t = legRows[i].t[8];
+    L.set(t, st || "Waiting");
+    fg(t, st === "Hazard" || st === "Re-Plotting" ? "mars" : st === "Projecting" ? "butter" : st === "Verified" || st === "Re-Plotted" ? "ice" : st === "Plotting" ? "butter" : INK);
+    if (phase === "plot" && st === "Plotted") {
+      const vals = [q.a.name, q.b.name, hdgTxt(q), fmtLY(q.ly), `Warp ${q.warp}`, fmtH(q.hours), q.near.name, fmtLY(q.clear)];
+      legRows[i].t.forEach((e, j) => { if (j < 8) L.set(e, vals[j]); });
+    }
+  });
+  const tot = legRows[6].t[8];
+  L.set(tot, phase === "plot" ? "Plotting" : phase === "laid" ? "Laid In" : phase === "plotted" ? "Plotted" : tau > 0 ? "Projecting" : "Plotted");
+  fg(tot, phase === "laid" ? "ice" : "butter");
+  const band = phase === "plot" ? Math.min(5, Math.max(0, Math.floor((pt - T_DRAW) / T_LEG))) : li;
+  tf(lgBand, `translate3d(0,${band * P}px,0)`);
+};
+
+// ---------------- the first moment: a course part-way through its plotting ----------------
+// earlier today: the run before this one
+[["Arrived", "Starbase 74"], ["Orders Received", "Starfleet Command"], ["Sensor Update", "Argus Array"], ["Hazard Chart Updated", "Sectors 21 to 26"], ["Helm Briefed", "Ens. Ro Laren"]]
+  .forEach(([w, d], i) => log.push([clockAgo(48 - i * 7), w, d]));
+newCourse();
+showLog();
+L.set(stateSub, subText());
+showLegs(true); showHazards();
+
+let lastT = null;
+L.tick((t) => {
+  const dt = lastT === null ? 0 : Math.min(0.1, t - lastT); lastT = t;
+  op(pill, 0.82 + 0.18 * Math.sin(t * 1.1));
+  pt += dt;
+  if (phase === "plot") {
+    statusWord("Plotting Course");
+    C.legs.forEach((g, i) => {
+      const k = L.ease(L.clamp((pt - T_DRAW - i * T_LEG) / (T_LEG * 0.9)));
+      setLen(legEls[i].dash, k);
+      op(rings[i], L.clamp((pt - T_DRAW - i * T_LEG + 0.4) / 0.6));
+      if (i === 5) op(rings[6], L.clamp((pt - T_DRAW - 6 * T_LEG + 0.6) / 0.6));
+    });
+    if (pt >= T_DRAW + 6 * T_LEG + 0.6) {
+      phase = "plotted"; pt = 0;
+      showLegs(false);
+      addLog("Course Plotted", `${C.ly.toFixed(2)} LY  ·  ${C.hours.toFixed(0)} H`);
+    }
+  } else if (phase === "plotted") {
+    statusWord("Course Plotted");
+    const m = markerAt(0); putMarker(m.x, m.y, m.ang);
+    op(chev, L.clamp(pt / 0.8)); op(halo, L.clamp(pt / 0.8));
+    if (pt >= 3.5) { phase = "project"; pt = 0; }
+  } else if (phase === "project") {
+    statusWord("Projecting Course");
+    const stop = !replotDone ? C.legs[replotLeg].h0 : C.hours;
+    // ease into a stop at the waypoint where the hazard report arrives, and at the destination
+    const left = stop - tau, rate = RATE * L.clamp(Math.sqrt(Math.max(0, left) / (RATE * 1.6)), 0.12, 1);
+    tau = Math.min(stop, tau + rate * dt);
+    if (tau >= stop - 1e-6) {
+      tau = stop; pt = 0;
+      if (!replotDone) {
+        phase = "hazard";
+        placeStorm(); C.storm.shown = true;
+        statusWord("Hazard Reported");
+        swap([stateSub], () => L.set(stateSub, `${C.storm.name} across Leg ${D2(replotLeg + 1)}, ${C.legs[replotLeg].a.name} to ${C.legs[replotLeg].b.name}  ·  Reported by ${C.storm.by}`));
+        swap(hzRows.flatMap((r) => [r.box, ...r.t]), showHazards);
+        addLog(`${C.storm.name} Reported`, `Leg ${D2(replotLeg + 1)}`);
+        oldLeg = legEls[replotLeg];
+      } else {
+        phase = "laid";
+        statusWord("Course Laid In");
+        swap([stateSub], () => L.set(stateSub, `${subText()}  ·  Ready for Helm`));
+        addLog("Course Laid In", `Arrival Stardate ${(C.depart + C.hours / HPSD).toFixed(1)}`);
+        if (run % 2 === 0) outArrive = C.depart + C.hours / HPSD;
+      }
+    }
+    const m = markerAt(tau); putMarker(m.x, m.y, m.ang);
+  } else if (phase === "hazard") {
+    op(storm, L.clamp(pt / 1.6)); op(stormLab, L.clamp((pt - 0.6) / 1.2));
+    oldLeg.dash.classList.toggle("old", pt > 1.2);
+    if (pt >= 4.5) { phase = "replot"; pt = 0; statusWord("Re-Plotting"); }
+  } else if (phase === "replot") {
+    const g = C.legs[replotLeg], s = C.storm;
+    if (!g.via) {
+      // the new pair of segments, drawn in from the waypoint
+      const was = g.ly;
+      g.via = s.via; g.replot = true; s.cleared = true; C.hz.push(s);
+      const prevHours = C.hours;
+      measure(C);
+      C.added = (C.added || 0) + (C.hours - prevHours);
+      const E = legEls[replotLeg];
+      E.newDash1 = legLayer(g.a, g.via, "dash"); E.newDash2 = legLayer(g.via, g.b, "dash");
+      E.oldSolid = E.solid; E.solid = legLayer(g.a, g.via, "solid"); E.solid2 = legLayer(g.via, g.b, "solid");
+      E.oldWas = was;
+    }
+    const E = legEls[replotLeg];
+    op(E.dash, 1 - 0.75 * L.clamp(pt / 1.2));
+    setLen(E.newDash1, L.ease(L.clamp((pt - 0.6) / 1.2)));
+    setLen(E.newDash2, L.ease(L.clamp((pt - 1.6) / 1.2)));
+    op(viaMark, L.clamp((pt - 1.4) / 0.6)); op(viaLab, L.clamp((pt - 1.6) / 0.8));
+    if (pt >= 3.4 && !E.logged) {
+      E.logged = true;
+      swap([...legRows.flatMap((r) => r.t.slice(0, 8)), ...hzRows.flatMap((r) => r.t)], () => { showLegs(false); showHazards(); });
+      drawProfile(C);
+      addLog(`Leg ${D2(replotLeg + 1)} Re-Plotted`, `+ ${(g.ly - E.oldWas).toFixed(2)} LY`);
+    }
+    if (pt >= 4.2) { phase = "revised"; pt = 0; statusWord("Course Revised"); replotDone = true;
+      swap([stateSub], () => L.set(stateSub, `Leg ${D2(replotLeg + 1)} bent round the ${C.storm.name} via a course correction  ·  Clearance ${fmtLY(g.clear)}`)); }
+  } else if (phase === "revised") {
+    op(legEls[replotLeg].dash, 0.25 - 0.25 * L.clamp((pt - 1) / 2));
+    if (pt >= 3.5) { phase = "project"; pt = 0; swap([stateSub], () => L.set(stateSub, subText())); }
+  } else if (phase === "laid") {
+    if (pt >= 12) {
+      // the next run: the course home along the other track, fading this one out
+      [...ROUTE_LAYERS, chev, halo, storm, stormLab, viaMark, viaLab].forEach((e) => { e.style.transition = "opacity 1s ease"; op(e, 0); });
+      phase = "fade"; pt = 0;
+    }
+  } else if (phase === "fade") {
+    if (pt >= 1.2) {
+      [chev, halo, storm, stormLab, viaMark, viaLab].forEach((e) => { e.style.transition = ""; });
+      run++; if (run % 2 === 0) sd += 0.2;                // the outbound course and the return, plotted as a pair
+      newCourse();
+    }
+  }
+  if (C && phase !== "plot" && phase !== "fade") drawProgress();
+  const cx = WX0 + (tau / C.hours) * WWID, cw = C.legs[legAt()].warp;
+  tf(profCur, `translate3d(${(cx - WX0).toFixed(2)}px,0,0)`);
+  tf(profDot, `translate3d(${(cx - WX0).toFixed(2)}px,${(wy(cw) - 9).toFixed(1)}px,0)`);
+  op(profCur, phase === "plot" ? 0.3 : 1); op(profDot, phase === "plot" ? 0 : 1);
+});
+L.every(250, showReadings, 0);
+});
+</script></body></html>

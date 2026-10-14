@@ -1,0 +1,327 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Epidemiology</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .fl { transform-origin: 0 0; transition: transform 1.6s ease; }
+  .dot { border-radius: 50%; border: 4px solid #000; }
+  .scan { border: 4px solid var(--white); border-radius: 8px; }
+  .tile { transition: background-color 1.2s ease; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: wide, no sidebars ----------------
+L.frame({ type: "D", title: "Epidemiology  •  Contagion Model", c: "butter", c2: "mars", accent: "peach" });
+
+// four columns, 64 apart: the spread model spans the first two
+const X0 = 40, X1 = 3816, COL = [40, 1000, 1960, 2920], CW = 896;
+const AX0 = COL[0], AX1 = COL[1] + CW, BX0 = COL[2], BX1 = COL[2] + CW, CX0 = COL[3], CX1 = X1;
+const PANEL = "#1c1408", GRID = "#4a3814", TRACK = "#3a2a10";
+const col = (c) => (c.startsWith("#") ? c : `var(--${c})`);
+const fmt = (n) => Math.round(n).toLocaleString("en");
+const wave = (t, p, ph = 0) => Math.sin((2 * Math.PI * t) / p + ph);
+const op = (e, v) => { v = v.toFixed(2); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const fill = (x, y, w, h, c) => { const f = L.layer({ x, y, w, h, cls: "fl" }); f.style.background = col(c); f.style.transform = "scaleX(0)"; return f; };
+const showBar = (g, k) => { k = L.clamp(k); if (Math.abs(k - g.u) > 0.0005) { g.u = k; g.bar.style.transform = `scaleX(${k.toFixed(4)})`; } };
+// a gauge: a name, a dark track and its fill, the value at the column's right edge
+const gauge = (o) => {
+  const { x, r, base, name, c, bx, brw, nc = "butter" } = o;
+  L.text({ x, base, s: 40, c: nc, txt: name });
+  L.rect({ x: x + bx, y: base - 24, w: r - brw - (x + bx), h: 24, c: TRACK });
+  return { bar: fill(x + bx, base - 24, r - brw - (x + bx), 24, c), v: L.text({ x: r, base, s: 52, c: "white", txt: "", align: "r" }), u: -1 };
+};
+// a label and its value, the value set straight after the label
+const pair = (x, base, label, c) => {
+  L.text({ x, base, s: 40, c, txt: label });
+  return L.text({ x: x + Math.ceil(L.textWidth(label, 40)) + 24, base, s: 52, c: "white", txt: "" });
+};
+
+// ---------------- the outbreak: RV-4475, four cases, all in isolation on Deck 12 ----------------
+const SD_NOW = 47634.40, SD_LAST_CASE = 47629.0;            // Ens. Kaplan's onset, the last case
+const stardate = (t) => SD_NOW + t / 3600 / 8.766;          // one unit of stardate is about 8.8 hours
+const N = 1014, R0 = 2.6, INCUB = 3.1, INFECT = 4.4, EFFICACY = 0.92, ISOLATION = 0.34;
+const GROUPS = [
+  ["Operations", 212, 191, "butter"], ["Engineering", 186, 163, "peach"], ["Science", 158, 141, "butter"], ["Command", 46, 46, "peach"],
+  ["Medical", 64, 64, "butter"], ["Security", 92, 88, "peach"], ["Civilians", 176, 139, "butter"], ["Children", 80, 54, "peach"],
+].map(([name, of, done, c]) => ({ name, of, done, c }));
+const inoculated = () => GROUPS.reduce((a, g) => a + g.done, 0);
+const rEff = () => R0 * (1 - (inoculated() / N) * EFFICACY) * ISOLATION;
+
+// the unmitigated model: SEIR, the whole complement, no inoculation, no isolation
+const DT = 0.01, SAMPLE = 5, DAYS = 60;                     // a sample every 0.05 days
+const seir = [];
+{
+  const b = R0 / INFECT, s = 1 / INCUB, g = 1 / INFECT;
+  let S = N - 4, E = 0, I = 4, R = 0;
+  for (let k = 0; k <= DAYS / DT; k++) {
+    if (k % SAMPLE === 0) seir.push([S, E, I, R]);
+    const inf = (b * S * I) / N;
+    [S, E, I, R] = [S - inf * DT, E + (inf - s * E) * DT, I + (s * E - g * I) * DT, R + g * I * DT];
+  }
+}
+const at = (d) => {                                         // the model on day d, interpolated
+  const f = L.clamp(d / DAYS) * (seir.length - 1), i = Math.min(seir.length - 2, Math.floor(f)), k = f - i;
+  return seir[i].map((v, j) => L.mix(v, seir[i + 1][j], k));
+};
+
+// ---------------- status line ----------------
+L.text({ x: X0, cap: 150, s: 100, c: "butter", txt: "Outbreak Contained" });
+const stateSub = L.text({ x: X0 + Math.ceil(L.textWidth("Outbreak Contained", 100)) + 40, base: 222, s: 38, c: "peach", txt: "" });
+L.text({ x: CX0, base: 222, s: 40, c: "butter", txt: "Stardate" });
+const sdVal = L.text({ x: CX0 + Math.ceil(L.textWidth("Stardate", 40)) + 24, base: 222, s: 52, c: "white", txt: "" });
+L.text({ x: X1, base: 222, s: 40, c: "peach", txt: "Medical Laboratory 2", align: "r" });
+
+// ---------------- the grid of the upper section ----------------
+const HY = 280, CAP = 400, PT = 428, PB = 1016, AXIS = 1064, RD = 1150;
+
+// ---------------- contagion model: unmitigated SEIR projection ----------------
+L.header({ x: AX0, y: HY, w: AX1 - AX0, label: "Contagion Model  ·  No Intervention", c1: "butter", c2: "mars" });
+L.text({ x: AX0, base: CAP, s: 36, c: "peach", txt: `Crew of ${fmt(N)}  ·  R0 ${R0.toFixed(1)}  ·  Incubation ${INCUB} Days  ·  Infectious ${INFECT} Days` });
+const runTxt = L.text({ x: AX1, base: CAP, s: 36, c: "white", txt: "", align: "r" });
+L.rect({ x: AX0, y: PT, w: AX1 - AX0, h: PB - PT, c: PANEL, panel: true });
+const PX0 = AX0 + 120, PX1 = AX1 - 40, PY0 = PT + 60, PY1 = PB - 40;   // the 1,000 line and the zero line
+const ax = (d) => PX0 + (d / DAYS) * (PX1 - PX0);
+const ay = (v) => PY1 - (v / 1000) * (PY1 - PY0);
+for (let v = 0; v <= 1000; v += 250) {
+  L.rect({ x: AX0, y: Math.round(ay(v)) - 1, w: AX1 - AX0, h: 2, c: GRID, free: true });
+  L.text({ x: AX0 + 20, base: ay(v) - 12, s: 30, c: "peach", txt: fmt(v), legend: true });
+}
+for (let d = 10; d < DAYS; d += 10) L.rect({ x: Math.round(ax(d)) - 1, y: PT, w: 2, h: PB - PT, c: GRID, free: true });
+for (let d = 0; d <= DAYS; d += 10) L.text({ x: ax(d), base: AXIS, s: 30, c: "peach", txt: d === 0 ? "Day 0" : String(d), align: "c", w: 160, legend: true });
+const CURVES = [["Susceptible", "butter"], ["Exposed", "peach"], ["Infectious", "mars"], ["Recovered", "white"]];
+CURVES.forEach(([, c], j) => {
+  let d = "";
+  for (let i = 0; i < seir.length; i += 2) d += (i ? "L" : "M") + ax((i / (seir.length - 1)) * DAYS).toFixed(1) + "," + ay(seir[i][j]).toFixed(1);
+  L.svg("path", { d, fill: "none", stroke: col(c), "stroke-width": 6, "stroke-linejoin": "round", "stroke-linecap": "round", class: "boot" });
+});
+// the model run: a cursor walks the projection, day by day, reading each curve where it crosses
+const cursor = L.layer({ x: 0, y: PT + 16, w: 4, h: PB - PT - 32 });
+cursor.style.background = "var(--white)";
+const dots = CURVES.map(([, c]) => { const e = L.layer({ x: 0, y: 0, w: 28, h: 28, cls: "dot" }); e.style.background = col(c); return e; });
+const RX = [AX0, 400, 772, 1144, 1524];
+const dayVal = pair(RX[0], RD, "Model Day", "peach");
+const curveVals = CURVES.map(([name, c], j) => pair(RX[j + 1], RD, name, c));
+const PASS = 90, POFF = 38;                                 // one run every 90 s; the screen opens part-way through one
+const passAt = (t) => { const u = t + POFF; return { n: 215 + Math.floor(u / PASS), ph: u % PASS }; };
+const dayOf = (ph) => L.clamp((ph - 3) / 78) * DAYS;        // fade in 3 s, walk 78 s, hold 6 s, fade out 3 s
+const alphaOf = (ph) => L.clamp(ph / 3) * L.clamp((PASS - ph) / 3);
+
+// ---------------- containment model: observed cases and projection ----------------
+L.header({ x: BX0, y: HY, w: BX1 - BX0, label: "Containment Model", c1: "mars", c2: "butter" });
+L.text({ x: BX0, base: CAP, s: 36, c: "peach", txt: "New Cases by Day of Onset" });
+{ // the key, set right: observed bars, projected line
+  const pw = L.textWidth("Projected", 36);
+  L.text({ x: BX1, base: CAP, s: 36, c: "white", txt: "Projected", align: "r" });
+  L.rect({ x: BX1 - pw - 24 - 40, y: CAP - 16, w: 40, h: 6, c: "white", free: true });
+  const ox = BX1 - pw - 24 - 40 - 40;
+  L.text({ x: ox, base: CAP, s: 36, c: "butter", txt: "Observed", align: "r" });
+  L.rect({ x: ox - L.textWidth("Observed", 36) - 24 - 26, y: CAP - 26, w: 26, h: 26, c: "butter", free: true });
+}
+L.rect({ x: BX0, y: PT, w: BX1 - BX0, h: PB - PT, c: PANEL, panel: true });
+const QX0 = BX0 + 72, QX1 = BX1 - 32, QDAYS = 18, TODAY = 4;   // day 1 began with Lt. Barclay's onset
+const bx = (d) => QX0 + (d / QDAYS) * (QX1 - QX0);
+const by = (v) => PY1 - (v / 4) * (PY1 - PY0);
+for (let v = 0; v <= 4; v++) {
+  L.rect({ x: BX0, y: Math.round(by(v)) - 1, w: BX1 - BX0, h: 2, c: GRID, free: true });
+  L.text({ x: BX0 + 20, base: by(v) - 12, s: 30, c: "peach", txt: String(v), legend: true });
+}
+[1, 5, 10, 15].forEach((d) => L.text({ x: bx(d - 0.5), base: AXIS, s: 30, c: "peach", txt: d === 1 ? "Day 1" : String(d), align: "c", w: 160, legend: true }));
+// the projection: an expected line and its 90% band, from today on
+{
+  const ex = (d) => 0.11 * Math.exp(-(d - TODAY) / 2.6);
+  const hi = (d) => 1.1 / (1 + Math.exp((d - TODAY - 5.5) / 1.1)) * L.clamp((d - TODAY) / 0.6 + 0.6);   // the 90% upper bound, easing to nothing
+  let band = `M${bx(TODAY).toFixed(1)},${by(0).toFixed(1)}`, line = "";
+  for (let d = TODAY; d <= QDAYS + 1e-6; d += 0.25) band += `L${bx(d).toFixed(1)},${by(hi(d)).toFixed(1)}`;
+  band += `L${bx(QDAYS).toFixed(1)},${by(0).toFixed(1)}Z`;
+  for (let d = TODAY; d <= QDAYS + 1e-6; d += 0.25) line += (line ? "L" : "M") + bx(d).toFixed(1) + "," + by(ex(d)).toFixed(1);
+  L.svg("path", { d: band, fill: "#5a2214", class: "boot" });
+  L.svg("path", { d: line, fill: "none", stroke: "var(--white)", "stroke-width": 5, "stroke-dasharray": "16 12", class: "boot" });
+}
+[1, 2, 1, 0].forEach((n, i) => { if (n) L.rect({ x: Math.round(bx(i + 0.18)), y: Math.round(by(n)), w: Math.round(bx(0.64) - bx(0)), h: Math.round(by(0) - by(n)) - 1, c: "butter", free: true }); });
+L.rect({ x: Math.round(bx(TODAY)) - 2, y: PT + 16, w: 4, h: PB - PT - 32, c: "mars", free: true });
+L.text({ x: bx(TODAY) + 16, base: by(3) - 12, s: 30, c: "mars", txt: "Today", legend: true });
+const expVal = pair(BX0, RD, "Projected Cases", "peach");
+const intLabel = "90% Interval", intW = L.textWidth(intLabel, 40) + 24 + L.textWidth("0 – 2", 52);
+L.text({ x: BX1 - Math.ceil(intW), base: RD, s: 40, c: "peach", txt: intLabel });
+L.text({ x: BX1, base: RD, s: 52, c: "white", txt: "0 – 2", align: "r" });
+
+// ---------------- deck risk: 42 decks, swept one by one ----------------
+L.header({ x: CX0, y: HY, w: CX1 - CX0, label: "Deck Exposure Risk", c1: "butter", c2: "peach" });
+L.text({ x: CX0, base: CAP, s: 36, c: "peach", txt: "Internal Sensors  ·  Decks 1 – 42" });
+const sweepTxt = L.text({ x: CX1, base: CAP, s: 36, c: "white", txt: "", align: "r" });
+const RISK = {
+  Minimal: ["#3a2a10", "var(--butter)"], Low: ["#a07a34", "#000"], Elevated: ["var(--butter)", "#000"], Contained: ["var(--mars)", "#000"],
+};
+const SECTION = { 1: "Main Bridge", 2: "Command Offices", 3: "Senior Officers", 4: "Shuttlebay 1", 5: "Crew Quarters", 6: "Transporter Room 3",
+  7: "Crew Quarters", 8: "Battle Bridge", 9: "Science Labs", 10: "Ten Forward", 11: "Holodecks", 12: "Sickbay  ·  Isolation",
+  13: "Shuttlebays 2 and 3", 14: "Arboretum", 15: "Family Quarters", 16: "Family Quarters", 17: "School", 18: "Family Quarters",
+  19: "Science Labs", 20: "Crew Quarters", 21: "Crew Quarters", 22: "Environmental", 23: "Crew Quarters", 24: "Crew Quarters",
+  25: "Shuttle Maintenance", 26: "Crew Quarters", 27: "Environmental", 28: "Crew Quarters", 29: "Cargo Bays", 30: "Crew Quarters",
+  31: "Phaser Control", 32: "Crew Quarters", 33: "Science Labs", 34: "Crew Quarters", 35: "Life Support", 36: "Main Engineering",
+  37: "Engineering Support", 38: "Cargo Bays", 39: "Cargo Bays", 40: "Deuterium Storage", 41: "Waste Reclamation", 42: "Antimatter Storage" };
+const DECKS = Array.from({ length: 42 }, (_, i) => {
+  const n = i + 1;
+  const level = n === 12 ? "Contained" : n === 11 || n === 13 ? "Elevated" : [6, 9, 10, 14].includes(n) ? "Low" : "Minimal";
+  const base = { Contained: 0.72, Elevated: 0.14 + 0.02 * (n - 11) / 2, Low: 0.06 + 0.01 * (n % 3), Minimal: 0.01 + 0.01 * ((n * 7) % 3) }[level];
+  const crew = n === 12 ? 24 : 12 + ((n * 37 + 11) % 49);
+  return { n, level, risk: base, crew, air: n === 12 ? 21 : 24, sec: SECTION[n] };
+});
+const TG = 12, TWD = (CX1 - CX0 - 6 * TG) / 7, TH = 88, TP = 100;
+const tileX = (i) => Math.round(CX0 + (i % 7) * (TWD + TG)), tileY = (i) => PT + Math.floor(i / 7) * TP;
+DECKS.forEach((d, i) => {
+  const x = tileX(i), w = Math.round(CX0 + (i % 7) * (TWD + TG) + TWD) - x;
+  const e = L.box({ x, y: tileY(i), w, h: TH, c: "butter", label: String(d.n), fs: 32, cls: "tile" });
+  e.style.background = RISK[d.level][0]; e.style.color = RISK[d.level][1];
+});
+const KW = (CX1 - CX0 - 3 * TG) / 4;
+Object.keys(RISK).forEach((k, i) => {
+  const e = L.box({ x: Math.round(CX0 + i * (KW + TG)), y: RD - 40, w: Math.round(KW), h: 48, c: "butter", label: k, fs: 28, r: i === 0 ? "l" : null });
+  e.style.background = RISK[k][0]; e.style.color = RISK[k][1];
+});
+const scan = L.layer({ x: 0, y: 0, w: Math.round(TWD) + 16, h: TH + 16, cls: "scan" });
+const STEP = 3, SOFF = 35;                                  // three seconds a deck; a sweep is 126 s
+const sweepAt = (t) => { const u = t + SOFF, k = Math.floor(u / STEP); return { n: 63 + Math.floor(k / 42), i: k % 42, u: u - k * STEP }; };
+
+// ---------------- immunization coverage ----------------
+const HY2 = 1220, ROW = (i) => 1340 + i * 64;
+L.header({ x: AX0, y: HY2, w: AX1 - AX0, label: "Immunization Coverage  ·  RV-4475 Prophylaxis", c1: "peach", c2: "butter" });
+GROUPS.forEach((g, i) => {
+  const x = COL[Math.floor(i / 4)];
+  Object.assign(g, gauge({ x, r: x + CW, base: ROW(i % 4), name: g.name, c: g.c, bx: 230, brw: 220, nc: "peach" }));
+});
+const showGroups = () => GROUPS.forEach((g) => { showBar(g, g.done / g.of); L.set(g.v, `${g.done} / ${g.of}`); });
+
+// ---------------- transmission parameters ----------------
+L.header({ x: BX0, y: HY2, w: BX1 - BX0, label: "Transmission Parameters", c1: "butter", c2: "mars" });
+const PAR = [["Basic R0", "mars"], ["Effective R", "butter"], ["Herd Threshold", "peach"], ["Crew Inoculated", "butter"]]
+  .map(([name, c], i) => gauge({ x: BX0, r: BX1, base: ROW(i), name, c, bx: 300, brw: 180 }));
+
+// ---------------- sweep detail ----------------
+L.header({ x: CX0, y: HY2, w: CX1 - CX0, label: "Sweep Detail", c1: "mars", c2: "butter" });
+const deckNo = L.text({ x: CX0, base: ROW(0), s: 52, c: "white", txt: "" });
+const deckSec = L.text({ x: CX1, base: ROW(0), s: 40, c: "peach", txt: "", align: "r" });
+const SW = [["Crew Present", "peach"], ["Air Samples Clear", "butter"], ["Risk Index", "mars"]]
+  .map(([name, c], i) => gauge({ x: CX0, r: CX1, base: ROW(i + 1), name, c, bx: 300, brw: 180 }));
+const showDeck = (d) => {
+  L.set(deckNo, `Deck ${d.n}`); L.set(deckSec, `${d.sec}  ·  ${d.level}`);
+  showBar(SW[0], d.crew / 80); L.set(SW[0].v, String(d.crew));
+  showBar(SW[1], d.air / 24); L.set(SW[1].v, `${d.air} / 24`);
+  showBar(SW[2], d.risk); L.set(SW[2].v, d.risk.toFixed(2));
+};
+
+// ---------------- bottom strip: recommendations and the log ----------------
+const BH = 1620, BCAP = 1716, BROW = (i) => 1776 + i * 54;
+L.header({ x: AX0, y: BH, w: AX1 - AX0, label: "Containment Recommendations", c1: "butter", c2: "mars", h: 48 });
+const RNX = AX0 + 128, RBY = COL[1] + 24, RST = AX1;
+[["Recommendation", RNX, "l"], ["Assigned", RBY, "l"], ["Status", RST, "r"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: BCAP, s: 36, c: "peach", txt, align }));
+const RECS = [
+  ["Maintain Deck 12 isolation through day 6", "Dr. Crusher", "In Effect"],
+  ["Inoculate remaining crew  ·  Children first", "Nurse Ogawa", ""],
+  ["Transporter biofilters keyed to RV-4475", "Lt. Cmdr. La Forge", "Active"],
+  ["Defer away missions to Celtris III", "Cmdr. Riker", "Approved"],
+  ["Daily bioscans of Decks 11 and 13", "Dr. Selar", "Scheduled"],
+];
+const recV = RECS.map(([what, who, st], i) => {
+  L.box({ x: AX0, y: BROW(i) - 36, w: 96, h: 44, c: i % 2 ? "peach" : "butter", label: String(i + 1).padStart(2, "0"), fs: 28, r: "l" });
+  L.text({ x: RNX, base: BROW(i), s: 36, c: "white", txt: what });
+  L.text({ x: RBY, base: BROW(i), s: 36, c: "peach", txt: who });
+  return L.text({ x: RST, base: BROW(i), s: 36, c: "butter", txt: st, align: "r" });
+});
+
+L.header({ x: BX0, y: BH, w: X1 - BX0, label: "Epidemiology Log", c1: "mars", c2: "butter", h: 48 });
+const LTX = BX0 + Math.ceil(L.textWidth("47888.8", 36)) + 48, LLOC = CX0 + 24;
+[["Stardate", BX0, "l"], ["Entry", LTX, "l"], ["Location", LLOC, "l"], ["Source", X1, "r"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: BCAP, s: 36, c: "peach", txt, align }));
+const logRows = Array.from({ length: 5 }, (_, i) => ({
+  sd: L.text({ x: BX0, base: BROW(i), s: 36, c: "butter", txt: "" }),
+  tx: L.text({ x: LTX, base: BROW(i), s: 36, c: "white", txt: "" }),
+  lo: L.text({ x: LLOC, base: BROW(i), s: 36, c: "peach", txt: "" }),
+  by: L.text({ x: X1, base: BROW(i), s: 36, c: "butter", txt: "", align: "r" }),
+}));
+const logged = [
+  [47623.5, "Onset  ·  Lt. R. Barclay  ·  Index case", "Deck 12", "Sickbay"],
+  [47626.3, "Onset  ·  Ens. S. Lavelle  ·  Lt. A. Kurland", "Deck 12", "Sickbay"],
+  [47626.9, "Contact tracing complete  ·  27 crew screened", "All Decks", "Security"],
+  [47629.0, "Onset  ·  Ens. N. Kaplan  ·  Traced contact", "Deck 12", "Sickbay"],
+  [47629.4, "Inoculation program begins  ·  Children first", "Deck 8", "CMO"],
+];
+const showLog = () => logRows.forEach((r, i) => {
+  const [sd, tx, lo, by] = logged[i];
+  L.set(r.sd, sd.toFixed(1)); L.set(r.tx, tx); L.set(r.lo, lo); L.set(r.by, by);
+});
+const logLine = (t, tx, lo, by) => {                       // newest at the foot; always in time order
+  logged.push([Math.max(stardate(t), logged[logged.length - 1][0]), tx, lo, by]); logged.shift(); showLog();
+};
+
+// ---------------- the running state ----------------
+let fitted = rEff(), lastRun = passAt(0).n, lastSweep = sweepAt(0), lastDeck = -1;
+logLine(0, `Model run ${lastRun - 1}  ·  R effective ${fitted.toFixed(2)}  ·  ${(fitted * 1.6).toFixed(1)} new cases projected`, "Computer Core", "Lab 2");
+const showFit = () => {
+  showBar(PAR[1], fitted / 4); L.set(PAR[1].v, fitted.toFixed(2));
+  L.set(expVal, (fitted * 1.6).toFixed(1));
+};
+showBar(PAR[0], R0 / 4); L.set(PAR[0].v, R0.toFixed(2));
+showBar(PAR[2], 1 - 1 / R0); L.set(PAR[2].v, Math.round(100 * (1 - 1 / R0)) + "%");
+const showCover = () => {
+  const n = inoculated();
+  showBar(PAR[3], n / N); L.set(PAR[3].v, (100 * n / N).toFixed(1) + "%");
+  L.set(recV[1], `${N - n} Remaining`);
+  showGroups();
+};
+showFit(); showCover();
+
+// inoculation rounds: a few doses at a time, children and civilians first
+L.every(60000, (t) => {
+  if (t < 5) return;
+  const open = GROUPS.filter((g) => g.done < g.of);
+  if (!open.length) return;
+  const g = open.find((x) => x.name === "Children" && x.done < x.of - 6) || open.sort((a, b) => (b.of - b.done) / b.of - (a.of - a.done) / a.of)[0];
+  const k = Math.min(g.of - g.done, L.irand(2, 4));
+  g.done += k;
+  showCover();
+  logLine(t, `Inoculation round  ·  ${g.name}  ·  ${k} doses`, "Deck 8", "Clinic");
+}, 0.2);
+
+// motion: the model cursor and the deck scan, every frame
+L.tick((t) => {
+  const p = passAt(t), d = dayOf(p.ph), a = alphaOf(p.ph), v = at(d), x = ax(d);
+  L.move(cursor, x - 2, 0); op(cursor, 0.55 * a);
+  dots.forEach((e, j) => { L.move(e, x - 14, ay(v[j]) - 14); op(e, a); });
+  if (p.n !== lastRun) {                                    // a run ends: the fit is refreshed from today's coverage
+    fitted = rEff(); showFit();
+    logLine(t, `Model run ${lastRun}  ·  R effective ${fitted.toFixed(2)}  ·  ${(fitted * 1.6).toFixed(1)} new cases projected`, "Computer Core", "Lab 2");
+    lastRun = p.n;
+  }
+  // the deck scan: glides along a row, fades between rows
+  const s = sweepAt(t), cur = s.i, nxt = (s.i + 1) % 42, G2 = 0.7;
+  let sx = tileX(cur), sy = tileY(cur), sa = 1;
+  if (s.u > STEP - G2) {
+    const k = L.ease((s.u - (STEP - G2)) / G2);
+    if (Math.floor(nxt / 7) === Math.floor(cur / 7)) sx = L.mix(tileX(cur), tileX(nxt), k);
+    else sa = 1 - k;
+  } else if (cur % 7 === 0) sa = L.clamp(s.u / 0.5);
+  L.move(scan, sx - 8, sy - 8); op(scan, 0.85 * sa);
+  if (cur !== lastDeck) { lastDeck = cur; showDeck(DECKS[cur]); }
+  if (s.n !== lastSweep.n) {
+    logLine(t, `Sensor sweep ${lastSweep.n} complete  ·  No trace of RV-4475 outside Deck 12`, "All Decks", "Sensors");
+    lastSweep = s;
+  }
+});
+
+// readings, four times a second
+L.every(250, (t) => {
+  const p = passAt(t), d = dayOf(p.ph), v = at(d);
+  L.set(runTxt, `Model Run ${p.n}`);
+  L.set(dayVal, String(Math.floor(d)));
+  curveVals.forEach((e, j) => L.set(e, fmt(v[j])));
+  const s = sweepAt(t);
+  L.set(sweepTxt, `Sweep ${s.n}  ·  Deck ${s.i + 1}`);
+  const sd = stardate(t);
+  L.set(sdVal, sd.toFixed(1));
+  L.set(stateSub, `RV-4475  ·  Four cases, all in isolation on Deck 12  ·  No new case in ${Math.floor((sd - SD_LAST_CASE) * 8.766)} hours  ·  Routine surveillance`);
+}, 0);
+});
+</script></body></html>

@@ -1,0 +1,603 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Ten Forward</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* the floor plan: tables, seats and stools are plain blocks whose color changes slowly */
+  .blk { position: absolute; transition: background-color 1.2s ease, color 1.2s ease; }
+  .tbl { display: flex; align-items: center; justify-content: center; color: #000; font-size: 30px; line-height: 1; padding-top: 3px; }
+  .dot { border-radius: 50%; box-shadow: 0 0 0 5px #120d08; }
+  /* swapped text dips and comes back; .boot (the start-up cascade) always wins */
+  .sw { transition: opacity .45s ease; }
+  .out:not(.boot) { opacity: .15; }
+  .tw { transition: transform .3s linear; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: a bracket, title centred ----------------
+L.frame({ type: "C", title: "Ten Forward  •  Lounge", c: "peach", c2: "gold", accent: "tan", foot: "Crew",
+  side: [[140, "gold", "10-Fwd"], [70, "tan", "4710"], [420, "peach", "Lounge"], [70, "gold", "D10"],
+         [300, "tan", "Service"], [70, "peach", "64"], [216, "gold", "Guests"]],
+  side2: [[140, "peach", "Bar 01"], [70, "gold", "0317"], [420, "tan", "Viewports"], [70, "peach", "07"],
+          [300, "gold", "Events"], [70, "tan", "18"], [216, "peach", "Staff"]] });
+
+const TRACK = "#2e2214", SEAT0 = "#2c2117", TABLE0 = "#3a2c1b", INK0 = "#7a6444";
+const colr = (c) => (c.startsWith("#") ? c : `var(--${c})`);
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const op = (e, v) => { v = L.clamp(v).toFixed(2); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const bg = (e, c) => { if (e._bg !== c) { e._bg = c; e.style.backgroundColor = colr(c); } };
+const ink = (e, c) => { if (e._ink !== c) { e._ink = c; e.style.color = colr(c); } };
+const pad2 = (n) => String(n).padStart(2, "0");
+const fill = (x, y, w, h, c, cls = "") => {
+  const f = L.layer({ x, y, w, h, cls });
+  f.style.background = colr(c); f.style.transformOrigin = "0 0";
+  return f;
+};
+// a block on the floor plan (not a panel shape: the plan is one dark panel, these sit on it)
+const blk = (x, y, w, h, c, rad = 0, cls = "") => {
+  const e = L.el("div", "blk boot " + cls, L.stage, { left: x + "px", top: y + "px", width: w + "px", height: h + "px", borderRadius: rad + "px" });
+  bg(e, c);
+  return e;
+};
+
+// ---------------- the grid ----------------
+// Columns: orders and bar systems 220–1060, the lounge floor 1120–2720, seating and the hours 2780–3620.
+// Upper rows of 64 on an 88 pitch from 428; lower rows from 1148; the bottom strip on 54 from 1734.
+const AX = 220, AR = 1060, BX = 1120, BR = 2720, CX = 2780, CR = 3620, BM = 1890, BN = 1950;
+const ROW = (i) => 428 + i * 88, RB = (i) => ROW(i) + 52.5;
+const ROW2 = (i) => 1148 + i * 88, RB2 = (i) => ROW2(i) + 52.5;
+const STRIP = (i) => 1734 + i * 54;
+
+// ---------------- the ship's clock (the Mac's own) and how busy the lounge is through the day ----------------
+const hours = () => { const d = new Date(); return d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600; };
+const hhmm = (min = 0) => { const d = new Date(Date.now() + min * 60000); return pad2(d.getHours()) + ":" + pad2(d.getMinutes()); };
+const SHIFTS = ["Gamma", "Alpha", "Beta"];                    // 0000, 0800, 1600
+const shiftOf = (h) => SHIFTS[Math.floor(h / 8) % 3];
+const SEATS = 64;
+// a share of the seats: quiet in the small hours, a lunch rush, and the evening after Alpha comes off watch
+const prof = (h) => {
+  const g = (c, w, a) => { let d = Math.abs(h - c) % 24; d = Math.min(d, 24 - d); return a * Math.exp(-(d * d) / (2 * w * w)); };
+  return Math.min(0.9, 0.33 + g(19.5, 2.6, 0.53) + g(12.5, 1.2, 0.22) + g(7.5, 1.0, 0.14) + g(16.5, 0.8, 0.1));
+};
+const target = () => Math.round(SEATS * prof(hours()));
+
+// ---------------- what the bar pours ----------------
+const DRINKS = [
+  { name: "Romulan Ale", c: "sky", w: 0.22, syn: true },
+  { name: "Saurian Brandy", c: "orange", w: 0.19, syn: true },
+  { name: "Samarian Sunset", c: "sunset", w: 0.13, syn: true },
+  { name: "Earl Grey Tea", c: "sand", w: 0.18 },
+  { name: "Prune Juice", c: "plum", w: 0.08 },
+  { name: "Altair Water", c: "ice", w: 0.2 },
+];
+const pickDrink = () => { let r = Math.random(); for (const d of DRINKS) if ((r -= d.w) < 0) return d; return DRINKS[0]; };
+
+// things that happen a moment later, on the clock
+const jobs = [];
+const at = (time, f) => jobs.push([time, f]);
+
+// ---------------- status line ----------------
+const WORDS = ["Quiet Hours", "Lounge Open", "Full House"];
+const SUBX = AX + Math.ceil(Math.max(...WORDS.map((w) => L.textWidth(w, 100))) / 10) * 10 + 56;
+const state = L.text({ x: AX, cap: 150, s: 100, c: "peach", txt: "" });
+const stateSub = L.text({ x: SUBX, base: 222, s: 38, c: "gold", txt: "" });
+state.classList.add("sw");
+L.box({ x: CX, y: 158, w: 380, h: 64, c: "peach", label: "Deck 10  ·  Forward", fs: 32, r: "l" });
+L.box({ x: CX + 380 + L.GAP, y: 158, w: CR - (CX + 380 + L.GAP), h: 64, c: "gold", label: "Synthehol Service", fs: 32, r: "r" });
+
+// ---------------- the viewports: the stars streaming past, as seen from the lounge at warp ----------------
+L.header({ x: BX, y: 280, w: BR - BX, label: "Lounge Floor  ·  Deck 10 Forward", c1: "gold", c2: "peach" });
+const WY = 360, WH = 216, WW = BR - BX, PANES = 7;
+const win = L.layer({ x: BX, y: WY, w: WW, h: WH, cls: "boot" });
+win.style.overflow = "hidden"; win.style.background = "#02040d";
+{ // the distant stars, drawn once, none of them cut by a frame
+  const sky = L.canvas({ x: 0, y: 0, w: WW, h: WH }, win);
+  const pts = Array.from({ length: 230 }, () => [L.rand(8, WW - 8), L.rand(8, WH - 8), Math.random() ** 3 * 1.8 + 0.7,
+    L.pick(["#c9d6ff", "#ffffff", "#8fd3ff", "#ffe2c4", "#7f9cff"])]);
+  sky.onResize = () => {
+    sky.g.clearRect(0, 0, WW, WH);
+    for (const [x, y, r, c] of pts) { sky.g.fillStyle = c; sky.g.globalAlpha = 0.75; sky.g.beginPath(); sky.g.arc(x, y, r, 0, 7); sky.g.fill(); }
+  };
+}
+// streaks: each a short gradient bar on its own layer, sent outward from straight ahead; the strip is wide and
+// shallow, so the field is squashed top to bottom, and every streak fades out before it reaches a frame
+const VX = WW / 2, VY = WH / 2, SQ = 0.3, SPEED = 0.42, TRAIL = 0.5;
+const STREAK_C = ["255,255,255", "220,236,255", "201,230,255", "255,226,196"];
+const spawn = (s, any) => {
+  const a = Math.random() * 2 * Math.PI, dx = Math.cos(a), dy = Math.sin(a) * SQ, dl = Math.hypot(dx, dy);
+  s.ux = dx / dl; s.uy = dy / dl; s.ang = (Math.atan2(s.uy, s.ux) * 180) / Math.PI;
+  s.d = any ? Math.exp(L.rand(Math.log(20), Math.log(780))) : L.rand(10, 120);
+  s.age = any ? 9 : 0; s.z = L.rand(0.75, 1.3);
+};
+const streaks = Array.from({ length: 44 }, () => {
+  const c = L.pick(STREAK_C), h = L.pick([2, 3, 3, 4]);
+  const e = L.el("div", "layer", win, { left: "0px", top: "0px", width: "100px", height: h + "px", transformOrigin: `0 ${h / 2}px`,
+    background: `linear-gradient(to right, rgba(${c},0), rgba(${c},.55) 55%, rgba(${c},1))`, borderRadius: h / 2 + "px", opacity: 0 });
+  const s = { e, h }; spawn(s, true); return s;
+});
+// the window frames, in front of the stars
+for (let k = 1; k < PANES; k++) L.el("div", "", win, { position: "absolute", left: (k * WW) / PANES - 8 + "px", top: "0px", width: "16px", height: WH + "px", background: "#3d2e1c" });
+
+// ---------------- the lounge floor ----------------
+const FY = 600, FB = 1564;
+L.rect({ x: BX, y: FY, w: BR - BX, h: FB - FY, c: "#120d08", panel: true, noalign: true });
+L.rect({ x: BX, y: FY, w: BR - BX, h: 196, c: "#1d160d", free: true });       // the raised tier along the windows
+L.rect({ x: BX, y: 796, w: BR - BX, h: 6, c: "#4d3c25", free: true });         // its step
+L.rect({ x: BX, y: 1240, w: 12, h: 100, c: "orange", free: true });            // the doors, port and starboard
+L.rect({ x: BR - 12, y: 1240, w: 12, h: 100, c: "orange", free: true });
+
+const places = [];
+const seat = (x, y, round) => ({ e: blk(x, y, 36, 36, SEAT0, round ? 18 : 7), st: "off", party: null });
+const setSeat = (s, st) => { s.st = st; bg(s.e, st === "off" ? SEAT0 : st === "wait" ? "butter" : "peach"); };
+const table = (n, kind, cx, cy, w, h, seatXY) => {
+  const t = { n, kind, cx, cy, cap: seatXY.length, party: null, label: `Table ${n}` };
+  t.e = blk(cx - w / 2, cy - h / 2, w, h, TABLE0, 12, "tbl");
+  t.e.textContent = n; ink(t.e, INK0);
+  t.seats = seatXY.map(([x, y]) => seat(x, y));
+  places.push(t);
+  return t;
+};
+const refreshTable = (t) => {
+  if (!t.party) { bg(t.e, TABLE0); ink(t.e, INK0); return; }
+  bg(t.e, t.party.waiting ? "butter" : "tan"); ink(t.e, "#000");
+};
+// six tables for two along the windows, ten for four on the floor
+const WIN_X = [1280, 1536, 1792, 2048, 2304, 2560], WIN_Y = 690;
+WIN_X.forEach((cx, i) => table(i + 1, "window", cx, WIN_Y, 120, 56, [[cx - 106, WIN_Y - 18], [cx + 70, WIN_Y - 18]]));
+const COL_X = [1280, 1600, 1920, 2240, 2560], ROW_Y = [920, 1150];
+ROW_Y.forEach((cy, r) => COL_X.forEach((cx, i) => table(7 + r * 5 + i, "floor", cx, cy, 150, 64,
+  [[cx - 58, cy - 78], [cx + 22, cy - 78], [cx - 58, cy + 42], [cx + 22, cy + 42]])));
+// the bar: twelve stools, the counter, and the back bar with a dispenser for each drink
+const BAR_L = 1360, BAR_R = 2480, STOOL_Y = 1352, COUNTER_Y = 1400, GUIN_Y = 1476, BACK_Y = 1500;
+const stools = Array.from({ length: 12 }, (_, i) => Object.assign(seat(1436 + i * 88 - 18, STOOL_Y, true), { i, cx: 1436 + i * 88 }));
+const counter = blk(BAR_L, COUNTER_Y, BAR_R - BAR_L, 52, "gold", 26, "tbl");
+counter.textContent = "Bar";
+const BKW = (BAR_R - BAR_L - 6 * 12) / 7;
+[0, 1, 2, "rep", 3, 4, 5].forEach((k, j) => {
+  const x = BAR_L + j * (BKW + 12), e = blk(x, BACK_Y, BKW, 44, k === "rep" ? "peach" : DRINKS[k].c, 8, "tbl");
+  if (k === "rep") { e.textContent = "Replicator"; e.style.fontSize = "26px"; } else DRINKS[k].bx = x + BKW / 2;
+});
+
+// ---------------- the people who move: Guinan behind the bar, two servers on the floor ----------------
+const dot = (c) => { const e = L.layer({ x: 0, y: 0, w: 28, h: 28, cls: "dot boot" }); e.style.background = colr(c); return e; };
+const guinan = { e: dot("lilac"), x: 1920, x0: 1920, x1: 1920, t0: -9, dur: 1, task: "" };
+const moveGuinan = (x, t) => {
+  guinan.x0 = guinan.x; guinan.x1 = x; guinan.t0 = t; guinan.dur = L.clamp(Math.abs(x - guinan.x) / 420, 0.8, 2.4);
+  return guinan.dur;
+};
+const SERVERS = [
+  { name: "Ben", c: "white", home: [1320, 1426], hand: BAR_L + 22 },
+  { name: "M. Ashby", c: "butter", home: [2520, 1426], hand: BAR_R - 22 },
+].map((s) => Object.assign(s, { e: dot(s.c), x: s.home[0], y: s.home[1], state: "home", order: null }));
+// a server's way to a table: down the bar aisle, up the aisle beside it, to its side (or under it, by the windows)
+const AISLE = [1440, 1760, 2080, 2400], AY = 1290, WSTAND = 760;
+const mkPath = (pts) => {
+  const P = pts.filter((p, i) => !i || p[0] !== pts[i - 1][0] || p[1] !== pts[i - 1][1]), segs = [];
+  let tot = 0;
+  for (let i = 1; i < P.length; i++) { const l = Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]); segs.push(l); tot += l; }
+  return { P, segs, tot };
+};
+const along = (pa, k) => {
+  let d = k * pa.tot;
+  for (let i = 0; i < pa.segs.length; i++) {
+    if (d <= pa.segs[i] || i === pa.segs.length - 1) {
+      const u = pa.segs[i] ? L.clamp(d / pa.segs[i]) : 1, a = pa.P[i], b = pa.P[i + 1];
+      return [L.mix(a[0], b[0], u), L.mix(a[1], b[1], u)];
+    }
+    d -= pa.segs[i];
+  }
+  return pa.P[pa.P.length - 1];
+};
+const route = (sv, p) => {
+  const [hx, hy] = sv.home, pts = [[hx, hy], [hx, AY]];
+  if (p.kind === "window") {
+    const ax = AISLE.reduce((a, b) => (Math.abs(b - p.cx) < Math.abs(a - p.cx) ? b : a));
+    pts.push([ax, AY], [ax, WSTAND], [p.cx, WSTAND]);
+  } else {
+    const side = p.cx <= COL_X[0] ? 1 : p.cx >= COL_X[4] ? -1 : hx < p.cx ? -1 : 1;
+    pts.push([p.cx + side * 160, AY], [p.cx + side * 160, p.cy], [p.cx + side * 104, p.cy]);
+  }
+  return mkPath(pts);
+};
+
+// ---------------- the guests ----------------
+const parties = [];
+const committed = () => parties.reduce((a, p) => a + (p.leaving ? 0 : p.size), 0);
+const showParty = (p) => {
+  if (p.place === "bar") p.seats.forEach((s) => { if (s.st !== "off") setSeat(s, p.waiting ? "wait" : "on"); });
+  else refreshTable(p.place);
+};
+const chooseSeats = (tb, size) => {
+  const idx = tb.cap === 2 ? (size === 1 ? [L.irand(0, 1)] : [0, 1])
+    : size === 1 ? [L.irand(0, 3)] : size === 2 ? L.pick([[0, 2], [1, 3], [0, 1], [2, 3]])
+    : size === 3 ? L.pick([[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]]) : [0, 1, 2, 3];
+  return idx.map((i) => tb.seats[i]);
+};
+const atBar = (size) => {
+  const runs = [];
+  for (let i = 0; i + size <= stools.length; i++) if (stools.slice(i, i + size).every((s) => !s.party)) runs.push(i);
+  if (!runs.length) return null;
+  const i = L.pick(runs);
+  return { place: "bar", seats: stools.slice(i, i + size), label: size === 1 ? `Stool ${i + 1}` : `Stools ${i + 1}–${i + size}` };
+};
+const arrive = (t, instant) => {
+  const size = L.pick([1, 2, 2, 2, 3, 3, 4, 4]);
+  let p = size <= 2 && Math.random() < 0.4 ? atBar(size) : null;
+  if (!p) {
+    let free = places.filter((tb) => !tb.party && tb.cap >= size);
+    if (size <= 2 && free.some((tb) => tb.kind === "window") && Math.random() < 0.6) free = free.filter((tb) => tb.kind === "window");
+    if (free.length) { const tb = L.pick(free); p = { place: tb, label: tb.label, seats: chooseSeats(tb, size) }; }
+  }
+  if (!p && size <= 2) p = atBar(size);
+  if (!p) return false;
+  Object.assign(p, { size, since: instant ? -L.rand(120, 2400) : t, lastOrder: instant ? -L.rand(60, 600) : -1e9, waiting: false, leaving: false });
+  if (p.place === "bar") p.seats.forEach((s) => (s.party = p)); else { p.place.party = p; refreshTable(p.place); }
+  p.seats.forEach((s, i) => (instant ? setSeat(s, "on") : at(t + 0.6 + i * 0.45, () => setSeat(s, p.waiting ? "wait" : "on"))));
+  parties.push(p);
+  if (!instant) log(p.place === "bar" ? (size === 1 ? `Guest at the bar  ·  ${p.label}` : `Two guests at the bar  ·  ${p.label}`)
+    : size === 1 ? `Guest seated  ·  ${p.label}` : `Party of ${size} seated  ·  ${p.label}`);
+  return true;
+};
+let clearing = null, recycle = 0.16;
+const leave = (t) => {
+  const c = parties.filter((p) => !p.waiting && !p.leaving && t - p.since > 30);
+  if (!c.length) return false;
+  const p = L.pick(c);
+  p.leaving = true;
+  p.seats.forEach((s, i) => at(t + i * 0.45, () => setSeat(s, "off")));
+  at(t + p.size * 0.45 + 0.4, () => {
+    if (p.place === "bar") p.seats.forEach((s) => (s.party = null)); else { p.place.party = null; refreshTable(p.place); }
+    parties.splice(parties.indexOf(p), 1);
+  });
+  if (p.place === "bar") log(`${p.label} vacated`);
+  else { log(`${p.label} cleared  ·  J. Okonjo`); clearing = { label: p.label, until: t + 14 }; }
+  recycle = Math.min(0.92, recycle + 0.2);
+  return true;
+};
+
+// ---------------- bar orders: a queue that advances as Guinan pours ----------------
+L.header({ x: AX, y: 280, w: AR - AX, label: "Bar Orders", c1: "peach", c2: "gold" });
+const qCap = L.text({ x: AX, base: 400, s: 36, c: "tan", txt: "" });
+const QN = 6, QBOX = 140, TRX = AX + QBOX + L.GAP;
+for (let i = 0; i < QN; i++) L.rect({ x: TRX, y: ROW(i), w: AR - TRX, h: 64, c: "#140c06", panel: true });   // empty slots, faint
+const rows = Array.from({ length: QN }, () => {
+  const e = L.layer({ x: AX, y: 0, w: AR - AX, h: 64 });
+  e.style.opacity = 0;
+  L.el("div", "", e, { position: "absolute", left: QBOX + L.GAP + "px", top: "0px", width: AR - TRX + "px", height: "64px", background: TRACK });   // the row carries its own track, so it glides as one piece
+  const box = L.box({ x: 0, y: 0, w: QBOX, h: 64, c: "tan", label: "", fs: 32, r: "l" }, e);
+  const name = L.text({ x: QBOX + 2 * L.GAP, base: 52.5, s: 40, c: "white", txt: "" }, e);
+  const where = L.text({ x: AR - AX - 2 * L.GAP, base: 52.5, s: 36, c: "tan", txt: "", align: "r", rightIn: true }, e);
+  return { e, box, name, where, order: null, y: ROW(0), ya: 0, yb: 0, yt: -99, yd: 1, o: 0, oa: 0, ob: 0, ot: -99, od: 1 };
+});
+// pouring: a bar along the foot of the head row, over the row (which carries its own track)
+const pourFill = fill(TRX, ROW(0) + 56, AR - TRX, 8, "gold");
+tf(pourFill, "scaleX(0)");
+const tween = (r, k, to, t, dur) => { r[k + "a"] = r[k]; r[k + "b"] = to; r[k + "t"] = t; r[k + "d"] = dur; };
+const settled = (r, t) => t >= r.yt + r.yd && t >= r.ot + r.od;
+let orderNo = 1180 + L.irand(0, 90);
+const queue = [];
+const head = { phase: "idle", t0: 0, dur: 1 };
+const addOrder = (p, t, delay = 0) => {
+  const d = pickDrink(), o = { no: orderNo++, p, d, n: p.size };
+  p.waiting = true; p.lastOrder = t; showParty(p);
+  const r = rows.find((r) => !r.order);
+  o.row = r; r.order = o;
+  L.set(r.box, String(o.no)); bg(r.box, d.c);
+  L.set(r.name, `${d.name}  ·  ${o.n}`); L.set(r.where, p.label);
+  r.y = r.ya = r.yb = ROW(queue.length); r.yt = -99;
+  queue.push(o);
+  r.o = 0; tween(r, "o", 1, t + delay, 0.9);
+};
+
+// ---------------- seating ----------------
+L.header({ x: CX, y: 280, w: CR - CX, label: "Seating", c1: "tan", c2: "gold" });
+L.text({ x: CX, base: 400, s: 36, c: "tan", txt: "16 tables  ·  12 stools  ·  64 seats" });
+const SBX = CX + 300 + L.GAP, SBR = CR - 200;
+const seatRow = (i, label, c, bar, txt) => {
+  L.box({ x: CX, y: ROW(i), w: 300, h: 64, c, label, fs: 32, r: "l" });
+  const r = { v: L.text({ x: CR, base: RB(i), s: 52, c: "white", txt: "", align: "r" }) };
+  if (bar) { L.rect({ x: SBX, y: RB(i) - 26, w: SBR - SBX, h: 26, c: TRACK }); r.f = fill(SBX, RB(i) - 26, SBR - SBX, 26, c, "tw"); tf(r.f, "scaleX(0)"); }
+  else L.text({ x: SBX, base: RB(i), s: 40, c: "tan", txt });
+  return r;
+};
+const SEAT_ROWS = [seatRow(0, "Window Tier", "peach", true), seatRow(1, "Main Floor", "tan", true), seatRow(2, "Bar Counter", "gold", true),
+  seatRow(3, "All Seats", "orange", true), seatRow(4, "Parties", "sand", false, "Seated now"),
+  seatRow(5, "Awaiting", "butter", false, "Not yet served")];
+
+// ---------------- bar systems ----------------
+L.header({ x: AX, y: 1000, w: AR - AX, label: "Bar Systems", c1: "gold", c2: "tan" });
+L.text({ x: AX, base: 1120, s: 36, c: "tan", txt: "Synthehol service  ·  Replicator 10-F  ·  Host Guinan" });
+const GBX = AX + 330, GBR = AR - 220;
+const gauge = (i, name, c) => {
+  L.text({ x: AX, base: RB2(i), s: 40, c: "peach", txt: name });
+  L.rect({ x: GBX, y: RB2(i) - 26, w: GBR - GBX, h: 26, c: TRACK });
+  const f = fill(GBX, RB2(i) - 26, GBR - GBX, 26, c, "tw");
+  tf(f, "scaleX(0)");
+  return { f, v: L.text({ x: AR, base: RB2(i), s: 52, c: "white", txt: "", align: "r" }) };
+};
+const SYS = { syn: gauge(0, "Synthehol Base", "peach"), rep: gauge(1, "Replicator Load", "gold"), rec: gauge(2, "Glass Recycler", "tan"),
+  light: gauge(3, "Ambient Lighting", "butter"), stock: gauge(4, "Private Stock", "lilac") };
+const showGauge = (g, k, txt) => { tf(g.f, `scaleX(${L.clamp(k).toFixed(4)})`); L.set(g.v, txt); };
+
+// ---------------- guests by the hour ----------------
+L.header({ x: CX, y: 1000, w: CR - CX, label: "Guests by the Hour", c1: "peach", c2: "tan" });
+const hCap = L.text({ x: CX, base: 1120, s: 36, c: "tan", txt: "" });
+L.text({ x: CR, base: 1120, s: 36, c: "gold", txt: "Lines every 16 guests", align: "r" });
+const HT = 1160, HBOT = 1500, HP = (CR - CX + 6) / 24, HWID = HP - 6, PXG = (HBOT - HT) / SEATS;
+for (const v of [16, 32, 48, 64]) L.rect({ x: CX, y: HBOT - v * PXG - 1, w: CR - CX, h: 2, c: "#33281a", free: true });
+const hourBars = Array.from({ length: 24 }, (_, h) => L.rect({ x: CX + h * HP, y: HBOT - 1, w: HWID, h: 1, c: "tan", noalign: true }));
+const live = fill(CX, HT, HWID, HBOT - HT, "white", "tw");
+live.style.transformOrigin = "0 100%";
+for (const h of [0, 6, 12, 18, 24]) {
+  const x = h === 0 ? CX : h === 24 ? CR : CX + h * HP - 3;
+  L.text({ x, base: 1552.5, s: 34, c: "gold", txt: pad2(h) + "00", align: h === 0 ? "l" : h === 24 ? "r" : "c", w: 120, legend: true });
+}
+let shownHour = -1;
+const showHours = (h) => {
+  const cur = Math.floor(h);
+  if (cur === shownHour) return;
+  shownHour = cur;
+  hourBars.forEach((r, k) => {
+    let v = 0; for (let q = 0; q < 4; q++) v += prof(k + q / 4 + 0.125) / 4;
+    const ht = k === cur ? 0 : Math.round(SEATS * v) * PXG;
+    r.setAttribute("y", HBOT - ht); r.setAttribute("height", ht);
+    r.setAttribute("fill", k < cur ? "var(--tan)" : "#5a4630");
+  });
+};
+
+// ---------------- bottom strip: events, what was served, the staff, the log ----------------
+L.header({ x: AX, y: 1620, w: AR - AX, label: "Events", c1: "tan", c2: "gold", h: 48 });
+const EVENTS = [[2, "Stargazing", "Viewports dimmed"], [4, "Quiet Hours", "Gamma shift"], [6, "Morning Service", "Guinan"],
+  [8, "Art Exhibit", "Paintings by Lal"], [10, "Tri-D Chess Ladder", "Lt. Cmdr. La Forge"], [12, "Midday Service", "Ben"], [14, "Botany Talk", "Keiko O'Brien"],
+  [16, "Watch Change", "Alpha shift off duty"], [17, "Wine Tasting", "Chateau Picard"], [18, "Poetry Reading", "Lt. Cmdr. Data"],
+  [19, "Jazz Set", "Cmdr. Riker, trombone"], [20, "Chamber Recital", "Capt. Picard, flute"], [21, "Junior Officers' Poker", "Hosted by Ben"],
+  [22, "Storytelling", "Guinan"], [23, "Late Service", "Ben"]];
+const evRows = Array.from({ length: 6 }, (_, i) => ({
+  tm: L.text({ x: AX, base: STRIP(i), s: 36, c: "orange", txt: "" }),
+  nm: L.text({ x: AX + 130, base: STRIP(i), s: 36, c: "peach", txt: "" }),
+  by: L.text({ x: AR, base: STRIP(i), s: 36, c: "tan", txt: "", align: "r" }) }));
+let evNow = -1;
+const showEvents = (h) => {
+  let i = EVENTS.length - 1;
+  for (let k = 0; k < EVENTS.length; k++) if (EVENTS[k][0] <= h) i = k;
+  if (i !== evNow && evNow >= 0) log(`${EVENTS[i][1]} begins  ·  ${EVENTS[i][2]}`);
+  evNow = i;
+  evRows.forEach((r, k) => {
+    const [eh, name, by] = EVENTS[(i + k) % EVENTS.length];
+    L.set(r.tm, k ? pad2(eh) + "00" : "Now"); ink(r.tm, k ? "orange" : "white");
+    L.set(r.nm, name); ink(r.nm, k ? "peach" : "white");
+    L.set(r.by, by);
+  });
+};
+
+L.header({ x: BX, y: 1620, w: BM - BX, label: "Served This Shift", c1: "gold", c2: "peach", h: 48 });
+const TBX = BX + 270, TBR = BM - 140;
+const tally = DRINKS.map((d, i) => {
+  L.text({ x: BX, base: STRIP(i), s: 36, c: "peach", txt: d.name });
+  L.rect({ x: TBX, y: STRIP(i) - 22, w: TBR - TBX, h: 22, c: TRACK });
+  const f = fill(TBX, STRIP(i) - 22, TBR - TBX, 22, d.c, "tw");
+  tf(f, "scaleX(0)");
+  return { d, f, v: L.text({ x: BM, base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }), n: 0 };
+});
+let tallyScale = 50;
+const seedTally = (h) => {                                  // what the shift has poured so far
+  const into = h % 8;
+  let total = 0;
+  for (let q = 0; q < into; q += 0.25) total += SEATS * prof(h - into + q) * 0.7 * 0.25;
+  tally.forEach((r) => (r.n = Math.round(total * r.d.w * L.rand(0.85, 1.15))));
+};
+
+L.header({ x: BN, y: 1620, w: BR - BN, label: "Lounge Staff", c1: "peach", c2: "tan", h: 48 });
+const STAFF = [["Guinan", "lilac", "Host"], ["Ben", "white", "Server"], ["M. Ashby", "butter", "Server"],
+  ["J. Okonjo", "peach", "Steward"], ["K. Tellan", "tan", "Server"], ["D. Ferris", "tan", "Server"]];
+const staff = STAFF.map(([name, c, post], i) => {
+  L.text({ x: BN, base: STRIP(i), s: 36, c, txt: name });
+  L.text({ x: BN + 240, base: STRIP(i), s: 36, c: "tan", txt: post });
+  return L.text({ x: BR, base: STRIP(i), s: 36, c: i < 4 ? "white" : "tan", txt: "", align: "r" });
+});
+L.set(staff[4], "Off Watch");
+L.set(staff[5], "On at 1600");
+
+L.header({ x: CX, y: 1620, w: CR - CX, label: "Lounge Log", c1: "tan", c2: "peach", h: 48 });
+const logRows = Array.from({ length: 6 }, (_, i) => ({
+  tm: L.text({ x: CX, base: STRIP(i), s: 36, c: "orange", txt: "" }),
+  tx: L.text({ x: CX + 130, base: STRIP(i), s: 36, c: "peach", txt: "" }) }));
+const logged = [];
+let logReady = false;
+function log(txt, when) {                                   // newest at the foot; always in time order
+  logged.push([when || hhmm(), txt]);
+  if (logged.length > logRows.length) logged.shift();
+  if (logReady) logRows.forEach((r, i) => { const e = logged[i] || ["", ""]; L.set(r.tm, e[0]); L.set(r.tx, e[1]); });
+}
+
+// ---------------- the lounge as it stands when the screen comes up ----------------
+const h0 = hours();
+let shiftNow = shiftOf(h0);
+{
+  const tgt = target();
+  for (let k = 0; k < 60 && committed() < tgt - 1; k++) arrive(0, true);
+  [[-16, "Synthehol base checked  ·  Replicator 10-F"], [-11, "Party of 2 seated  ·  Table 4"], [-8, "Table 9  ·  3 Earl Grey Tea  ·  Ben"],
+   [-6, "Table 13 cleared  ·  J. Okonjo"], [-3, "Stool 6  ·  1 Prune Juice  ·  Guinan"], [-1, "Table 11  ·  2 Romulan Ale  ·  M. Ashby"]]
+    .forEach(([m, txt]) => log(txt, hhmm(m)));
+  logReady = true;
+}
+logRows.forEach((r, i) => { const e = logged[i] || ["", ""]; L.set(r.tm, e[0]); L.set(r.tx, e[1]); });
+seedTally(h0);
+let syn = L.rand(0.62, 0.86), refilling = false, rep = 0.2;
+for (let k = 0; k < 5; k++) {
+  const c = parties.filter((p) => !p.waiting);
+  if (c.length) addOrder(L.pick(c), 0, 1.0 + k * 0.12);
+}
+showHours(h0); showEvents(h0);
+
+// ---------------- serving ----------------
+const serve = (o, by) => {
+  o.p.waiting = false; showParty(o.p);
+  const r = tally.find((r) => r.d === o.d); r.n += o.n;
+  if (o.d.syn) syn -= 0.004 * o.n;
+  log(`${o.p.label}  ·  ${o.n} ${o.d.name}  ·  ${by}`);
+};
+const dispatch = (o, t) => {
+  if (o.p.place === "bar") {                                // Guinan serves the bar herself
+    const dur = moveGuinan(o.p.seats[0].cx + (o.p.size - 1) * 44, t);
+    guinan.task = `Serving ${o.p.label}`;
+    at(t + dur + 0.4, () => { serve(o, "Guinan"); guinan.task = ""; });
+    return true;
+  }
+  const free = SERVERS.filter((s) => s.state === "home");
+  if (!free.length) return false;
+  const sv = free.reduce((a, b) => (Math.abs(b.home[0] - o.p.place.cx) < Math.abs(a.home[0] - o.p.place.cx) ? b : a));
+  const dur = moveGuinan(sv.hand, t);                        // Guinan hands the tray across at the server's end
+  sv.state = "wait"; sv.order = o; sv.path = route(sv, o.p.place); sv.t0 = t + dur + 0.2;
+  return true;
+};
+
+// ---------------- the running state ----------------
+let lastT = 0;
+L.tick((t) => {
+  const dt = Math.min(0.2, t - lastT); lastT = t;
+  // things due
+  for (let i = jobs.length - 1; i >= 0; i--) if (jobs[i][0] <= t) { const f = jobs[i][1]; jobs.splice(i, 1); f(); }
+
+  // the stars
+  for (const s of streaks) {
+    s.d *= Math.exp(SPEED * s.z * dt); s.age += dt;
+    const len = Math.max(s.h + 1, s.d * (1 - Math.exp(-SPEED * s.z * TRAIL)));
+    const ex = L.clamp((VX - 14 - Math.abs(s.ux * s.d)) / 130), ey = L.clamp((VY - 8 - Math.abs(s.uy * s.d)) / 30);
+    if (ex <= 0 || ey <= 0) { spawn(s, false); op(s.e, 0); continue; }
+    op(s.e, Math.min(ex, ey) * L.clamp(s.d / 70) * L.clamp(s.age / 0.6));
+    s.e.style.transform = `translate3d(${VX}px,${(VY - s.h / 2).toFixed(1)}px,0) rotate(${s.ang.toFixed(2)}deg) translateX(${(s.d - len).toFixed(1)}px) scaleX(${(len / 100).toFixed(4)})`;
+  }
+
+  // the queue's rows glide to their places and fade in and out
+  for (const r of rows) {
+    if (!r.order && r.o === 0 && r.ob === 0) continue;
+    r.y = L.mix(r.ya, r.yb, L.ease(L.clamp((t - r.yt) / r.yd)));
+    r.o = L.mix(r.oa, r.ob, L.clamp((t - r.ot) / r.od));
+    tf(r.e, `translate3d(0,${r.y.toFixed(1)}px,0)`); op(r.e, r.o);
+  }
+  // the order at the head: poured, handed out, and the rest move up
+  const o = queue[0];
+  if (head.phase === "idle" && o && settled(o.row, t)) {
+    head.phase = "pour"; head.t0 = t; head.dur = L.rand(6, 9.5);
+    tf(pourFill, "scaleX(0)"); op(pourFill, 1);
+    moveGuinan(o.d.bx, t); guinan.task = "Pouring";
+  } else if (head.phase === "pour") {
+    const k = L.clamp((t - head.t0) / head.dur);
+    tf(pourFill, `scaleX(${k.toFixed(4)})`);
+    if (k >= 1) { head.phase = "ready"; guinan.task = ""; }
+  } else if (head.phase === "ready") {
+    if (dispatch(o, t)) { head.phase = "leave"; head.t0 = t; tween(o.row, "o", 0, t, 0.8); }
+  } else if (head.phase === "leave") {
+    const k = L.clamp((t - head.t0) / 0.8);
+    op(pourFill, 1 - k);
+    if (k >= 1) {
+      queue.shift().row.order = null;
+      queue.forEach((q, i) => tween(q.row, "y", ROW(i), t, 1.2));
+      tf(pourFill, "scaleX(0)");
+      head.phase = "idle";
+    }
+  }
+
+  // Guinan along the bar
+  guinan.x = L.mix(guinan.x0, guinan.x1, L.ease(L.clamp((t - guinan.t0) / guinan.dur)));
+  L.move(guinan.e, guinan.x - 14, GUIN_Y - 14);
+  // the servers: out to the table, a moment there, and back
+  for (const sv of SERVERS) {
+    if (sv.state === "wait" && t >= sv.t0) { sv.state = "out"; sv.dur = Math.max(2.2, sv.path.tot / 250); }
+    if (sv.state === "out" || sv.state === "back") {
+      const k = L.clamp((t - sv.t0) / sv.dur);
+      [sv.x, sv.y] = along(sv.path, L.ease(k));
+      if (k >= 1) {
+        if (sv.state === "out") { sv.state = "serve"; sv.t0 = t; serve(sv.order, sv.name); }
+        else { sv.state = "home"; sv.order = null; }
+      }
+    } else if (sv.state === "serve" && t >= sv.t0 + 1.6) {
+      sv.state = "back"; sv.t0 = t;
+      sv.path = { P: sv.path.P.slice().reverse(), segs: sv.path.segs.slice().reverse(), tot: sv.path.tot };
+    }
+    L.move(sv.e, sv.x - 14, sv.y - 14);
+  }
+});
+
+// ---------------- the comings and goings ----------------
+L.every(7000, (t) => {
+  if (t < 3) return;
+  const tgt = target(), c = committed();
+  if (c < tgt - 1) arrive(t);
+  else if (c > tgt + 1) leave(t);
+  else if (Math.random() < 0.6) { if (c <= tgt) arrive(t); else leave(t); }
+}, 0.35);
+L.every(1500, (t) => {                                      // a table orders, when the bar has room for it
+  if (t < 3 || head.phase === "leave" || queue.length >= QN) return;
+  if (queue.length >= 4 && Math.random() < 0.6) return;
+  const c = parties.filter((p) => !p.waiting && !p.leaving && t - p.since > 4 && t - p.lastOrder > 40);
+  if (!c.length) return;
+  const fresh = c.filter((p) => p.lastOrder < -1e8);
+  addOrder(L.pick(fresh.length ? fresh : c), t);
+}, 0.3);
+
+// ---------------- the readings: four times a second ----------------
+let word = "";
+const SV_TXT = { home: () => "At the Bar", wait: () => "At the Bar", out: (s) => `To ${s.order.p.label}`, serve: (s) => `Serving ${s.order.p.label}`, back: () => "Returning" };
+L.every(250, (t) => {
+  const h = hours();
+  // seats, counted from the plan as drawn
+  const lit = (ss) => ss.filter((s) => s.st !== "off").length;
+  const win = lit(places.filter((p) => p.kind === "window").flatMap((p) => p.seats));
+  const flo = lit(places.filter((p) => p.kind === "floor").flatMap((p) => p.seats));
+  const bar = lit(stools), all = win + flo + bar;
+  [[win, 12], [flo, 40], [bar, 12], [all, SEATS]].forEach(([n, cap], i) => {
+    tf(SEAT_ROWS[i].f, `scaleX(${(n / cap).toFixed(4)})`); L.set(SEAT_ROWS[i].v, `${n} / ${cap}`);
+  });
+  L.set(SEAT_ROWS[4].v, String(parties.filter((p) => !p.leaving).length));
+  L.set(SEAT_ROWS[5].v, String(parties.filter((p) => p.waiting).length));
+  // the lounge in a word, with a little hysteresis so it does not flicker
+  const f = all / SEATS;
+  let w = word || (f < 0.39 ? WORDS[0] : f > 0.74 ? WORDS[2] : WORDS[1]);
+  if (w === WORDS[0] && f > 0.42) w = WORDS[1];
+  else if (w === WORDS[1] && f < 0.36) w = WORDS[0];
+  else if (w === WORDS[1] && f > 0.77) w = WORDS[2];
+  else if (w === WORDS[2] && f < 0.71) w = WORDS[1];
+  if (w !== word) {
+    if (!word) L.set(state, w);
+    else { state.classList.add("out"); setTimeout(() => { L.set(state, w); state.classList.remove("out"); }, 460); }
+    word = w;
+  }
+  const tables = places.filter((p) => p.party).length;
+  L.set(stateSub, `${all} guests  ·  ${tables} of 16 tables  ·  Host Guinan  ·  ${shiftOf(h)} shift on watch`);
+  // the queue
+  const poured = tally.reduce((a, r) => a + r.n, 0);
+  L.set(qCap, `${queue.length} in the queue  ·  ${poured.toLocaleString("en")} drinks served this shift`);
+  // the bar's systems
+  if (syn < 0.4 && !refilling) { refilling = true; log("Synthehol base topped up from stores"); }
+  if (refilling) { syn += (0.97 - syn) * 0.06; if (syn > 0.955) refilling = false; }
+  rep += ((head.phase === "pour" ? 0.64 : 0.21) - rep) * 0.12;
+  recycle += (0.16 - recycle) * 0.012;
+  const light = 0.42 + 0.3 * (0.5 - 0.5 * Math.cos((2 * Math.PI * (h - 3)) / 24));
+  showGauge(SYS.syn, syn, Math.round(syn * 100) + "%");
+  showGauge(SYS.rep, rep, Math.round(rep * 100) + "%");
+  showGauge(SYS.rec, recycle, Math.round(recycle * 100) + "%");
+  showGauge(SYS.light, light, Math.round(light * 100) + "%");
+  showGauge(SYS.stock, 9 / 24, "9 / 24");
+  // what has been served; the scale steps up in round fifties when the leader nears the end
+  const top = Math.max(...tally.map((r) => r.n));
+  if (top > 0.92 * tallyScale || tallyScale > 2 * Math.max(top, 40)) tallyScale = Math.max(50, Math.ceil((top * 1.25) / 50) * 50);
+  tally.forEach((r) => { tf(r.f, `scaleX(${(r.n / tallyScale).toFixed(4)})`); L.set(r.v, String(r.n)); });
+  // the staff
+  L.set(staff[0], guinan.task || "Behind the Bar");
+  SERVERS.forEach((s, i) => L.set(staff[1 + i], SV_TXT[s.state](s)));
+  L.set(staff[3], clearing && t < clearing.until ? `Clearing ${clearing.label}` : "Glass Recycler");
+  // the hours
+  tf(live, `translate3d(${(Math.floor(h) * HP).toFixed(2)}px,0,0) scaleY(${(all / SEATS).toFixed(4)})`);
+}, 0);
+L.every(1000, () => {
+  const h = hours(), s = shiftOf(h);
+  if (s !== shiftNow) { shiftNow = s; tally.forEach((r) => (r.n = 0)); log(`${s} shift has the watch`); }
+  showHours(h); showEvents(h);
+  L.set(hCap, `Ship's time ${hhmm()}  ·  ${s} shift on watch`);
+}, 0);
+});
+</script></body></html>

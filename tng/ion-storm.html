@@ -1,0 +1,680 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Ion Storm</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .clip { position: absolute; overflow: hidden; }
+  .fl { transform-origin: 0 0; }
+  .ctr { transform-origin: 50% 50%; }
+  .sw { transition: color 0.8s ease, background-color 0.8s ease; }
+  .lay svg { position: absolute; left: 0; top: 0; overflow: visible; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame, mirrored: sidebar on the right, title at top left ----------------
+L.frame({ type: "B", title: "Ion Storm  •  Tracking", c: "butter", c2: "mars", accent: "orange", foot: "Tracking",
+  side: [[140, "orange", "Nav 07"], [70, "mars", "Storm"], [420, "butter", "Ion Storm"], [70, "orange", "Track"],
+         [300, "mars", "Forecast"], [70, "butter", "Helm"], [216, "orange", "Navigation"]] });
+
+// The storm map on the left; intensity and course adjustment on the right, on a 72px grid from
+// 480 and from 1184; a three-panel strip under both, whose columns share the upper edges.
+const LX = 40, MR = 2200, RX = 2260, RR = 3520;
+const ROW = (k) => 480 + 72 * k, ROW2 = (k) => 1184 + 72 * k;
+const BCAP = 1716, BROW = (i) => 1776 + i * 54;
+const PANEL = "#120d04", GRIDC = "#2a2110", TRACK = "#2c2210", DIM = "#6e5a30";
+const FRAME = document.getElementById("frame");
+const NS = "http://www.w3.org/2000/svg";
+const col = (c) => (c.startsWith("#") ? c : `var(--${c})`);
+const fmt = (n) => Math.round(n).toLocaleString("en");
+const km = (px) => fmt(Math.round(px) * 1000) + " Km";             // map pixels are 1,000 km
+const pad3 = (n) => String(Math.round(((n % 360) + 360) % 360)).padStart(3, "0");
+const bad = [];
+const fits = (txt, s, w, where) => { if (L.textWidth(txt, s) > w) bad.push(`${where}: "${txt}"`); };
+const fill = (x, y, w, h, c, parent) => {
+  const f = L.layer({ x, y, w, h, cls: "fl" }, parent);
+  f.style.background = col(c); f.style.transform = "scaleX(0)";
+  return f;
+};
+const scaleX = (e, u) => { const v = L.clamp(u).toFixed(4); if (e._v !== v) { e._v = v; e.style.transform = `scaleX(${v})`; } };
+const fade = (e, a) => { const v = L.clamp(a).toFixed(3); if (e._a !== v) { e._a = v; e.style.opacity = v; } };
+const svgIn = (parent, w, h) => {
+  const s = document.createElementNS(NS, "svg");
+  s.setAttribute("width", w); s.setAttribute("height", h); s.setAttribute("viewBox", `0 0 ${w} ${h}`);
+  parent.appendChild(s); parent.classList.add("lay");
+  return s;
+};
+const mk = (tag, attrs, parent) => L.svg(tag, attrs, parent);
+
+// =====================================================================================
+// THE STORMS — each one a seeded field; the ship's course is solved against it
+// =====================================================================================
+const IMPULSE = 18.737;                                    // quarter impulse, px (1,000 km) per second
+const PX = LX, PY = 432, PW = MR - LX, PH = 1128;          // the map panel
+const Y0 = 990, SX = 230, EX = 2110;                      // the plotted course across it
+const HEAD0 = 47;                                          // plotted course 047 mark 0
+const LEVELS = [0.1, 0.22, 0.36, 0.52, 0.7];
+const BAND = [[255, 204, 102, 0.07], [255, 204, 102, 0.13], [255, 156, 26, 0.22], [226, 99, 27, 0.34], [255, 90, 60, 0.5]];
+const LINE = ["rgba(255,204,102,0.55)", "rgba(255,204,102,0.75)", "rgba(255,156,26,0.85)", "rgba(226,99,27,0.95)", "rgba(255,90,60,1)"];
+// start centre, drift direction (degrees, 0 = east, 90 = south on the map), drift speed (px/s), size, class
+const PRESETS = [
+  { id: "IS-2417", cls: 6, x: 1250, y: 830, dir: 70, v: 1.0, R: 250, seed: 11, rate: 18, dens: 3260, field: 41.5, temp: 1.84e6, rad: 262, trend: 0.03 },
+  { id: "IS-2418", cls: 4, x: 1200, y: 1170, dir: -78, v: 1.2, R: 240, seed: 29, rate: 12, dens: 2140, field: 28.0, temp: 1.31e6, rad: 158, trend: -0.03 },
+  { id: "IS-2421", cls: 8, x: 1380, y: 1230, dir: -104, v: 1.8, R: 260, seed: 47, rate: 24, dens: 4480, field: 57.0, temp: 2.46e6, rad: 371, trend: 0.03 },
+  { id: "IS-2425", cls: 5, x: 1400, y: 790, dir: 104, v: 1.4, R: 250, seed: 83, rate: 15, dens: 2700, field: 34.5, temp: 1.52e6, rad: 205, trend: 0 },
+];
+
+const rng = (seed) => () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+
+/** A storm: the field on a 4px node grid, its outer front as nodes, a lookup for any point. */
+function buildStorm(p) {
+  const r = rng(p.seed), R = p.R, G = 4;
+  const S = Math.ceil((R * 3.2) / G) * G, N = S / G + 1, H = S / 2;
+  const ux = Math.cos((p.dir * Math.PI) / 180), uy = Math.sin((p.dir * Math.PI) / 180);
+  const LAT = 48, lat = Float32Array.from({ length: LAT * LAT }, r);
+  const sm = (t) => t * t * (3 - 2 * t);
+  const noise = (x, y) => {
+    const xi = Math.floor(x), yi = Math.floor(y), fx = sm(x - xi), fy = sm(y - yi);
+    const v = (i, j) => lat[(((j % LAT) + LAT) % LAT) * LAT + (((i % LAT) + LAT) % LAT)];
+    return L.mix(L.mix(v(xi, yi), v(xi + 1, yi), fx), L.mix(v(xi, yi + 1), v(xi + 1, yi + 1), fx), fy);
+  };
+  const blobs = [{ a: 0, p: 0, sa: 0.36 * R, sp: 0.48 * R, w: 1 }];
+  for (let i = 0; i < 4; i++) blobs.push({ a: L.mix(-0.4, 0.15, r()) * R, p: L.mix(-0.55, 0.55, r()) * R,
+    sa: L.mix(0.18, 0.28, r()) * R, sp: L.mix(0.22, 0.34, r()) * R, w: L.mix(0.35, 0.6, r()) });
+  const f = new Float32Array(N * N);
+  let max = 0;
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+    const x = i * G - H, y = j * G - H;
+    const wx = x + 46 * (noise(x / 130 + 7, y / 130) - 0.5), wy = y + 46 * (noise(x / 130, y / 130 + 13) - 0.5);
+    const a = wx * ux + wy * uy, pp = -wx * uy + wy * ux;
+    let v = 0;
+    for (const b of blobs) {
+      const da = a - b.a, dp = pp - b.p, sa = da > 0 ? b.sa * 0.72 : b.sa * 1.3;
+      v += b.w * Math.exp(-(da * da) / (2 * sa * sa) - (dp * dp) / (2 * b.sp * b.sp));
+    }
+    v *= 0.68 + 0.64 * (0.6 * noise(x / 95, y / 95) + 0.3 * noise(x / 44 + 3, y / 44) + 0.1 * noise(x / 21, y / 21 + 5));
+    const rr = Math.hypot(x, y) / H;
+    v *= 1 - sm(L.clamp((rr - 0.82) / 0.18));
+    f[j * N + i] = v; if (v > max) max = v;
+  }
+  for (let k = 0; k < f.length; k++) f[k] /= max;
+  const at = (x, y) => {                                   // field at a point relative to the centre
+    const gx = (x + H) / G, gy = (y + H) / G;
+    if (gx < 0 || gy < 0 || gx >= N - 1 || gy >= N - 1) return 0;
+    const i = Math.floor(gx), j = Math.floor(gy), fx = gx - i, fy = gy - j, k = j * N + i;
+    return L.mix(L.mix(f[k], f[k + 1], fx), L.mix(f[k + N], f[k + N + 1], fx), fy);
+  };
+  const front = [], core = [];
+  for (let j = 1; j < N - 1; j++) for (let i = 1; i < N - 1; i++) {
+    const k = j * N + i, v = f[k];
+    if (v >= LEVELS[0] && (f[k - 1] < LEVELS[0] || f[k + 1] < LEVELS[0] || f[k - N] < LEVELS[0] || f[k + N] < LEVELS[0]))
+      front.push([i * G - H, j * G - H]);
+    if (v >= 0.55 && i % 3 === 0 && j % 3 === 0) core.push([i * G - H, j * G - H]);
+  }
+  // the extents of the outer front, for the swept track and the label
+  let pmax = 0, back = 0;
+  for (const [x, y] of front) { pmax = Math.max(pmax, Math.abs(-x * uy + y * ux)); back = Math.max(back, -(x * ux + y * uy)); }
+  return { p, f, N, G, S, H, at, front, core, ux, uy, vx: ux * p.v, vy: uy * p.v, pmax, back, noise };
+}
+
+/** Signed clearance (px) from a point to the outer front of the storm at time t: negative inside. */
+const clearance = (st, x, y, t) => {
+  const cx = st.p.x + st.vx * t, cy = st.p.y + st.vy * t;
+  const rx = x - cx, ry = y - cy;
+  let m = 1e9;
+  for (const [fx, fy] of st.front) { const d = (rx - fx) * (rx - fx) + (ry - fy) * (ry - fy); if (d < m) m = d; }
+  m = Math.sqrt(m);
+  return st.at(rx, ry) >= LEVELS[0] ? -m : m;
+};
+
+// ---------------- a course: straight, a smooth detour of depth D between xb and xr, straight ----------------
+function makeCourse(xb, xr, D) {
+  const pts = [], cum = [];
+  for (let x = SX; x <= EX + 0.01; x += 4) {
+    const s = x <= xb || x >= xr ? 0 : Math.sin((Math.PI * (x - xb)) / (xr - xb)) ** 2;
+    pts.push([x, Y0 + D * s]);
+  }
+  let len = 0;
+  pts.forEach((p, i) => { if (i) len += Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1]); cum.push(len); });
+  let hint = 0;
+  const at = (s) => {                                     // position and heading at arc length s
+    if (s >= len) { const n = pts.length - 1; return [pts[n][0] + (s - len), pts[n][1], 0]; }
+    if (s <= 0) return [pts[0][0] + s, pts[0][1], 0];
+    if (cum[hint] > s) hint = 0;
+    while (cum[hint + 1] < s) hint++;
+    const a = pts[hint], b = pts[hint + 1], k = (s - cum[hint]) / (cum[hint + 1] - cum[hint]);
+    return [L.mix(a[0], b[0], k), L.mix(a[1], b[1], k), Math.atan2(b[1] - a[1], b[0] - a[0])];
+  };
+  let slope = 0;
+  for (let i = 1; i < pts.length; i++) slope = Math.max(slope, Math.abs(Math.atan2(pts[i][1] - pts[i - 1][1], pts[i][0] - pts[i - 1][0])));
+  return { xb, xr, D, pts, len, at, T: len / IMPULSE, slope };
+}
+const minClear = (st, c, dt = 0.5) => {
+  let m = 1e9, tm = 0;
+  for (let t = 0; t <= c.T; t += dt) { const [x, y] = c.at(t * IMPULSE), d = clearance(st, x, y, t); if (d < m) { m = d; tm = t; } }
+  return [m, tm];
+};
+/** The navigator's solution: the shallowest detour that keeps 150,000 km from the front. */
+function solve(st) {
+  const plotted = makeCourse(SX, SX, 0);
+  let tI = -1;
+  for (let t = 0; t <= plotted.T; t += 0.25) { const [x] = plotted.at(t * IMPULSE); if (clearance(st, x, Y0, t) < 0) { tI = t; break; } }
+  let [, tc] = minClear(st, plotted);
+  if (tI >= 0) tc = tI;
+  const xc = SX + tc * IMPULSE + 120;
+  const xb = Math.max(640, xc - 600), xr = Math.min(1980, xc + 600);
+  let best = null, bestM = -1e9;
+  for (let k = 1; k <= 34; k++) for (const sgn of [1, -1]) {
+    const D = sgn * k * 20;
+    if (Y0 + D < PY + 150 || Y0 + D > PY + PH - 130) continue;
+    const c = makeCourse(xb, xr, D), [m] = minClear(st, c);
+    if (m >= 150) return { plotted, adj: c, tI, margin: m };
+    if (m > bestM) { bestM = m; best = c; }
+  }
+  return { plotted, adj: best, tI, margin: bestM };
+}
+
+// =====================================================================================
+// STATUS LINE
+// =====================================================================================
+const stateTxt = L.text({ x: LX, cap: 150, s: 100, c: "butter", txt: "", cls: "sw" });
+const stateSub = L.text({ x: 0, base: 222, s: 38, c: "tan", txt: "" });
+const pill = L.box({ x: RR - 400, y: 150, w: 400, h: 72, c: "butter", label: "", r: "lr", fs: 36, cls: "sw" });
+
+// =====================================================================================
+// THE MAP
+// =====================================================================================
+L.header({ x: LX, y: 280, w: MR - LX, label: "Storm Track  ·  Typhon Expanse Approach", c1: "butter", c2: "mars" });
+L.text({ x: LX, base: 400, s: 36, c: "tan", txt: "Grid 200,000 Km  ·  Quarter Impulse  ·  18,737 Km / S" });
+L.rect({ x: PX, y: PY, w: PW, h: PH, c: PANEL, panel: true });
+// a key to the map's marks, right-aligned along the caption line
+{
+  const items = [["Plotted Course", "dash"], ["Adjusted Course", "line"], ["Intercept", "x"], ["Forecast Front  ·  2 Min", "dot"]];
+  let w = 0;
+  const SYM = 56, G1 = 16, G2 = 48;
+  items.forEach(([t]) => { w += SYM + G1 + L.textWidth(t, 36) + G2; });
+  let kx = MR - (w - G2), ky = 400 - 13;
+  items.forEach(([txt, kind]) => {
+    if (kind === "dash") for (let i = 0; i < 3; i++) L.rect({ x: kx + i * 20, y: ky - 2, w: 14, h: 4, c: "sand", free: true });
+    if (kind === "line") L.rect({ x: kx, y: ky - 3, w: SYM, h: 6, c: "butter", free: true });
+    if (kind === "x") { const cx = kx + SYM / 2; mk("path", { d: `M${cx - 12},${ky - 12} L${cx + 12},${ky + 12} M${cx + 12},${ky - 12} L${cx - 12},${ky + 12}`, stroke: "var(--mars)", "stroke-width": 5, "stroke-linecap": "round" }, FRAME); }
+    if (kind === "dot") for (let i = 0; i < 5; i++) mk("circle", { cx: kx + 4 + i * 12, cy: ky, r: 3, fill: "var(--peach)" }, FRAME);
+    kx += SYM + G1;
+    L.text({ x: kx, base: 400, s: 36, c: "tan", txt });
+    kx += L.textWidth(txt, 36) + G2;
+  });
+}
+// faint stars, drawn once
+{
+  const r = rng(5);
+  for (let i = 0; i < 260; i++) {
+    const x = PX + 20 + r() * (PW - 40), y = PY + 20 + r() * (PH - 110), b = r();
+    mk("circle", { cx: x.toFixed(1), cy: y.toFixed(1), r: (0.8 + b * b * 2).toFixed(2), fill: b > 0.85 ? "#e8dcc0" : "#7d6c4c", opacity: (0.35 + 0.5 * b).toFixed(2) }, FRAME);
+  }
+}
+// the Typhon Expanse: its boundary on the right of the map, hatched beyond
+{
+  const bx = (y) => 1930 + 70 * Math.sin((y - PY) / 260) + 30 * Math.sin((y - PY) / 97);
+  let d = "";
+  for (let y = PY; y <= PY + PH - 64; y += 8) d += (d ? "L" : "M") + `${bx(y).toFixed(1)},${y}`;
+  const clipId = "expanse";
+  const cp = mk("clipPath", { id: clipId }, FRAME);
+  mk("path", { d: d + `L${PX + PW},${PY + PH - 64}L${PX + PW},${PY}Z` }, cp);
+  const g = mk("g", { "clip-path": `url(#${clipId})` }, FRAME);
+  for (let k = -20; k < 60; k++) mk("line", { x1: 1800 + k * 28, y1: PY, x2: 1800 + k * 28 - 600, y2: PY + 600, stroke: "#2a1e0c", "stroke-width": 3 }, g);
+  mk("path", { d, fill: "none", stroke: "#8a6a32", "stroke-width": 3, "stroke-dasharray": "4 12", "stroke-linecap": "round" }, FRAME);
+  L.text({ x: PX + PW - 28, base: PY + 72, s: 36, c: "peach", txt: "Typhon Expanse", align: "r" });
+  L.text({ x: PX + PW - 28, base: PY + 120, s: 32, c: DIM, txt: "Uncharted  ·  Survey Region", align: "r", legend: true });
+}
+// grid: every 200,000 km, labelled on round numbers; lines stop short of the scale band
+for (let k = 1; k <= 10; k++) {
+  const x = PX + 200 * k;
+  L.rect({ x: x - 1, y: PY + 16, w: 2, h: PH - 100, c: GRIDC, free: true });
+  L.text({ x, base: PY + PH - 28, s: 32, c: DIM, txt: fmt(200 * k), align: "c", w: 140, legend: true });
+}
+for (let k = 1; k <= 4; k++) {
+  const y = PY + 200 * k + 32;
+  L.rect({ x: PX + 16, y: y - 1, w: PW - 32, h: 2, c: GRIDC, free: true });
+  L.text({ x: PX + 24, base: y - 12, s: 32, c: DIM, txt: fmt(200 * k), legend: true });
+}
+L.text({ x: PX + 24, base: PY + PH - 28, s: 32, c: DIM, txt: "Thousand Km", legend: true });
+
+// ---------------- the moving parts, clipped to the panel ----------------
+const mapClip = L.layer({ x: PX, y: PY, w: PW, h: PH, cls: "clip" });
+const dyn = L.layer({ x: 0, y: 0, w: PW, h: PH }, mapClip);          // fades between storms
+const SMAX = Math.ceil((Math.max(...PRESETS.map((p) => p.R)) * 3.2) / 4) * 4;
+const stormL = L.layer({ x: 0, y: 0, w: SMAX, h: SMAX }, dyn);       // moved with the storm's drift
+const bandC = L.canvas({ x: 0, y: 0, w: SMAX, h: SMAX }, stormL);
+const filL = L.layer({ x: 0, y: 0, w: SMAX, h: SMAX, cls: "ctr" }, stormL);
+const filC = L.canvas({ x: 0, y: 0, w: SMAX, h: SMAX }, filL);
+const SPARK = 7;
+const sparks = Array.from({ length: SPARK }, () => {
+  const e = L.layer({ x: -22, y: -22, w: 44, h: 44, cls: "ctr" }, stormL);
+  const s = svgIn(e, 44, 44);
+  mk("path", { d: "M22,0 L26,18 L44,22 L26,26 L22,44 L18,26 L0,22 L18,18 Z", fill: "#fff4d8" }, s);
+  e.style.opacity = "0";
+  return { e, t0: -10, x: 0, y: 0 };
+});
+const stormName = L.text({ x: 0, base: 0, s: 36, c: "peach", txt: "" }, stormL);
+// the forecast: swept track and the front as it will stand in two minutes
+const fcL = L.layer({ x: 0, y: 0, w: PW, h: PH }, dyn);
+const fcS = svgIn(fcL, PW, PH);
+// the course: plotted and adjusted, intercept mark, change and rejoin points
+const crL = L.layer({ x: 0, y: 0, w: PW, h: PH }, dyn);
+const crS = svgIn(crL, PW, PH);
+const plotLine = mk("path", { d: `M${SX - PX},${Y0 - PY} L${EX - PX + 60},${Y0 - PY}`, fill: "none", stroke: "var(--sand)", "stroke-width": 4, "stroke-dasharray": "18 14", opacity: 0.75 }, crS);
+const xMark = mk("path", { d: "", stroke: "var(--mars)", "stroke-width": 6, "stroke-linecap": "round", opacity: 0 }, crS);
+const adjLine = mk("path", { d: "", fill: "none", stroke: "var(--butter)", "stroke-width": 5, "stroke-linejoin": "round" }, crS);
+const markS = svgIn(L.layer({ x: 0, y: 0, w: PW, h: PH }, dyn), PW, PH);
+const diamond = (x, y) => mk("path", { d: `M${x},${y - 14} L${x + 14},${y} L${x},${y + 14} L${x - 14},${y} Z`, fill: "var(--orange)", stroke: "#000", "stroke-width": 3 }, markS);
+// the ship: a chevron, a shield ring, a name
+const shipL = L.layer({ x: -60, y: -60, w: 120, h: 120, cls: "ctr" }, dyn);
+const shipS = svgIn(shipL, 120, 120);
+const shield = mk("circle", { cx: 60, cy: 60, r: 46, fill: "rgba(255,204,102,0.08)", stroke: "var(--butter)", "stroke-width": 3, opacity: 0 }, shipS);
+mk("path", { d: "M90,60 L44,36 L54,60 L44,84 Z", fill: "var(--white)", stroke: "#000", "stroke-width": 3, "stroke-linejoin": "round" }, shipS);
+const shipTag = L.layer({ x: 0, y: 0, w: 400, h: 60 }, dyn);
+L.text({ x: 0, base: 40, s: 36, c: "white", txt: "U.S.S. Enterprise" }, shipTag);
+
+// =====================================================================================
+// STORM INTENSITY
+// =====================================================================================
+L.header({ x: RX, y: 280, w: RR - RX, label: "Storm Intensity", c1: "mars", c2: "butter" });
+const intWord = L.text({ x: RX, base: 400, s: 36, c: "peach", txt: "" });
+const trendWord = L.text({ x: RR, base: 400, s: 36, c: "butter", txt: "", align: "r", cls: "sw" });
+const TX0 = 2560, TX1 = 3140, VR = 3320, UX = 3352;
+const INT = [
+  ["Ion Density", "Ions / CC", 6000, (v) => fmt(Math.round(v / 10) * 10)],
+  ["Magnetic Field", "Gauss", 80, (v) => v.toFixed(1)],
+  ["Plasma Temperature", "Kelvin", 3e6, (v) => fmt(Math.round(v / 10000) * 10000)],
+  ["Radiation", "Rads / Hr", 500, (v) => fmt(v)],
+  ["Front Velocity", "Km / S", 2500, (v) => fmt(v)],
+  ["Discharge Rate", "Per Min", 30, (v) => fmt(v)],
+];
+const intRows = INT.map(([name, unit, max, f], i) => {
+  const base = ROW(i);
+  L.text({ x: RX, base, s: 40, c: "butter", txt: name });
+  L.rect({ x: TX0, y: base - 26, w: TX1 - TX0, h: 26, c: TRACK });
+  const bar = fill(TX0, base - 26, TX1 - TX0, 26, i >= 4 ? "orange" : "mars");
+  L.text({ x: UX, base, s: 36, c: "tan", txt: unit });
+  fits(unit, 36, RR - UX, "unit");
+  return { bar, max, f, val: L.text({ x: VR, base, s: 52, c: "white", txt: "", align: "r" }), u: 0 };
+});
+
+// =====================================================================================
+// COURSE ADJUSTMENT
+// =====================================================================================
+L.header({ x: RX, y: 984, w: RR - RX, label: "Course Adjustment", c1: "butter", c2: "orange" });
+const CP = 3040;
+L.text({ x: RX, base: 1104, s: 36, c: "tan", txt: "Navigation" });
+L.text({ x: CP, base: 1104, s: 36, c: "tan", txt: "Plotted", align: "r" });
+L.text({ x: RR, base: 1104, s: 36, c: "tan", txt: "Adjusted", align: "r" });
+const CA = ["Course", "Maximum Deviation", "Closest Approach", "Transit Time", "Peak Shield Load", "Lowest Sensor Range"];
+const caRows = CA.map((name, i) => {
+  L.text({ x: RX, base: ROW2(i), s: 40, c: "butter", txt: name });
+  return { p: L.text({ x: CP, base: ROW2(i), s: 44, c: "sand", txt: "", align: "r", cls: "sw" }),
+           a: L.text({ x: RR, base: ROW2(i), s: 52, c: "white", txt: "", align: "r", cls: "sw" }) };
+});
+
+// =====================================================================================
+// THE STRIP: sensor log, forecast track, effects on the ship
+// =====================================================================================
+const LG0 = LX, LG1 = 1100, FC0 = 1160, FC1 = MR, EF0 = RX, EF1 = RR;
+
+// ---------------- sensor log, oldest at the top ----------------
+L.header({ x: LG0, y: 1620, w: LG1 - LG0, label: "Sensor Log", c1: "mars", c2: "butter", h: 48 });
+const LT = LG0 + 170;
+[["Ship's Time", LG0, "l"], ["Entry", LT, "l"], ["Station", LG1, "r"]].forEach(([txt, x, align]) => L.text({ x, base: BCAP, s: 36, c: "tan", txt, align }));
+const logL = L.layer({ x: 0, y: 0, w: L.W, h: L.H });
+const logRows = Array.from({ length: 5 }, (_, i) => ({
+  tm: L.text({ x: LG0, base: BROW(i), s: 36, c: "orange", txt: "" }, logL),
+  ev: L.text({ x: LT, base: BROW(i), s: 36, c: "white", txt: "" }, logL),
+  st: L.text({ x: LG1, base: BROW(i), s: 36, c: "sand", txt: "", align: "r", rightIn: true }, logL),
+}));
+const newRow = L.layer({ x: 0, y: 0, w: L.W, h: L.H });               // the newest entry, faded in
+const nr = { tm: L.text({ x: LG0, base: BROW(4), s: 36, c: "orange", txt: "" }, newRow),
+             ev: L.text({ x: LT, base: BROW(4), s: 36, c: "white", txt: "" }, newRow),
+             st: L.text({ x: LG1, base: BROW(4), s: 36, c: "sand", txt: "", align: "r", rightIn: true }, newRow) };
+
+// ---------------- forecast track ----------------
+L.header({ x: FC0, y: 1620, w: FC1 - FC0, label: "Forecast Track", c1: "butter", c2: "mars", h: 48 });
+const FP = 1650, FI = 1850;
+[["Time", FC0, "l"], ["Position  ·  Thousand Km", FP, "r"], ["Intensity", FI, "r"], ["Least Clearance", FC1, "r"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: BCAP, s: 36, c: "tan", txt, align }));
+const fcRows = ["Now", "+30 S", "+1 Min", "+90 S", "+2 Min"].map((txt, i) => {
+  L.text({ x: FC0, base: BROW(i), s: 36, c: "orange", txt });
+  return { pos: L.text({ x: FP, base: BROW(i), s: 36, c: "white", txt: "", align: "r" }),
+           int: L.text({ x: FI, base: BROW(i), s: 36, c: "white", txt: "", align: "r" }),
+           clr: L.text({ x: FC1, base: BROW(i), s: 36, c: "white", txt: "", align: "r", cls: "sw" }) };
+});
+
+// ---------------- effects on the ship ----------------
+L.header({ x: EF0, y: 1620, w: EF1 - EF0, label: "Ship Effects", c1: "orange", c2: "butter", h: 48 });
+L.text({ x: EF0, base: BCAP, s: 36, c: "tan", txt: "Clearance to Storm Front" });
+const clrNow = L.text({ x: EF1, base: BCAP, s: 36, c: "white", txt: "", align: "r", cls: "sw" });
+const EFF = ["Deflector Shield Load", "Sensor Degradation", "Subspace Interference", "Hull Static Charge", "Navigational Deflector"];
+const EB0 = EF0 + Math.ceil(Math.max(...EFF.map((a) => L.textWidth(a, 36)))) + 40, EB1 = EF1 - 100;
+const effRows = EFF.map((name, i) => {
+  const base = BROW(i);
+  L.text({ x: EF0, base, s: 36, c: "sand", txt: name });
+  L.rect({ x: EB0, y: base - 24, w: EB1 - EB0, h: 24, c: TRACK });
+  return { bar: fill(EB0, base - 24, EB1 - EB0, 24, i === 0 ? "butter" : "orange"), val: L.text({ x: EF1, base, s: 36, c: "white", txt: "", align: "r" }), u: 0 };
+});
+
+// =====================================================================================
+// EFFECTS OF THE STORM ON THE SHIP: one function of clearance, shared by the table and the bars
+// =====================================================================================
+const effects = (d, I) => {                                // d: clearance in px (1,000 km); I: 0..1 intensity
+  const near = Math.exp(-Math.max(0, d) / 150), deep = d < 0 ? 1 : 0;
+  const shieldLoad = deep ? 1 : 0.12 + 0.86 * near * (0.75 + 0.25 * I);
+  return [shieldLoad,
+    deep ? 0.9 : 0.04 + 0.8 * Math.exp(-Math.max(0, d) / 210) * (0.7 + 0.3 * I),
+    deep ? 0.95 : 0.06 + 0.84 * Math.exp(-Math.max(0, d) / 260) * (0.7 + 0.3 * I),
+    deep ? 0.8 : 0.02 + 0.6 * Math.exp(-Math.max(0, d) / 120),
+    0.24 + 0.5 * Math.exp(-Math.max(0, d) / 180)];
+};
+const sensorRange = (d, I) => 1 - effects(d, I)[1];
+
+// =====================================================================================
+// DRAWING A STORM
+// =====================================================================================
+let st = null, sol = null;
+function drawStorm() {
+  if (!st) return;
+  for (const [c, kind] of [[bandC, "band"], [filC, "fil"]]) {
+    const g = c.g, cv = c.cv, k = cv.width / SMAX, off = (SMAX - st.S) / 2;
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, cv.width, cv.height);
+    if (kind === "band") {
+      const img = g.createImageData(cv.width, cv.height), d = img.data;
+      for (let py = 0; py < cv.height; py++) {
+        const y = py / k - off - st.H;
+        for (let px = 0; px < cv.width; px++) {
+          const v = st.at(px / k - off - st.H, y);
+          if (v < LEVELS[0]) continue;
+          let b = 0; while (b < 4 && v >= LEVELS[b + 1]) b++;
+          const o = (py * cv.width + px) * 4, c4 = BAND[b];
+          d[o] = c4[0]; d[o + 1] = c4[1]; d[o + 2] = c4[2]; d[o + 3] = c4[3] * 255;
+        }
+      }
+      g.putImageData(img, 0, 0);
+      g.setTransform(k, 0, 0, k, k * (off + st.H), k * (off + st.H));
+      // contour lines by marching squares on the node grid
+      const { f, N, G, H } = st;
+      LEVELS.forEach((lv, li) => {
+        g.beginPath();
+        for (let j = 0; j < N - 1; j++) for (let i = 0; i < N - 1; i++) {
+          const a = f[j * N + i], b = f[j * N + i + 1], cc = f[(j + 1) * N + i + 1], dd = f[(j + 1) * N + i];
+          const idx = (a >= lv ? 8 : 0) | (b >= lv ? 4 : 0) | (cc >= lv ? 2 : 0) | (dd >= lv ? 1 : 0);
+          if (idx === 0 || idx === 15) continue;
+          const x0 = i * G - H, y0 = j * G - H;
+          const T = [x0 + G * ((lv - a) / (b - a)), y0], R = [x0 + G, y0 + G * ((lv - b) / (cc - b))];
+          const B = [x0 + G * ((lv - dd) / (cc - dd)), y0 + G], Lf = [x0, y0 + G * ((lv - a) / (dd - a))];
+          const seg = (p, q) => { g.moveTo(p[0], p[1]); g.lineTo(q[0], q[1]); };
+          switch (idx) {
+            case 1: case 14: seg(Lf, B); break;
+            case 2: case 13: seg(B, R); break;
+            case 3: case 12: seg(Lf, R); break;
+            case 4: case 11: seg(T, R); break;
+            case 6: case 9: seg(T, B); break;
+            case 7: case 8: seg(Lf, T); break;
+            case 5: seg(Lf, T); seg(B, R); break;
+            case 10: seg(T, R); seg(Lf, B); break;
+          }
+        }
+        g.strokeStyle = LINE[li]; g.lineWidth = li === 0 ? 2.5 : 3; g.lineCap = "round";
+        g.stroke();
+      });
+    } else {
+      // ion filaments: short streaks along the contours in the core
+      g.setTransform(k, 0, 0, k, k * (off + st.H), k * (off + st.H));
+      const r = rng(st.p.seed + 7);
+      g.lineCap = "round";
+      for (let n = 0; n < 46; n++) {
+        let [x, y] = st.core[Math.floor(r() * st.core.length)] || [0, 0];
+        x += (r() - 0.5) * 20; y += (r() - 0.5) * 20;
+        const dir = r() < 0.5 ? 1 : -1, steps = 10 + Math.floor(r() * 16);
+        g.beginPath(); g.moveTo(x, y);
+        for (let s = 0; s < steps; s++) {
+          const gx = st.at(x + 2, y) - st.at(x - 2, y), gy = st.at(x, y + 2) - st.at(x, y - 2), m = Math.hypot(gx, gy) || 1;
+          x += (dir * -gy / m) * 5; y += (dir * gx / m) * 5;
+          g.lineTo(x, y);
+        }
+        g.strokeStyle = `rgba(255,240,210,${(0.25 + 0.35 * r()).toFixed(2)})`; g.lineWidth = 1.4 + r() * 1.4;
+        g.stroke();
+      }
+    }
+  }
+}
+bandC.onResize = drawStorm;
+filC.onResize = drawStorm;
+
+/** Lay out a storm and its solution on the map layers. */
+function setupStorm(p) {
+  st = buildStorm(p);
+  sol = solve(st);
+  drawStorm();
+  // forecast: the swept band (dashed edges), the track with minute ticks, the front at +4 min (dots)
+  while (fcS.firstChild) fcS.removeChild(fcS.firstChild);
+  const { ux, uy } = st, L4 = st.p.v * 120, nx = -uy, ny = ux, cx = 0, cy = 0;   // drawn about the storm's start, in panel coordinates
+  const o = (x, y) => `${(x + p.x - PX).toFixed(1)},${(y + p.y - PY).toFixed(1)}`;
+  mk("path", { d: `M${o(cx, cy)} L${o(ux * L4, uy * L4)}`, stroke: "var(--peach)", "stroke-width": 3, opacity: 0.85, fill: "none" }, fcS);
+  for (let m = 1; m <= 4; m++) {
+    const x = ux * p.v * 30 * m, y = uy * p.v * 30 * m;
+    mk("path", { d: `M${o(x + nx * 18, y + ny * 18)} L${o(x - nx * 18, y - ny * 18)}`, stroke: "var(--peach)", "stroke-width": 4 }, fcS);
+  }
+  { const ex = ux * L4, ey = uy * L4;                      // an arrowhead at +2 min
+    mk("path", { d: `M${o(ex + ux * 26, ey + uy * 26)} L${o(ex + nx * 16, ey + ny * 16)} L${o(ex - nx * 16, ey - ny * 16)} Z`, fill: "var(--peach)" }, fcS); }
+  st.front.forEach(([x, y], i) => { if (i % 2 === 0 && st.at(x + ux * L4, y + uy * L4) < LEVELS[0]) mk("circle", { cx: (x + ux * L4 + p.x - PX).toFixed(1), cy: (y + uy * L4 + p.y - PY).toFixed(1), r: 3, fill: "var(--peach)", opacity: 0.8 }, fcS); });
+  // the course
+  const ad = sol.adj;
+  adjLine.setAttribute("d", "M" + ad.pts.map(([x, y]) => `${(x - PX).toFixed(1)},${(y - PY).toFixed(1)}`).join(" L"));
+  const len = adjLine.getTotalLength();
+  adjLine.setAttribute("stroke-dasharray", `${len.toFixed(1)} ${len.toFixed(1)}`);
+  adjLine._len = len; adjLine._off = null;
+  if (sol.tI >= 0) {
+    const ix = SX + sol.tI * IMPULSE - PX, iy = Y0 - PY;
+    xMark.setAttribute("d", `M${ix - 16},${iy - 16} L${ix + 16},${iy + 16} M${ix + 16},${iy - 16} L${ix - 16},${iy + 16}`);
+  } else xMark.setAttribute("d", "");
+  while (markS.firstChild) markS.removeChild(markS.firstChild);
+  diamond(ad.xb - PX, Y0 - PY); diamond(ad.xr - PX, Y0 - PY);
+  markS.parentNode.style.opacity = "0";
+  // the storm's own label sits behind it, on its trailing side
+  const lx = -ux * (st.back + 56), ly = -uy * (st.back + 56);
+  L.set(stormName, `Ion Storm  ${p.id}`);
+  const w = L.textWidth(stormName.textContent, 36);
+  stormName.style.left = (SMAX / 2 + lx - w / 2).toFixed(1) + "px";
+  stormName.style.top = (SMAX / 2 + ly - 0.5 * 36).toFixed(1) + "px";
+  // events of this passage, in time order
+  const tOf = (x) => { let t = 0; while (t < ad.T && ad.at(t * IMPULSE)[0] < x) t += 0.1; return t; };
+  const [mc, tcl] = minClear(st, ad, 0.25);
+  const tClear = (() => { for (let t = tcl; t < ad.T; t += 0.25) { const [x, y] = ad.at(t * IMPULSE); if (clearance(st, x, y, t) > 320) return t; } return ad.T - 6; })(), tRe = tOf(ad.xr);
+  const tClearAt = Math.min(Math.max(tClear, tRe + 4), ad.T - FADE - 1);   // clear is declared once the plotted course is back
+  cyc.events = [
+    [0.6, `Ion storm detected  ·  ${p.id}  ·  Class ${p.cls}`, "Science"],
+    [6.0, `Forecast track computed  ·  drift ${fmt(p.v * 1000)} Km / S`, "Science"],
+    [11.0, sol.tI >= 0 ? "Plotted course intercepts storm front" : "Plotted course clears storm front", "Conn"],
+    [17.0, `Course adjustment laid in  ·  ${pad3(HEAD0 + (ad.D > 0 ? 1 : -1) * ad.slope * 180 / Math.PI)} Mark 0`, "Conn"],
+    [tOf(ad.xb), "Course change executed  ·  deflector shields raised", "Tactical"],
+    [tcl, `Closest approach to front  ·  ${km(mc)}`, "Science"],
+    [tOf(ad.xr), "Plotted course resumed", "Conn"],
+    [tClearAt, "Clear of storm  ·  shields lowered", "Tactical"],
+  ].sort((a, b) => a[0] - b[0]);
+  cyc.tBranch = tOf(ad.xb); cyc.tRejoin = tOf(ad.xr); cyc.tClear = tClearAt; cyc.tClosest = tcl; cyc.minClear = mc;
+  cyc.next = 0;
+  // the table: plotted against adjusted
+  const peak = (c) => { let m = 0, lo = 1; for (let t = 0; t <= c.T; t += 0.5) { const [x, y] = c.at(t * IMPULSE), d = clearance(st, x, y, t); m = Math.max(m, effects(d, 0.8)[0]); lo = Math.min(lo, sensorRange(d, 0.8)); } return [m, lo]; };
+  const [pp, pl] = peak(sol.plotted), [ap, al] = peak(ad);
+  const sec = (s) => `${Math.floor(s / 60)} Min ${String(Math.round(s % 60)).padStart(2, "0")} S`;
+  cyc.table = [
+    [`${pad3(HEAD0)} Mark 0`, `${pad3(HEAD0 + (ad.D > 0 ? 1 : -1) * ad.slope * 180 / Math.PI)} Mark 0`],
+    ["None", km(Math.abs(ad.D))],
+    [sol.tI >= 0 ? "Intercept" : km(minClear(st, sol.plotted)[0]), km(mc)],
+    [sec(sol.plotted.T), sec(ad.T)],
+    [Math.round(pp * 100) + "%", Math.round(ap * 100) + "%"],
+    [Math.round(pl * 100) + "%", Math.round(al * 100) + "%"],
+  ];
+  cyc.table.forEach(([a], i) => { L.set(caRows[i].p, a); caRows[i].p.style.color = col(a === "Intercept" ? "mars" : "sand"); });
+}
+
+// =====================================================================================
+// RUNNING IT: one storm, one passage; then the next storm
+// =====================================================================================
+const pick0 = new URLSearchParams(location.search).get("storm");     // dev: ?storm=1 starts on the first
+const cyc = { i: pick0 ? (+pick0 + PRESETS.length - 2) % PRESETS.length : L.irand(0, PRESETS.length - 1), t0: 0, events: [], next: 0, out: false };
+const FADE = 2.5;
+const clock0 = (L.irand(9, 19) * 3600 + L.irand(0, 59) * 60 + L.irand(0, 59));
+const hms = (s) => { s = Math.floor(s) % 86400; return [s / 3600, (s / 60) % 60, s % 60].map((v) => String(Math.floor(v)).padStart(2, "0")).join(":"); };
+// the log opens on the watch's earlier entries
+const LOG = [
+  [hms(clock0 - 1260), "Long range sensor sweep  ·  Typhon Expanse margin", "Science"],
+  [hms(clock0 - 840), "Survey course laid in  ·  047 Mark 0  ·  quarter impulse", "Conn"],
+  [hms(clock0 - 510), "Ion density rising  ·  bearing 052", "Science"],
+  [hms(clock0 - 190), "Navigational deflector to storm setting", "Ops"],
+  [hms(clock0 - 40), "Stellar cartography standing by", "Science"],
+];
+let logNew = -10;
+const showLog = () => {
+  LOG.slice(-5).forEach((r, i) => {
+    const row = i === 4 ? nr : logRows[i];
+    L.set(row.tm, r[0]); L.set(row.ev, r[1]); L.set(row.st, r[2]);
+    if (i === 4) { L.set(logRows[4].tm, ""); L.set(logRows[4].ev, ""); L.set(logRows[4].st, ""); }
+  });
+};
+showLog();
+
+const begin = (t) => {
+  cyc.i = (cyc.i + 1) % PRESETS.length; cyc.t0 = t; cyc.out = false;
+  setupStorm(PRESETS[cyc.i]);
+  const p = PRESETS[cyc.i];
+  L.set(intWord, `${p.id}  ·  Class ${p.cls} Ion Storm`);
+  sparks.forEach((s) => { s.t0 = -10; fade(s.e, 0); });
+  cyc.nextSpark = t + 1;
+};
+const stateOf = (u, sh) => {
+  if (u < 6) return ["Storm Detected", "butter", "Analyzing", "butter"];
+  if (u < 11) return ["Tracking Storm Front", "butter", "Tracking", "butter"];
+  if (u < 15) return sol.tI >= 0 ? ["Intercept Projected", "mars", "Course Hazard", "mars"] : ["Tracking Storm Front", "butter", "Tracking", "butter"];
+  if (u < 20) return ["Adjusting Course", "orange", "Computing", "orange"];
+  if (u >= cyc.tClear) return ["Clear of Storm", "sand", "All Clear", "sand"];
+  if (u >= cyc.tRejoin) return ["Plotted Course Resumed", "butter", sh ? "Shields Raised" : "Course Laid In", sh ? "orange" : "butter"];
+  return ["Course Adjusted", "butter", sh ? "Shields Raised" : "Course Laid In", sh ? "orange" : "butter"];
+};
+const intensity = (u) => { const p = PRESETS[cyc.i]; return 1 + 0.004 * Math.sin((2 * Math.PI * u) / 41) + p.trend * (u / 120); };
+let shipPos = [SX, Y0], clr = 999, shieldA = 0;
+
+L.tick((t) => {
+  if (!st) begin(t);
+  let u = t - cyc.t0;
+  const ad = sol.adj;
+  // the passage ends: fade out as the ship nears the Expanse, then the next storm
+  if (!cyc.out && u >= ad.T - FADE) { cyc.out = true; cyc.tOut = t; }
+  if (cyc.out && t - cyc.tOut >= FADE) { begin(t); u = 0; }
+  const a = cyc.out ? 1 - (t - cyc.tOut) / FADE : Math.min(1, u / 1.5);
+  fade(dyn, L.ease(L.clamp(a)));
+  const ust = Math.min(u, 400);
+  // storm drift, filament breathing, sparks
+  const p = st.p, cx = p.x + st.vx * ust, cy = p.y + st.vy * ust;
+  L.move(stormL, cx - PX - SMAX / 2, cy - PY - SMAX / 2);
+  L.move(fcL, st.vx * ust, st.vy * ust);
+  filL.style.transform = `rotate(${(2.4 * Math.sin((2 * Math.PI * t) / 29)).toFixed(3)}deg)`;
+  fade(filL, 0.45 + 0.3 * Math.sin((2 * Math.PI * t) / 7.3));
+  if (t >= cyc.nextSpark && st.core.length) {
+    const s = sparks.find((q) => t - q.t0 > 1.8);
+    if (s) { const [x, y] = L.pick(st.core); s.t0 = t; L.move(s.e, x + SMAX / 2, y + SMAX / 2, L.rand(0, 45), 1); }
+    cyc.nextSpark = t + (60 / p.rate) * L.rand(0.7, 1.3);
+  }
+  for (const s of sparks) {
+    const k = t - s.t0;
+    if (k > 2) { fade(s.e, 0); continue; }
+    fade(s.e, k < 0.3 ? L.ease(k / 0.3) : 1 - L.ease(L.clamp((k - 0.3) / 1.4)));
+  }
+  // forecast fades in while tracking; intercept mark; adjusted course drawn in
+  fade(fcL, L.clamp((u - 3) / 3));
+  fade(xMark, sol.tI >= 0 ? L.clamp((u - 10) / 1) * (u < 20 ? 1 : 0.55) : 0);
+  const rv = L.ease(L.clamp((u - 15) / 5)), off = ((1 - rv) * adjLine._len).toFixed(1);
+  if (adjLine._off !== off) { adjLine._off = off; adjLine.setAttribute("stroke-dashoffset", off); }
+  fade(markS.parentNode, L.clamp((u - 19) / 1));
+  // the ship
+  const [sx, sy, hd] = ad.at(u * IMPULSE);
+  shipPos = [sx, sy];
+  L.move(shipL, sx - PX, sy - PY, (hd * 180) / Math.PI);
+  const up = ad.D > 0 ? 1 : -1;                             // name on the side away from the storm
+  L.move(shipTag, sx - PX - 60, sy - PY + (up < 0 ? -112 : 40));
+  clr = clearance(st, sx, sy, ust);
+  const sh = u >= cyc.tBranch && u < cyc.tClear;
+  shieldA += ((sh ? 1 : 0) - shieldA) * 0.06;
+  shield.setAttribute("opacity", shieldA.toFixed(2));
+  // effects bars, eased toward the present clearance
+  const I = intensity(u), ev = effects(clr, L.clamp((I - 0.9) / 0.3));
+  effRows.forEach((r, i) => { r.u += (ev[i] - r.u) * 0.08; scaleX(r.bar, r.u); });
+  intRows.forEach((r, i) => {
+    const v = [p.dens * I, p.field * I, p.temp * I, p.rad * I, p.v * 1000, p.rate][i];
+    r.target = v; r.u += (v / r.max - r.u) * 0.06; scaleX(r.bar, r.u);
+  });
+  // log entries as they happen
+  while (cyc.next < cyc.events.length && u >= cyc.events[cyc.next][0]) {
+    const e = cyc.events[cyc.next++];
+    LOG.push([hms(clock0 + cyc.t0 + e[0]), e[1], e[2]]);
+    if (LOG.length > 40) LOG.shift();
+    showLog(); logNew = t;
+  }
+  fade(newRow, L.ease(L.clamp((t - logNew) / 0.8)));
+});
+
+// the readings, a few times a second
+L.every(300, (t) => {
+  if (!st) return;
+  const u = t - cyc.t0, p = st.p, ad = sol.adj, ust = Math.min(u, 400);
+  const sh = u >= cyc.tBranch && u < cyc.tClear;
+  const [w, wc, pl, pc] = stateOf(u, sh);
+  L.set(stateTxt, w); stateTxt.style.color = col(wc);
+  stateSub.style.left = LX + stateTxt.offsetWidth + 40 + "px";
+  L.set(stateSub, `Ion Storm ${p.id}  ·  Class ${p.cls}  ·  Typhon Expanse Approach  ·  U.S.S. Enterprise`);
+  L.set(pill, pl); pill.style.background = col(pc);
+  const i0 = (p.cls * intensity(u)).toFixed(1), i2 = (p.cls * intensity(u + 120)).toFixed(1);   // as the forecast rows read
+  L.set(trendWord, +i2 > +i0 ? "Intensifying" : +i2 < +i0 ? "Weakening" : "Steady");
+  intRows.forEach((r) => L.set(r.val, r.f(r.target)));
+  effRows.forEach((r) => L.set(r.val, Math.round(r.u * 100) + "%"));
+  L.set(clrNow, clr < 0 ? "Inside Front" : km(clr));
+  clrNow.style.color = col(clr < 150 ? "mars" : clr < 320 ? "butter" : "white");
+  // course table: the adjusted column once it is computed
+  caRows.forEach((r, i) => {
+    const v = u < 17 ? "Computing" : cyc.table[i][1];
+    L.set(r.a, v); r.a.style.color = col(u < 17 ? "butter" : "white");
+  });
+  // forecast: where the storm will be, how strong, how far from the ship on its present course
+  const course = u < 20 ? sol.plotted : ad;
+  fcRows.forEach((r, m) => {
+    const tt = ust + 30 * m, x = p.x + st.vx * tt, y = p.y + st.vy * tt;
+    L.set(r.pos, `${fmt(x - PX)}  ·  ${fmt(y - PY)}`);
+    L.set(r.int, (p.cls * intensity(u + 30 * m)).toFixed(1));
+    let d = 1e9;                                           // the least clearance since the row before
+    for (let q = m ? 30 * (m - 1) : 0; q <= 30 * m; q += 1) { const [qx, qy] = course.at((u + q) * IMPULSE); d = Math.min(d, clearance(st, qx, qy, ust + q)); }
+    L.set(r.clr, d < 0 ? "Intercept" : km(d));
+    r.clr.style.color = col(d < 0 ? "mars" : d < 150 ? "butter" : "white");
+  });
+}, 0);
+
+// ---------------- a guard: every line of words fits its place ----------------
+PRESETS.forEach((p) => {
+  fits(`Ion Storm ${p.id}  ·  Class ${p.cls}  ·  Typhon Expanse Approach  ·  U.S.S. Enterprise`, 38, RR - 400 - 40 - (LX + L.textWidth("Plotted Course Resumed", 100) + 40), "subtitle");
+  fits(`Course adjustment laid in  ·  000 Mark 0`, 36, LG1 - LT - L.textWidth("Tactical", 36) - 30, "log");
+  fits(`Ion storm detected  ·  ${p.id}  ·  Class ${p.cls}`, 36, LG1 - LT - L.textWidth("Science", 36) - 30, "log");
+});
+LOG.forEach((r) => fits(r[1], 36, LG1 - LT - L.textWidth(r[2], 36) - 30, "log"));
+["Course change executed  ·  deflector shields raised", "Closest approach to front  ·  000,000 Km"].forEach((s) => fits(s, 36, LG1 - LT - L.textWidth("Tactical", 36) - 30, "log"));
+CA.forEach((s) => fits(s, 40, CP - L.textWidth("Intercept", 44) - 40 - RX, "course label"));
+["Shields Raised", "Course Hazard", "Course Laid In"].forEach((s) => fits(s, 36, 400 - 70, "pill"));
+// every storm stays inside the map for its whole passage, clear of the scale band
+PRESETS.forEach((p) => {
+  const q = buildStorm(p), T = solve(q).adj.T + FADE;
+  for (const t of [0, T]) for (const [x, y] of q.front) {
+    const X = p.x + q.vx * t + x, Y = p.y + q.vy * t + y;
+    if (X < PX + 16 || X > PX + PW - 16 || Y < PY + 16 || Y > PY + PH - 72) { bad.push(`${p.id} leaves the map`); return; }
+  }
+});
+if (bad.length) setTimeout(() => { throw new Error("ion-storm: " + bad.join(" | ")); });
+});
+</script></body></html>

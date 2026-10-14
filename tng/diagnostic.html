@@ -1,0 +1,473 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Level 1 Diagnostic</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .pill { transition: background-color 1.2s ease; }
+  .tint { transition: color 1.2s ease; }
+  .clip { overflow: hidden; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame, mirrored: sidebar on the right, title at top left ----------------
+const BAR = 64, TS = BAR / (L.BASELINE - L.CAP_TOP);
+L.box({ x: 40, y: 40, w: 92, h: BAR, c: "peach", r: "l" });
+const TITLE = "Main Computer  •  Level 1 Diagnostic";
+const titleEl = L.text({ x: 132 + L.GAP, cap: 40, s: TS, c: "sky", txt: TITLE });
+const afterTitle = 132 + L.GAP + titleEl.offsetWidth + L.GAP;          // the page's own width, not the canvas's
+L.rect({ x: afterTitle, y: 40, w: 320, h: BAR, c: "peach" });
+L.rect({ x: afterTitle + 320 + L.GAP, y: 40, w: 2600 - L.GAP - (afterTitle + 320 + L.GAP), h: BAR, c: "blue" });
+L.elbow({ corner: "tr", x: 2600, y: 40, w: 1216, h: 250, bw: 240, bh: BAR, R: 150, r: 60, c: "sky" });
+[[298, 140, "ice", "Diag 01"], [446, 70, "peach", "Level 1"], [524, 420, "sky", "Sequence"], [952, 70, "blue", "Matrix"],
+ [1030, 300, "ice", "Cores"], [1338, 70, "peach", "Log"], [1416, 216, "sky", "Results"]]
+  .forEach(([y, h, c, label]) => L.box({ x: 3576, y, w: 240, h, c, label }));
+L.elbow({ corner: "br", x: 2600, y: 1640, w: 1216, h: 480, bw: 240, bh: BAR, R: 150, r: 60, c: "blue" });
+L.text({ x: 3794, base: 1712, s: 40, c: "#000", txt: "Main Computer", align: "r", on: true });
+L.box({ x: 40, y: 2056, w: 92, h: BAR, c: "blue", r: "l" });
+// the bottom bar breaks in the middle of the content's gutters (1660 | 1720, 2560 | 2620)
+[[132 + L.GAP, 856, "peach"], [856 + L.GAP, 1678, "sky"], [1678 + L.GAP, 2600 - L.GAP, "blue"]]
+  .forEach(([x0, x1, c]) => L.rect({ x: x0, y: 2056, w: x1 - x0, h: BAR, c }));
+
+const header = (x, y, w, label, c1, c2, h = 56, fs = 32) => {
+  const lw = Math.round((L.textWidth(label, fs) + 64) / 10) * 10;
+  L.box({ x, y, w: lw, h, c: c1, label, fs, r: "l" });
+  L.rect({ x: x + lw + L.GAP, y, w: w - lw - L.GAP, h, c: c2 });
+};
+const fill = (x, y, w, h, c, origin = "0 0", parent) => {
+  const f = L.layer({ x, y, w, h }, parent);
+  f.style.background = c.startsWith("#") ? c : `var(--${c})`; f.style.transformOrigin = origin;
+  return f;
+};
+// write only what changed: an unchanged reading costs nothing
+const put = (e, txt) => { if (e.textContent !== txt) e.textContent = txt; };
+const css = (e, k, v) => { if (e.style[k] !== v) e.style[k] = v; };
+const tint = (e, c) => css(e, "color", `var(--${c})`);
+const fmt = (n) => n.toLocaleString("en");
+const pad = (n, k) => String(n).padStart(k, "0");
+const anomalies = (n) => (n === 0 ? "No anomalies found" : `${n === 1 ? "1 anomaly" : n + " anomalies"} found and repaired`);
+const hms = (s) => { s = Math.max(0, Math.floor(s)); return `${pad(Math.floor(s / 3600), 2)}:${pad(Math.floor(s / 60) % 60, 2)}:${pad(s % 60, 2)}`; };
+const wave = (t, a, f, p) => a * Math.sin(t * f + p);
+const hex4 = () => pad(L.irand(0, 0xffff).toString(16).toUpperCase(), 4);
+const ROWL = "ABCDEFGHIJKLMNOPQRST";
+const TRACK = "#14223a";
+
+// The grid: the sequence on the left, 40–1660; the matrix on the right, 1720–3520, and below it
+// two panels split at 2560 | 2620. The bottom strip uses the same three edges.
+const AR = 1660, BX = 1720, CR = 2560, DX = 2620, RR = 3520;
+
+// ---------------- the diagnostic: twelve subsystems, run in order ----------------
+// [name, minutes, tests a second, unit, its plural, first unit number, where, procedures, fault]
+// A procedure: [what is done, and how it is judged: "sum" (a checksum read back) or [nominal, tolerance, unit, decimals]].
+// A fault: [what went wrong, how the computer put it right].
+const SUBS = [
+  ["Main Computer Core 1", 22, 40, "Segment", "Segments", 1024, "Core 1  ·  Deck 6",
+    [["Verifying memory segment {id} checksum", "sum"], ["Testing segment {id} read latency", [4.0, 0.5, "ns", 2]], ["Checking segment {id} parity", "sum"]],
+    ["Single-bit parity error", "Segment remapped to spare"]],
+  ["Main Computer Core 2", 22, 40, "Segment", "Segments", 2048, "Core 2  ·  Deck 9",
+    [["Verifying memory segment {id} checksum", "sum"], ["Testing segment {id} write cycle", [3.2, 0.4, "ns", 2]], ["Checking segment {id} parity", "sum"]],
+    ["Single-bit parity error", "Segment remapped to spare"]],
+  ["Main Computer Core 3", 18, 40, "Segment", "Segments", 3072, "Core 3  ·  Deck 30",
+    [["Verifying memory segment {id} checksum", "sum"], ["Testing segment {id} read latency", [4.0, 0.5, "ns", 2]], ["Checking segment {id} parity", "sum"]],
+    ["Write cycle out of tolerance", "Segment remapped to spare"]],
+  ["Subspace Field Distortion", 14, 12, "Node", "Nodes", 100, "Core field generators",
+    [["Measuring field symmetry at node {id}", [0, 0.05, "%", 3]], ["Verifying field coil {id} output", [4.2, 0.05, "MW", 2]]],
+    ["Field phase drift", "Coil re-phased"]],
+  ["Optical Data Network", 26, 64, "Junction", "Junctions", 200, "ODN trunk 4",
+    [["Measuring junction {id} signal timing", [12, 0.4, "ps", 1]], ["Verifying junction {id} routing table", "sum"]],
+    ["Signal timing skew", "Junction re-timed"]],
+  ["Isolinear Chip Arrays", 34, 60, "Chip", "Chips", 400, "Core 2  ·  Bay 4",
+    [["Verifying isolinear chip {id} checksum", "sum"], ["Testing chip {id} read latency", [0.4, 0.05, "ms", 2]]],
+    ["Checksum mismatch", "Rerouted to backup chip"]],
+  ["Library Computer", 24, 80, "Partition", "Partitions", 1400, "Library core",
+    [["Verifying partition {id} cross-references", "sum"], ["Checking partition {id} index integrity", "sum"]],
+    ["Cross-reference fault", "Partition index rebuilt"]],
+  ["LCARS Interface", 10, 36, "Panel", "Panels", 1, "Control surfaces",
+    [["Testing panel {id} touch response", [8, 2, "ms", 1]], ["Verifying panel {id} display matrix", "sum"]],
+    ["Touch response latency", "Panel recalibrated"]],
+  ["Sensor Processing", 18, 48, "Pallet", "Pallets", 300, "Sensor processors",
+    [["Verifying sensor pallet {id} data path", "sum"], ["Checking pallet {id} calibration", [0, 0.02, "%", 3]]],
+    ["Data path dropout", "Switched to redundant path"]],
+  ["Navigation Subsystems", 14, 30, "Reference", "References", 2000, "Navigation computer",
+    [["Verifying stellar reference {id}", "sum"], ["Testing inertial reference {id} drift", [0, 0.004, "arc-sec/h", 4]]],
+    ["Catalogue entry drift", "Entry recomputed"]],
+  ["Subprocessor Network", 12, 52, "Subprocessor", "Subprocessors", 500, "Subprocessor net",
+    [["Testing subprocessor {id} relay", [2.1, 0.2, "ms", 2]], ["Verifying subprocessor {id} failover", "sum"]],
+    ["Relay timing fault", "Relay reset, failover verified"]],
+  ["Security Protocols", 6, 20, "Protocol", "Protocols", 10, "Command authorization",
+    [["Verifying authorization code {id}", "sum"], ["Testing lockout protocol {id}", "sum"]],
+    ["Checksum mismatch", "Protocol reloaded from core"]],
+].map(([name, min, rate, unit, units, first, where, procs, fault]) => ({
+  name, rate, unit, units, first, where, procs, fault, dur: min * 60, tests: min * 60 * rate, blocks: Math.round(min / 2),
+}));
+let cum = 0;
+SUBS.forEach((s) => { s.start = cum; cum += s.dur; });
+const TOTAL = cum, HOLD = 45;                                 // 3 h 40 m, then the results stand for a while
+// the matrix: one block of a subsystem, 60 × 20 test cells; a column is a unit, a row a letter
+const NC = 60, NR = 20, NCELL = NC * NR, SWEEP = 0.95;        // the last 5% of a block: verified, then cleared
+const unitNo = (s, b, c) => s.first + b * NC + c;
+const cellId = (s, b, c, r) => `${pad(unitNo(s, b, c), 4)}-${ROWL[r]}`;
+
+// where the diagnostic is, d seconds after it began
+const where = (d) => {
+  const run = Math.floor(d / (TOTAL + HOLD)), u = d - run * (TOTAL + HOLD);
+  if (u >= TOTAL) return { run, u, done: true, k: SUBS.length - 1, p: 1 };
+  let k = 0;
+  while (k < SUBS.length - 1 && u >= SUBS[k + 1].start) k++;
+  const s = SUBS[k], p = (u - s.start) / s.dur, x = p * s.blocks, b = Math.min(s.blocks - 1, Math.floor(x)), q = x - b;
+  const cell = Math.min(NCELL, Math.floor((q / SWEEP) * NCELL));
+  return { run, u, done: false, k, p, b, q, cell };
+};
+// the screen comes in near the end of a subsystem: the next one begins within a minute or two
+const K0 = L.irand(2, 9), OFFSET = SUBS[K0].start + SUBS[K0].dur * L.rand(0.93, 0.965);
+const D = (t) => OFFSET + t;
+
+// ---------------- the diagnostic log (filled from everywhere below) ----------------
+const logged = [];
+let logRows = null;
+const RESC = { Pass: "sky", Complete: "ice", Begun: "peach", Flagged: "mars", Repaired: "ice" };
+function logEvent(at, txt, sys, res) {
+  logged.push([hms(at), txt, sys, res]);
+  if (logged.length > 6) logged.shift();
+  if (logRows) logRows.forEach((r, i) => {
+    const e = logged[i] || ["", "", "", ""];
+    put(r.at, e[0]); put(r.tx, e[1]); put(r.sys, e[2]); put(r.res, e[3]); if (e[3]) tint(r.res, RESC[e[3]]);
+  });
+}
+const blockMsg = (s, b) => `Block ${pad(b + 1, 2)} of ${pad(s.blocks, 2)} verified  ·  ${s.units} ${pad(unitNo(s, b, 0), 4)} – ${pad(unitNo(s, b, NC - 1), 4)}`;
+const begunMsg = (s) => `Begun  ·  ${fmt(s.tests)} tests scheduled`, doneMsg = (s) => `Complete  ·  ${fmt(s.tests)} tests passed`;
+
+// ---------------- status line ----------------
+const stateTxt = L.text({ x: 40, cap: 150, s: 100, c: "sky", txt: "Diagnostic Running", cls: "tint" });
+const SUBX = 40 + L.textWidth("Diagnostic Complete", 100) + 40;
+const stateSub = L.text({ x: SUBX, base: 222, s: 38, c: "peach", txt: "" });
+L.box({ x: RR - 400, y: 150, w: 400, h: 72, c: "sky", label: "Cores 1 – 3 On-Line", r: "lr", fs: 36 });
+
+// ---------------- the sequence: every subsystem, its tests, its state ----------------
+header(40, 280, AR - 40, "Diagnostic Sequence", "sky", "blue");
+const TC = { run: 880, sched: 1100, bar: 1140, barR: 1400, pill: 1430 };
+const ROW0 = 428, PITCH = 96, rowBase = (i) => ROW0 + i * PITCH + 52.5;
+[["Subsystem", 40, "l"], ["Tests Run", TC.run, "r"], ["Scheduled", TC.sched, "r"], ["Progress", TC.bar, "l"], ["Status", TC.pill, "l"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: 400, s: 36, c: "sky", txt, align }));
+const PILLC = { Complete: "sky", Running: "peach", Queued: "slate" };
+const tree = SUBS.map((s, i) => {
+  const y = ROW0 + i * PITCH, base = rowBase(i);
+  L.box({ x: 40, y, w: 560, h: 64, c: i % 2 ? "ice" : "sky", label: s.name, fs: 32, r: "l" });
+  L.rect({ x: TC.bar, y: base - 26, w: TC.barR - TC.bar, h: 26, c: TRACK });
+  L.text({ x: TC.sched, base, s: 40, c: "sky", txt: fmt(s.tests), align: "r" });
+  return {
+    run: L.text({ x: TC.run, base, s: 52, c: "white", txt: "", align: "r", cls: "tint" }),
+    bar: fill(TC.bar, base - 26, TC.barR - TC.bar, 26, "sky"),
+    pill: L.box({ x: TC.pill, y, w: AR - TC.pill, h: 64, c: "slate", label: "Queued", fs: 32, r: "lr", cls: "pill" }),
+    state: "", shown: -1,
+  };
+});
+const setRow = (i, st) => {
+  const r = tree[i];
+  if (r.state === st) return;
+  r.state = st;
+  r.pill.textContent = st; r.pill.style.background = `var(--${PILLC[st]})`;
+  r.bar.style.background = `var(--${st === "Running" ? "peach" : "sky"})`;
+  tint(r.run, st === "Queued" ? "slate" : st === "Running" ? "white" : "ice");
+};
+
+// ---------------- the test matrix: the block being tested, cell by cell ----------------
+header(BX, 280, RR - BX, "Test Matrix", "peach", "navy");
+const matrixL = L.text({ x: BX, base: 400, s: 36, c: "peach", txt: "" });
+const matrixR = L.text({ x: RR, base: 400, s: 36, c: "sky", txt: "", align: "r" });
+const GX = BX, GY = 428, PX = (RR - BX) / NC, PY = 26, CW = PX - 6, CH = PY - 6;
+const GW = RR - BX, GH = (NR - 1) * PY + CH;
+L.rect({ x: GX, y: GY, w: GW, h: GH, c: "#000", noalign: true });       // (the audit's outline of the grid)
+const DARK = ["#121c40", "#15214a", "#18264f", "#131e44"];
+for (let c = 0; c < NC; c++) for (let r = 0; r < NR; r++)
+  L.svg("rect", { x: GX + c * PX, y: GY + r * PY, width: CW, height: CH, fill: L.pick(DARK), class: "boot" });
+const cells = (svgParent, cols) => {
+  const sv = L.svg("svg", { width: cols * PX, height: GH, viewBox: `0 0 ${cols * PX} ${GH}` }, svgParent);
+  sv.style.position = "absolute"; sv.style.left = "0"; sv.style.top = "0";
+  return Array.from({ length: cols }, (_, c) => Array.from({ length: NR }, (_, r) =>
+    L.svg("rect", { x: c * PX, y: r * PY, width: CW, height: CH, fill: "var(--blue)" }, sv)));
+};
+// a tested cell's shade is how long its tests took: most quick, some slower, a few slowest
+const TONES = () => { const x = Math.random(); return x < 0.68 ? "var(--blue)" : x < 0.93 ? "var(--sky)" : "var(--ice)"; };
+let tones = [];
+// tested: whole columns are revealed by a window sliding over a still copy (both on the compositor)
+const doneWin = L.layer({ x: GX, y: GY, w: GW, h: GH, cls: "clip" });
+const doneIn = L.layer({ x: 0, y: 0, w: GW, h: GH }, doneWin);
+const doneRects = cells(doneIn, NC);
+// the column under test fills from the top, the same way
+const colWin = L.layer({ x: GX, y: GY, w: PX, h: GH, cls: "clip" });
+const colIn = L.layer({ x: 0, y: 0, w: PX, h: GH }, colWin);
+const colRects = cells(colIn, 1)[0];
+// a new block: new shades, set while nothing of them shows
+const retone = () => {
+  tones = Array.from({ length: NC }, () => Array.from({ length: NR }, TONES));
+  doneRects.forEach((col, c) => col.forEach((e, r) => e.setAttribute("fill", tones[c][r])));
+};
+retone();
+// the column under test, marked under the grid
+const band = fill(GX, GY + GH + 10, CW, 10, "peach");
+const cursor = fill(GX, GY, CW, CH, "butter");
+const flagCell = fill(GX, GY, CW, CH, "mars");
+flagCell.style.opacity = 0;
+let shownCol = -1, shownRow = -1, shownOp = -1;
+const showMatrix = (col, row, op, live) => {
+  const newCol = col !== shownCol;
+  if (newCol) {
+    shownCol = col;
+    css(doneWin, "transform", `translate3d(${col * PX - GW}px,0,0)`); css(doneIn, "transform", `translate3d(${GW - col * PX}px,0,0)`);
+    css(band, "transform", `translate3d(${Math.min(col, NC - 1) * PX}px,0,0)`);
+    if (col < NC) colRects.forEach((e, r) => e.setAttribute("fill", tones[col][r]));
+  }
+  if (row !== shownRow || newCol) {
+    shownRow = row;
+    css(colWin, "transform", `translate3d(${Math.min(col, NC - 1) * PX}px,${row * PY - GH}px,0)`); css(colIn, "transform", `translate3d(0,${GH - row * PY}px,0)`);
+  }
+  css(cursor, "transform", `translate3d(${Math.min(col, NC - 1) * PX}px,${Math.min(row, NR - 1) * PY}px,0)`);
+  css(cursor, "opacity", live ? "1" : "0");
+  css(band, "opacity", live ? "1" : "0");
+  if (op !== shownOp) { shownOp = op; css(doneWin, "opacity", String(op)); css(colWin, "opacity", String(op)); }
+};
+
+// ---------------- the current test ----------------
+header(BX, 1000, CR - BX, "Current Test", "sky", "blue");
+const CT = [1112, 1197, 1282, 1366, 1451, 1536.5];   // the last row shares the sequence's last baseline
+const procTxt = L.text({ x: BX, base: CT[0], s: 52, c: "butter", txt: "" });
+const ctVals = ["Test", "Location", "Expected", "Measured", "Result"].map((name, i) => {
+  L.text({ x: BX, base: CT[i + 1], s: 40, c: "sky", txt: name });
+  return L.text({ x: CR, base: CT[i + 1], s: 52, c: "white", txt: "", align: "r", cls: "tint" });
+});
+const [ctNo, ctAt, ctExp, ctMeas, ctRes] = ctVals;
+const judge = (spec, bad) => {                                 // what was expected, what was read, as text
+  if (spec === "sum") {
+    const g = [hex4(), hex4(), hex4()], m = g.slice();
+    if (bad) m[1] = hex4();
+    return [g.join("  "), m.join("  ")];
+  }
+  const [nom, tol, unit, dp] = spec;
+  const v = bad ? nom + tol * L.rand(1.3, 1.8) * L.pick([-1, 1]) : nom + tol * L.rand(-0.6, 0.6);
+  const f = (x) => (Math.abs(x) < 0.5 * 10 ** -dp ? 0 : x).toFixed(dp);
+  return [nom === 0 ? `0 ± ${tol.toFixed(dp)} ${unit}` : `${nom.toFixed(dp)} ± ${tol.toFixed(dp)} ${unit}`, `${f(v)} ${unit}`];
+};
+const showTest = (w, s, id, bad) => {
+  const [txt, spec] = L.pick(s.procs);
+  const [exp, meas] = judge(spec, bad);
+  put(procTxt, txt.replace("{id}", id));
+  put(ctAt, `${s.where}  ·  ${s.unit} ${id}`);
+  put(ctExp, exp); put(ctMeas, meas);
+  if (bad) { put(ctRes, spec === "sum" ? "Mismatch  ·  Flagged" : "Out of Tolerance  ·  Flagged"); tint(ctRes, "mars"); tint(ctMeas, "mars"); }
+  else { put(ctRes, `Pass  ·  ${L.rand(0.2, 0.9).toFixed(2)} ms`); tint(ctRes, "ice"); tint(ctMeas, "white"); }
+};
+
+// ---------------- computer core ----------------
+header(DX, 1000, RR - DX, "Computer Core", "ice", "navy");
+const KC = { bar: 2780, barR: 3160, load: 3340 };
+[["Core", DX, "l"], ["Processing Load", KC.bar, "l"], ["Temp", RR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: 1112, s: 36, c: "ice", txt, align }));
+const CORES = [["Core 1", 0.44], ["Core 2", 0.39], ["Core 3", 0.21]].map(([name, base], i) => {
+  const b = CT[i + 1];
+  L.text({ x: DX, base: b, s: 40, c: "ice", txt: name });
+  L.rect({ x: KC.bar, y: b - 26, w: KC.barR - KC.bar, h: 26, c: TRACK });
+  return { base, u: base, goal: base, f: fill(KC.bar, b - 26, KC.barR - KC.bar, 26, i === 2 ? "ice" : "sky"),
+           v: L.text({ x: KC.load, base: b, s: 52, c: "white", txt: "", align: "r" }), tp: L.text({ x: RR, base: b, s: 52, c: "white", txt: "", align: "r" }) };
+});
+L.text({ x: DX, base: CT[4], s: 40, c: "ice", txt: "Subspace Field" });
+const fieldTxt = L.text({ x: RR, base: CT[4], s: 52, c: "white", txt: "", align: "r" });
+L.text({ x: DX, base: CT[5], s: 40, c: "ice", txt: "Test Rate" });
+const rateTxt = L.text({ x: RR, base: CT[5], s: 52, c: "white", txt: "", align: "r" });
+
+// ---------------- diagnostic log ----------------
+header(40, 1620, AR - 40, "Diagnostic Log", "sky", "navy", 48, 28);
+const LC = { tx: 230, sys: 1100 };
+logRows = Array.from({ length: 6 }, (_, i) => {
+  const base = 1734 + i * 54;
+  return { at: L.text({ x: 40, base, s: 36, c: "sky", txt: "" }), tx: L.text({ x: LC.tx, base, s: 36, c: "ice", txt: "" }),
+           sys: L.text({ x: LC.sys, base, s: 36, c: "peach", txt: "" }),
+           res: L.text({ x: AR, base, s: 36, c: "sky", txt: "", align: "r", cls: "tint" }) };
+});
+
+// ---------------- anomalies ----------------
+header(BX, 1620, CR - BX, "Anomalies", "peach", "sky", 48, 28);
+const AN = [0, 1, 2].map((i) => {
+  const base = 1734 + i * 54;
+  L.text({ x: BX, base, s: 36, c: "peach", txt: ["Found This Run", "Repaired", "Outstanding"][i] });
+  return L.text({ x: CR, base, s: 36, c: "white", txt: "", align: "r", cls: "tint" });
+});
+const anWhat = L.text({ x: BX, base: 1896, s: 36, c: "white", txt: "" });
+const anState = L.text({ x: CR, base: 1896, s: 36, c: "ice", txt: "", align: "r", cls: "tint" });
+const anFault = L.text({ x: BX, base: 1950, s: 36, c: "sky", txt: "" });
+const anAt = L.text({ x: CR, base: 1950, s: 36, c: "sky", txt: "", align: "r" });
+const anFix = L.text({ x: BX, base: 2004, s: 36, c: "sky", txt: "" });
+const anDone = L.text({ x: CR, base: 2004, s: 36, c: "sky", txt: "", align: "r" });
+
+// ---------------- diagnostic time ----------------
+header(DX, 1620, RR - DX, "Diagnostic Time", "ice", "blue", 48, 28);
+const TM = ["Elapsed", "Remaining", "Estimated Total", "Complete"].map((name, i) => {
+  const base = 1734 + i * 90;
+  L.text({ x: DX, base, s: 40, c: "ice", txt: name });
+  return L.text({ x: RR, base, s: 52, c: "white", txt: "", align: "r" });
+});
+const TB = { x: 2900, r: 3300 };
+L.rect({ x: TB.x, y: 2004 - 26, w: TB.r - TB.x, h: 26, c: TRACK });
+const totalBar = fill(TB.x, 2004 - 26, TB.r - TB.x, 26, "peach");
+put(TM[2], hms(TOTAL));
+
+// ---------------- anomalies: found, flagged on the matrix, repaired ----------------
+// One was found earlier in this run; up to two more turn up while the screen is watched.
+let found = 1, repaired = 1, pending = null, active = null, nextAnomaly = L.rand(50, 80);
+const anomalyText = (s, b, c, r) => [`${s.unit} ${cellId(s, b, c, r)}`, s.fault[0], s.fault[1]];
+{
+  const k = L.irand(0, K0 - 1), s = SUBS[k], b = L.irand(0, s.blocks - 1), c = L.irand(0, NC - 1), r = L.irand(0, NR - 1);
+  const at = s.start + ((b + ((c * NR + r) / NCELL) * SWEEP) / s.blocks) * s.dur;
+  const [what, fault, fix] = anomalyText(s, b, c, r);
+  put(anWhat, `${what}  ·  ${s.name}`); put(anState, "Repaired"); put(anFault, fault); put(anAt, `Flagged ${hms(at)}`); put(anFix, fix); put(anDone, `Repaired ${hms(at + L.irand(14, 22))}`);
+}
+const showCounts = () => {
+  put(AN[0], String(found)); put(AN[1], String(repaired));
+  const open = found - repaired;
+  put(AN[2], open ? `${open}  ·  Under Repair` : "None"); tint(AN[2], open ? "mars" : "white");
+};
+showCounts();
+
+// ---------------- the log so far: everything up to now, newest last ----------------
+{
+  const ev = [];
+  SUBS.forEach((s, k) => {
+    if (s.start > OFFSET) return;
+    ev.push([s.start, begunMsg(s), s.name, "Begun"]);
+    for (let b = 0; b < s.blocks; b++) {
+      const at = s.start + ((b + 1) / s.blocks) * s.dur - (1 - SWEEP) * 0.5 * s.dur / s.blocks;
+      if (at <= OFFSET) ev.push([at, blockMsg(s, b), s.name, "Pass"]);
+    }
+    if (s.start + s.dur <= OFFSET) ev.push([s.start + s.dur - 1, doneMsg(s), s.name, "Complete"]);
+  });
+  ev.sort((a, b) => a[0] - b[0]).slice(-6).forEach((e) => logEvent(...e));
+}
+
+// ---------------- a guard: every procedure and address fits its place ----------------
+{
+  const bad = [];
+  for (const s of SUBS) {
+    const id = cellId(s, s.blocks - 1, NC - 1, NR - 1);
+    for (const [p, spec] of s.procs) {
+      if (L.textWidth(p.replace("{id}", id), 52) > CR - BX) bad.push(`procedure "${p}"`);
+      const [e] = judge(spec, false);
+      if (L.textWidth(e, 52) + L.textWidth("Expected", 40) + 60 > CR - BX) bad.push(`expected "${e}"`);
+    }
+    if (L.textWidth(`${s.where}  ·  ${s.unit} ${id}`, 52) + L.textWidth("Location", 40) + 60 > CR - BX) bad.push(`location of ${s.name}`);
+    if (L.textWidth(`${s.unit} ${id}  ·  ${s.name}`, 36) + L.textWidth("Repaired", 36) + 60 > CR - BX) bad.push(`anomaly of ${s.name}`);
+    if (L.textWidth(s.fault[1], 36) > CR - BX) bad.push(`fix of ${s.name}`);
+  }
+  if (bad.length) setTimeout(() => { throw new Error("diagnostic: too wide: " + bad.join(" | ")); });
+}
+
+// ---------------- the clock ----------------
+let last = null, lastTest = -9, holdTest = 0;
+L.tick((t) => {
+  const d = D(t), w = where(d), s = SUBS[w.k];
+  // events: a new subsystem, a block verified, the run complete
+  if (last && (w.k !== last.k || w.run !== last.run || w.done !== last.done || w.b !== last.b)) {
+    const ps = SUBS[last.k];
+    const at = w.run !== last.run ? TOTAL + HOLD : w.u;
+    if (!last.done) logEvent(at, blockMsg(ps, last.b), ps.name, "Pass");
+    if (!last.done && (w.k !== last.k || w.done)) logEvent(at, doneMsg(ps), ps.name, "Complete");
+    if (w.done && !last.done) logEvent(at, `Level 1 diagnostic complete  ·  ${anomalies(found)}`, "All Subsystems", "Complete");
+    retone();
+    if (!w.done && (w.k !== last.k || w.run !== last.run)) {
+      if (w.run !== last.run) { found = 0; repaired = 0; showCounts(); }
+      logEvent(w.u, begunMsg(s), s.name, "Begun");
+    }
+    if (pending && (pending.k !== w.k || pending.b !== w.b)) pending = null;
+    css(flagCell, "opacity", "0");
+  }
+  last = w;
+  // the sequence
+  SUBS.forEach((_, i) => setRow(i, w.done || i < w.k ? "Complete" : i === w.k ? "Running" : "Queued"));
+  tree.forEach((r, i) => {
+    const p = w.done || i < w.k ? 1 : i === w.k ? w.p : 0;
+    if (Math.abs(p - r.shown) < 0.0004) return;
+    r.shown = p; r.bar.style.transform = `scaleX(${p.toFixed(4)})`;
+  });
+  // the matrix
+  if (w.done) showMatrix(NC, 0, 1, false);
+  else {
+    const col = Math.floor(w.cell / NR), row = w.cell % NR, live = w.cell < NCELL;
+    const op = w.q < 0.965 ? 1 : Math.round(L.clamp(1 - (w.q - 0.965) / 0.03) * 20) / 20;
+    showMatrix(col, live ? row : 0, op, live);
+    if (flagCell.style.opacity !== "0" && !active) css(flagCell, "opacity", String(op));
+    // an anomaly: chosen a little ahead of the cursor, flagged when the test reaches it
+    if (!pending && !active && found < 3 && t > nextAnomaly && w.cell < NCELL - 120) {
+      const cell = w.cell + L.irand(25, 60);
+      pending = { k: w.k, b: w.b, cell, c: Math.floor(cell / NR), r: cell % NR };
+    }
+    if (pending && w.k === pending.k && w.b === pending.b && w.cell >= pending.cell) {
+      const [what, fault, fix] = anomalyText(s, pending.b, pending.c, pending.r);
+      active = { ...pending, what, fault, fix, t0: t, phase: 0 };
+      pending = null; found++; showCounts();
+      L.move(flagCell, active.c * PX, active.r * PY);
+      css(flagCell, "background", "var(--mars)"); css(flagCell, "opacity", "1");
+      put(anWhat, `${what}  ·  ${s.name}`); put(anState, "Flagged"); tint(anState, "mars");
+      put(anFault, fault); put(anAt, `Flagged ${hms(w.u)}`); put(anDone, ""); put(anFix, "Repair in progress");
+      showTest(w, s, cellId(s, active.b, active.c, active.r), true); holdTest = t + 7;
+      logEvent(w.u, `Anomaly flagged  ·  ${what}`, s.name, "Flagged");
+    }
+  }
+  if (active) {
+    const u = t - active.t0;
+    if (active.phase === 0 && u > 7) { active.phase = 1; put(anState, "Repairing"); tint(anState, "butter"); css(flagCell, "background", "var(--butter)"); }
+    if (active.phase === 1 && u > 16) {
+      repaired++; showCounts();
+      put(anState, "Repaired"); tint(anState, "ice"); put(anFix, active.fix); css(flagCell, "background", "var(--ice)");
+      logEvent(w.u, `Anomaly repaired  ·  ${active.what}`, SUBS[active.k].name, "Repaired");
+      put(anDone, `Repaired ${hms(w.u)}`);
+      active = null; nextAnomaly = t + L.rand(200, 300);
+    }
+  }
+  // the current test: a new one shown every second and a half or so
+  if (!w.done && t > holdTest && t - lastTest > 1.6) {
+    lastTest = t + L.rand(-0.3, 0.3);
+    const col = Math.min(NC - 1, Math.floor(w.cell / NR)), row = Math.min(NR - 1, w.cell % NR);
+    showTest(w, s, cellId(s, w.b, col, row), false);
+  }
+  // the cores ease toward their loads
+  CORES.forEach((c) => {
+    c.u += (c.goal - c.u) * 0.03;
+    c.f.style.transform = `scaleX(${c.u.toFixed(4)})`;
+  });
+});
+
+// ---------------- readings: a few times a second at most ----------------
+L.every(250, (t) => {
+  const d = D(t), w = where(d), s = SUBS[w.k];
+  tree.forEach((r, i) => put(r.run, fmt(w.done || i < w.k ? SUBS[i].tests : i === w.k ? Math.floor(w.p * s.tests) : 0)));
+  if (w.done) {
+    put(matrixL, "All subsystems verified"); put(matrixR, `${fmt(SUBS.reduce((a, x) => a + x.tests, 0))} tests`);
+    const all = fmt(SUBS.reduce((a, x) => a + x.tests, 0));
+    put(procTxt, "All scheduled tests complete"); put(ctNo, `${all} run`); put(ctAt, "Main computer  ·  all subsystems");
+    put(ctExp, `${all} passed`); put(ctMeas, `${all} passed`); tint(ctMeas, "white"); put(ctRes, "Verified"); tint(ctRes, "ice");
+  } else {
+    put(matrixL, `${s.name}  ·  Block ${pad(w.b + 1, 2)} of ${pad(s.blocks, 2)}`);
+    put(matrixR, `${s.units} ${pad(unitNo(s, w.b, 0), 4)} – ${pad(unitNo(s, w.b, NC - 1), 4)}  ·  Rows A – T`);
+    put(ctNo, `No. ${fmt(Math.floor(w.p * s.tests) + 1)}`);
+  }
+  const anomaly = active && active.phase < 2;
+  put(stateTxt, w.done ? "Diagnostic Complete" : anomaly ? "Anomaly Flagged" : "Diagnostic Running");
+  tint(stateTxt, w.done ? "ice" : anomaly ? "peach" : "sky");
+  put(stateSub, w.done ? `All 12 subsystems verified  ·  ${anomalies(found)}`
+                       : `Subsystem ${w.k + 1} of 12  ·  ${s.name}  ·  ${((w.u / TOTAL) * 100).toFixed(1)}% complete`);
+}, 0);
+L.every(1000, (t) => {
+  const d = D(t), w = where(d), s = SUBS[w.k];
+  const el = Math.min(w.u, TOTAL);
+  put(TM[0], hms(el)); put(TM[1], hms(TOTAL - el)); put(TM[3], ((el / TOTAL) * 100).toFixed(1) + "%");
+  totalBar.style.transform = `scaleX(${(el / TOTAL).toFixed(4)})`;
+  CORES.forEach((c, i) => {
+    const busy = !w.done && w.k === i ? 0.3 : 0;
+    c.goal = L.clamp(c.base + (w.done ? 0 : 0.06) + busy + wave(t, 0.02, 0.11, i * 2), 0.1, 0.95);
+    put(c.v, (c.u * 100).toFixed(1) + "%");
+    put(c.tp, (29 + c.u * 18 + wave(t, 0.15, 0.07, i)).toFixed(1) + " °C");
+  });
+  put(fieldTxt, `Stable  ·  ${(61.3 + wave(t, 0.08, 0.05, 0)).toFixed(1)} millicochranes`);
+  put(rateTxt, w.done ? "Idle" : `${s.rate + Math.round(wave(t, 1, 0.3, 0))} tests a second`);
+}, 0);
+});
+</script></body></html>

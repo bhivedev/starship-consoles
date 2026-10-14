@@ -1,0 +1,367 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Subspace Physics</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .sw { transition: background-color .9s ease, color .9s ease; }
+  .bar { transition: opacity .25s ease; }
+  .fd { transition: opacity .45s ease; }
+  .fd.out { opacity: .2; }
+  .clip { position: absolute; overflow: hidden; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: sidebar left, title top right ----------------
+L.frame({ type: "A", title: "Subspace Physics  •  Laboratory", c: "violet", c2: "sky", accent: "lilac", foot: "Physics",
+  side: [[140, "sky", "Sci 04"], [70, "lilac", "Lab 4"], [420, "violet", "Subspace"], [70, "ice", "Field"],
+         [300, "sky", "Harmonics"], [70, "lilac", "Particles"], [216, "violet", "Interphase"]] });
+
+// two equal columns, the same edges top to bottom
+const A = [330, 2043], B = [2103, 3816];
+const PANEL = "#0a0c26", GRID = "#1d2258", TRACK = "#1a1840";
+const col = (c) => (c.startsWith("#") ? c : `var(--${c})`);
+const pad2 = (n) => String(n).padStart(2, "0");
+const fmt = (n) => Math.round(n).toLocaleString("en");
+const smooth = (k) => k * k * k * (k * (k * 6 - 15) + 10);
+const sm = (a, b, u) => smooth(L.clamp((u - a) / (b - a)));
+const rng = (seed) => () => {                             // seeded: a run's results are the same every time it is shown
+  seed = (seed + 0x6d2b79f5) | 0;
+  let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+};
+const fill = (x, y, w, h, c, origin = "0 0", parent) => {   // a bar that grows: a composited layer
+  const f = L.layer({ x, y, w, h }, parent);
+  f.style.background = col(c); f.style.transformOrigin = origin;
+  return f;
+};
+// a table's columns: the first set left at x0, the rest set right, spaced evenly to x1
+const columns = (x0, x1, widths) => {
+  const total = widths.reduce((a, b) => a + b, 0), gap = (x1 - x0 - total) / (widths.length - 1);
+  let x = x0;
+  return widths.map((w, i) => { const r = x + w; x = r + gap; return i === 0 ? x0 : Math.round(r); });
+};
+const widest = (items, s) => Math.ceil(Math.max(...items.map((t) => L.textWidth(t, s))));
+
+// ---------------- the experiment: one run every 48 s ----------------
+const CYCLE = 48, NH = 24, SW0 = 14, SW1 = 30, WIN0 = 30, WIN1 = 38;
+const PHASES = [["Calibrate", 0, 6, "ice"], ["Field Induction", 6, 14, "sky"], ["Harmonic Sweep", 14, 30, "lilac"],
+                ["Particle Count", 30, 38, "ice"], ["Analysis", 38, 44, "sky"], ["Logged", 44, 48, "lilac"]];
+const STATE = ["Calibrating", "Field Induction", "Harmonic Sweep", "Particle Count", "Analysis", "Run Logged"];
+const phaseAt = (u) => PHASES.findIndex(([, a, b]) => u >= a && u < b);
+const K0 = 169, OFFSET = 9;                               // open on an interphase run, field rising
+const runAt = (s) => K0 + Math.floor((s + OFFSET) / CYCLE);
+const cyc = (s) => (((s + OFFSET) % CYCLE) + CYCLE) % CYCLE;
+const field = (u) => sm(6, 12, u) - sm(38, 43, u);        // 0 … 1 of the set strength
+const sweep = (u) => L.clamp((u - 38) / 5);               // the anyon sweep, through the Analysis phase
+// the predicted spectrum: falling with order, two subspace resonances at the 7th and 16th
+const PRED = Array.from({ length: NH }, (_, i) => {
+  const n = i + 1;
+  return n === 1 ? 100 : 100 * Math.pow(n, -0.5) * (1 + 0.42 * Math.exp(-Math.pow((n - 7) / 1.1, 2)) + 0.36 * Math.pow(Math.E, -Math.pow((n - 16) / 1.3, 2)));
+});
+const runs = new Map();
+const run = (k) => {
+  if (runs.has(k)) return runs.get(k);
+  const r = rng(9001 + k * 131), anom = k % 3 === 1;      // every third run picks up chronitons
+  const dev = PRED.map((_, i) => (i === 0 ? 0 : (r() * 2 - 1) * 0.035 + (anom ? 0.2 * Math.exp(-Math.pow((i + 1 - 12) / 1.2, 2)) : 0)));
+  const meas = PRED.map((p, i) => Math.min(100, p * (1 + dev[i])));
+  let worst = 1;
+  dev.forEach((d, i) => { if (Math.abs(d) > Math.abs(dev[worst])) worst = i; });
+  const R = {
+    k, anom, meas, worst: worst + 1,
+    rms: 100 * Math.sqrt(dev.slice(1).reduce((a, d) => a + d * d, 0) / (NH - 1)),
+    series: 14 + Math.floor(k / 12), no: (k % 12) + 1,
+    freq: 47.25 + 0.125 * (k % 12), off: Math.round((r() * 2 - 1) * 4) / 10000,
+    ver: 4400 + Math.round(r() * 60) * 10, tet: 1060 + Math.round(r() * 24) * 10,
+    sd: (47391.2 + (k - K0) * 0.02).toFixed(2),
+  };
+  runs.set(k, R);
+  return R;
+};
+// the rates (counts per second) at sim time s: background plus what the field drives
+const BG = { ver: 220, tet: 60, chr: 2 };
+const rates = (s) => {
+  const R = run(runAt(s)), u = cyc(s), f = field(u);
+  return { ver: BG.ver + R.ver * f, tet: BG.tet + R.tet * f, chr: BG.chr + (R.anom ? 340 * (sm(16, 22, u) - sm(38, 43, u)) : 0) };
+};
+const shown = (r) => (r >= 1000 ? Math.round(r / 10) * 10 : Math.round(r));   // as the counters read
+
+// ---------------- status line ----------------
+const stateTxt = L.text({ x: A[0], cap: 150, s: 100, c: "lilac", txt: "" });
+const subTxt = L.text({ x: B[0], base: 222, s: 38, c: "sky", txt: "" });
+const fieldPill = L.box({ x: B[1] - 400, y: 150, w: 400, h: 72, c: "sky", label: "", r: "lr", fs: 36, cls: "sw" });
+
+// ---------------- harmonic spectrum (left) ----------------
+const PT = 428, PB = 1000, PH = PB - PT;                  // the plot's top and bottom, shared with the flux traces
+const CAP = 400, AXIS = 1048;                             // caption baseline; scale numbers under the plots
+L.header({ x: A[0], y: 280, w: A[1] - A[0], label: "Subspace Field Harmonics", c1: "sky", c2: "violet" });
+L.text({ x: A[0], base: CAP, s: 36, c: "lilac", txt: "Amplitude  ·  Percent of Fundamental" });
+{ // the key, set right: measured bars, predicted marks
+  const pw = L.textWidth("Predicted", 36);
+  L.text({ x: A[1], base: CAP, s: 36, c: "white", txt: "Predicted", align: "r" });
+  L.rect({ x: A[1] - pw - 24 - 44, y: CAP - 16, w: 44, h: 6, c: "white", free: true });
+  const mx = A[1] - pw - 24 - 44 - 48;
+  L.text({ x: mx, base: CAP, s: 36, c: "sky", txt: "Measured", align: "r" });
+  L.rect({ x: mx - L.textWidth("Measured", 36) - 24 - 26, y: CAP - 26, w: 26, h: 26, c: "sky", free: true });
+}
+const PX0 = 400, PW = A[1] - PX0, BGAP = 14, PITCH = (PW + BGAP) / NH, BW = Math.round(PITCH - BGAP);
+// the panel runs flush with the column; its scale sits inside, each number just under its line
+L.rect({ x: A[0], y: PT, w: A[1] - A[0], h: PH, c: PANEL, panel: true });
+for (let q = 0; q < 4; q++) {
+  const y = PT + (PH * q) / 4;
+  if (q > 0) L.rect({ x: A[0], y: y - 1, w: A[1] - A[0], h: 2, c: GRID, free: true });
+  L.text({ x: A[0] + 20, base: y + 42, s: 30, c: "lilac", txt: String(100 - 25 * q), legend: true });
+}
+const bars = PRED.map((p, i) => {
+  const x = Math.round(PX0 + i * PITCH), n = i + 1;
+  const b = fill(x, PT, BW, PH, n === 7 || n === 16 ? "lilac" : "sky", "50% 100%");
+  b.classList.add("bar");
+  const tick = L.layer({ x, y: Math.max(PT, Math.round(PB - (p / 100) * PH) - 3), w: BW, h: 6, cls: "boot" });
+  tick.style.background = "var(--white)";
+  L.text({ x: x + BW / 2, base: AXIS, s: 30, c: n === 7 || n === 16 ? "lilac" : "sky", txt: String(n), align: "c", w: 60, legend: true });
+  return { b, v: -1, o: "" };
+});
+const sweepLine = L.layer({ x: PX0 - BGAP / 2 - 2, y: PT - 10, w: 4, h: PH + 20 });
+sweepLine.style.background = "var(--white)";
+// a bar's height at u: last run's value until the sweep reaches it, then this run's
+const swept = (u) => (u < SW0 ? 0 : u >= SW1 ? NH : Math.min(NH, Math.floor(((u - SW0) / (SW1 - SW0)) * NH) + 1));   // a bar counts once the sweep reaches it
+const barAt = (k, u, i) => {
+  const t0 = SW0 + (i * (SW1 - SW0)) / NH, e = L.ease(L.clamp((u - t0) / 0.6));
+  return L.mix(run(k - 1).meas[i], run(k).meas[i], e);
+};
+
+// ---------------- verteron and tetryon flux (right) ----------------
+L.header({ x: B[0], y: 280, w: B[1] - B[0], label: "Verteron and Tetryon Flux", c1: "lilac", c2: "violet" });
+L.text({ x: B[0], base: CAP, s: 36, c: "lilac", txt: "Counts per Second" });
+L.text({ x: B[1], base: CAP, s: 36, c: "lilac", txt: "Last 10 Seconds", align: "r" });
+const TABW = 280, TX = B[0] + TABW + L.GAP, TW = B[1] - TX, CHH = 270, CHG = PH - 2 * CHH;
+const CHANS = [
+  { key: "ver", name: "Verteron", c: "sky", ink: "#5c9dff", max: 6000, y: PT },
+  { key: "tet", name: "Tetryon", c: "lilac", ink: "#c7a0d8", max: 1600, y: PT + CHH + CHG },
+];
+CHANS.forEach((ch) => {
+  L.box({ x: B[0], y: ch.y, w: TABW, h: CHH, c: ch.c, label: ch.name, fs: 40 });
+  ch.num = L.text({ x: B[0] + 24, cap: ch.y + 24, s: 110, c: "#000", txt: "", on: true });
+  L.rect({ x: TX, y: ch.y, w: TW, h: CHH, c: PANEL });
+  for (let q = 1; q < 10; q++) L.rect({ x: Math.round(TX + (TW * q) / 10) - 1, y: ch.y, w: 2, h: CHH, c: GRID, free: true });
+  for (let q = 1; q < 4; q++) L.rect({ x: TX, y: ch.y + (CHH * q) / 4 - 1, w: TW, h: 2, c: GRID, free: true });
+});
+["10 s", "8 s", "6 s", "4 s", "2 s", "Now"].forEach((txt, q) => {
+  const x = TX + (TW * q) / 5;
+  if (q === 0) L.text({ x, base: AXIS, s: 30, c: "lilac", txt, legend: true });
+  else if (q === 5) L.text({ x, base: AXIS, s: 30, c: "lilac", txt, align: "r", legend: true });
+  else L.text({ x, base: AXIS, s: 30, c: "lilac", txt, align: "c", w: 120, legend: true });
+});
+// The traces scroll (as on tng/sickbay): two canvas tiles slid side by side in a clipped strip;
+// each frame draws only the newest sliver, and a tile that leaves the view is recycled before drawing.
+const WIN = 10, SPEED = TW / WIN, SUB = 3;
+const strip = L.el("div", "clip boot", L.stage, { left: TX + "px", top: PT + "px", width: TW + "px", height: PH + "px" });
+const tiles = [0, 1].map((n) => {
+  const c = L.canvas({ x: 0, y: 0, w: TW + 8, h: PH }, strip);
+  c.cv.style.willChange = "transform"; c.idx = n;        // idx, not k: the kit keeps the pixel scale in c.k
+  return c;
+});
+const wobble = (s, i) => 0.022 * Math.sin(s * 2.3 + i * 1.7) + 0.014 * Math.sin(s * 5.1 + i * 0.9) + 0.008 * Math.sin(s * 9.7 + i * 2.6);
+let simT = -WIN, written = 0, lastT = null, prev = CHANS.map(() => null), filled = false;
+const step = (dt) => {
+  const pts = CHANS.map(() => []);
+  for (let j = 1; j <= SUB; j++) {
+    simT += dt / SUB;
+    const r = rates(simT), x = written + (dt * SPEED * j) / SUB;
+    CHANS.forEach((ch, i) => {
+      const v = L.clamp(r[ch.key] / ch.max + wobble(simT, i) * (0.4 + 0.6 * field(cyc(simT))), 0.02, 0.98);
+      pts[i].push([x, ch.y - PT + CHH * (1 - v)]);
+    });
+  }
+  const end = written + dt * SPEED;
+  for (const tile of tiles) if (end >= (tile.idx + 2) * TW) { tile.idx += 2; tile.g.clearRect(0, 0, TW + 8, PH); }
+  CHANS.forEach((ch, i) => {
+    if (prev[i]) for (const tile of tiles) {
+      const g = tile.g, o = tile.idx * TW;
+      g.strokeStyle = ch.ink; g.lineWidth = 3.2; g.lineJoin = "round"; g.lineCap = "round";
+      g.beginPath(); g.moveTo(prev[i][0] - o, prev[i][1]);
+      for (const [x, y] of pts[i]) g.lineTo(x - o, y);
+      g.stroke();
+    }
+    prev[i] = pts[i][SUB - 1];
+  });
+  written = end;
+};
+const place = () => tiles.forEach((tile) => (tile.cv.style.transform = `translate3d(${(tile.idx * TW - (written - TW)).toFixed(2)}px,0,0)`));
+tiles.forEach((c) => (c.onResize = () => { filled = false; }));   // a resize wipes the canvases: refill them
+L.tick((t) => {
+  if (!filled) {                                         // start with the window already full, ending now
+    filled = true; written = 0; simT = t - WIN; tiles[0].idx = -1; tiles[1].idx = 0;
+    prev = CHANS.map(() => null);
+    tiles.forEach((c) => c.g.clearRect(0, 0, TW + 8, PH));
+    for (let i = 0; i < WIN * 30 + 1; i++) step(1 / 30);
+    lastT = t; place(); return;
+  }
+  step(Math.min(0.1, Math.max(0, t - lastT))); lastT = t;
+  place();
+});
+
+// ---------------- experiment run cycle (middle left) ----------------
+const MH = 1100, BANDY = 1180, MCAP = 1316, MROW = (i) => 1390 + i * 70;
+L.header({ x: A[0], y: MH, w: A[1] - A[0], label: "Experiment Run Cycle", c1: "lilac", c2: "sky" });
+let bx = A[0];
+const bands = PHASES.map(([name, a, b, pc], i) => {
+  const bw = i === PHASES.length - 1 ? A[1] - bx : Math.round(((b - a) / CYCLE) * (A[1] - A[0] + 6)) - 6;
+  const e = L.box({ x: bx, y: BANDY, w: bw, h: 64, c: pc, label: name, fs: 30, cls: "sw" });
+  const band = { e, x: bx, w: bw, a, b, c: pc };
+  bx += bw + 6;
+  return band;
+});
+const bandCursor = L.layer({ x: -2, y: BANDY - 10, w: 4, h: 84 });
+bandCursor.style.background = "var(--white)";
+const PARAMS = [["Field Frequency", "47.875 kHz", "47.8752 kHz", "Calibrating"], ["Field Strength", "3.80 mc", "3.80 mc", "Decaying"],
+                ["Harmonic Sweep", "H 1 to 24", "24 of 24", "Complete"]];
+const PCAP = ["Parameter", "Set Point", "Measured", "Status"];
+const pcols = columns(A[0], A[1], [0, 1, 2, 3].map((j) => Math.max(widest(PARAMS.map((r) => r[j]), j === 2 ? 52 : 40), L.textWidth(PCAP[j], 36))));
+PCAP.forEach((txt, j) => L.text({ x: pcols[j], base: MCAP, s: 36, c: "lilac", txt, align: j ? "r" : "l" }));
+const params = PARAMS.map(([name], i) => {
+  L.text({ x: A[0], base: MROW(i), s: 40, c: "sky", txt: name });
+  return {
+    set: L.text({ x: pcols[1], base: MROW(i), s: 40, c: "lilac", txt: "", align: "r" }),
+    meas: L.text({ x: pcols[2], base: MROW(i), s: 52, c: "white", txt: "", align: "r" }),
+    st: L.text({ x: pcols[3], base: MROW(i), s: 40, c: "ice", txt: "", align: "r", cls: "sw" }),
+  };
+});
+
+// ---------------- particle counts (middle right) ----------------
+L.header({ x: B[0], y: MH, w: B[1] - B[0], label: "Particle Counts", c1: "sky", c2: "lilac" });
+const WINW = Math.ceil((L.textWidth("Count Window", 30) + 80) / 10) * 10;
+const WVW = Math.ceil(L.textWidth("8.0 of 8.0 s", 52) / 10) * 10;
+L.box({ x: B[0], y: BANDY, w: WINW, h: 64, c: "sky", label: "Count Window", fs: 30, r: "l" });
+const WTX = B[0] + WINW + L.GAP, WTW = B[1] - WVW - 2 * L.GAP - WTX;
+L.rect({ x: WTX, y: BANDY, w: WTW, h: 64, c: TRACK });
+const winBar = fill(WTX, BANDY, WTW, 64, "ice");
+const winVal = L.text({ x: B[1], base: BANDY + 52, s: 52, c: "white", txt: "", align: "r" });
+const PARTS = [["Verteron", "ver", "412 keV"], ["Tetryon", "tet", "186 keV"], ["Chroniton", "chr", "58 keV"]];
+const QCAP = ["Particle", "Rate per Second", "Count", "Mean Energy"];
+const qcols = columns(B[0], B[1], [widest(PARTS.map((p) => p[0]), 40), L.textWidth(QCAP[1], 36), L.textWidth("88,888", 52) + 40, L.textWidth(QCAP[3], 36)]);
+QCAP.forEach((txt, j) => L.text({ x: qcols[j], base: MCAP, s: 36, c: "lilac", txt, align: j ? "r" : "l" }));
+const parts = PARTS.map(([name, key, en], i) => {
+  L.text({ x: B[0], base: MROW(i), s: 40, c: "sky", txt: name });
+  L.text({ x: qcols[3], base: MROW(i), s: 40, c: "lilac", txt: en, align: "r" });
+  return { key, rate: L.text({ x: qcols[1], base: MROW(i), s: 52, c: "white", txt: "", align: "r" }),
+           count: L.text({ x: qcols[2], base: MROW(i), s: 52, c: "ice", txt: "", align: "r" }) };
+});
+
+// ---------------- results (bottom left) ----------------
+const BH = 1620, BCAP = 1716, BROW = (i) => 1776 + i * 54, NR = 5;
+L.header({ x: A[0], y: BH, w: A[1] - A[0], label: "Run Results", c1: "sky", c2: "violet", h: 48 });
+const RCAP = ["Run", "Stardate", "Frequency", "Verteron", "Tetryon", "RMS Dev", "Worst", "Result"];
+const RSAMPLE = ["88.88", "47888.88", "88.888 kHz", "8,888", "8,888", "8.8%", "H 88", "Chroniton Trace"];
+const rcols = columns(A[0], A[1], RCAP.map((c, j) => Math.max(L.textWidth(c, 36), L.textWidth(RSAMPLE[j], 36))));
+RCAP.forEach((txt, j) => L.text({ x: rcols[j], base: BCAP, s: 36, c: "lilac", txt, align: j ? "r" : "l" }));
+const RCOL = ["sky", "lilac", "white", "white", "white", "white", "ice", "ice"];
+const resRows = Array.from({ length: NR }, (_, i) => RCAP.map((_, j) =>
+  L.text({ x: rcols[j], base: BROW(i), s: 36, c: RCOL[j], txt: "", align: j ? "r" : "l", cls: "fd" })));
+const resultCells = (R) => [`${R.series}.${pad2(R.no)}`, R.sd, `${R.freq.toFixed(3)} kHz`, fmt(BG.ver + R.ver), fmt(BG.tet + R.tet),
+  R.rms.toFixed(1) + "%", "H " + pad2(R.worst), R.anom ? "Chroniton Trace" : "Nominal"];
+let loggedK = null;
+const showResults = (k, fade) => {
+  const put = () => resRows.forEach((row, i) => {
+    const R = run(k - i), cells = resultCells(R);
+    row.forEach((e, j) => L.set(e, cells[j]));
+    row[7].style.color = `var(--${R.anom ? "butter" : "ice"})`;
+  });
+  if (!fade) return put();
+  resRows.flat().forEach((e) => e.classList.add("out"));
+  setTimeout(() => { put(); resRows.flat().forEach((e) => e.classList.remove("out")); }, 450);
+};
+
+// ---------------- interphase readings (bottom right) — The Next Phase ----------------
+const IPW = Math.ceil(Math.max(...["Chronitons Detected", "Background"].map((s) => L.textWidth(s, 28))) / 10) * 10 + 80;
+L.header({ x: B[0], y: BH, w: B[1] - B[0] - IPW - L.GAP, label: "Interphase Readings", c1: "lilac", c2: "violet", h: 48 });
+const ipPill = L.box({ x: B[1] - IPW, y: BH, w: IPW, h: 48, c: "sky", label: "", fs: 28, r: "r", cls: "sw" });
+const IREAD = [
+  ["Chroniton Flux", (s) => rates(s).chr, 400, (v) => shown(v) + " /s"],
+  ["Interphase Variance", (s) => 0.0004 + 0.0058 * ((rates(s).chr - BG.chr) / 340), 0.01, (v) => v.toFixed(4) + "%"],
+  ["Phase Coherence", (s) => 99.9 - 0.7 * ((rates(s).chr - BG.chr) / 340), 100, (v) => v.toFixed(1) + "%"],
+  ["Anyon Sweep", (s) => sweep(cyc(s)), 1, null],
+  ["Tachyon Background", () => 38, 100, (v) => Math.round(v) + " /s"],
+];
+const IVW = Math.ceil(Math.max(L.textWidth("0.0000%", 36), L.textWidth("Complete", 36), L.textWidth("Level", 36)) / 10) * 10;
+const ILX = B[0] + Math.ceil(widest(IREAD.map((r) => r[0]), 36) / 10) * 10 + 40, ILW = B[1] - IVW - 40 - ILX;
+L.text({ x: B[0], base: BCAP, s: 36, c: "lilac", txt: "Reading" });
+L.text({ x: ILX, base: BCAP, s: 36, c: "lilac", txt: "Level" });
+L.text({ x: B[1], base: BCAP, s: 36, c: "lilac", txt: "Value", align: "r" });
+const ireads = IREAD.map(([name, f, max, show], i) => {
+  const base = BROW(i);
+  L.text({ x: B[0], base, s: 36, c: "sky", txt: name });
+  L.rect({ x: ILX, y: base - 26, w: ILW, h: 26, c: TRACK });
+  return { f, max, show, bar: fill(ILX, base - 26, ILW, 26, i === 0 ? "lilac" : i === 3 ? "ice" : "sky"),
+           val: L.text({ x: B[1], base, s: 36, c: "white", txt: "", align: "r" }), v: -1 };
+});
+
+// ---------------- the clock ----------------
+L.tick((t) => {
+  const s = t, u = cyc(s), k = runAt(s);
+  // the spectrum: each bar takes this run's value as the sweep passes it; unswept bars are last run's, dimmed
+  const n = swept(u);
+  bars.forEach((b, i) => {
+    const v = barAt(k, u, i) / 100;
+    if (Math.abs(v - b.v) > 0.0004) { b.v = v; b.b.style.transform = `scaleY(${v.toFixed(4)})`; }
+    const o = i < n ? "1" : "0.4";
+    if (o !== b.o) { b.o = o; b.b.style.opacity = o; }
+  });
+  const sx = PW * L.clamp((u - SW0) / (SW1 - SW0));
+  L.move(sweepLine, sx, 0);
+  sweepLine.style.opacity = (sm(SW0 - 0.6, SW0, u) * (1 - sm(SW1, SW1 + 0.6, u))).toFixed(3);
+  // the run cycle cursor
+  const ph = phaseAt(u), bd = bands[ph];
+  L.move(bandCursor, bd.x + (bd.w * (u - bd.a)) / (bd.b - bd.a), 0);
+  bandCursor.style.opacity = Math.min(sm(0, 0.5, u), 1 - sm(CYCLE - 0.5, CYCLE, u)).toFixed(3);
+  // the count window and the interphase bars glide (their functions are smooth)
+  const w = L.clamp((u - WIN0) / (WIN1 - WIN0));
+  winBar.style.transform = `scaleX(${w.toFixed(4)})`;
+  for (const r of ireads) {
+    const v = L.clamp(r.f(s) / r.max);
+    if (Math.abs(v - r.v) > 0.0004) { r.v = v; r.bar.style.transform = `scaleX(${v.toFixed(4)})`; }
+  }
+});
+let lastPhase = -1, lastK = null;
+L.every(250, (t) => {
+  const s = t, u = cyc(s), k = runAt(s), R = run(k), ph = phaseAt(u);
+  if (ph !== lastPhase || k !== lastK) {
+    lastPhase = ph;
+    L.set(stateTxt, STATE[ph]);
+    bands.forEach((b, i) => { b.e.style.background = i === ph ? col(b.c) : TRACK; b.e.style.color = i === ph ? "#000" : col(b.c); });
+  }
+  if (k !== lastK) { lastK = k; L.set(subTxt, `Science Lab 4  ·  Subspace Field Harmonic Study  ·  Series ${R.series}, Run ${pad2(R.no)} of 12`); }
+  // the field
+  const f = field(u), rising = u >= 6 && u < 12, decaying = u >= 38 && u < 43, on = u >= 12 && u < 38;
+  const fs = rising ? ["Field Rising", "ice"] : decaying ? ["Field Decaying", "lilac"] : on ? ["Field Stable", "sky"] : ["Field Off", "plum"];
+  L.set(fieldPill, fs[0]); fieldPill.style.background = col(fs[1]);
+  // run parameters
+  const cal = u < 5;
+  const fm = R.freq + R.off + (cal ? 0.004 * (1 - sm(0, 5, u)) : 0);
+  const n = swept(u);
+  const P = [
+    [`${R.freq.toFixed(3)} kHz`, `${fm.toFixed(4)} kHz`, cal ? "Calibrating" : "Locked", cal ? "butter" : "ice"],
+    ["3.80 mc", `${(3.8 * f).toFixed(2)} mc`, ...(rising ? ["Ramping", "butter"] : decaying ? ["Decaying", "lilac"] : on ? ["Holding", "ice"] : ["Off", "plum"])],
+    ["H 1 to 24", `${pad2(n)} of 24`, ...(u < SW0 ? ["Pending", "plum"] : u < SW1 ? ["Sweeping", "butter"] : ["Complete", "ice"])],
+  ];
+  params.forEach((p, i) => { L.set(p.set, P[i][0]); L.set(p.meas, P[i][1]); L.set(p.st, P[i][2]); p.st.style.color = col(P[i][3]); });
+  // the counters: the rate now, and what the window has counted at that rate
+  const r = rates(s), w = L.clamp((u - WIN0) / (WIN1 - WIN0)), el = Math.round(w * 80) / 10;
+  CHANS.forEach((ch) => L.set(ch.num, fmt(shown(r[ch.key]))));
+  L.set(winVal, `${el.toFixed(1)} of 8.0 s`);
+  parts.forEach((p) => { L.set(p.rate, fmt(shown(r[p.key]))); L.set(p.count, fmt(shown(r[p.key]) * el)); });
+  // interphase
+  ireads.forEach((ir, i) => {
+    if (i === 3) { const sv = sweep(u); L.set(ir.val, sv <= 0 ? "Standby" : sv >= 1 ? "Complete" : Math.round(sv * 100) + "%"); }
+    else L.set(ir.val, ir.show(ir.f(s)));
+  });
+  const det = r.chr > 20;
+  L.set(ipPill, det ? "Chronitons Detected" : "Background"); ipPill.style.background = col(det ? "butter" : "sky");
+  // results: a run joins the table when it is logged
+  const lk = u >= 44 ? k : k - 1;
+  if (lk !== loggedK) { showResults(lk, loggedK !== null); loggedK = lk; }
+}, 0);
+});
+</script></body></html>

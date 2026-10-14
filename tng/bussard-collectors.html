@@ -1,0 +1,322 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Bussard Collectors</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .sw { transition: background-color .9s ease, color .9s ease; }
+  .spoke { position: absolute; overflow: hidden; }
+  .glow { transition: opacity 2s ease; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: wide, no sidebars — the scoop field is the screen ----------------
+L.frame({ type: "D", title: "Bussard Collectors  •  Interstellar Ramscoop", c: "mars", c2: "orange", accent: "peach" });
+
+const LX = 40, LR = 760, MX = 824, MR = 3032, RX = 3096, RR = 3816;      // three columns, 64 apart
+const ROW0 = 428, ROW1 = 1128, PITCH = 88;                               // rows of 64 on an 88 grid
+const rowBase = (y0, i) => y0 + i * PITCH + 52.5;
+const TRACK = "#3a140a", DIM = "#a04a2a";
+const fill = (x, y, w, h, c, parent) => {
+  const f = L.layer({ x, y, w, h }, parent);
+  f.style.background = c.startsWith("#") ? c : `var(--${c})`; f.style.transformOrigin = "0 0";
+  return f;
+};
+const later = (ms, f, jitter) => L.every(ms, (t) => { if (t > 1) f(t); }, jitter);
+const fmt = (n) => Math.round(n).toLocaleString("en");
+const pad = (n, k = 2) => String(n).padStart(k, "0");
+const dur = (s) => (s >= 60 ? `${Math.floor(s / 60)} m ${pad(Math.floor(s) % 60)} s` : `${Math.max(1, Math.floor(s))} s`);
+
+// ---------------- the medium the ship is passing through ----------------
+// [kind, hydrogen atoms per cm³, kinetic temperature K]
+const REGIONS = [["Neutral Medium", 0.9, 7800], ["Hydrogen Cloud", 3.4, 86], ["H II Region", 1.8, 8600], ["Diffuse Cloud", 2.2, 140]]
+  .map(([name, n, T]) => ({ name, n, T }));
+let reg = L.irand(0, REGIONS.length - 1), regFor = L.rand(70, 100), reg0 = 0;
+let n = REGIONS[reg].n, temp = REGIONS[reg].T;
+const RADIUS = 2000, F0 = 12.4, FS0 = 12.36, CAPTURE = 0.964;            // km, tesla at the throat (starboard trims a shade lower)
+const PER = 0.785 * CAPTURE;                                             // kg/s per collector per atom/cm³ at full impulse
+const BUF = 200, PUMP = 0.07, FULL = 0.9, LOW = 0.2;                     // buffer kg; transfer pumps 7%/s
+const DMASS = 4.2e-5;                                                    // deuterium by mass (D/H 21 ppm)
+let buf = L.rand(0.3, 0.8), phase = "collect", bal = false, balK = 0, balFrom = 0, tank = 87.42, lastXfer = null;
+
+// ---------------- status line ----------------
+const stateTxt = L.text({ x: LX, cap: 150, s: 100, c: "peach", txt: "" });
+const stateSub = L.text({ x: 0, base: 222, s: 38, c: "orange", txt: "" });
+const setState = (word, sub) => {
+  L.set(stateTxt, word);
+  stateSub.style.left = LX + L.textWidth(word, 100) + 40 + "px";
+  L.set(stateSub, sub);
+};
+L.box({ x: RR - 400, y: 150, w: 400, h: 72, c: "mars", label: "Ramscoop Active", r: "lr", fs: 36 });
+const stardate0 = 45652.4 + Math.random() * 0.05;
+L.text({ x: RX, base: 222, s: 40, c: "orange", txt: "Stardate" });
+const sdVal = L.text({ x: RX + L.textWidth("Stardate", 40) + 24, base: 222, s: 52, c: "white", txt: "" });
+const stardate = (t = L.t) => (stardate0 + t / 3600 / 8.766).toFixed(1);
+
+// ---------------- tables (top left and right) ----------------
+const table = (x, y0, rows, colors) => rows.map(([label, cap], i) => {
+  const base = rowBase(y0, i);
+  L.box({ x, y: y0 + i * PITCH, w: 220, h: 64, c: colors[i % colors.length], label, fs: 32, r: "l" });
+  return { v: L.text({ x: x + 244, base, s: 52, c: "white", txt: "" }),
+           c: L.text({ x: x + 720, base, s: 36, c: "peach", txt: cap, align: "r" }) };
+});
+L.header({ x: LX, y: 280, w: LR - LX, label: "Scoop Field", c1: "mars", c2: "orange" });
+L.text({ x: LX, base: 400, s: 36, c: "peach", txt: "Field" });
+const fieldNote = L.text({ x: LR, base: 400, s: 36, c: "peach", txt: "", align: "r" });
+const fld = table(LX, ROW0, [["Strength", "At the throat"], ["Radius", "Effective"], ["Geometry", "Forward"], ["Velocity", "Full impulse"],
+  ["Capture", "Efficiency"], ["Ionization", "Pre-ionizer"]], ["mars", "orange", "peach", "mars", "orange", "peach"]);
+L.set(fld[1].v, `${fmt(RADIUS)} km`); L.set(fld[2].v, "Parabolic"); L.set(fld[3].v, "74,948 km/s");
+L.set(fld[4].v, (CAPTURE * 100).toFixed(1) + "%");
+
+L.header({ x: RX, y: 280, w: RR - RX, label: "Interstellar Medium", c1: "orange", c2: "mars" });
+L.text({ x: RX, base: 400, s: 36, c: "peach", txt: "Sensors" });
+const medNote = L.text({ x: RR, base: 400, s: 36, c: "peach", txt: "", align: "r" });
+const med = table(RX, ROW0, [["Region", "Typhon Expanse"], ["Density", "Atoms per cm³"], ["Temperature", "Kinetic"], ["Hydrogen", "By number"],
+  ["Helium", "By number"], ["D/H Ratio", "Deuterium"]], ["orange", "mars", "peach", "orange", "mars", "peach"]);
+
+// ---------------- collector gauges (lower left and right) ----------------
+const gauges = (x, rows, colors) => {
+  [["Subsystem", 0], ["Output", 244], ["Level", 720, "r"]].forEach(([txt, dx, align]) => L.text({ x: x + dx, base: 1100, s: 36, c: "peach", txt, align }));
+  return rows.map((label, i) => {
+    const base = rowBase(ROW1, i);
+    L.box({ x, y: ROW1 + i * PITCH, w: 220, h: 64, c: colors[i % colors.length], label, fs: 32, r: "l" });
+    L.rect({ x: x + 244, y: base - 26, w: 316, h: 26, c: TRACK });
+    return { f: fill(x + 244, base - 26, 316, 26, colors[i % colors.length]), e: L.text({ x: x + 720, base, s: 52, c: "white", txt: "", align: "r" }),
+             v: 0.5, goal: 0.5, drawn: false };
+  });
+};
+const GROWS = ["Intake", "Field Coils", "Throat Flux", "Pre-Ionizer", "Symmetry"];
+L.header({ x: LX, y: 1000, w: LR - LX, label: "Port Collector", c1: "orange", c2: "mars" });
+const gP = gauges(LX, GROWS, ["mars", "orange", "peach", "orange", "mars"]);
+L.header({ x: RX, y: 1000, w: RR - RX, label: "Starboard Collector", c1: "mars", c2: "orange" });
+const gS = gauges(RX, GROWS, ["mars", "orange", "peach", "orange", "mars"]);
+L.tick(() => [...gP, ...gS].forEach((g) => {
+  const d = g.goal - g.v;
+  if (Math.abs(d) < 0.0004 && g.drawn) return;
+  g.v += d * 0.035; g.drawn = true;
+  g.f.style.transform = `scaleX(${L.clamp(g.v).toFixed(4)})`;
+}));
+L.every(300, () => [...gP, ...gS].forEach((g) => L.set(g.e, (L.clamp(g.v) * 100).toFixed(1) + "%")), 0);
+
+// ---------------- the ramscoop field: both collectors, looking forward ----------------
+L.header({ x: MX, y: 280, w: MR - MX, label: "Ramscoop Field  ·  Forward", c1: "mars", c2: "peach" });
+const SX = MX, SY = ROW0, SW = MR - MX, SH = 1544 - ROW0, CY = SY + SH / 2;
+L.rect({ x: SX, y: SY, w: SW, h: SH, c: "#140504", panel: true });
+const KM = 0.23;                                          // px per km: the outer ring is 2,000 km
+const RINGS = [1000, 1500, 2000], R_IN = 124, R_OUT = 484, LEN = R_OUT - R_IN;
+const ANGLES = Array.from({ length: 24 }, (_, k) => 7.5 + 15 * k).filter((a) => a > 20 && a < 340);   // the top wedge carries the scale
+const V = 78;                                             // particle speed, px/s: calm
+// a particle: a bright head leading inward, a short glowing wake behind it
+const DOT = "radial-gradient(circle 7px at 10px 50%, #fff6e6 0%, #ffd27a 36%, rgba(255,156,26,.5) 66%, rgba(255,156,26,0) 100%), " +
+  "radial-gradient(ellipse 30px 3px at 36px 50%, rgba(255,176,112,.7) 0%, rgba(255,156,26,.25) 60%, rgba(255,156,26,0) 100%)";
+const collector = (cx, label) => {
+  L.text({ x: cx, base: 400, s: 36, c: "peach", txt: label, align: "c", w: 700 });
+  const svg = (tag, a) => L.svg(tag, a);
+  // field lines, then the distance rings with their scale in the gap at the top
+  for (const a of ANGLES) {
+    const s = Math.sin(a * Math.PI / 180), c = -Math.cos(a * Math.PI / 180);
+    svg("line", { x1: cx + R_IN * s, y1: CY + R_IN * c, x2: cx + R_OUT * s, y2: CY + R_OUT * c, stroke: "#5a2012", "stroke-width": 3 });
+  }
+  RINGS.forEach((km, i) => {
+    const r = km * KM, txt = `${fmt(km)} km`, hw = L.textWidth(txt, 34) / 2 + 16;
+    const g = Math.asin(hw / r) * 180 / Math.PI;
+    svg("path", { d: L.arc(cx, CY, r - (i === 2 ? 3 : 2), r + (i === 2 ? 3 : 2), g, 360 - g), fill: "var(--mars)", opacity: i === 2 ? 0.8 : 0.5 });
+    L.text({ x: cx, base: CY - r + 12, s: 34, c: "peach", txt, align: "c", w: 300, legend: true });
+  });
+  // the collector itself: a housing of twelve segments round the dome
+  for (let k = 0; k < 12; k++) svg("path", { d: L.arc(cx, CY, 100, 118, k * 30 + 3, k * 30 + 27), fill: "var(--mars)" });
+  const glowW = L.layer({ x: cx - 260, y: CY - 260, w: 520, h: 520, cls: "glow" });
+  const glow = L.el("div", "layer", glowW, { left: "0px", top: "0px", width: "520px", height: "520px", borderRadius: "50%",
+    background: "radial-gradient(circle closest-side, rgba(255,90,60,.5) 0%, rgba(255,90,60,.16) 40%, rgba(255,90,60,0) 72%)" });
+  const breathe = glow.animate([{ opacity: 0.55 }, { opacity: 1 }], { duration: 5200, iterations: Infinity, direction: "alternate", easing: "ease-in-out" });
+  breathe.currentTime = Math.random() * 5200;
+  // the particles: each field line carries two strips of hydrogen, sliding inward on the compositor
+  const strips = [];
+  for (const a of ANGLES) {
+    const box = L.layer({ x: cx, y: CY - 7, w: LEN, h: 14, cls: "spoke" });
+    box.style.transformOrigin = "0 7px";
+    box.style.transform = `rotate(${(a - 90).toFixed(2)}deg) translateX(${R_IN}px)`;
+    const m = `linear-gradient(to right, transparent 0px, #000 64px, #000 ${LEN - 64}px, transparent ${LEN}px)`;
+    box.style.webkitMaskImage = m; box.style.maskImage = m;
+    for (const second of [false, true]) {
+      const P = Math.round(L.rand(second ? 110 : 84, second ? 170 : 132));
+      const s = L.el("div", "layer", box, { left: "0px", top: "0px", width: LEN + P + "px", height: "14px",
+        backgroundImage: DOT, backgroundSize: `${P}px 14px`, backgroundRepeat: "repeat-x", backgroundPosition: `${L.irand(0, P)}px 0` });
+      const anim = s.animate([{ transform: "translate3d(0,0,0)" }, { transform: `translate3d(${-P}px,0,0)` }],
+        { duration: (P / V) * 1000, iterations: Infinity, easing: "linear" });
+      anim.currentTime = Math.random() * (P / V) * 1000;
+      strips.push({ s, anim, second, op: "" });
+    }
+  }
+  // the dome, over the inner ends of the field lines
+  L.el("div", "layer", L.stage, { left: cx - 92 + "px", top: CY - 92 + "px", width: "184px", height: "184px", borderRadius: "50%",
+    background: "radial-gradient(circle closest-side, #ffd7b8 0%, #ff8a5c 30%, #ff5a3c 58%, #b8261a 86%, #6a120a 100%)" });
+  return { strips, glowW, rate: 1 };
+};
+const port = collector(SX + SW / 4, "Port Collector"), stbd = collector(SX + (3 * SW) / 4, "Starboard Collector");
+
+// the four corner readings, printed on the field
+const corner = (x, align, top, label) => {
+  const lb = top ? SY + 48 + 26 : SY + SH - 48 - 62;
+  return { l: L.text({ x, base: lb, s: 36, c: "peach", txt: label, align }), v: L.text({ x, base: lb + 62, s: 52, c: "white", txt: "", align }) };
+};
+const cInP = corner(SX + 48, "l", true, "Port Intake");
+const cInS = corner(SX + SW - 48, "r", true, "Starboard Intake");
+const cFP = corner(SX + 48, "l", false, "Port Field");
+const cFS = corner(SX + SW - 48, "r", false, "Starboard Field");
+
+// ---------------- fuel processing (bottom middle) ----------------
+L.header({ x: MX, y: 1620, w: MR - MX, label: "Collector Buffer  ·  Fuel Processing", c1: "orange", c2: "mars", h: 48 });
+const NSEG = 10, SP = (SW + 8) / NSEG;
+const segX = (i) => Math.round(MX + i * SP);
+const segs = Array.from({ length: NSEG }, (_, i) => {
+  const x = segX(i), x2 = segX(i + 1) - 8;
+  return L.box({ x, y: 1772, w: (i === NSEG - 1 ? MR : x2) - x, h: 80, c: TRACK, label: `${(i + 1) * 10}%`, fs: 28, cls: "sw",
+    r: i === 0 ? "l" : i === NSEG - 1 ? "r" : null });
+});
+const cell = (i, j, label, base = 1734) => {
+  L.text({ x: segX(i), base, s: 40, c: "orange", txt: label });
+  return L.text({ x: segX(j), base, s: 52, c: "white", txt: "" });
+};
+const pIntake = cell(0, 1, "Intake"), pDeut = cell(3, 4, "Deuterium"), pBuf = cell(7, 8, "Buffer");
+L.rect({ x: MX, y: 1876, w: MR - MX, h: 16, c: TRACK });
+const bufBar = fill(MX, 1876, MR - MX, 16, "orange");
+const pXfer = cell(0, 1, "Transfer", 1950), pSep = cell(3, 4, "Separation", 1950), pCycle = cell(7, 8, "Cycle", 1950);
+let segShown = -1;
+const showSegs = (lit) => {
+  if (lit === segShown) return; segShown = lit;
+  segs.forEach((e, i) => {
+    e.style.background = i < lit ? `var(--${i === lit - 1 ? "peach" : "orange"})` : TRACK;
+    e.style.color = i < lit ? "#000" : DIM;
+  });
+};
+
+// ---------------- collector log (bottom left) ----------------
+L.header({ x: LX, y: 1620, w: LR - LX, label: "Collector Log", c1: "mars", c2: "peach", h: 48 });
+const logRows = Array.from({ length: 5 }, (_, i) => {
+  const base = 1734 + i * 54;
+  return { sd: L.text({ x: LX, base, s: 36, c: "orange", txt: "" }), tx: L.text({ x: LX + 164, base, s: 36, c: "peach", txt: "" }) };
+});
+const logged = [];
+const log = (txt) => {
+  logged.push([stardate(), txt]); if (logged.length > 5) logged.shift();
+  logRows.forEach((r, i) => { const e = logged[i]; L.set(r.sd, e ? e[0] : ""); L.set(r.tx, e ? e[1] : ""); r.tx.style.color = i === logged.length - 1 ? "var(--white)" : "var(--peach)"; });
+};
+
+// ---------------- deuterium tankage (bottom right) ----------------
+L.header({ x: RX, y: 1620, w: RR - RX, label: "Deuterium Tankage", c1: "peach", c2: "orange", h: 48 });
+const tankRows = [["Primary Tank", "Slush deuterium"], ["Reserve Tanks", "Slush deuterium"], ["Fuel Processing", "Isotope separation"],
+  ["Impulse Reactors", "Fusion feed"], ["Last Transfer", "Stardate"]].map(([nm, k], i) => {
+  const base = 1734 + i * 54;
+  L.text({ x: RX, base, s: 36, c: "peach", txt: nm }); L.text({ x: RX + 300, base, s: 36, c: "orange", txt: k });
+  return L.text({ x: RR, base, s: 36, c: "white", txt: "", align: "r" });
+});
+L.set(tankRows[1], "96.80%"); L.set(tankRows[3], "Nominal");
+
+// ---------------- the model, every frame ----------------
+const intake = () => {
+  const p = n * PER, s = p * 0.988 * (1 - 0.1 * balK);
+  return { p, s, all: p + s };
+};
+let lastT = null, frameN = 0;
+L.tick((t) => {
+  const dt = lastT === null ? 0 : Math.min(0.2, t - lastT); lastT = t;
+  const R = REGIONS[reg];
+  n += (R.n - n) * (1 - Math.exp(-dt / 7)); temp += (R.T - temp) * (1 - Math.exp(-dt / 7));
+  balK += ((bal ? 1 : 0) - balK) * (1 - Math.exp(-dt / 2.5));
+  const fr = intake().all / BUF;
+  if (phase === "collect") {
+    buf = Math.min(0.97, buf + fr * dt);
+    if (buf >= FULL && !bal) { phase = "transfer"; log(`Buffer at ${Math.round(buf * 100)}%, transfer to processing`); }
+  } else {
+    buf += (fr - PUMP) * dt;
+    if (buf <= LOW) {
+      buf = LOW; phase = "collect"; lastXfer = stardate(t); tank = Math.min(87.6, tank + 0.01);
+      log(`Transfer complete, ${(BUF * (FULL - LOW) * DMASS * 1000).toFixed(1)} g deuterium`);
+    }
+  }
+  bufBar.style.transform = `scaleX(${buf.toFixed(4)})`;
+  // the particles: density shows as how many strips are lit; the starboard field slows while it realigns
+  if (++frameN % 3) return;
+  const k = L.clamp(Math.log(n / 0.8) / Math.log(4.4));
+  for (const c of [port, stbd]) {
+    const rate = c === stbd ? 1 - 0.12 * balK : 1;
+    if (Math.abs(rate - c.rate) > 0.002) { c.rate = rate; c.strips.forEach((s) => (s.anim.playbackRate = rate)); }
+    for (const s of c.strips) {
+      const op = (s.second ? k : 0.75 + 0.25 * k).toFixed(2);
+      if (op !== s.op) { s.op = op; s.s.style.opacity = op; }
+    }
+  }
+});
+
+// ---------------- readings, a few times a second ----------------
+L.every(250, (t) => {
+  const I = intake(), R = REGIONS[reg], fr = I.all / BUF, k = L.clamp(Math.log(n / 0.8) / Math.log(4.4));
+  const FS = FS0 - 0.6 * balK;
+  L.set(sdVal, stardate(t));
+  // status
+  if (phase === "transfer") setState("Transferring", "Collector buffer to fuel processing  ·  isotope separation under way");
+  else if (bal) setState("Balancing", "Starboard field harmonics drifting  ·  realigning to port collector");
+  else setState("Collecting", `Interstellar hydrogen  ·  ${R.name.toLowerCase()}, Typhon Expanse  ·  full impulse`);
+  // field
+  L.set(fld[0].v, `${((F0 + FS) / 2).toFixed(2)} T`);
+  L.set(fld[5].v, (98.6 + 0.6 * k).toFixed(1) + "%");
+  L.set(fieldNote, bal ? "Starboard realigning" : "Port and starboard in phase");
+  // medium
+  L.set(med[0].v, R.name); L.set(med[1].v, n.toFixed(2)); L.set(med[2].v, `${fmt(temp)} K`);
+  L.set(med[3].v, "92.1%"); L.set(med[4].v, "7.8%"); L.set(med[5].v, "21 ppm");
+  L.set(medNote, Math.abs(n - R.n) > 0.03 ? "Density changing" : "Steady");
+  // corners
+  L.set(cInP.v, `${I.p.toFixed(2)} kg/s`); L.set(cInS.v, `${I.s.toFixed(2)} kg/s`);
+  L.set(cFP.v, `${F0.toFixed(2)} T`); L.set(cFS.v, `${FS.toFixed(2)} T`);
+  // processing
+  L.set(pIntake, `${I.all.toFixed(2)} kg/s`);
+  L.set(pDeut, `${fmt(I.all * DMASS * 3.6e6)} g/h`);
+  L.set(pBuf, (buf * 100).toFixed(1) + "%");
+  showSegs(Math.floor(buf * 10 + 1e-6));
+  L.set(pXfer, phase === "transfer" ? "Pumping" : "Standby");
+  L.set(pSep, phase === "transfer" ? "99.2%" : "Idle");
+  L.set(pCycle, phase === "transfer" ? `Empty in ${dur((buf - LOW) / Math.max(0.005, PUMP - fr))}` : `Full in ${dur(Math.max(0, FULL - buf) / fr)}`);
+  // tankage
+  L.set(tankRows[0], tank.toFixed(2) + "%");
+  L.set(tankRows[2], phase === "transfer" ? "Active" : "Standby");
+  L.set(tankRows[4], lastXfer || stardate0.toFixed(1));
+  // gauges
+  const set = (g, ip, F, sym) => {
+    g[0].goal = ip / 4; g[1].goal = F / 16; g[2].goal = 0.25 + 0.6 * ip / 4; g[3].goal = (g === gP ? 0.86 : 0.852) + 0.06 * k; g[4].goal = sym;
+  };
+  set(gP, I.p, F0, 0.994); set(gS, I.s, FS, 0.991 - 0.032 * balK);
+  port.glowW.style.opacity = (0.55 + 0.45 * k).toFixed(2);
+  stbd.glowW.style.opacity = ((0.55 + 0.45 * k) * (1 - 0.15 * balK)).toFixed(2);
+}, 0);
+
+// the ship moves on into other kinds of medium
+later(1000, (t) => {
+  if (t - reg0 < regFor) return;
+  let nx; do nx = L.irand(0, REGIONS.length - 1); while (nx === reg);
+  reg = nx; reg0 = t; regFor = L.rand(75, 110);
+  log(`Entering ${REGIONS[reg].name.replace("H II", "an H II").toLowerCase()}, ${REGIONS[reg].n} atoms/cm³`);
+}, 0);
+// now and then the starboard field drifts out of phase, and is brought back
+let nextBal = L.rand(40, 90);
+later(500, (t) => {
+  if (bal && t - balFrom > 14) { bal = false; log("Starboard field realigned to port"); nextBal = t + L.rand(120, 200); }
+  else if (!bal && t > nextBal && phase === "collect" && (FULL - buf) * BUF / intake().all > 20) { bal = true; balFrom = t; log("Starboard field harmonics drifting"); }
+}, 0);
+// impulse reactors draw on the primary tank
+later(170000, () => { tank = Math.max(87.2, tank - 0.01); }, 0.2);
+
+const ROUTINE = ["Field geometry nominal", "Pre-ionizer output steady", "Coil temperatures nominal", "Deuterium assay, 21 ppm",
+  "Isotope separator cycled", "Charting the Typhon Expanse", "Throat flux within limits"];
+let rdeck = [];
+later(16000, () => {
+  if (bal) return;
+  if (!rdeck.length) rdeck = ROUTINE.slice().sort(() => Math.random() - 0.5);
+  log(rdeck.pop());
+}, 0.3);
+
+log("Ramscoop field established, 2,000 km"); log("Port and starboard collectors online"); log("Charting the Typhon Expanse");
+log(`Entering ${REGIONS[reg].name.replace("H II", "an H II").toLowerCase()}, ${REGIONS[reg].n} atoms/cm³`); log("Collecting interstellar hydrogen");
+});
+</script></body></html>

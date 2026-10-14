@@ -1,0 +1,374 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Astrometrics</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .lens { border-radius: 50%; border: 5px solid var(--ice); }
+  .lens i { position: absolute; display: block; background: var(--ice); }
+  .ripple { border-radius: 50%; border: 5px solid var(--white); }
+  .leg { background: var(--ice); transform-origin: 0 50%; border-radius: 3px; }
+  .nm { text-shadow: 0 0 6px #0b0716, 0 0 6px #0b0716, 0 0 12px #0b0716; }   /* names stand off the lines behind them */
+  .cursor { background: linear-gradient(to right, rgba(242,242,255,0), rgba(242,242,255,.85)); }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame, mirrored: sidebar on the right, title at top left ----------------
+const BAR = 64, TS = BAR / (L.BASELINE - L.CAP_TOP);
+L.box({ x: 40, y: 40, w: 92, h: BAR, c: "lilac", r: "l" });
+const TITLE = "Astrometrics  •  Stellar Cartography";
+L.text({ x: 132 + L.GAP, cap: 40, s: TS, c: "lilac", txt: TITLE });
+const afterTitle = 132 + L.GAP + L.textWidth(TITLE, TS) + L.GAP - 12;   // less the last letter's side bearing
+L.rect({ x: afterTitle, y: 40, w: 320, h: BAR, c: "pink" });
+L.rect({ x: afterTitle + 320 + L.GAP, y: 40, w: 2600 - L.GAP - (afterTitle + 320 + L.GAP), h: BAR, c: "plum" });
+L.elbow({ corner: "tr", x: 2600, y: 40, w: 1216, h: 250, bw: 240, bh: BAR, R: 150, r: 60, c: "lilac" });
+[[298, 140, "pink", "Astro 01"], [446, 70, "ice", "Lens"], [524, 420, "lilac", "Chart"], [952, 70, "pink", "001"],
+ [1030, 300, "plum", "Spectra"], [1338, 70, "ice", "Route"], [1416, 216, "lilac", "Survey"]]
+  .forEach(([y, h, c, label]) => L.box({ x: 3576, y, w: 240, h, c, label }));
+L.elbow({ corner: "br", x: 2600, y: 1640, w: 1216, h: 480, bw: 240, bh: BAR, R: 150, r: 60, c: "plum" });
+L.text({ x: 3794, base: 1712, s: 40, c: "#000", txt: "Astrometrics", align: "r", on: true });
+L.box({ x: 40, y: 2056, w: 92, h: BAR, c: "plum", r: "l" });
+[[132 + L.GAP, 700, "pink"], [132 + L.GAP + 700 + L.GAP, 900, "lilac"]].forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
+L.rect({ x: 132 + 3 * L.GAP + 1600, y: 2056, w: 2600 - L.GAP - (132 + 3 * L.GAP + 1600), h: BAR, c: "plum" });
+
+const header = (x, y, w, label, lw, c1, c2) => {
+  L.box({ x, y, w: lw, h: 56, c: c1, label, fs: 32, r: "l" });
+  L.rect({ x: x + lw + L.GAP, y, w: w - lw - L.GAP, h: 56, c: c2 });
+};
+const small = (x, y, w, label, lw, c1, c2) => {
+  L.box({ x, y, w: lw, h: 48, c: c1, label, fs: 28, r: "l" });
+  L.rect({ x: x + lw + L.GAP, y, w: w - lw - L.GAP, h: 48, c: c2 });
+};
+
+// ---------------- the catalogue: real stars within 40 light-years of Sol ----------------
+// name, RA (h), Dec (°), distance (ly), class, mass (Sol = 1), luminosity (Sol = 1), temperature (K),
+// planets, radial velocity (km/s), [Fe/H], remarks
+const CAT = [
+  ["Sol", 0, 0, 0, "G2 V", 1.00, 1, 5772, 8, 0, 0, "Sector 001"],
+  ["Alpha Centauri", 14.66, -60.83, 4.37, "G2 V", 1.08, 1.52, 5790, 2, -21.4, 0.20, "Colony worlds"],
+  ["Barnard's Star", 17.96, 4.69, 5.96, "M4 V", 0.16, 0.0035, 3134, 4, -110.6, -0.39, "High proper motion"],
+  ["Wolf 359", 10.94, 7.01, 7.86, "M6 V", 0.11, 0.0014, 2800, 2, 19.6, 0.18, "Battle site  ·  44002.3"],
+  ["Lalande 21185", 11.06, 35.97, 8.31, "M2 V", 0.39, 0.022, 3547, 2, -84.7, -0.20, "Flare star"],
+  ["Sirius", 6.75, -16.72, 8.60, "A1 V", 2.06, 25.4, 9940, 0, -5.5, 0.50, "Binary  ·  white dwarf B"],
+  ["Epsilon Eridani", 3.55, -9.46, 10.47, "K2 V", 0.82, 0.34, 5084, 1, 16.4, -0.09, "Debris disk"],
+  ["Procyon", 7.65, 5.22, 11.46, "F5 IV", 1.50, 6.93, 6530, 0, -3.2, -0.02, "Binary  ·  white dwarf B"],
+  ["61 Cygni", 21.12, 38.75, 11.40, "K5 V", 0.70, 0.15, 4526, 0, -65.7, -0.33, "Binary"],
+  ["Epsilon Indi", 22.06, -56.79, 11.87, "K5 V", 0.76, 0.22, 4630, 1, -40.4, -0.17, "Brown dwarf pair"],
+  ["Tau Ceti", 1.73, -15.94, 11.91, "G8 V", 0.78, 0.52, 5344, 4, -16.7, -0.52, "Debris disk"],
+  ["40 Eridani", 4.25, -7.65, 16.3, "K0 V", 0.84, 0.46, 5072, 1, -42.3, -0.31, "Vulcan"],
+  ["Altair", 19.85, 8.87, 16.73, "A7 V", 1.86, 10.6, 7670, 0, -26.1, -0.24, "Rapid rotator"],
+  ["Fomalhaut", 22.96, -29.62, 25.13, "A3 V", 1.92, 16.6, 8590, 1, 6.5, -0.03, "Debris ring"],
+  ["Vega", 18.62, 38.78, 25.04, "A0 V", 2.14, 40.1, 9602, 0, -13.9, -0.50, "Vega colony"],
+  ["Pollux", 7.76, 28.03, 33.8, "K0 III", 1.91, 32.7, 4586, 1, 3.2, 0.12, "Pollux IV"],
+  ["Arcturus", 14.26, 19.18, 36.7, "K1.5 III", 1.08, 170, 4286, 0, -5.2, -0.52, "Red giant"],
+].map(([name, ra, dec, d, cls, mass, lum, temp, planets, rv, feh, note]) =>
+  ({ name, ra, dec, d, cls, mass, lum, temp, planets, rv, feh, note }));
+const INK = { O: "#9fc4ff", B: "#b4ceff", A: "#e6ecff", F: "#fff3dc", G: "#ffd77a", K: "#ffab6b", M: "#ff7a52" };
+
+// ---------------- the chart: a tilted view of the equatorial plane, Sol at the centre ----------------
+header(40, 280, 2200, "Local Sector Chart", 400, "lilac", "plum");
+const CX0 = 40, CY0 = 360, CW = 2200, CH = 1200;
+L.rect({ x: CX0, y: CY0, w: CW, h: CH, c: "#0b0716", panel: true });
+const AZ = 200 * Math.PI / 180, EL = 17 * Math.PI / 180;   // the view: turned, and looked at from just above the plane
+const SE = Math.sin(EL), CE = Math.cos(EL), RINGS = [5, 10, 20, 30, 40];
+const RAD = (d) => 40 * Math.sqrt(d / 40);
+for (const s of CAT) {
+  const a = (s.ra * 15 * Math.PI) / 180 + AZ, dd = (s.dec * Math.PI) / 180;
+  const q = RAD(s.d);                                     // the chart's radial scale: square root, so the near stars open out
+  s.X = q * Math.cos(dd) * Math.cos(a); s.Y = q * Math.cos(dd) * Math.sin(a); s.Z = q * Math.sin(dd);
+}
+// fit the 40 ly ring and every star into the panel, leaving room for the names at the right
+let SC = 0, OX = 0, OY = 0;
+{
+  const pts = CAT.map((s) => [s.X, s.Y * SE - s.Z * CE]);
+  for (let k = 0; k < 72; k++) pts.push([40 * Math.cos(k / 72 * 2 * Math.PI), 40 * Math.sin(k / 72 * 2 * Math.PI) * SE]);
+  const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+  const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+  const box = { l: CX0 + 120, r: CX0 + CW - 120, t: CY0 + 110, b: CY0 + CH - 130 };
+  SC = Math.min((box.r - box.l) / (x1 - x0), (box.b - box.t) / (y1 - y0));
+  OX = (box.l + box.r) / 2 - SC * (x0 + x1) / 2; OY = (box.t + box.b) / 2 - SC * (y0 + y1) / 2;
+}
+const P = (X, Y, Z = 0) => [OX + SC * X, OY + SC * (Y * SE - Z * CE)];
+for (const s of CAT) {
+  [s.sx, s.sy] = P(s.X, s.Y, s.Z); [s.fx, s.fy] = P(s.X, s.Y, 0);
+  s.r = L.clamp(9 + 2.4 * Math.log10(s.lum), 5.5, 15);
+  s.ink = INK[s.cls[0]];
+}
+// the survey route: nearest neighbour from Sol, then home
+const route = [CAT[0]];
+{
+  let here = CAT[0], left = CAT.slice(1);
+  while (left.length) {
+    left.sort((a, b) => Math.hypot(a.X - here.X, a.Y - here.Y, a.Z - here.Z) - Math.hypot(b.X - here.X, b.Y - here.Y, b.Z - here.Z));
+    here = left.shift(); route.push(here);
+  }
+}
+route.forEach((s, i) => (s.wp = i + 1));
+
+const chart = L.canvas({ x: CX0, y: CY0, w: CW, h: CH, panel: true });
+let dseed = 47391;                                         // the same sky every time
+const drand = () => ((dseed = (dseed * 16807) % 2147483647) / 2147483647);
+const DUST = ["#3a2c58", "#4a3a6e", "#5e4c86", "#8a7aaa", "#b8a8d8"];
+const dust = Array.from({ length: 1300 }, () => [drand() * CW, drand() * CH, drand() ** 3 * 2.2 + 0.8, DUST[Math.floor(drand() * DUST.length)]]);
+chart.onResize = () => {
+  const g = chart.g, o = (x, y) => [x - CX0, y - CY0];
+  g.clearRect(0, 0, CW, CH);
+  // a faint band of the galaxy behind the chart
+  for (const [x, y, r, a] of [[300, 260, 520, 0.16], [900, 180, 600, 0.10], [1700, 1000, 640, 0.12], [2050, 420, 420, 0.08]]) {
+    const n = g.createRadialGradient(x, y, 0, x, y, r);
+    n.addColorStop(0, `rgba(107,86,216,${a})`); n.addColorStop(0.5, `rgba(156,111,180,${a * 0.5})`); n.addColorStop(1, "rgba(156,111,180,0)");
+    g.fillStyle = n; g.fillRect(x - r, y - r, 2 * r, 2 * r);
+  }
+  for (const [x, y, r, c] of dust) { g.fillStyle = c; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); }
+  // the plane: range rings and bearings
+  const [cx, cy] = o(OX, OY);
+  for (let a = 0; a < 360; a += 30) {
+    const t = (a * Math.PI) / 180;
+    g.strokeStyle = "#3a2a5c"; g.lineWidth = 2;
+    g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + 40 * SC * Math.cos(t), cy + 40 * SC * SE * Math.sin(t)); g.stroke();
+  }
+  RINGS.forEach((R) => {
+    g.strokeStyle = R === 40 ? "#7a5aa0" : "#4e3878"; g.lineWidth = R === 40 ? 4 : 2.5;
+    g.beginPath(); g.ellipse(cx, cy, RAD(R) * SC, RAD(R) * SC * SE, 0, 0, 7); g.stroke();
+  });
+  // the route, dashed
+  g.strokeStyle = "rgba(199,160,216,.55)"; g.lineWidth = 3; g.setLineDash([16, 12]);
+  g.beginPath();
+  [...route, CAT[0]].forEach((s, i) => { const [x, y] = o(s.sx, s.sy); i ? g.lineTo(x, y) : g.moveTo(x, y); });
+  g.stroke(); g.setLineDash([]);
+  // each star on its stalk, with a mark where the stalk meets the plane
+  for (const s of CAT) {
+    const [x, y] = o(s.sx, s.sy), [fx, fy] = o(s.fx, s.fy);
+    g.strokeStyle = "rgba(199,160,216,.5)"; g.lineWidth = 2;
+    g.beginPath(); g.moveTo(x, y); g.lineTo(fx, fy); g.stroke();
+    g.beginPath(); g.ellipse(fx, fy, 9, 9 * SE * 1.6, 0, 0, 7); g.stroke();
+    const glow = g.createRadialGradient(x, y, 0, x, y, s.r * 3.4);
+    glow.addColorStop(0, s.ink); glow.addColorStop(0.3, s.ink + "66"); glow.addColorStop(1, s.ink + "00");
+    g.fillStyle = glow; g.beginPath(); g.arc(x, y, s.r * 3.4, 0, 7); g.fill();
+    g.fillStyle = s.ink; g.beginPath(); g.arc(x, y, s.r, 0, 7); g.fill();
+  }
+};
+// names beside the stars, clear of the lens (radius 34); a few go on the left where the right is crowded
+const LEFT = ["Altair", "Epsilon Eridani", "61 Cygni"];
+for (const s of CAT) {
+  const l = LEFT.includes(s.name);
+  s.label = L.text({ x: s.sx + (l ? -46 : 46), base: s.sy + 13, s: 36, c: s === CAT[0] ? "butter" : "lilac", txt: s.name, align: l ? "r" : undefined, cls: "nm" });
+}
+// range rings, labelled where they cross the right-hand bearing
+const RA = (24 * Math.PI) / 180;
+RINGS.slice(1).forEach((R) => L.text({ x: OX + RAD(R) * SC * Math.cos(RA) + 14, base: OY + RAD(R) * SC * SE * Math.sin(RA) + 34, s: 30, c: "plum", txt: R + " LY", legend: true }));
+// corner notes and the scale bar
+L.text({ x: CX0 + 40, base: CY0 + 72, s: 36, c: "lilac", txt: "Equatorial projection  ·  Elevation 17°" });
+const SBX = CX0 + CW - 60 - RAD(40) * SC, SBY = CY0 + CH - 70, SB = [0, 5, 10, 20, 40];   // the scale follows the chart's square-root rings
+SB.forEach((d, i) => {
+  const x = SBX + RAD(d) * SC;
+  if (i) L.rect({ x: SBX + RAD(SB[i - 1]) * SC, y: SBY, w: (RAD(d) - RAD(SB[i - 1])) * SC, h: 16, c: i % 2 ? "lilac" : "plum", free: true });
+  L.rect({ x: x - 1.5, y: SBY - 10, w: 3, h: 26, c: "lilac", free: true });
+  L.text({ x, base: SBY - 22, s: 30, c: "lilac", txt: d + (d === 40 ? " LY" : ""), align: "c", w: 120, legend: true });
+});
+
+// ---------------- the survey lens, the leg being flown, the arrival ripple ----------------
+const LR = 34;                                           // inside the names, which start 46 px from each star
+const lens = L.layer({ x: 0, y: 0, w: 2 * LR, h: 2 * LR, cls: "lens" });
+// four ticks pointing in from the ring (the lens turns slowly; nothing reaches out over a name)
+[[LR - 8, 0, 6, 14], [LR - 8, 2 * LR - 10 - 14, 6, 14], [0, LR - 8, 14, 6], [2 * LR - 10 - 14, LR - 8, 14, 6]]
+  .forEach(([left, top, w, h]) => L.el("i", "", lens, { left: left + "px", top: top + "px", width: w + "px", height: h + "px" }));
+const leg = L.layer({ x: 0, y: 0, w: 100, h: 5, cls: "leg" });
+const ripple = L.layer({ x: 0, y: 0, w: 120, h: 120, cls: "ripple" });
+ripple.style.opacity = 0;
+
+// ---------------- survey target ----------------
+header(2300, 280, 1220, "Survey Target", 320, "pink", "plum");
+const rows = [["Designation", (s) => s.name], ["Spectral Class", (s) => s.cls], ["Distance", (s) => (s.d ? s.d.toFixed(2) + " LY" : "Origin")],
+  ["Mass", (s) => s.mass.toFixed(2) + " Sol"], ["Luminosity", (s) => (s.lum < 0.1 ? s.lum.toFixed(4) : s.lum.toFixed(2)) + " Sol"],
+  ["Temperature", (s) => s.temp.toLocaleString("en") + " K"], ["Radius", (s) => s.rad.toFixed(2) + " Sol"]];
+for (const s of CAT) s.rad = Math.sqrt(s.lum) * Math.pow(5772 / s.temp, 2);
+// a Hertzsprung–Russell diagram between the names and the values: the catalogue, and the target on it
+const HX = 2620, HY = 366, HW = 560, HH = 494;
+const hrX = (T) => HX + 24 + (4.10 - Math.log10(T)) / (4.10 - 3.40) * (HW - 48);       // hot on the left, as drawn by astronomers
+const hrY = (lum) => HY + 24 + (2.6 - Math.log10(lum)) / 6.4 * (HH - 48);
+L.rect({ x: HX, y: HY, w: HW, h: HH, c: "#0b0716", panel: true });
+{
+  const g = L.svg("g", { class: "boot" });
+  for (const l of [100, 1, 0.01]) L.svg("rect", { x: HX, y: hrY(l) - 1, width: HW, height: 2, fill: "#2a1f44" }, g);   // luminosity decades
+  for (const T of [10000, 7500, 6000, 5200, 3700]) L.svg("rect", { x: hrX(T) - 1, y: HY, width: 2, height: HH, fill: "#2a1f44" }, g);   // class boundaries
+  const ms = [[10500, 60], [9600, 40], [8000, 9], [6500, 2.6], [5800, 1], [5100, 0.35], [4400, 0.13], [3500, 0.022], [2700, 0.0011]];
+  L.svg("polyline", { points: ms.map(([T, l]) => `${hrX(T).toFixed(1)},${hrY(l).toFixed(1)}`).join(" "), fill: "none",
+    stroke: "#9c6fb4", "stroke-width": 30, "stroke-linecap": "round", "stroke-linejoin": "round", opacity: 0.28 }, g);
+  for (const s of CAT) L.svg("circle", { cx: hrX(s.temp), cy: hrY(s.lum), r: 9, fill: s.ink }, g);
+}
+[["B", 12590, 10000], ["A", 10000, 7500], ["F", 7500, 6000], ["G", 6000, 5200], ["K", 5200, 3700], ["M", 3700, 2500]]
+  .forEach(([k, a, b]) => L.text({ x: hrX(Math.sqrt(a * b)), base: HY + HH - 24, s: 30, c: "lilac", txt: k, align: "c", w: 60, legend: true }));
+[[100, "100"], [1, "1"], [0.01, "0.01"]].forEach(([l, txt]) => L.text({ x: HX + 18, base: hrY(l) - 10, s: 30, c: "lilac", txt, legend: true }));
+const hrMark = L.layer({ x: 0, y: 0, w: 56, h: 56, cls: "ripple" });
+hrMark.style.borderColor = "var(--ice)";
+let hrFrom = null, hrTo = null, hrT0 = -9;
+const rvals = rows.map(([name], i) => {
+  const base = 404 + i * 76;
+  L.text({ x: 2300, base, s: 40, c: "lilac", txt: name });
+  return L.text({ x: 3520, base, s: 52, c: "white", txt: "", align: "r" });
+});
+
+// ---------------- spectrograph ----------------
+header(2300, 1000, 1220, "Spectrograph", 300, "ice", "violet");
+L.text({ x: 2300, base: 1112, s: 40, c: "lilac", txt: "Peak Emission" });
+const peak = L.text({ x: 3520, base: 1112, s: 52, c: "white", txt: "", align: "r" });
+const SPX = 2300, SPW = 1220, SPY = 1150, SPH = 180, NM0 = 380, NM1 = 750;
+const nmX = (nm) => ((nm - NM0) / (NM1 - NM0)) * SPW;
+{
+  const defs = L.svg("defs", {});
+  const grad = L.svg("linearGradient", { id: "rainbow", x1: 0, x2: 1, y1: 0, y2: 0 }, defs);
+  [[380, "#3a0f6e"], [420, "#4b2fd8"], [460, "#2f6fff"], [490, "#1fc4f0"], [515, "#2fe08a"], [560, "#c8e83a"],
+   [585, "#ffd23a"], [610, "#ff9a2a"], [650, "#f04a2a"], [700, "#b81e2a"], [750, "#4a0a14"]]
+    .forEach(([nm, c]) => L.svg("stop", { offset: (nmX(nm) / SPW).toFixed(4), "stop-color": c }, grad));
+  L.svg("rect", { x: SPX, y: SPY, width: SPW, height: SPH, fill: "url(#rainbow)", opacity: 0.82, class: "boot" });
+}
+// the star's own lines and curve sit on a layer, so a new star fades in without repainting the band
+const specLayer = L.layer({ x: SPX, y: SPY, w: SPW, h: SPH });
+const specSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+specSvg.setAttribute("width", SPW); specSvg.setAttribute("height", SPH); specSvg.setAttribute("viewBox", `0 0 ${SPW} ${SPH}`);
+specLayer.appendChild(specSvg);
+const cursor = L.layer({ x: SPX, y: SPY, w: 60, h: SPH, cls: "cursor" });
+cursor.style.opacity = 0;
+for (const nm of [400, 500, 600, 700]) {
+  L.rect({ x: SPX + nmX(nm) - 1.5, y: SPY + SPH, w: 3, h: 14, c: "lilac", free: true });
+  L.text({ x: SPX + nmX(nm), base: SPY + SPH + 50, s: 30, c: "lilac", txt: nm, align: "c", w: 120, legend: true });
+}
+L.text({ x: SPX + SPW, base: SPY + SPH + 50, s: 30, c: "lilac", txt: "nm", align: "r", legend: true });
+L.text({ x: 2300, base: 1470, s: 40, c: "lilac", txt: "Radial Velocity" });
+const rv = L.text({ x: 3520, base: 1470, s: 52, c: "white", txt: "", align: "r" });
+L.text({ x: 2300, base: 1546, s: 40, c: "lilac", txt: "Metallicity  [Fe/H]" });
+const feh = L.text({ x: 3520, base: 1546, s: 52, c: "white", txt: "", align: "r" });
+
+// absorption lines by class: Balmer, calcium H and K, the G band, iron, magnesium, sodium, titanium oxide
+const LINES = { balmer: [656.3, 486.1, 434.0, 410.2, 397.0], cahk: [393.4, 396.8], gband: [430.8], fe: [438.4, 527.0, 495.7],
+  mg: [517.2], na: [589.3], tio: [476.0, 496.0, 516.0, 545.0, 586.0, 616.0, 668.0, 706.0] };
+const STRENGTH = {
+  A: { balmer: 1, cahk: 0.3, gband: 0.05, fe: 0.1, mg: 0.15, na: 0.1, tio: 0 },
+  F: { balmer: 0.7, cahk: 0.7, gband: 0.3, fe: 0.3, mg: 0.35, na: 0.3, tio: 0 },
+  G: { balmer: 0.45, cahk: 1, gband: 0.7, fe: 0.6, mg: 0.6, na: 0.6, tio: 0 },
+  K: { balmer: 0.25, cahk: 1, gband: 0.8, fe: 0.8, mg: 0.8, na: 0.8, tio: 0.25 },
+  M: { balmer: 0.1, cahk: 0.7, gband: 0.5, fe: 0.5, mg: 0.7, na: 1, tio: 1 },
+};
+const drawSpectrum = (s) => {
+  while (specSvg.firstChild) specSvg.firstChild.remove();
+  const defs = L.svg("defs", {}, specSvg), band = L.svg("linearGradient", { id: "tio", x1: 0, x2: 1, y1: 0, y2: 0 }, defs);
+  L.svg("stop", { offset: 0, "stop-color": "#000", "stop-opacity": 0.85 }, band); L.svg("stop", { offset: 1, "stop-color": "#000", "stop-opacity": 0 }, band);
+  const k = STRENGTH[s.cls[0]];
+  let seed = s.name.length * 977 + s.temp;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let i = 0; i < 26; i++) {                           // faint metal lines for texture
+    const x = rnd() * SPW;
+    L.svg("rect", { x: x.toFixed(1), y: 0, width: 2, height: SPH, fill: "#000", opacity: (0.12 + 0.28 * rnd() * (1 - k.balmer * 0.6)).toFixed(2) }, specSvg);
+  }
+  for (const [set, nms] of Object.entries(LINES)) {
+    const a = k[set]; if (!a) continue;
+    for (const nm of nms) {
+      if (set === "tio") {                                 // a molecular band: sharp on the blue side, fading red-ward
+        L.svg("rect", { x: nmX(nm).toFixed(1), y: 0, width: (60 * a).toFixed(1), height: SPH, fill: "url(#tio)", opacity: a.toFixed(2) }, specSvg);
+        continue;
+      }
+      const w = set === "balmer" ? 5 + 9 * a : 3 + 5 * a;
+      L.svg("rect", { x: (nmX(nm) - w / 2).toFixed(1), y: 0, width: w.toFixed(1), height: SPH, fill: "#000", opacity: Math.min(0.92, 0.25 + 0.7 * a).toFixed(2) }, specSvg);
+    }
+  }
+  // the star's continuum: Planck's law across the band, normalised
+  const B = (nm) => { const l = nm * 1e-9; return 1 / (Math.pow(l, 5) * (Math.exp(0.014388 / (l * s.temp)) - 1)); };
+  const vals = []; for (let nm = NM0; nm <= NM1; nm += 5) vals.push([nm, B(nm)]);
+  const mx = Math.max(...vals.map((v) => v[1]));
+  L.svg("polyline", { points: vals.map(([nm, v]) => `${nmX(nm).toFixed(1)},${(SPH - 16 - (SPH - 40) * v / mx).toFixed(1)}`).join(" "),
+    fill: "none", stroke: "#f2f2ff", "stroke-width": 4, "stroke-linejoin": "round" }, specSvg);
+};
+
+// ---------------- the survey route table ----------------
+small(40, 1620, 2200, "Survey Route", 300, "lilac", "plum");
+const TC = [40, 170, 660, 960, 1260, 1520, 2240];          // the status column ends where the header bar ends
+const tcell = (j, base, c, txt) => L.text({ x: TC[j], base, s: 36, c, txt, align: j === 6 ? "r" : undefined });
+["Wpt", "Designation", "Class", "Distance", "Planets", "Remarks", "Status"].forEach((h, i) => tcell(i, 1730, "lilac", h));
+const trows = Array.from({ length: 5 }, (_, i) => Array.from({ length: 7 }, (_, j) => tcell(j, 1790 + i * 54, "white", "")));
+
+// ---------------- spectral classes in the sector ----------------
+small(2300, 1620, 1220, "Spectral Classes", 360, "pink", "violet");
+const CLASSES = [["A", 6], ["F", 24], ["G", 58], ["K", 121], ["M", 712], ["L", 41], ["T", 52], ["D", 22]];
+L.text({ x: 2300, base: 1734, s: 40, c: "lilac", txt: "Within 40 LY  ·  log scale" });
+L.text({ x: 3520, base: 1734, s: 44, c: "white", txt: CLASSES.reduce((a, c) => a + c[1], 0).toLocaleString("en") + " stars", align: "r" });
+const CBW = SPW / CLASSES.length, BTOP = 1812, BBOT = 1950;
+const cbars = CLASSES.map(([k, n], i) => {
+  const x = 2300 + i * CBW, h = (BBOT - BTOP) * Math.log10(n + 1) / Math.log10(1000);
+  L.text({ x: x + CBW / 2, base: 1790, s: 36, c: "white", txt: n, align: "c", w: CBW });
+  L.text({ x: x + CBW / 2, base: 2004, s: 40, c: "lilac", txt: k, align: "c", w: CBW });
+  L.rect({ x: x + 12, y: BTOP, w: CBW - 24, h: BBOT - BTOP, c: "#1a1230", free: true });
+  const b = L.layer({ x: x + 12, y: BBOT - h, w: CBW - 24, h });
+  b.style.background = "var(--plum)";
+  return { k, b };
+});
+
+// ---------------- status line ----------------
+L.text({ x: 40, cap: 150, s: 100, c: "ice", txt: "Long Range Survey" });
+const stateSub = L.text({ x: 40 + L.textWidth("Long Range Survey", 100) + 48, base: 222, s: 38, c: "lilac", txt: "" });
+const pill = L.box({ x: 3120, y: 150, w: 400, h: 72, c: "lilac", label: "Sector 001", r: "lr", fs: 36 });
+pill.style.willChange = "opacity";
+
+// ---------------- the survey cycle: slew to the next waypoint, then scan it ----------------
+const SLEW = 3.6, SCAN = 8.4, CYCLE = SLEW + SCAN;
+const START = L.irand(1, route.length - 1);              // begin somewhere along the route
+let leg0 = -1, from = route[0], to = route[0], shown = null;
+const show = (s) => {                                    // the readouts take the new star
+  shown = s;
+  rows.forEach(([, f], i) => (rvals[i].textContent = f(s)));
+  peak.textContent = Math.round(2.8978e6 / s.temp) + " nm";
+  rv.textContent = (s.rv > 0 ? "+" : s.rv < 0 ? "-" : "") + Math.abs(s.rv).toFixed(1) + " km/s";
+  feh.textContent = (s.feh > 0 ? "+" : s.feh < 0 ? "-" : "") + Math.abs(s.feh).toFixed(2);
+  drawSpectrum(s);
+  hrFrom = hrTo || [hrX(s.temp), hrY(s.lum)]; hrTo = [hrX(s.temp), hrY(s.lum)]; hrT0 = L.t;
+  cbars.forEach((c) => (c.b.style.background = c.k === s.cls[0] ? "var(--ice)" : "var(--plum)"));
+};
+const fillTable = (phase) => {
+  const n = route.length, cur = to.wp - 1;
+  for (let i = 0; i < 5; i++) {
+    const s = route[(cur - 1 + i + n) % n], st = i === 0 ? "Surveyed" : i === 1 ? phase : "Queued";
+    const c = i === 1 ? "var(--ice)" : i === 0 ? "var(--plum)" : "var(--white)";
+    [String(s.wp).padStart(2, "0"), s.name, s.cls, s.d ? s.d.toFixed(2) + " LY" : "—", s.planets || "None", s.note, st]
+      .forEach((v, j) => { trows[i][j].textContent = v; trows[i][j].style.color = j === 6 || j === 0 ? c : i === 1 ? "var(--ice)" : "var(--white)"; });
+  }
+};
+show(route[START - 1]);
+let rippleT = -9;
+L.tick((t) => {
+  const n = Math.floor(t / CYCLE), u = t - n * CYCLE;
+  if (n !== leg0) {                                      // a new leg
+    leg0 = n; from = route[(START + n - 1) % route.length]; to = route[(START + n) % route.length];
+    const dx = to.sx - from.sx, dy = to.sy - from.sy;
+    leg.style.width = Math.hypot(dx, dy) + "px";
+    leg.base = [from.sx, from.sy - 2.5, (Math.atan2(dy, dx) * 180) / Math.PI];
+    from.label.style.color = from === CAT[0] ? "var(--butter)" : "var(--lilac)";
+    fillTable("Slewing");
+  }
+  const k = L.ease(L.clamp(u / SLEW));
+  L.move(lens, L.mix(from.sx, to.sx, k) - LR, L.mix(from.sy, to.sy, k) - LR, (t * 9) % 360);
+  leg.style.transform = `translate3d(${leg.base[0]}px,${leg.base[1]}px,0) rotate(${leg.base[2].toFixed(3)}deg) scaleX(${k.toFixed(4)})`;
+  leg.style.opacity = (u < SLEW ? 0.9 : 0.9 * (1 - L.clamp((u - CYCLE + 1.2) / 1.2))).toFixed(3);
+  if (u >= SLEW && shown !== to) {                       // arrived: the scan begins
+    show(to); rippleT = t;
+    to.label.style.color = "var(--white)";
+    fillTable("Scanning");
+  }
+  const ru = (t - rippleT) / 1.4;
+  ripple.style.opacity = ru < 1 ? (0.9 * (1 - ru)).toFixed(3) : 0;
+  if (ru < 1) L.move(ripple, to.sx - 60, to.sy - 60, 0, 0.4 + ru * 1.6);
+  // the spectrum fades in after arrival; a cursor reads across it while scanning
+  const sp = u < SLEW ? 1 - L.clamp((u - SLEW + 0.6) / 0.6) : L.clamp((u - SLEW) / 0.8);   // the old star's spectrum stays until the new one is in
+  specLayer.style.opacity = sp.toFixed(3);
+  const cu = (u - SLEW - 0.8) / (SCAN - 1.6);
+  cursor.style.opacity = cu > 0 && cu < 1 ? (0.9 * Math.sin(cu * Math.PI)).toFixed(3) : 0;
+  if (cu > 0 && cu < 1) L.move(cursor, cu * (SPW - 60), 0);
+  if (hrTo) { const h = L.ease(L.clamp((t - hrT0) / 1.6)); L.move(hrMark, L.mix(hrFrom[0], hrTo[0], h) - 28, L.mix(hrFrom[1], hrTo[1], h) - 28); }
+  pill.style.opacity = (0.8 + 0.2 * Math.sin(t * 1.6)).toFixed(3);
+});
+L.every(250, (t) => {
+  const u = t % CYCLE, slewing = u < SLEW;
+  stateSub.textContent = `${slewing ? "Slewing to" : "Scanning"}  ·  ${to.name}  ·  Waypoint ${String(to.wp).padStart(2, "0")} of ${route.length}`;
+}, 0);
+});
+</script></body></html>

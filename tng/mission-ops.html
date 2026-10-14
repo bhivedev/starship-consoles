@@ -1,0 +1,759 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Mission Operations</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* text that is swapped fades out and back in; .boot (the start-up cascade) always wins */
+  .fade { transition: opacity .6s ease; }
+  .out:not(.boot) { opacity: 0; }
+  .slow { transition: opacity 1.6s ease; }
+  .pill { transition: background-color 1.2s ease; }
+  .ml .t { text-shadow: 0 0 6px #000, 0 0 3px #000, 0 0 2px #000; }
+  .mk { border-radius: 50%; color: #000; font-size: 28px; line-height: 40px; text-align: center; padding-top: 1px;
+        box-shadow: 0 0 0 3px #000, 0 0 0 5px rgba(242,242,255,.55); }
+  .beam { border-radius: 22px; background: linear-gradient(to bottom, rgba(143,211,255,0), rgba(201,230,255,.85) 30%, rgba(242,242,255,.95) 50%, rgba(201,230,255,.85) 70%, rgba(143,211,255,0)); }
+  .scan { border-radius: 50%; border: 4px solid var(--butter); }
+  .storm { border-radius: 50%; background: radial-gradient(closest-side, rgba(143,211,255,.30), rgba(92,157,255,.15) 55%, rgba(92,157,255,0)); }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: sidebar left, title top right ----------------
+const BAR = 64;
+L.title({ x: 3700, y: 40, h: BAR, c: "orange", txt: "Mission Operations  •  Away Team" });
+// (L.title measures with a canvas, which sets this line ~11px wider than the page draws it; use the page's own width)
+const titleLeft = 3700 - document.querySelector("[data-title]").offsetWidth;
+L.box({ x: 3724, y: 40, w: 92, h: BAR, c: "sunset", r: "r" });
+L.elbow({ corner: "tl", x: 40, y: 40, w: 1360, h: 250, bw: 240, bh: BAR, R: 150, r: 60, c: "sunset" });
+L.rect({ x: 1400 + L.GAP, y: 40, w: 300, h: BAR, c: "tan" });
+L.rect({ x: 1724 + L.GAP, y: 40, w: titleLeft - L.GAP - (1724 + L.GAP), h: BAR, c: "orange" });
+[[298, 140, "tan", "AT 02"], [446, 70, "sky", "Orbit"], [524, 420, "orange", "Surface"], [952, 70, "peach", "Lock"],
+ [1030, 300, "sunset", "Team"], [1338, 70, "sky", "Comms"], [1416, 216, "tan", "Tricorder"]]
+  .forEach(([y, h, c, label]) => L.box({ x: 40, y, w: 240, h, c, label }));
+L.elbow({ corner: "bl", x: 40, y: 1640, w: 1500, h: 480, bw: 240, bh: BAR, R: 150, r: 60, c: "orange" });
+L.text({ x: 258, base: 1712, s: 40, c: "#000", txt: "Away", align: "r", on: true });
+[[1540 + L.GAP, 600, "tan"], [2164 + L.GAP, 900, "sunset"], [3088 + L.GAP, 3700 - (3088 + L.GAP), "orange"]]
+  .forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
+L.box({ x: 3724, y: 2056, w: 92, h: BAR, c: "tan", r: "r" });
+
+const header = (x, y, w, label, c1, c2, h = 56, fs = 32) => {
+  const lw = Math.round((L.textWidth(label, fs) + 64) / 10) * 10;
+  L.box({ x, y, w: lw, h, c: c1, label, fs, r: "l" });
+  L.rect({ x: x + lw + L.GAP, y, w: w - lw - L.GAP, h, c: c2 });
+  return lw;
+};
+const small = (x, y, w, label, c1, c2) => header(x, y, w, label, c1, c2, 48, 28);
+const fill = (x, y, w, h, c, origin = "0 0", parent) => {
+  const f = L.layer({ x, y, w, h }, parent);
+  f.style.background = c.startsWith("#") ? c : `var(--${c})`; f.style.transformOrigin = origin;
+  return f;
+};
+const cls = (e, ...c) => (e.classList.add(...c), e);
+const put = (e, txt) => { if (e.textContent !== txt) e.textContent = txt; };   // a readout repaints only when it changes
+const css = (e, k, v) => { if (e.style[k] !== v) e.style[k] = v; };
+const fmt = (n) => Math.round(n).toLocaleString("en");
+const seeded = (s) => () => { s = (s + 0x6d2b79f5) | 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+const smooth = (x) => { x = L.clamp(x); return x * x * (3 - 2 * x); };
+const TRACK = "#2c1d0e";
+let started = false;
+const unboot = (root) => { if (started) { root.classList.remove("boot"); root.querySelectorAll(".boot").forEach((e) => e.classList.remove("boot")); } return root; };
+
+// Columns: the map 330–1970; the right column 2030–3816, split 2030–2840 and 2900–3816 below the roster.
+const MX = 330, MY = 360, MW = 1640, MH = 1184, RX = 2030, RR = 3816, OX = 2030, OR = 2840, HX = 2900, HR = 3816;
+const SCALE = 6;                                         // one second on screen is six on the surface
+const SLOT_C = ["sunset", "butter", "sky", "peach", "ice"];   // each team member's colour, on the roster and the map
+
+// ---------------- the missions ----------------
+const OBJ = ["Survey the ruins", "Collect samples", "Locate the colonists", "Return to beam-in site"];
+const MISSIONS = [
+  { planet: "Taranis IV", region: "Northern Continent", cls: "Class M", sd: 46379.2, local: 560, alt: 312, grav: "0.94 g", seed: 2207,
+    ruins: "Stelae Ruins", samples: "Lake Shore", colony: "New Hollis", to: ["the ruins", "the lake shore", "New Hollis"], age: "2,300 years", lifesigns: 23,
+    layout: { beam: [0.17, 0.70], ruins: [0.40, 0.26], samples: [0.80, 0.42], colony: [0.58, 0.80] },
+    team: [["Cmdr. W. Riker", "Riker", "Team Leader", 68], ["Lt. Cmdr. Data", "Data", "Science", 0],
+           ["Lt. Worf", "Worf", "Security", 78], ["Ens. T. Ndiaye", "Ndiaye", "Geology", 72], ["Lt. J. Okafor", "Okafor", "Medical", 64]] },
+  { planet: "Oberan III", region: "Equatorial Highlands", cls: "Class M", sd: 46412.7, local: 830, alt: 296, grav: "1.08 g", seed: 5113,
+    ruins: "Temple Ruins", samples: "Crater Lake", colony: "Mining Camp", to: ["the temple", "the crater lake", "the mining camp"], age: "4,100 years", lifesigns: 31,
+    layout: { beam: [0.80, 0.74], ruins: [0.56, 0.24], samples: [0.18, 0.36], colony: [0.34, 0.78] },
+    team: [["Lt. Cmdr. G. La Forge", "La Forge", "Team Leader", 70], ["Dr. B. Crusher", "Crusher", "Medical", 66],
+           ["Lt. M. Castillo", "Castillo", "Security", 74], ["Ens. P. Halvorsen", "Halvorsen", "Xenobiology", 71], ["Ens. S. Moreau", "Moreau", "Engineering", 76]] },
+  { planet: "Melkora II", region: "Southern Coast", cls: "Class M", sd: 46448.5, local: 455, alt: 330, grav: "0.89 g", seed: 9041,
+    ruins: "Citadel Ruins", samples: "River Delta", colony: "Survey Outpost", to: ["the citadel", "the river delta", "the outpost"], age: "1,700 years", lifesigns: 17,
+    layout: { beam: [0.22, 0.30], ruins: [0.50, 0.66], samples: [0.82, 0.70], colony: [0.70, 0.22] },
+    team: [["Lt. Worf", "Worf", "Team Leader", 78], ["Counselor D. Troi", "Troi", "Contact", 66],
+           ["Lt. Cmdr. Data", "Data", "Science", 0], ["Lt. K. Brandt", "Brandt", "Archaeology", 70], ["Ens. A. Varga", "Varga", "Security", 73]] },
+];
+const GRIDC = 8, GRIDR = 6, CW = MW / GRIDC, CH = MH / GRIDR;
+const grid = (x, y) => `${"ABCDEFGH"[L.clamp(Math.floor(x / CW), 0, 7)]}-${L.clamp(Math.floor(y / CH), 0, 5) + 1}`;
+
+// ---------------- status line ----------------
+const stateTxt = L.text({ x: 330, cap: 150, s: 100, c: "peach", txt: "" });
+const stateSub = L.text({ x: 330, base: 222, s: 38, c: "sky", txt: "" });
+const pill = L.box({ x: 3416, y: 150, w: 400, h: 72, c: "sky", label: "", r: "lr", fs: 36, cls: "pill" });
+pill.style.willChange = "opacity";
+L.tick((t) => { pill.style.opacity = (0.82 + 0.18 * Math.sin(t * 1.1)).toFixed(3); });
+const setState = (word, c) => {
+  if (stateTxt.textContent === word) return;
+  stateTxt.textContent = word; stateTxt.style.color = `var(--${c})`;
+  stateSub.style.left = 330 + stateTxt.offsetWidth + 40 + "px";
+};
+
+// ---------------- the surface map ----------------
+header(MX, 280, MW, "Surface Tactical  ·  Grid A1 – H6", "orange", "tan");
+L.rect({ x: MX, y: MY, w: MW, h: MH, c: "#070402", panel: true });
+const mapLayer = cls(L.layer({ x: MX, y: MY, w: MW, h: MH, cls: "boot" }), "slow");
+mapLayer.style.overflow = "hidden";
+const NSV = "http://www.w3.org/2000/svg";
+const clip = L.el("div", "lc", L.stage, { left: MX + "px", top: MY + "px", width: MW + "px", height: MH + "px", overflow: "hidden" });
+const storm = L.layer({ x: 0, y: 0, w: 1100, h: 1100, cls: "storm" }, clip);
+const scanRing = L.layer({ x: 0, y: 0, w: 320, h: 320, cls: "scan" }, clip);
+scanRing.style.opacity = 0;
+
+// map labels: layers, which step back when a team member walks under them
+let mlabs = [];
+const mlab = (x, base, txt, c, s = 36, align = "l", keep = false) => {      // map coordinates
+  const w = Math.ceil(L.textWidth(txt, s)) + 24, X = MX + x, B = MY + base;
+  const left = align === "c" ? X - w / 2 : align === "r" ? X - w : X;
+  const e = cls(L.layer({ x: left, y: B - 0.83 * s - 4, w, h: s + 8, cls: "ml" }), "slow");
+  const tx = L.text({ x: 0, y: 4, s, c, txt }, e);
+  tx.style.width = w + "px"; tx.style.left = "0px"; tx.style.textAlign = align === "c" ? "center" : align === "r" ? "right" : "left";
+  unboot(e);
+  const m = { e, tx, x: left, y: B - 0.72 * s - 2, w, h: 0.72 * s + 4, op: 1, keep };
+  mlabs.push(m);
+  return m;
+};
+// the permanent ones: the grid's letters and numbers, the scale
+for (let i = 0; i < GRIDC; i++) mlab((i + 0.5) * CW, 46, "ABCDEFGH"[i], "tan", 36, "c", true);
+for (let j = 0; j < GRIDR; j++) mlab(18, (j + 0.5) * CH + 14, String(j + 1), "tan", 36, "l", true);
+const regionLab = mlab(24, MH - 26, "", "peach", 40, "l", true);
+mlab(MW - 24, MH - 66, "500 m", "tan", 36, "r", true);
+const stormLab = mlab(MW - 24, 110, "Electrical Storm  ·  160 km", "ice", 36, "r", true);
+
+let mapSvg = null;
+const svgEl = (tag, attrs, parent) => { const e = document.createElementNS(NSV, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); parent.appendChild(e); return e; };
+
+// terrain: a height field drawn once per mission as contour lines over a shaded relief
+const GS = 6, NX = Math.ceil(MW / GS) + 1, NY = Math.ceil(MH / GS) + 1;
+function buildTerrain(M, rnd, S) {
+  const hills = [];
+  for (let k = 0; k < 11; k++) hills.push([rnd() * MW, rnd() * MH, 110 + rnd() * 240, 0.25 + rnd() * 0.65]);
+  hills.push([S.ruins.x + 40, S.ruins.y - 30, 170, 0.85]);                 // the ruins stand on a rise
+  hills.push([S.colony.x, S.colony.y, 260, -0.25]);                        // the settlement in a shallow valley
+  const lake = S.lake, p1 = rnd() * 6, p2 = rnd() * 6, ang = rnd() * Math.PI;
+  const ca = Math.cos(ang), sa = Math.sin(ang);
+  const h = (x, y) => {
+    let v = 0;
+    for (const [hx, hy, r, a] of hills) { const dx = x - hx, dy = y - hy; v += a * Math.exp(-(dx * dx + dy * dy) / (2 * r * r)); }
+    const u = x * ca + y * sa;
+    v += 0.22 * Math.sin(u * 0.0062 + p1) + 0.12 * Math.sin((x * sa - y * ca) * 0.011 + p2) + 0.05 * Math.sin(x * 0.023 + y * 0.017);
+    const dx = x - lake.x, dy = y - lake.y;
+    v -= 1.25 * Math.exp(-(dx * dx / (2 * lake.rx * lake.rx) + dy * dy / (2 * lake.ry * lake.ry)));
+    return v;
+  };
+  const Hf = new Float32Array(NX * NY);
+  let lo = 1e9, hi = -1e9;
+  for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) { const v = h(i * GS, j * GS); Hf[j * NX + i] = v; lo = Math.min(lo, v); hi = Math.max(hi, v); }
+  for (let k = 0; k < Hf.length; k++) Hf[k] = (Hf[k] - lo) / (hi - lo);
+  const hn = (x, y) => {                                                   // bilinear
+    const fx = L.clamp(x / GS, 0, NX - 1.001), fy = L.clamp(y / GS, 0, NY - 1.001), i = Math.floor(fx), j = Math.floor(fy), u = fx - i, w = fy - j;
+    const a = Hf[j * NX + i], b = Hf[j * NX + i + 1], c = Hf[(j + 1) * NX + i], d = Hf[(j + 1) * NX + i + 1];
+    return (a * (1 - u) + b * u) * (1 - w) + (c * (1 - u) + d * u) * w;
+  };
+  // the water line: part way up from the lake's floor to the land around it
+  let ring = 0;
+  for (let k = 0; k < 24; k++) { const a = (k / 24) * 2 * Math.PI; ring += hn(lake.x + 1.9 * lake.rx * Math.cos(a), lake.y + 1.9 * lake.ry * Math.sin(a)); }
+  ring /= 24;
+  const WL = hn(lake.x, lake.y) + 0.55 * (ring - hn(lake.x, lake.y));
+  return { Hf, hn, WL };
+}
+function contours(T, level) {
+  const { Hf } = T; let d = "";
+  const f = (v) => v.toFixed(1);
+  for (let j = 0; j < NY - 1; j++) for (let i = 0; i < NX - 1; i++) {
+    const a = Hf[j * NX + i], b = Hf[j * NX + i + 1], c = Hf[(j + 1) * NX + i + 1], e = Hf[(j + 1) * NX + i];
+    const idx = (a > level) * 8 | (b > level) * 4 | (c > level) * 2 | (e > level) * 1;
+    if (idx === 0 || idx === 15) continue;
+    const x = i * GS, y = j * GS, t = (p, q) => (level - p) / (q - p);
+    const P = { T: () => [x + GS * t(a, b), y], R: () => [x + GS, y + GS * t(b, c)], B: () => [x + GS * t(e, c), y + GS], Lf: () => [x, y + GS * t(a, e)] };
+    const S = { 1: [["Lf", "B"]], 2: [["B", "R"]], 3: [["Lf", "R"]], 4: [["T", "R"]], 5: [["Lf", "T"], ["B", "R"]], 6: [["T", "B"]], 7: [["Lf", "T"]],
+                8: [["Lf", "T"]], 9: [["T", "B"]], 10: [["T", "R"], ["Lf", "B"]], 11: [["T", "R"]], 12: [["Lf", "R"]], 13: [["B", "R"]], 14: [["Lf", "B"]] }[idx];
+    for (const [p, q] of S) { const A = P[p](), B = P[q](); d += `M${f(A[0])},${f(A[1])}L${f(B[0])},${f(B[1])}`; }
+  }
+  return d;
+}
+function relief(T) {                                     // a shaded-relief tint, small, smoothed up to the map's size
+  const K = 4, w = Math.ceil(MW / K), h = Math.ceil(MH / K);
+  const cv = document.createElement("canvas"); cv.width = w; cv.height = h;
+  const g = cv.getContext("2d"), img = g.createImageData(w, h);
+  const land = [[0.0, [34, 20, 9]], [0.5, [52, 32, 14]], [1.0, [78, 54, 26]]];
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const X = x * K, Y = y * K, v = T.hn(X, Y);
+    const dx = T.hn(X + 6, Y) - T.hn(X - 6, Y), dy = T.hn(X, Y + 6) - T.hn(X, Y - 6);
+    const shade = L.clamp(1 + (-dx - dy) * 14, 0.55, 1.45);
+    let c;
+    if (v < T.WL) { const k = L.clamp((T.WL - v) / 0.25); c = [L.mix(16, 8, k), L.mix(42, 24, k), L.mix(78, 52, k)]; }
+    else {
+      const u = (v - T.WL) / (1 - T.WL), i = u < 0.5 ? 0 : 1, k = (u - land[i][0]) / 0.5;
+      c = land[i][1].map((a, n) => L.mix(a, land[i + 1][1][n], k) * shade);
+    }
+    const o = (y * w + x) * 4;
+    img.data[o] = c[0]; img.data[o + 1] = c[1]; img.data[o + 2] = c[2]; img.data[o + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  return cv.toDataURL("image/png");
+}
+
+// a path through the country between two sites: a gentle curve, resampled to even steps
+function legPath(a, b, rnd) {
+  const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy), nx = -dy / len, ny = dx / len;
+  const pts = [[a.x, a.y]];
+  const bend = (rnd() - 0.5) * 0.35 * len;
+  for (const f of [0.33, 0.66]) { const s = Math.sin(f * Math.PI); pts.push([a.x + dx * f + nx * bend * s + (rnd() - 0.5) * 40, a.y + dy * f + ny * bend * s + (rnd() - 0.5) * 40]); }
+  pts.push([b.x, b.y]);
+  const raw = [];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[Math.max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(pts.length - 1, i + 2)];
+    for (let k = 0; k < 40; k++) {
+      const u = k / 40, u2 = u * u, u3 = u2 * u;
+      const f = (p, q, r, s) => 0.5 * (2 * q + (-p + r) * u + (2 * p - 5 * q + 4 * r - s) * u2 + (-p + 3 * q - 3 * r + s) * u3);
+      raw.push([f(p0[0], p1[0], p2[0], p3[0]), f(p0[1], p1[1], p2[1], p3[1])]);
+    }
+  }
+  raw.push([b.x, b.y]);
+  const cum = [0];
+  for (let i = 1; i < raw.length; i++) cum.push(cum[i - 1] + Math.hypot(raw[i][0] - raw[i - 1][0], raw[i][1] - raw[i - 1][1]));
+  const total = cum[cum.length - 1], N = Math.ceil(total / 2), out = [];
+  let j = 0;
+  for (let k = 0; k <= N; k++) {
+    const s = (k / N) * total;
+    while (j < cum.length - 2 && cum[j + 1] < s) j++;
+    const f = (s - cum[j]) / (cum[j + 1] - cum[j] || 1);
+    out.push([L.mix(raw[j][0], raw[j + 1][0], f), L.mix(raw[j][1], raw[j + 1][1], f)]);
+  }
+  out.len = total;
+  return out;
+}
+const along = (p, u) => { const f = L.clamp(u) * (p.length - 1), k = Math.min(p.length - 2, Math.floor(f)), r = f - k; return [L.mix(p[k][0], p[k + 1][0], r), L.mix(p[k][1], p[k + 1][1], r)]; };
+
+// ---------------- the away team: roster ----------------
+header(RX, 280, RR - RX, "Away Team  ·  Status", "sunset", "orange");
+const RC = { name: 2204, loc: 2600, vit: 2900, vitT: 3004, lock: 3500, lockB: 3290, comm: RR };
+[["Team Member", RC.name, "l"], ["Location", RC.loc, "l"], ["Vital Signs", RC.vit, "l"], ["Transporter Lock", RC.lock, "r"], ["Comm", RC.comm, "r"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: 400, s: 36, c: "sky", txt, align }));
+const RP = 104, RT0 = 428;
+const roster = SLOT_C.map((c, i) => {
+  const y = RT0 + i * RP;
+  L.box({ x: RX, y, w: 150, h: 84, c, label: `AT ${i + 1}`, fs: 32, r: "l" });
+  const r = { i, c, y };
+  r.name = cls(L.text({ x: RC.name, base: y + 38, s: 40, c: "white", txt: "" }), "fade");
+  r.role = cls(L.text({ x: RC.name, base: y + 80, s: 36, c, txt: "" }), "fade");
+  r.grid = L.text({ x: RC.loc, base: y + 38, s: 40, c: "white", txt: "" });
+  r.site = L.text({ x: RC.loc, base: y + 80, s: 36, c: "tan", txt: "" });
+  r.bars = [0, 1, 2].map((k) => {
+    const x = RC.vit + k * 30;
+    L.rect({ x, y, w: 20, h: 84, c: TRACK });
+    return { e: fill(x, y, 20, 84, ["peach", "tan", "sky"][k], "50% 100%"), v: 0.5, goal: 0.5, drawn: false };
+  });
+  r.vit = L.text({ x: RC.vitT, base: y + 38, s: 40, c: "white", txt: "" });
+  r.vitS = L.text({ x: RC.vitT, base: y + 80, s: 36, c: "tan", txt: "" });
+  r.lockV = L.text({ x: RC.lock, base: y + 38, s: 40, c: "white", txt: "", align: "r" });
+  L.rect({ x: RC.lockB, y: y + 60, w: RC.lock - RC.lockB, h: 20, c: "#14223c" });
+  r.lockBar = fill(RC.lockB, y + 60, RC.lock - RC.lockB, 20, "sky");
+  r.lu = 0; r.lgoal = 0; r.ldrawn = false;
+  r.comm = L.text({ x: RC.comm, base: y + 38, s: 40, c: "sky", txt: "", align: "r" });
+  r.sig = L.text({ x: RC.comm, base: y + 80, s: 36, c: "tan", txt: "", align: "r" });
+  // the marker on the map, and the transporter's beam over it
+  r.mk = L.layer({ x: 0, y: 0, w: 40, h: 40, cls: "mk" });
+  r.mk.style.background = `var(--${c})`; r.mk.textContent = String(i + 1); r.mk.style.opacity = 0;
+  r.beam = L.layer({ x: 0, y: 0, w: 44, h: 132, cls: "beam" }); r.beam.style.opacity = 0;
+  r.pulse = 70; r.resp = 14; r.temp = 36.8; r.ex = 0;
+  return r;
+});
+
+// ---------------- mission objectives ----------------
+const RTo = (i) => 1148 + i * 84, RBo = (i) => RTo(i) + 52.5;
+header(OX, 1000, OR - OX, "Mission Objectives", "orange", "peach");
+L.text({ x: OX + 124, base: 1120, s: 36, c: "sky", txt: "Objective" });
+L.text({ x: OR, base: 1120, s: 36, c: "sky", txt: "Status", align: "r" });
+const objs = OBJ.map((txt, i) => {
+  const box = L.box({ x: OX, y: RTo(i), w: 84, h: 64, c: TRACK, label: String(i + 1).padStart(2, "0"), fs: 32, r: "l", cls: "pill" });
+  const tx = L.text({ x: OX + 124, base: RBo(i), s: 40, c: "tan", txt });
+  const st = L.text({ x: OR, base: RBo(i), s: 40, c: "tan", txt: "", align: "r" });
+  return { box, tx, st, state: "" };
+});
+L.text({ x: OX, base: RBo(4), s: 36, c: "sky", txt: "Mission Progress" });
+const PG = { x: OX + 330, w: OR - OX - 330, g: 10 };
+const pgSeg = [0, 1, 2, 3].map((k) => {
+  const w = (PG.w - 3 * PG.g) / 4, x = PG.x + k * (w + PG.g);
+  L.rect({ x, y: RBo(4) - 26, w, h: 26, c: TRACK });
+  return { e: fill(x, RBo(4) - 26, w, 26, k % 2 ? "orange" : "peach"), u: 0, goal: 0, drawn: false };
+});
+
+// ---------------- environmental hazards ----------------
+header(HX, 1000, HR - HX, "Environmental Hazards", "sky", "tan");
+const HB = { x: HX + 280, r: HR - 220 };
+[["Hazard", HX, "l"], ["Level", HB.x, "l"], ["Reading", HR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: 1120, s: 36, c: "sky", txt, align }));
+const HAZ = ["Radiation", "Wind Speed", "Surface Temp", "Electrical Storm", "Seismic Activity"].map((name, i) => {
+  const nm = L.text({ x: HX, base: RBo(i), s: 40, c: "tan", txt: name });
+  L.rect({ x: HB.x, y: RBo(i) - 22, w: HB.r - HB.x, h: 22, c: TRACK });
+  const bar = cls(fill(HB.x, RBo(i) - 22, HB.r - HB.x, 22, "tan"), "pill");
+  const val = L.text({ x: HR, base: RBo(i), s: 40, c: "white", txt: "", align: "r" });
+  return { nm, bar, val, u: 0, goal: 0, drawn: false };
+});
+
+// ---------------- communications log ----------------
+const CR = 1310, TX = 1370, TR = MX + MW;               // the bottom-left strip: the comm log, and the transporter room
+small(MX, 1620, CR - MX, "Communications  ·  Enterprise", "sunset", "tan");
+const commRows = Array.from({ length: 6 }, (_, i) => {
+  const base = 1734 + i * 54;
+  return { tm: L.text({ x: MX, base, s: 36, c: "sky", txt: "" }), tx: L.text({ x: MX + 140, base, s: 36, c: "white", txt: "" }),
+           who: L.text({ x: CR, base, s: 36, c: "tan", txt: "", align: "r" }) };
+});
+const commLog = [];
+
+// ---------------- transporter room 3 ----------------
+small(TX, 1620, TR - TX, "Transporter Room 3", "sky", "sunset");
+const TRV = ["Operator", "Targeting Scanners", "Pattern Buffer", "Annular Confinement", "Phase Coils", "Signal Degradation"].map((name, i) => {
+  const base = 1734 + i * 54;
+  L.text({ x: TX, base, s: 36, c: "tan", txt: name });
+  return L.text({ x: TR, base, s: 36, c: "white", txt: "", align: "r" });
+});
+
+// ---------------- tricorder readings ----------------
+small(OX, 1620, OR - OX, "Tricorder Readings", "peach", "orange");
+const triRows = Array.from({ length: 6 }, (_, i) => {
+  const base = 1734 + i * 54;
+  return { tx: L.text({ x: OX, base, s: 36, c: "peach", txt: "" }), v: L.text({ x: OR, base, s: 36, c: "white", txt: "", align: "r" }) };
+});
+const triLog = [];
+
+// ---------------- mission status ----------------
+small(HX, 1620, HR - HX, "Mission Status", "tan", "sky");
+const SW = (HR - HX - 120) / 2;
+const STATS = ["Elapsed", "Stardate", "Orbit", "Gravity", "Local Time", "Pattern Locks"];
+const statVals = STATS.map((name, i) => {
+  const x = HX + (i % 2) * (SW + 120), base = 1734 + Math.floor(i / 2) * 135;   // first and last rows on the logs' first and last lines
+  L.text({ x, base, s: 40, c: "tan", txt: name });
+  return L.text({ x: x + SW, base, s: 52, c: "white", txt: "", align: "r" });
+});
+
+// ---------------- building a mission ----------------
+const V = 8, DELAY = 5;                                // walking pace in map pixels a second; the stagger between members
+let M = null, mi = 0;
+function buildMission(idx) {
+  const D = MISSIONS[idx % MISSIONS.length], rnd = seeded(D.seed);
+  const S = {};
+  for (const k of ["beam", "ruins", "samples", "colony"]) S[k] = { x: (D.layout[k][0] + (rnd() - 0.5) * 0.04) * MW, y: (D.layout[k][1] + (rnd() - 0.5) * 0.04) * MH };
+  // the lake lies beyond the sample site, away from the others
+  const others = ["beam", "ruins", "colony"].map((k) => S[k]), cx = others.reduce((a, p) => a + p.x, 0) / 3, cy = others.reduce((a, p) => a + p.y, 0) / 3;
+  let ax = S.samples.x - cx, ay = S.samples.y - cy; const al = Math.hypot(ax, ay); ax /= al; ay /= al;
+  S.lake = { x: S.samples.x + ax * 190, y: S.samples.y + ay * 150, rx: 150 + rnd() * 40, ry: 110 + rnd() * 30 };
+  S.lake.x = L.clamp(S.lake.x, S.lake.rx + 40, MW - S.lake.rx - 40); S.lake.y = L.clamp(S.lake.y, S.lake.ry + 40, MH - S.lake.ry - 40);
+  const T = buildTerrain(D, rnd, S);
+  // the sample site sits on the shore: walk from the lake's centre towards the team until the ground is dry
+  { let x = S.lake.x, y = S.lake.y; for (let k = 0; k < 200 && T.hn(x, y) < T.WL + 0.035; k++) { x -= ax * 4; y -= ay * 4; } S.samples = { x: x - ax * 26, y: y - ay * 26 }; }
+
+  // the drawing
+  if (mapSvg) mapSvg.remove();
+  mapSvg = document.createElementNS(NSV, "svg");
+  mapSvg.setAttribute("width", MW); mapSvg.setAttribute("height", MH); mapSvg.setAttribute("viewBox", `0 0 ${MW} ${MH}`);
+  mapSvg.style.position = "absolute"; mapSvg.style.left = 0; mapSvg.style.top = 0;
+  mapLayer.appendChild(mapSvg);
+  const img = svgEl("image", { x: 0, y: 0, width: MW, height: MH, preserveAspectRatio: "none" }, mapSvg);
+  img.setAttribute("href", relief(T));
+  const levels = [];
+  for (let l = T.WL + 0.045, n = 1; l < 0.99; l += 0.045, n++) levels.push([l, n % 5 === 0]);
+  let dMinor = "", dMajor = "";
+  for (const [l, major] of levels) { const d = contours(T, l); if (major) dMajor += d; else dMinor += d; }
+  svgEl("path", { d: dMinor, stroke: "#c9a77c", "stroke-width": 2, "stroke-linecap": "round", fill: "none", opacity: 0.42 }, mapSvg);
+  svgEl("path", { d: dMajor, stroke: "#ffb070", "stroke-width": 3, "stroke-linecap": "round", fill: "none", opacity: 0.75 }, mapSvg);
+  svgEl("path", { d: contours(T, T.WL - 0.06), stroke: "#5c9dff", "stroke-width": 2, "stroke-linecap": "round", fill: "none", opacity: 0.35 }, mapSvg);
+  svgEl("path", { d: contours(T, T.WL), stroke: "#8fd3ff", "stroke-width": 3, "stroke-linecap": "round", fill: "none", opacity: 0.9 }, mapSvg);
+  let gd = "";
+  for (let i = 1; i < GRIDC; i++) gd += `M${(i * CW).toFixed(1)},0V${MH}`;
+  for (let j = 1; j < GRIDR; j++) gd += `M0,${(j * CH).toFixed(1)}H${MW}`;
+  svgEl("path", { d: gd, stroke: "#f2f2ff", "stroke-width": 2, "stroke-dasharray": "3 9", fill: "none", opacity: 0.3 }, mapSvg);
+  // the scale: 500 m
+  svgEl("path", { d: `M${MW - 224},${MH - 40}V${MH - 28}H${MW - 24}V${MH - 40}`, stroke: "#c9a77c", "stroke-width": 3, fill: "none" }, mapSvg);
+  // the route, leg by leg
+  const order = [["beam", "ruins"], ["ruins", "samples"], ["samples", "colony"], ["colony", "beam"]];
+  const legs = order.map(([a, b]) => legPath(S[a], S[b], rnd));
+  const legEls = legs.map((p) => svgEl("path", { d: "M" + p.filter((_, k) => k % 4 === 0 || k === p.length - 1).map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join("L"),
+    stroke: "#ffcc66", "stroke-width": 3, "stroke-dasharray": "12 12", fill: "none", opacity: 0.8 }, mapSvg));
+  // the sites
+  const site = (p, kind) => {
+    const g = svgEl("g", { transform: `translate(${p.x.toFixed(1)},${p.y.toFixed(1)})` }, mapSvg);
+    if (kind === "beam") {
+      svgEl("circle", { r: 26, fill: "none", stroke: "#8fd3ff", "stroke-width": 4 }, g);
+      svgEl("circle", { r: 9, fill: "#8fd3ff" }, g);
+      svgEl("path", { d: "M0,-40V-30M0,30V40M-40,0H-30M30,0H40", stroke: "#8fd3ff", "stroke-width": 4 }, g);
+    } else if (kind === "ruins") {
+      for (const [x, y, w, h] of [[-26, -20, 18, 34], [-4, -28, 14, 42], [14, -14, 16, 28], [-18, 18, 36, 10]])
+        svgEl("rect", { x, y, width: w, height: h, fill: "none", stroke: "#ffb070", "stroke-width": 4 }, g);
+    } else if (kind === "samples") {
+      svgEl("path", { d: "M0,-26L24,0L0,26L-24,0Z", fill: "none", stroke: "#ffcc66", "stroke-width": 4 }, g);
+      svgEl("circle", { r: 7, fill: "#ffcc66" }, g);
+    } else {
+      for (const [x, y] of [[-30, -8], [-6, -18], [16, -4], [-12, 12]]) svgEl("rect", { x, y, width: 18, height: 16, fill: "#f2f2ff", opacity: 0.9 }, g);
+    }
+    return g;
+  };
+  site(S.beam, "beam"); site(S.ruins, "ruins"); site(S.samples, "samples"); site(S.colony, "colony");
+  // the colonists, found when the search is done
+  const colonists = svgEl("g", { opacity: 0 }, mapSvg);
+  for (let k = 0; k < 9; k++) {
+    const a = rnd() * 2 * Math.PI, r = 36 + rnd() * 34;
+    svgEl("circle", { cx: S.colony.x + r * Math.cos(a), cy: S.colony.y + r * Math.sin(a), r: 6, fill: "#8fd3ff" }, colonists);
+  }
+
+  // site labels (two lines, right of the site)
+  mlabs = mlabs.filter((m) => { if (!m.keep) m.e.remove(); return m.keep; });
+  const labs = {};
+  [["beam", "Beam-In Site", "ice"], ["ruins", D.ruins, "peach"], ["samples", D.samples, "butter"], ["colony", D.colony, "white"]].forEach(([k, name, c]) => {
+    const p = S[k];
+    labs[k] = [mlab(p.x + 58, p.y - 6, name, c), mlab(p.x + 58, p.y + 40, `Grid ${grid(p.x, p.y)}`, "tan")];
+  });
+  put(regionLab.tx, `${D.planet}  ·  ${D.region}`);
+
+  // where each member stands at each site: a loose ring, clear of the label to the right
+  const spots = {};
+  for (const k of ["beam", "ruins", "samples", "colony"]) {
+    const a0 = rnd() * 10;
+    spots[k] = [0, 1, 2, 3, 4].map((m) => { const a = ((150 + m * 52 + a0) * Math.PI) / 180, r = 64 + (m % 2) * 12; return [r * Math.sin(a), -r * Math.cos(a)]; });
+  }
+  // the phases
+  const P = [];
+  const add = (kind, dur, o = {}) => P.push(Object.assign({ kind, dur }, o));
+  add("brief", 12); add("down", 8, { at: "beam" });
+  const names = { ruins: D.ruins, samples: D.samples, colony: D.colony, beam: "Beam-In Site" };
+  legs.forEach((p, j) => {
+    add("walk", p.len / V + 4 * DELAY, { leg: j, from: order[j][0], to: order[j][1] });
+    if (j < 3) add("work", [72, 60, 66][j], { obj: j, at: order[j][1] });
+  });
+  add("up", 8, { at: "beam" }); add("aboard", 16);
+  let tt = 0; P.forEach((p) => { p.t0 = tt; tt += p.dur; p.t1 = tt; });
+  const beamT = P[1].t0, upT = P.find((p) => p.kind === "up").t1;
+
+  // the storm: closes through the mission
+  const stormAt = (m) => smooth((m - beamT) / (upT - beamT));
+  const stormKm = (m) => 140 - 112 * stormAt(m);
+
+  // events: the comm log and the tricorder, by mission time
+  const E = [];
+  const team = D.team.map(([name, short, role, pulse], k) => ({ name, short, role, pulse, k }));
+  const lead = team[0].short, sci = team.find((m) => /Science|Xenobio|Archae/.test(m.role)) || team[1], med = team.find((m) => m.role === "Medical" || m.role === "Contact") || team[1];
+  const ship = "Enterprise", tr = "Transporter";
+  const comm = (m, txt, who) => E.push({ m, kind: "comm", txt, who });
+  const tri = (m, txt, v, k) => E.push({ m, kind: "tri", txt, v, k });
+  const ph = (kind, j) => P.filter((p) => p.kind === kind)[j];
+  comm(0.5, `Standard orbit  ·  ${D.planet}`, "Conn");
+  tri(1.5, "Orbital scan  ·  atmosphere", "Nitrogen-oxygen", -1);
+  comm(3.5, "Away team to Transporter Room 3", "Bridge");
+  tri(5, "Orbital scan  ·  lifesigns", `Humanoid  ·  ${D.lifesigns}`, -1);
+  comm(7.5, `Coordinates locked  ·  grid ${grid(S.beam.x, S.beam.y)}`, tr);
+  tri(9, "Surface gravity", D.grav, -1);
+  comm(beamT + 0.5, "Energizing", tr);
+  comm(P[1].t1 + 1, "Away team to Enterprise  ·  we're down", lead);
+  const POOL = {
+    walk: [["Oxygen", "21.4%"], ["Air pressure", "0.97 atm"], ["Soil  ·  silicates", "62%"], ["Fauna  ·  small mammals", "Non-hostile"],
+           ["Magnetic field", "0.41 gauss"], ["Vegetation  ·  grasses", "Dense"], ["Ground water", "4 m down"], ["Pollen count", "High"]],
+    ruins: [["Structure age", D.age], ["Polyduranide residue", "Trace"], ["Subsurface chambers", "3"], ["Inscriptions  ·  script", "Unknown"],
+            ["Kelbonite in the walls", "Scatters scans"], ["Energy readings", "None"], ["Masonry  ·  basalt", "Dressed"], ["Collapse risk", "Low"]],
+    samples: [["Water  ·  potable", "Yes"], ["Microbial life", "Present"], ["Sediment  ·  iron", "14%"], ["Algae  ·  photosynthetic", "Abundant"],
+              ["Water temperature", "11.2 °C"], ["Sediment  ·  isotopes", "Stable"], ["Dissolved oxygen", "8.6 mg/L"], ["Salinity", "0.4%"]],
+    colony: [["Power source  ·  fusion", "Low output"], ["Structures  ·  prefab", "14"], ["Comm array", "Damaged"], ["Lifesigns  ·  human", "Faint"],
+             ["Food stores", "Adequate"], ["Lifesigns  ·  human", String(D.lifesigns)], ["Medical  ·  colonists", "Stable"], ["Water supply", "Working"]],
+  };
+  const lastWalk = [];
+  const scanners = { walk: [0, 1, 2, 3, 4], ruins: [1, 3, 1, 4], samples: [3, 1, 3, 4], colony: [1, 4, 0, 1] };
+  P.forEach((p) => {
+    if (p.kind === "walk") {
+      const j = p.leg;
+      comm(p.t0 + 3, j === 3 ? "Returning to the beam-in site" : `Proceeding to ${D.to[j]}  ·  grid ${grid(S[p.to].x, S[p.to].y)}`, lead);
+      for (let m = p.t0 + 9; m < p.t1 - 4; m += 12 + rnd() * 4) {
+        // never one of the last five again: the log shows six
+        const fresh = POOL.walk.filter((x) => !lastWalk.includes(x)), w = fresh[Math.floor(rnd() * fresh.length)];
+        lastWalk.push(w); if (lastWalk.length > 5) lastWalk.shift();
+        tri(m, w[0], w[1], Math.floor(rnd() * 5));
+      }
+      if (j === 1) comm(p.t0 + p.dur * 0.6, `Storm front ${Math.round(stormKm(p.t0 + p.dur * 0.6))} km  ·  closing slowly`, ship);
+      if (j === 3) comm(p.t0 + p.dur * 0.55, `Storm front ${Math.round(stormKm(p.t0 + p.dur * 0.55))} km  ·  recommend beam-up`, ship);
+    } else if (p.kind === "work") {
+      const key = ["ruins", "samples", "colony"][p.obj], pool = POOL[key], sc = scanners[key];
+      comm(p.t0 + 1, ["At the ruins  ·  beginning survey", "Collecting samples", "Scanning for lifesigns"][p.obj], p.obj === 0 ? lead : team[sc[0]].short);
+      let n = 0;
+      for (let m = p.t0 + 4; m < p.t1 - 3; m += 7 + rnd() * 2, n++) {
+        const [a, b] = pool[n % pool.length];
+        tri(m, a === "Lifesigns  ·  human" && b === "Faint" && n > 4 ? "Lifesigns  ·  human" : a, b, sc[n % sc.length]);
+      }
+      if (p.obj === 0) { comm(p.t0 + 30, "Enterprise to away team  ·  report", ship); comm(p.t0 + 36, "Survey under way  ·  all well", lead); }
+      if (p.obj === 2) comm(p.t0 + 40, `Colonists located  ·  ${D.lifesigns} lifesigns`, sci.short);
+      comm(p.t1 - 1, [`Survey complete  ·  structures ${D.age} old`, `Samples secured  ·  ${6 + Math.floor(rnd() * 5)} containers`, "All colonists accounted for"][p.obj],
+        [sci, team[3], med][p.obj].short);
+    }
+  });
+  const up = ph("up", 0);
+  comm(up.t0 + 0.5, "Away team to Enterprise  ·  five to beam up", lead);
+  comm(up.t0 + 2, "Energizing", tr);
+  comm(up.t1 + 1, "Away team aboard  ·  mission complete", tr);
+  E.sort((a, b) => a.m - b.m);
+
+  return { D, S, T, P, E, ev: 0, legs, legEls, labs, spots, colonists, team, stormAt, stormKm, beamT, upT, total: tt, legDone: -1 };
+}
+
+// ---------------- the team, where they are ----------------
+const phaseAt = (m) => M.P.find((p) => m < p.t1) || M.P[M.P.length - 1];
+const posAt = (k, m) => {
+  const p = phaseAt(m), off = (at) => M.spots[at][k];
+  const wa = 6 + 10 * smooth(Math.min((m - p.t0) / 5, (p.t1 - m) / 5)) * (p.kind === "work" ? 1 : 0);
+  const wx = wa * Math.sin(m * 0.19 + k * 1.3) + 0.5 * wa * Math.sin(m * 0.43 + k * 2.1), wy = wa * Math.cos(m * 0.16 + k * 0.9) + 0.5 * wa * Math.sin(m * 0.37 + k);
+  let x, y, vis = 1, beam = 0;
+  if (p.kind === "brief" || p.kind === "aboard") { const b = M.S.beam; [x, y] = [b.x + off("beam")[0], b.y + off("beam")[1]]; vis = 0; }
+  else if (p.kind === "down" || p.kind === "up") {
+    const b = M.S.beam, u = (m - p.t0 - k * 0.35) / 5;
+    x = b.x + off("beam")[0]; y = b.y + off("beam")[1];
+    const s = smooth(u); vis = p.kind === "down" ? s : 1 - s;
+    beam = L.clamp(Math.sin(L.clamp(u) * Math.PI) * 1.1);
+  } else if (p.kind === "work") { const s = M.S[p.at]; x = s.x + off(p.at)[0]; y = s.y + off(p.at)[1]; }
+  else {
+    const path = M.legs[p.leg], walk = path.len / V, u = L.clamp((m - p.t0 - k * DELAY) / walk);
+    const ue = L.mix(u, smooth(u), 0.35);
+    const [px, py] = along(path, ue), a = off(p.from), b = off(p.to), f = smooth(u);
+    x = px + L.mix(a[0], b[0], f) * (1 - 0.7 * Math.sin(u * Math.PI)); y = py + L.mix(a[1], b[1], f) * (1 - 0.7 * Math.sin(u * Math.PI));
+  }
+  return { x: x + wx, y: y + wy, vis, beam, p };
+};
+
+// ---------------- showing the mission's state ----------------
+const SITE_NAME = (k) => ({ beam: "Beam-In Site", ruins: M.D.ruins, samples: M.D.samples, colony: M.D.colony }[k]);
+const hhmm = (m) => { const s = Math.max(0, m - M.beamT) * SCALE, h = Math.floor(s / 3600), mm = Math.floor((s % 3600) / 60); return `${String(h).padStart(2, "0")}:${String(mm).padStart(2, "0")}`; };
+const clockAt = (m) => hhmm(Math.min(m, M.upT));
+const showLogs = () => {
+  commRows.forEach((r, i) => { const e = commLog[i]; put(r.tm, e ? e.tm : ""); put(r.tx, e ? e.txt : ""); put(r.who, e ? e.who : "");
+    css(r.tx, "color", e && (e.who === "Enterprise" || e.who === "Bridge" || e.who === "Conn" || e.who.startsWith("Transporter")) ? "var(--peach)" : "var(--white)"); });
+  triRows.forEach((r, i) => { const e = triLog[i]; put(r.tx, e ? e.txt : ""); put(r.v, e ? e.v : "");
+    css(r.tx, "color", e ? `var(--${e.k < 0 ? "sky" : SLOT_C[e.k]})` : "var(--peach)"); });
+};
+const fire = (e, m) => {
+  if (e.kind === "comm") { commLog.push({ tm: clockAt(e.m), txt: e.txt, who: e.who }); if (commLog.length > 6) commLog.shift(); }
+  else { triLog.push(e); if (triLog.length > 6) triLog.shift(); }
+};
+
+const showRosterNames = () => M.team.forEach((tm, i) => { put(roster[i].name, tm.name); put(roster[i].role, tm.role); });
+const showStatic = () => {
+  put(statVals[2], `${M.D.alt} km`); put(statVals[3], M.D.grav); 
+  put(stateSub, `${M.D.planet}  ·  ${M.D.cls}  ·  Away team of five  ·  Stardate ${M.D.sd.toFixed(1)}`);
+};
+
+let lastPhase = null;
+const show = (m) => {
+  const p = phaseAt(m), D = M.D;
+  // the status line and the pill
+  const W = { brief: ["Standard Orbit", "sky"], down: ["Beaming Down", "ice"], up: ["Beaming Up", "ice"], aboard: ["Mission Complete", "butter"],
+              walk: [p.leg === 3 ? "Returning" : "En Route", "peach"], work: [["Surveying Ruins", "Collecting Samples", "Locating Colonists"][p.obj ?? 0], "orange"] }[p.kind];
+  setState(W[0], W[1]);
+  const PL = { brief: ["In Orbit", "sky"], down: ["Energizing", "ice"], up: ["Energizing", "ice"], aboard: ["Team Aboard", "tan"] }[p.kind] || ["Team on Surface", "orange"];
+  put(pill, PL[0]); css(pill, "background", `var(--${PL[1]})`);
+  // the objectives
+  const ob = (i) => {
+    const w = M.P.find((q) => q.kind === "work" && q.obj === i), r = M.P.find((q) => q.kind === "walk" && q.leg === 3);
+    if (i < 3) {
+      if (m >= w.t1) return ["Complete", 1];
+      if (m >= w.t0) return [`${Math.floor((100 * (m - w.t0)) / w.dur)}%`, (m - w.t0) / w.dur];
+      const walk = M.P.find((q) => q.kind === "walk" && q.leg === i);
+      return m >= walk.t0 ? ["En Route", 0] : ["Pending", 0];
+    }
+    if (m >= r.t1) return ["Complete", 1];
+    if (m >= r.t0) return [`${Math.floor((100 * (m - r.t0)) / r.dur)}%`, (m - r.t0) / r.dur];
+    return ["Pending", 0];
+  };
+  objs.forEach((o, i) => {
+    const [st, u] = ob(i), state = st === "Complete" ? "done" : st === "Pending" ? "wait" : "now";
+    put(o.st, st);
+    pgSeg[i].goal = L.clamp(u);
+    if (state !== o.state) {
+      o.state = state;
+      o.box.style.background = state === "done" ? "var(--tan)" : state === "now" ? "var(--orange)" : TRACK;
+      css(o.tx, "color", state === "now" ? "var(--white)" : "var(--tan)");
+      css(o.st, "color", state === "done" ? "var(--tan)" : state === "now" ? "var(--butter)" : "var(--slate)");
+      css(o.tx, "opacity", state === "wait" ? "0.6" : "1");
+    }
+  });
+  // the roster
+  const sk = M.stormAt(m), aboard = p.kind === "brief" || p.kind === "aboard";
+  const ruinsD = (q) => Math.hypot(q.x - M.S.ruins.x, q.y - M.S.ruins.y);
+  M.team.forEach((tm, i) => {
+    const r = roster[i], q = posAt(i, m);
+    if (aboard) { put(r.grid, p.kind === "brief" ? "Aboard" : "Aboard"); put(r.site, "Transporter Room 3"); }
+    else if (p.kind === "walk") { put(r.grid, `Grid ${grid(q.x, q.y)}`); put(r.site, "En Route"); }
+    else { put(r.grid, `Grid ${grid(q.x, q.y)}`); put(r.site, SITE_NAME(p.at)); }
+    // vitals: exertion while walking
+    const ex = p.kind === "walk" ? 1 : p.kind === "work" ? 0.35 : 0;
+    r.ex += (ex - r.ex) * 0.2;
+    if (tm.pulse) {
+      r.pulse = tm.pulse + 22 * r.ex + 4 * sk + L.rand(-1.5, 1.5);
+      r.resp = 13 + 7 * r.ex + L.rand(-0.6, 0.6);
+      r.temp = 36.7 + 0.5 * r.ex + L.rand(-0.05, 0.05);
+      put(r.vit, `${Math.round(r.pulse)} bpm`);
+      put(r.vitS, r.pulse > tm.pulse + 14 ? "Elevated" : "Nominal");
+      r.bars[0].goal = L.clamp((r.pulse - 40) / 110); r.bars[1].goal = L.clamp((r.resp - 6) / 26); r.bars[2].goal = L.clamp((r.temp - 35) / 4);
+    } else {                                              // an android: his power and processing, not a pulse
+      put(r.vit, "Android"); put(r.vitS, "Nominal");
+      r.bars[0].goal = 0.82; r.bars[1].goal = 0.64 + 0.1 * r.ex; r.bars[2].goal = 0.5;
+    }
+    // the transporter lock: the storm and the kelbonite at the ruins get in the way
+    let lock, lockTxt;
+    if (aboard) { lock = 0; lockTxt = "Clear"; }
+    else if (p.kind === "down" || p.kind === "up") { lock = 1; lockTxt = "Locked"; }
+    else {
+      const shield = 9 * smooth(1 - (ruinsD(q) - 70) / 200);
+      lock = (99.4 - 4.5 * sk - shield + L.rand(-0.15, 0.15)) / 100; lockTxt = (lock * 100).toFixed(1) + "%";
+    }
+    put(r.lockV, lockTxt); r.lgoal = lock;
+    css(r.lockBar, "background", lock > 0.92 || lock === 0 ? "var(--sky)" : "var(--butter)");
+    // comms
+    if (aboard) { put(r.comm, "Internal"); put(r.sig, "Deck 6"); css(r.comm, "color", "var(--tan)"); }
+    else {
+      const sig = Math.round(98 - 7 * sk - 1.2 * smooth(1 - (ruinsD(q) - 70) / 200) * 10 + L.rand(-0.6, 0.6));
+      const weak = sig < 88;
+      put(r.comm, weak ? "Weak" : "Open"); put(r.sig, `Signal ${sig}%`); css(r.comm, "color", weak ? "var(--butter)" : "var(--sky)");
+    }
+  });
+  // hazards
+  const cen = M.team.reduce((a, _, i) => { const q = posAt(i, m); return [a[0] + q.x / 5, a[1] + q.y / 5]; }, [0, 0]);
+  const nearR = smooth(1 - (Math.hypot(cen[0] - M.S.ruins.x, cen[1] - M.S.ruins.y) - 80) / 260);
+  const rad = 7 + 19 * nearR + L.rand(-0.4, 0.4), wind = 16 + 34 * sk + L.rand(-1.5, 1.5);
+  const day = L.clamp((m - M.beamT) / (M.upT - M.beamT)), temp = 21 + 7 * Math.sin(day * Math.PI * 0.9 + 0.3) + L.rand(-0.1, 0.1);
+  const km = M.stormKm(m), seis = 0.3 + 0.25 * Math.sin(m * 0.05) + L.rand(-0.04, 0.04);
+  [[rad / 60, `${rad.toFixed(1)} mrad/h`, rad > 20], [wind / 90, `${Math.round(wind)} km/h`, wind > 42], [(temp + 10) / 55, `${temp.toFixed(1)} °C`, false],
+   [1 - km / 160, `${Math.round(km)} km`, km < 45], [seis / 3, seis < 0.5 ? "Minor" : "Light", false]].forEach(([u, txt, warn], i) => {
+    const h = HAZ[i]; h.goal = L.clamp(u, 0.02, 1); put(h.val, txt);
+    css(h.bar, "background", warn ? "var(--sunset)" : i === 3 ? "var(--sky)" : "var(--tan)");
+    css(h.val, "color", warn ? "var(--butter)" : "var(--white)");
+  });
+  put(stormLab.tx, `Electrical Storm  ·  ${Math.round(km)} km`);
+  // the mission's numbers
+  put(statVals[0], clockAt(m));
+  put(statVals[1], (M.D.sd + (Math.max(0, Math.min(m, M.upT) - M.beamT) * SCALE) / 86400 * 2.7).toFixed(1));
+  { const lt = (M.D.local + Math.max(0, Math.min(m, M.upT) - M.beamT) * SCALE / 60) % 1440;
+    put(statVals[4], `${String(Math.floor(lt / 60)).padStart(2, "0")}:${String(Math.floor(lt % 60)).padStart(2, "0")}`); }
+  {
+    const beaming = p.kind === "down" || p.kind === "up";
+    const T = beaming ? ["Locked  ·  5", "Cycling", "Active"] : aboard ? [p.kind === "brief" ? "Acquiring" : "Standby", p.kind === "brief" ? "Ready" : "Clear", "Standby"]
+                      : ["Tracking  ·  5", "Ready", "Standby"];
+    put(TRV[0], "Chief O'Brien"); put(TRV[1], T[0]); put(TRV[2], T[1]); put(TRV[3], T[2]);
+    css(TRV[2], "color", beaming ? "var(--butter)" : "var(--white)"); css(TRV[3], "color", beaming ? "var(--butter)" : "var(--white)");
+    put(TRV[4], "Nominal"); put(TRV[5], (0.002 + 0.019 * sk + L.rand(0, 0.0008)).toFixed(4) + "%");
+  }
+  put(statVals[5], aboard ? (p.kind === "brief" ? "Standing By" : "Released") : p.kind === "down" || p.kind === "up" ? "Energizing" : "5 of 5");
+  lastPhase = p;
+};
+
+// ---------------- a guard: every name fits its place ----------------
+{
+  const bad = [];
+  const fits = (txt, s, w, where) => { if (L.textWidth(txt, s) > w) bad.push(`${where}: "${txt}" ${Math.round(L.textWidth(txt, s))}>${Math.round(w)}`); };
+  for (let i = 0; i < MISSIONS.length; i++) {
+    const D = MISSIONS[i];
+    D.team.forEach(([name, , role]) => { fits(name, 40, RC.loc - RC.name - 30, "roster name"); fits(role, 36, RC.loc - RC.name - 30, "roster role"); });
+    [D.ruins, D.samples, D.colony, "Transporter Room 3"].forEach((n) => fits(n, 36, RC.vit - RC.loc - 30, "roster site"));
+    fits(`${D.planet}  ·  ${D.cls}  ·  Away team of five  ·  Stardate 46000.0`, 38, 3416 - 40 - (330 + L.textWidth("Locating Colonists", 100) + 40), "subtitle");
+    const Mx = buildMissionText(D);
+    Mx.comm.forEach((c) => fits(c, 36, CR - MX - 140 - L.textWidth("Enterprise", 36) - 40, "comm"));
+  }
+  if (bad.length) setTimeout(() => { throw new Error("mission-ops: " + bad.join(" | ")); });
+}
+function buildMissionText(D) {                           // the longest comm lines a mission can produce, for the guard
+  return { comm: [...D.to.map((x) => `Proceeding to ${x}  ·  grid H-6`), `Survey complete  ·  structures ${D.age} old`, "Storm front 140 km  ·  recommend beam-up",
+    "Away team to Enterprise  ·  five to beam up"] };
+}
+
+// ---------------- the start ----------------
+const q = new URLSearchParams(location.search);
+mi = q.has("mission") ? +q.get("mission") : L.irand(0, MISSIONS.length - 1);
+M = buildMission(mi);
+let m0;
+if (q.has("at")) m0 = +q.get("at");
+else { const a = M.P.find((p) => p.kind === "walk").t0 + 10, b = M.P.filter((p) => p.kind === "work")[2].t1 - 10; m0 = L.rand(a, b); }
+while (M.ev < M.E.length && M.E[M.ev].m <= m0) fire(M.E[M.ev++], m0);
+showLogs(); showStatic(); showRosterNames(); show(m0);
+
+let tStart = 0, swapping = false;
+const roleEls = roster.flatMap((r) => [r.name, r.role]);
+const nextMission = (t) => {
+  mi++;
+  M = buildMission(mi);
+  unboot(mapLayer);
+  tStart = t; m0 = 0;
+  showStatic(); showRosterNames();
+  objs.forEach((o) => (o.state = ""));
+  requestAnimationFrame(() => { mapLayer.classList.remove("out"); roleEls.forEach((e) => e.classList.remove("out")); mlabs.forEach((g) => g.e.classList.remove("out")); });
+  swapping = false;
+};
+
+// ---------------- the clock ----------------
+let settled = false, scanT = -99;
+const hit = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+L.tick((t) => {
+  if (!started) { started = true; }
+  let m = t - tStart + m0;
+  if (m >= M.total) { nextMission(t); m = 0; }
+  // the last seconds aboard: the map and the names fade, ready for the next mission
+  if (!swapping && m > M.total - 2.2) {
+    swapping = true;
+    mapLayer.classList.add("out"); roleEls.forEach((e) => e.classList.add("out")); mlabs.forEach((g) => { if (!g.keep) g.e.classList.add("out"); });
+  }
+  while (M.ev < M.E.length && M.E[M.ev].m <= m) { fire(M.E[M.ev++], m); showLogs(); }
+  const p = phaseAt(m);
+  // the team
+  const rects = [];
+  roster.forEach((r, k) => {
+    const q = posAt(k, m), X = MX + q.x, Y = MY + q.y;
+    L.move(r.mk, X - 20, Y - 20);
+    const op = q.vis.toFixed(3);
+    if (r.mk.style.opacity !== op) r.mk.style.opacity = op;
+    if (q.beam > 0.001 || r.beamOn) {
+      L.move(r.beam, X - 22, Y - 66);
+      r.beam.style.opacity = (q.beam * (0.75 + 0.25 * Math.sin(t * 9 + k))).toFixed(3);
+      r.beamOn = q.beam > 0.001;
+    }
+    if (q.vis > 0.05) rects.push({ x: X - 26, y: Y - 26, w: 52, h: 52 });
+  });
+  // a tricorder sweep round the site while the team works there
+  if (p.kind === "work") {
+    const s = M.S[p.at], a = (m - p.t0) % 6;
+    if (a < 3.2) {
+      L.move(scanRing, s.x - 160, s.y - 160, 0, 0.25 + 0.75 * L.ease(a / 3.2));
+      scanRing.style.opacity = (0.8 * (1 - a / 3.2) * smooth((p.t1 - m) / 2)).toFixed(3); scanT = 1;
+    } else if (scanT) { scanRing.style.opacity = 0; scanT = 0; }
+  } else if (scanT) { scanRing.style.opacity = 0; scanT = 0; }
+  // the colonists show as they are found, and stay
+  { const w = M.P.find((q) => q.kind === "work" && q.obj === 2), op = smooth((m - w.t0 - 34) / 6).toFixed(2);
+    if (op !== M.colOp) { M.colOp = op; M.colonists.setAttribute("opacity", op); } }
+  // the storm drifts in from the north-east
+  const sk = M.stormAt(m);
+  L.move(storm, MW - 260 - 420 * sk, -620 + 300 * sk);
+  // the route: legs walked turn quiet
+  const done = M.P.filter((q) => q.kind === "walk" && m >= q.t1).length - 1;
+  if (done !== M.legDone) { M.legDone = done; M.legEls.forEach((e, j) => { e.setAttribute("opacity", j <= done ? "0.3" : "0.8"); }); }
+  // map labels step back under the team
+  for (const g of mlabs) {
+    const under = rects.some((r) => hit(g, r));
+    const goal = under ? 0.15 : 1;
+    if (Math.abs(goal - g.op) > 0.004 || !settled) { g.op = settled ? g.op + (goal - g.op) * 0.12 : goal; g.tx.style.opacity = g.op.toFixed(3); }
+  }
+  settled = true;
+  // gauges follow their readings
+  roster.forEach((r) => {
+    r.bars.forEach((b) => { if (Math.abs(b.goal - b.v) > 0.001 || !b.drawn) { b.v += (b.goal - b.v) * 0.06; b.drawn = true; b.e.style.transform = `scaleY(${b.v.toFixed(4)})`; } });
+    if (Math.abs(r.lgoal - r.lu) > 0.0005 || !r.ldrawn) { r.lu += (r.lgoal - r.lu) * 0.06; r.ldrawn = true; r.lockBar.style.transform = `scaleX(${r.lu.toFixed(4)})`; }
+  });
+  for (const s of [...pgSeg, ...HAZ]) {
+    if (Math.abs(s.goal - s.u) < 0.0005 && s.drawn) continue;
+    s.u += (s.goal - s.u) * 0.05; s.drawn = true;
+    s.e ? (s.e.style.transform = `scaleX(${s.u.toFixed(4)})`) : (s.bar.style.transform = `scaleX(${s.u.toFixed(4)})`);
+  }
+});
+L.every(1000, (t) => show(t - tStart + m0 >= M.total ? 0 : t - tStart + m0), 0);
+});
+</script></body></html>

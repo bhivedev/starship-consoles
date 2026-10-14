@@ -1,0 +1,227 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Engineering</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .band { background: linear-gradient(to right, #0d2a6a 0%, #3f8cff 22%, #bfe6ff 50%, #3f8cff 78%, #0d2a6a 100%); border-radius: 8px; }
+  .flash { border-radius: 60px; background: radial-gradient(ellipse at center, #ffffff 0%, #c6e6ff 22%, rgba(90,160,255,.55) 52%, rgba(40,80,255,0) 75%); }
+  .pkt { width: 26px; height: 12px; border-radius: 6px; background: var(--ice); }
+  .vpkt { width: 12px; height: 26px; border-radius: 6px; background: var(--ice); }
+  .track { position: absolute; background: #141c36; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame ----------------
+const engLeft = L.title({ x: 3720 - L.GAP, y: 40, h: 70, c: "orange", txt: "Engineering" });
+const peachX = engLeft - L.GAP - 110;                    // the bar stops one gap short of the title
+L.elbow({ corner: "tl", x: 40, y: 40, w: peachX - L.GAP - 40, h: 300, bw: 260, bh: 70, R: 170, r: 70, c: "orange" });
+L.rect({ x: peachX, y: 40, w: 110, h: 70, c: "peach" });
+L.box({ x: 3720, y: 40, w: 96, h: 70, c: "orange", r: "r" });
+[[348, 120, "peach", "01-4471"], [476, 60, "tan", "Warp"], [544, 380, "orange", "M/ARA"], [932, 60, "lilac", "29-0175"],
+ [1000, 200, "peach", "EPS"], [1208, 60, "sunset", "47-2"], [1276, 356, "orange", "Diag 3"]]
+  .forEach(([y, h, c, label]) => L.box({ x: 40, y, w: 260, h, c, label }));
+L.elbow({ corner: "bl", x: 40, y: 1640, w: 1400, h: 480, bw: 260, bh: 50, R: 170, r: 70, c: "lilac" });
+[[1448, 640, "plum"], [2096, 800, "lilac"], [2904, 806, "peach"]].forEach(([x, w, c]) => L.rect({ x, y: 2070, w, h: 50, c }));
+L.box({ x: 3718, y: 2070, w: 98, h: 50, c: "orange", r: "r" });
+L.text({ x: 278, y: 1700, s: 44, c: "#000", txt: "Core 01", align: "r", on: true });
+
+// ---------------- warp factor drives everything ----------------
+let warp = L.rand(5.5, 8.5), warpFrom = warp, warpTo = warp, warpT0 = 0;
+const WARP_DUR = 6;
+L.every(22000, (t) => { warpFrom = warp; warpTo = Math.round(L.rand(4.0, 9.6) * 10) / 10; warpT0 = t; }, 0.3);
+L.tick((t) => { warp = L.mix(warpFrom, warpTo, L.ease(L.clamp((t - warpT0) / WARP_DUR))); });
+
+// ---------------- left: the reaction assembly ----------------
+L.text({ x: 380, y: 150, s: 66, c: "orange", txt: "Matter / Antimatter Reaction Assembly" });
+const rows = [
+  ["Deuterium Flow", "peach", "orange", (w) => 0.42 + w * 0.055, (v) => (v * 100).toFixed(1) + "%"],
+  ["Antideuterium Flow", "lilac", "lilac", (w) => 0.41 + w * 0.056, (v) => (v * 100).toFixed(1) + "%"],
+  ["Dilithium Matrix", "ice", "ice", () => 0.93, (v) => (v * 100).toFixed(1) + "%"],
+  ["Intermix Ratio", "tan", "peach", () => 0.5, () => "1:1"],
+  ["Magnetic Constriction", "orange", "orange", (w) => 0.55 + w * 0.04, (v) => (v * 9.9).toFixed(2) + " T"],
+  ["Plasma Temperature", "sunset", "sunset", (w) => 0.35 + w * 0.06, (v) => (v * 2.4).toFixed(2) + " MK"],
+  ["Coolant Pressure", "sky", "sky", () => 0.71, (v) => (v * 2880).toFixed(0) + " kPa"],
+  ["Core Output", "peach", "butter", (w) => 0.2 + w * 0.085, (v) => (v * 4.6).toFixed(2) + " TW"],
+];
+const readings = rows.map(([label, c, fill, target, fmt], i) => {
+  const y = 286 + i * 84;
+  L.box({ x: 380, y, w: 380, h: 66, c, label, fs: 34 });
+  const tr = L.el("div", "track boot", L.stage, { left: "772px", top: y + "px", width: "400px", height: "66px" });
+  const f = L.layer({ x: 772, y, w: 400, h: 66 });
+  f.style.background = `var(--${fill})`; f.style.transformOrigin = "0 0";
+  const v = L.text({ x: 1450, y: y + 4, s: 58, c: fill, txt: "", align: "r" });
+  return { f, v, target, fmt, cur: target(warp), j: 0 };
+});
+L.tick((t) => readings.forEach((r, i) => {
+  const goal = L.clamp(r.target(warp) + 0.025 * Math.sin(t * 0.9 + i * 1.9) + r.j);
+  r.cur += (goal - r.cur) * 0.08;
+  r.f.style.transform = `scaleX(${r.cur.toFixed(4)})`;
+}));
+L.every(250, () => readings.forEach((r) => { r.j = (Math.random() - 0.5) * 0.012; r.v.textContent = r.fmt(r.cur); }), 0);
+
+// warp factor, large, on a scale
+L.text({ x: 380, y: 1000, s: 44, c: "sky", txt: "Warp Factor" });
+const wtxt = L.text({ x: 1450, y: 958, s: 210, c: "butter", txt: "", align: "r" });
+const scaleY = 1196;
+for (let k = 1; k <= 9; k++) {
+  const x = 380 + ((k - 1) / 8.9) * 1040;
+  L.rect({ x, y: scaleY, w: 6, h: k % 2 ? 46 : 30, c: "sky" });
+  L.text({ x: x - 8, y: scaleY + 64, s: 34, c: "sky", txt: String(k), legend: true });
+}
+L.rect({ x: 380, y: scaleY - 12, w: 1046, h: 6, c: "sky" });
+const wmark = L.layer({ x: 380, y: scaleY - 66, w: 0, h: 0 });
+wmark.style.borderLeft = "24px solid transparent"; wmark.style.borderRight = "24px solid transparent";
+wmark.style.borderTop = "42px solid var(--butter)";
+L.tick(() => L.move(wmark, ((warp - 1) / 8.9) * 1040 - 21, 0));
+L.every(100, () => (wtxt.textContent = warp.toFixed(1)), 0);
+
+// plasma flow monitor
+L.box({ x: 380, y: 1330, w: 300, h: 50, c: "plum", label: "Plasma Flow", fs: 30, r: "l" });
+L.rect({ x: 686, y: 1330, w: 744, h: 50, c: "lilac" });
+const osc = L.canvas({ x: 380, y: 1394, w: 1050, h: 230 });
+L.tick((t) => {
+  const g = osc.g, w = osc.w, h = osc.h, f = 0.6 + warp * 0.12;
+  g.clearRect(0, 0, w, h);
+  g.fillStyle = "#1b2550";
+  for (let x = 0; x <= w; x += 105) g.fillRect(x, 0, 2, h);
+  for (let y = 0; y <= h; y += 57.5) g.fillRect(0, y, w, 2);
+  const trace = (amp, k, ph, col, lw) => {
+    g.strokeStyle = col; g.lineWidth = lw; g.beginPath();
+    for (let x = 0; x <= w; x += 6) {
+      const u = x / w;
+      g.lineTo(x, h / 2 + amp * h * Math.sin(u * k + t * f * 4 + ph) * (0.75 + 0.25 * Math.sin(u * 3 + t)));
+    }
+    g.stroke();
+  };
+  trace(0.36, 14, 0, "#ffb070", 4);
+  trace(0.24, 22, 1.7, "#8fd3ff", 3);
+  trace(0.12, 41, 3.1, "#c7a0d8", 2);
+});
+
+// warp field coils: each nacelle fires its coils front to back, faster at higher warp
+L.box({ x: 380, y: 1680, w: 300, h: 50, c: "orange", label: "Warp Field Coils", fs: 30, r: "l" });
+L.rect({ x: 686, y: 1680, w: 744, h: 50, c: "peach" });
+const coils = [];
+[["Port", 1760, "lilac"], ["Starboard", 1880, "lilac"]].forEach(([name, y, c], n) => {
+  L.box({ x: 380, y, w: 220, h: 96, c, label: name, fs: 34 });
+  for (let i = 0; i < 12; i++) {
+    const x = 616 + i * 68;
+    L.rect({ x, y, w: 60, h: 96, c: "#1a2550" });
+    const e = L.layer({ x, y, w: 60, h: 96 });
+    e.style.background = "var(--ice)"; e.style.opacity = 0.1;
+    coils.push({ e, i, n });
+  }
+});
+let coilPhase = 0, coilT = 0;
+L.tick((t) => {
+  coilPhase = (coilPhase + (t - coilT) * (0.25 + warp * 0.09)) % 1; coilT = t;
+  for (const c of coils) {
+    const d = (c.i / 12 - coilPhase + 2 + c.n * 0.04) % 1;       // distance behind the firing front
+    c.e.style.opacity = (0.1 + 0.9 * Math.pow(1 - d, 6)).toFixed(3);
+  }
+});
+
+// ---------------- centre: the warp core ----------------
+const CX = 1720, TOP = 170, BOT = 2010, MID = 1090;
+L.rect({ x: CX - 132, y: TOP, w: 264, h: BOT - TOP, rx: 40, c: "#0a1630" });
+L.svg("rect", { x: CX - 132, y: TOP, width: 264, height: BOT - TOP, rx: 40, fill: "none", stroke: "var(--ice)", "stroke-width": 6 });
+L.rect({ x: CX - 180, y: TOP - 4, w: 360, h: 40, rx: 20, c: "peach" });
+L.rect({ x: CX - 180, y: BOT - 36, w: 360, h: 40, rx: 20, c: "lilac" });
+L.text({ x: CX + 200, y: TOP - 6, s: 36, c: "peach", txt: "Matter Injector" });
+L.text({ x: CX + 200, y: BOT - 38, s: 36, c: "lilac", txt: "Antimatter Injector" });
+// the reaction chamber
+L.rect({ x: CX - 200, y: MID - 70, w: 400, h: 140, rx: 50, c: "#0a1630" });
+L.svg("rect", { x: CX - 200, y: MID - 70, width: 400, height: 140, rx: 50, fill: "none", stroke: "var(--orange)", "stroke-width": 8 });
+L.rect({ x: CX - 226, y: MID - 22, w: 26, h: 44, c: "orange" });
+L.rect({ x: CX + 200, y: MID - 22, w: 26, h: 44, c: "orange" });
+// chambers, from the injectors to the reaction chamber
+const bands = [];
+const STEP = 50;
+for (let y = TOP + 50; y < BOT - 50; y += STEP) {
+  if (Math.abs(y + 19 - MID) < 100) continue;
+  const b = L.layer({ x: CX - 112, y, w: 224, h: 38, cls: "band" });
+  b.d = Math.abs(y + 19 - MID) / (MID - TOP - 60);       // 1 at the injectors, 0 at the chamber
+  b.style.opacity = 0.2;
+  bands.push(b);
+  L.rect({ x: CX - 132, y: y + 42, w: 18, h: 4, c: "sky" });
+  L.rect({ x: CX + 114, y: y + 42, w: 18, h: 4, c: "sky" });
+}
+const flash = L.layer({ x: CX - 200, y: MID - 90, w: 400, h: 180, cls: "flash" });
+let phase = 0, lastT = 0;
+L.tick((t) => {
+  const dt = Math.min(0.1, t - lastT); lastT = t;
+  phase = (phase + dt * (0.35 + warp * 0.11)) % 1;       // faster pulse at higher warp
+  const front = 1 - phase;                               // the pulse travels inward
+  for (const b of bands) {
+    const k = Math.exp(-Math.pow((b.d - front) * 7, 2));
+    b.style.opacity = (0.16 + 0.84 * k).toFixed(3);
+  }
+  flash.style.opacity = (Math.pow(Math.max(0, 1 - phase / 0.22), 2) * (phase < 0.22 ? 1 : 0) + 0.12).toFixed(3);
+});
+
+// ---------------- right: EPS power distribution ----------------
+L.text({ x: 3816, y: 146, s: 78, c: "sky", txt: "EPS Power Distribution", align: "r" });   // flush with the pill above
+const BUS = 2070, BR = 2560;
+L.rect({ x: CX + 226, y: MID - 5, w: BUS - CX - 226, h: 10, c: "plum" });       // trunk from the chamber
+const systems = ["Main Deflector", "Deflector Shields", "Phaser Banks", "Photon Torpedoes", "Impulse Engines", "Life Support",
+                 "Replicators", "Holodecks", "Sensor Arrays", "Transporters", "Computer Core"];
+const ROW0 = 320, RSTEP = 154;
+const busTop = ROW0 + 35, busBot = ROW0 + 35 + (systems.length - 1) * RSTEP;
+L.rect({ x: BUS - 5, y: busTop, w: 10, h: busBot - busTop, c: "plum" });
+const pal = ["orange", "peach", "lilac", "ice", "tan", "sky", "butter", "plum", "peach", "orange", "lilac"];
+const sys = systems.map((name, i) => {
+  const y = ROW0 + i * RSTEP, c = pal[i];
+  L.rect({ x: BUS, y: y + 31, w: BR - BUS, h: 8, c: "plum" });
+  const pill = L.box({ x: BR, y, w: 560, h: 70, c, label: name, r: "l", fs: 38 });
+  const v = L.text({ x: 3330, y: y + 2, s: 66, c, txt: "", align: "r" });
+  L.el("div", "track boot", L.stage, { left: "3350px", top: y + 14 + "px", width: "466px", height: "42px" });
+  const f = L.layer({ x: 3350, y: y + 14, w: 466, h: 42 });
+  f.style.background = `var(--${c})`; f.style.transformOrigin = "0 0";
+  const level = L.rand(0.55, 0.98);
+  const pk = [0, 1].map(() => L.layer({ x: 0, y: 0, w: 26, h: 12, cls: "pkt" }));
+  return { y, pill, v, f, level, cur: level, pk, off: Math.random() };
+});
+const vp = Array.from({ length: 8 }, (_, i) => ({ e: L.layer({ x: 0, y: 0, w: 12, h: 26, cls: "vpkt" }), up: i % 2 === 0, off: i / 8 }));
+const trunkPk = [0, 1, 2].map((i) => ({ e: L.layer({ x: 0, y: 0, w: 26, h: 12, cls: "pkt" }), off: i / 3 }));
+L.tick((t) => {
+  const speed = 0.5 + warp * 0.06;
+  for (const p of trunkPk) {
+    const u = (t * speed * 1.4 + p.off) % 1;
+    L.move(p.e, CX + 226 + u * (BUS - CX - 239), MID - 6);
+  }
+  for (const p of vp) {
+    const u = (t * speed * 0.5 + p.off) % 1;
+    const y = p.up ? L.mix(MID, busTop, u) : L.mix(MID, busBot, u);
+    L.move(p.e, BUS - 6, y - 13);
+  }
+  for (const s of sys) {
+    s.pk.forEach((e, k) => {
+      const u = (t * speed + s.off + k / 2) % 1;
+      L.move(e, BUS + u * (BR - BUS - 26), s.y + 29);
+      e.style.opacity = s.offline ? 0 : 1;
+    });
+    s.cur += (s.level - s.cur) * 0.05;
+    s.f.style.transform = `scaleX(${s.cur.toFixed(4)})`;
+  }
+});
+L.every(300, () => sys.forEach((s) => (s.v.textContent = Math.round(s.cur * 100) + "%")), 0);
+// now and then power is rerouted
+L.every(3500, () => {
+  const s = L.pick(sys);
+  s.level = L.rand(0.4, 1);
+  s.pill.style.filter = "brightness(1.5)";
+  setTimeout(() => (s.pill.style.filter = ""), 400);
+});
+
+// ---------------- diagnostics ticker ----------------
+const msgs = ["Level 3 diagnostic in progress", "Dilithium articulation frame 2-4 nominal", "Plasma injector 2 aligned",
+  "Magnetic constriction segments within tolerance", "Antimatter containment field stable", "EPS taps rerouted through secondary grid",
+  "Warp field coil phasing nominal", "Coolant flow balanced, port and starboard", "Structural integrity field at 100%",
+  "Inertial dampers nominal", "Deuterium tank 3 at 87%", "Subspace field geometry stable"];
+const tick = L.text({ x: 2580, y: 1972, s: 46, c: "orange", txt: "" });
+L.every(4200, () => (tick.textContent = L.pick(msgs)), 0.2);
+
+});
+</script></body></html>

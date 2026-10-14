@@ -1,0 +1,472 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Probe Telemetry</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* swapped text dips and comes back; colors change slowly; .boot (the start-up cascade) always wins */
+  .sw { transition: opacity .45s ease, background-color 1s ease, color 1s ease; }
+  .out:not(.boot) { opacity: .2; }
+  .lay > div, .lay > svg { position: absolute; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: mirrored, sidebar on the right ----------------
+L.frame({ type: "B", title: "Probe Telemetry  •  Class 1 Probe", c: "orange", c2: "sky", accent: "peach", foot: "Science",
+  side: [[140, "peach", "Probe 01"], [70, "sky", "4721"], [420, "orange", "Telemetry"], [70, "peach", "10"], [300, "sky", "Sensors"],
+         [70, "orange", "K1"], [216, "peach", "Launcher"]] });
+
+const WIN = "#050b18", TRACK = "#0e1a30", DIM = "#17284a", GRID = "#13264a", GRID2 = "#1c3564";
+const cls = (e, ...c) => (e.classList.add(...c), e);
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const op = (e, v) => { v = L.clamp(v).toFixed(2); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const bg = (e, c) => { if (e._bg !== c) { e._bg = c; e.style.background = c.startsWith("#") ? c : `var(--${c})`; } };
+const fg = (e, c) => { if (e._fg !== c) { e._fg = c; e.style.color = c.startsWith("#") ? c : `var(--${c})`; } };
+const fill = (x, y, w, h, c, origin = "0 0") => {
+  const f = L.layer({ x, y, w, h, cls: "boot" });
+  f.style.background = c.startsWith("#") ? c : `var(--${c})`; f.style.transformOrigin = origin;
+  return f;
+};
+const D2 = (n) => String(n).padStart(2, "0");
+const fmt = (n) => Math.round(n).toLocaleString("en");
+const swap = (els, f) => { els.forEach((e) => e.classList.add("out")); setTimeout(() => { f(); els.forEach((e) => e.classList.remove("out")); }, 460); };
+const smooth = (k) => k * k * k * (k * (k * 6 - 15) + 10);
+const sm = (a, b, u) => smooth(L.clamp((u - a) / (b - a)));
+const bump = (a, b, u) => { const k = L.clamp((u - a) / (b - a)); return Math.sin(Math.PI * k) ** 2; };
+const seeded = (n, k) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453; return x - Math.floor(x); };
+
+// Two columns: the course (left) and the telemetry (right), 48 apart. The bottom strip in three.
+const A = [40, 2140], B = [2188, 3520], P1 = [40, 1060], P2 = [1108, 2140];
+const ROW0 = 428, PITCH = 88, rowBase = (i) => ROW0 + i * PITCH + 52.5;
+const STRIP = (i) => 1734 + i * 54;
+
+// ---------------- the mission: one probe, launch to end of telemetry, then the next ----------------
+const CYCLE = 150;
+const PHASES = [["Launch", 0, 6], ["Boost", 6, 16], ["Cruise", 16, 76], ["Approach", 76, 96], ["Survey", 96, 132], ["Downlink", 132, 144], ["Complete", 144, 150]];
+const STATE = ["Probe Launch", "Boost Phase", "Cruise", "Approach", "Survey in Progress", "Final Downlink", "Mission Complete"];
+const phaseAt = (u) => PHASES.findIndex(([, a, b]) => u >= a && u < b);
+
+// the targets, surveyed in turn. Distances in km from the ship; the readings scale with proximity.
+const TARGETS = [
+  { name: "Kataan Nova Remnant", short: "Kataan", where: "Parvenium Sector", kind: "Nova Remnant", D: 124000, rT: 44, c: "peach",
+    ss: 0.52, mag: 2600, part: 900, em: 22, rad: 140, heat: 24, c1: ["Nova shell, expanding", "1,000 yr"], c2: ["Kataan probe launch site", "Ressik"] },
+  { name: "Tessen III", short: "Tessen III", where: "Class J Gas Giant", kind: "Gas Giant", D: 98000, rT: 58, c: "orange",
+    ss: 0.16, mag: 4800, part: 260, em: 6, rad: 38, heat: 8, c1: ["Auroral radio emission", "2.1 MHz"], c2: ["Ammonia ice plumes", "South Pole"] },
+  { name: "Ion Storm Front", short: "Ion Storm", where: "Class 4 Ion Storm", kind: "Ion Storm", D: 134000, rT: 40, c: "ice",
+    ss: 0.82, mag: 900, part: 6400, em: 64, rad: 420, heat: 30, c1: ["Storm front sighted", "Leading Edge"], c2: ["Plasma density spike", "x38"] },
+  { name: "Rogue Comet", short: "Comet", where: "Interstellar Body", kind: "Comet Nucleus", D: 106000, rT: 30, c: "sky",
+    ss: 0.06, mag: 40, part: 1800, em: 2, rad: 0.4, heat: 4, c1: ["Coma boundary crossed", "62,000 km"], c2: ["Water ice, organics", "Nucleus"] },
+];
+
+// speed along the course: a push from the launcher, the boost burn, cruise, the approach burn, on station
+const wAt = (u) => (0.12 * sm(0, 1.5, u) + 0.88 * sm(6, 16, u)) * (1 - sm(76, 96, u));
+const WDT = 0.05, WN = Math.round(CYCLE / WDT) + 1, WCUM = new Float64Array(WN);
+for (let k = 1; k < WN; k++) WCUM[k] = WCUM[k - 1] + (wAt((k - 0.5) * WDT)) * WDT;
+const WTOT = WCUM[WN - 1];
+const fracAt = (u) => { const f = L.clamp(u / WDT, 0, WN - 1.001), i = Math.floor(f); return L.mix(WCUM[i], WCUM[i + 1], f - i) / WTOT; };
+
+// the plot: the ship at the left, range scale along the foot
+const P0 = 428, PB = 1460, SX = 200, AX = 900, K = 0.012;     // pixels per km
+const G0 = AX - 450, G1 = AX + 450, GX1 = SX + 150000 * K;
+
+const geoCache = new Map();
+const geo = (n) => {
+  if (geoCache.has(n)) return geoCache.get(n);
+  const T = TARGETS[((n % TARGETS.length) + TARGETS.length) % TARGETS.length];
+  const th = (seeded(n, 1) - 0.5) * 0.32, side = seeded(n, 2) < 0.5 ? -1 : 1;
+  const tx = SX + T.D * K * Math.cos(th), ty = AX + T.D * K * Math.sin(th);
+  const mx = (SX + tx) / 2, my = (AX + ty) / 2, len = Math.hypot(tx - SX, ty - AX);
+  const off = side * (170 + 120 * seeded(n, 3));                 // the course bows to one side
+  const cx = mx - ((ty - AX) / len) * off, cy = my + ((tx - SX) / len) * off;
+  const lut = []; let s = 0, px0 = SX, py0 = AX;
+  for (let i = 0; i <= 400; i++) {
+    const k = i / 400, a = (1 - k) * (1 - k), b = 2 * k * (1 - k), c = k * k;
+    const x = a * SX + b * cx + c * tx, y = a * AX + b * cy + c * ty;
+    s += Math.hypot(x - px0, y - py0); px0 = x; py0 = y;
+    lut.push([x, y, s]);
+  }
+  const Lstop = s - (T.rT + 44), i0 = lut.findIndex((p) => p[2] >= Lstop), k0 = i0 / 400;   // the course is drawn to the station
+  const ex = lut[i0][0], ey = lut[i0][1], qx = SX + (cx - SX) * k0, qy = AX + (cy - AX) * k0;
+  const g = { n, T, id: "Probe " + D2((((n % 60) + 60) % 60) + 1), tx, ty, cx, cy, lut, Ltot: s, Lstop,
+    d: `M${SX},${AX} Q${qx.toFixed(1)},${qy.toFixed(1)} ${ex.toFixed(1)},${ey.toFixed(1)}` };
+  geoCache.set(n, g);
+  if (geoCache.size > 6) geoCache.delete(geoCache.keys().next().value);
+  return g;
+};
+const at = (g, s) => {                                     // a point on the course, s pixels along it
+  const lut = g.lut; s = L.clamp(s, 0, g.Ltot);
+  let lo = 0, hi = lut.length - 1;
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (lut[m][2] < s) lo = m; else hi = m; }
+  const a = lut[lo], b = lut[hi], k = b[2] > a[2] ? (s - a[2]) / (b[2] - a[2]) : 0;
+  return [L.mix(a[0], b[0], k), L.mix(a[1], b[1], k)];
+};
+
+// what the instruments take in (kiloquads a second) at each moment of a mission
+const cr = (u) => sm(16, 20, u) * (1 - sm(76, 80, u)), ap = (u) => sm(84, 90, u) * (1 - sm(96, 98, u));
+const sv = (u) => sm(96, 100, u) * (1 - sm(132, 134, u)), dl = (u) => sm(132, 134, u) * (1 - sm(142, 144, u));
+const INSTR = [
+  { name: "EM Spectrometer", rate: (u) => 6 * ap(u) + 42 * sv(u) },
+  { name: "Subspace Field Sensor", rate: (u) => 5 * cr(u) + 10 * ap(u) + 30 * sv(u) },
+  { name: "Magnetometer", rate: (u) => 3 * cr(u) + 6 * ap(u) + 12 * sv(u) },
+  { name: "Particle Analyzer", rate: (u) => 4 * cr(u) + 8 * ap(u) + 18 * sv(u) },
+  { name: "Gravimetric Sensor", rate: (u) => 4 * ap(u) + 25 * sv(u) },
+  { name: "Imaging Array", rate: (u) => 10 * ap(u) + 110 * sv(u) + 160 * dl(u), img: true },
+];
+const RDT = 0.1, RN = Math.round(CYCLE / RDT) + 1;
+INSTR.forEach((I) => { I.cum = new Float64Array(RN); for (let k = 1; k < RN; k++) I.cum[k] = I.cum[k - 1] + I.rate((k - 0.5) * RDT) * RDT; });
+const dataOf = (I, u) => { const f = L.clamp(u / RDT, 0, RN - 1.001), i = Math.floor(f); return L.mix(I.cum[i], I.cum[i + 1], f - i); };
+const rateAt = (u) => INSTR.reduce((a, I) => a + I.rate(u), 0);
+const dataAt = (u) => INSTR.reduce((a, I) => a + dataOf(I, u), 0);
+const instrState = (I, u) => {
+  if (u < 2) return "Standby";
+  if (I.img && dl(u) > 0.5) return "Transmitting";
+  if (sv(u) > 0.5) return "Recording";
+  if (u >= 76 && u < 86) return "Calibrating";
+  if (I.rate(u) > 0.5) return "Active";
+  if (u >= 132) return "Complete";
+  return "Standby";
+};
+const STATECOL = { Standby: "sky", Calibrating: "butter", Active: "ice", Recording: "orange", Transmitting: "peach", Complete: "sky" };
+
+// the whole state of the probe at a moment of ship time T (seconds)
+const OFFSET = (8 + L.irand(0, 3)) * CYCLE + 84;            // open as the probe makes its approach
+const model = (T) => {
+  const n = Math.floor(T / CYCLE), u = T - n * CYCLE, g = geo(n);
+  const [x, y] = at(g, g.Lstop * fracAt(u));
+  const rS = Math.hypot(x - SX, y - AX) / K, rT = Math.hypot(g.tx - x, g.ty - y) / K;
+  return { n, u, g, x, y, rS, rT, prox: 1 / (1 + (rT / 12000) ** 2), v: (g.Lstop / K) * wAt(u) / WTOT };
+};
+const chOn = (i, u) => sm(2 + 0.35 * i, 2.3 + 0.35 * i, u) * (1 - sm(146 + 0.2 * i, 146.3 + 0.2 * i, u));
+const wg = (T, i) => 0.6 * Math.sin(0.29 * T + i * 1.7) + 0.3 * Math.sin(0.71 * T + i * 2.9) + 0.1 * Math.sin(1.63 * T + i * 0.7);
+const lg = (v, a, b) => L.clamp((Math.log10(v) - a) / (b - a));
+const CHANS = [
+  { name: "Carrier Signal", f: (m, T) => -58 - 20 * Math.log10(Math.max(m.rS, 1000) / 1000) + 0.6 * wg(T, 0), k: (v) => (v + 110) / 60, t: (v) => v.toFixed(1) + " dBm" },
+  { name: "Transmitter Power", f: (m, T) => 14 + 0.85 * rateAt(m.u) + 1.5 * wg(T, 1), k: (v) => v / 300, t: (v) => fmt(v) + " W" },
+  { name: "Power Cell", f: (m, T) => 100 - 0.03 * m.u - 9 * sm(96, 144, m.u) + 0.15 * wg(T, 2), k: (v) => (v - 80) / 20, t: (v) => v.toFixed(1) + "%" },
+  { name: "Hull Temperature", f: (m, T) => 286 + 34 * bump(6, 16, m.u) + 28 * bump(76, 96, m.u) + m.g.T.heat * m.prox + 0.8 * wg(T, 3), k: (v) => (v - 270) / 100, t: (v) => fmt(v) + " K" },
+  { name: "Attitude Error", f: (m, T) => 0.14 + 0.9 * (bump(6, 16, m.u) + bump(76, 96, m.u)) + 0.2 * sv(m.u) * (0.5 + 0.5 * Math.sin(0.4 * T)) + 0.03 * wg(T, 4), k: (v) => v / 1.4, t: (v) => v.toFixed(2) + " mrad" },
+  { name: "Subspace Field", f: (m, T) => 0.04 + m.g.T.ss * m.prox * (1 + 0.04 * wg(T, 5)) + 0.006 * wg(T, 15), k: (v) => v, t: (v) => v.toFixed(3) + " mC" },
+  { name: "Magnetic Field", f: (m, T) => 3 + m.g.T.mag * m.prox * (1 + 0.05 * wg(T, 6)) + 0.4 * wg(T, 16), k: (v) => lg(v, 0, 4), t: (v) => (v < 100 ? v.toFixed(1) : fmt(v)) + " nT" },
+  { name: "Particle Density", f: (m, T) => 2 + m.g.T.part * m.prox * (1 + 0.05 * wg(T, 7)) + 0.3 * wg(T, 17), k: (v) => lg(v, 0, 4), t: (v) => (v < 100 ? v.toFixed(1) : fmt(v)) + " /cm³" },
+  { name: "EM Flux", f: (m, T) => 0.8 + m.g.T.em * m.prox * (1 + 0.04 * wg(T, 8)) + 0.1 * wg(T, 18), k: (v) => v / 80, t: (v) => v.toFixed(1) + " W/m²" },
+  { name: "Ionizing Radiation", f: (m, T) => 0.02 + m.g.T.rad * m.prox * (1 + 0.05 * wg(T, 9)) + 0.002 * wg(T, 19), k: (v) => lg(v, -2, 3), t: (v) => (v < 1 ? v.toFixed(2) : v < 100 ? v.toFixed(1) : fmt(v)) + " rad/h" },
+];
+
+// ---------------- status line ----------------
+const state = cls(L.text({ x: A[0], cap: 150, s: 100, c: "orange", txt: "" }), "sw");
+const stateSub = cls(L.text({ x: 0, base: 222, s: 38, c: "sky", txt: "" }), "sw");
+const placeSub = () => { stateSub.style.left = A[0] + state.offsetWidth + 48 + "px"; };
+const pill = cls(L.box({ x: B[1] - 440, y: 150, w: 440, h: 72, c: "peach", label: "", r: "lr", fs: 36 }), "sw");
+
+// a section header with a status pill at its right end
+const pillHeader = (col, y, label, c1, c2, texts, pc, h = 56) => {
+  const fs = h >= 56 ? 32 : 28;
+  const pw = Math.ceil(Math.max(...texts.map((s) => L.textWidth(s, fs))) / 10) * 10 + 90;
+  L.header({ x: col[0], y, w: col[1] - col[0] - pw - L.GAP, label, c1, c2, h });
+  return cls(L.box({ x: col[1] - pw, y, w: pw, h, c: pc, label: "", fs, r: "r" }), "sw");
+};
+
+// ---------------- the course: plan view from the ship ----------------
+const tgtPill = pillHeader(A, 280, "Trajectory", "orange", "sky", TARGETS.map((T) => T.name), "peach");
+L.text({ x: A[0], base: 400, s: 36, c: "sky", txt: "Plan View  ·  Probe Course from the Ship  ·  Range in Thousands of Kilometers" });
+L.rect({ x: A[0], y: P0, w: A[1] - A[0], h: PB - P0, c: WIN, panel: true });
+for (let km = 0; km <= 150000; km += 12500) L.rect({ x: SX + km * K - 1, y: G0, w: 2, h: G1 - G0, c: km % 25000 ? GRID : GRID2, free: true });
+for (let k = -3; k <= 3; k++) L.rect({ x: SX, y: AX + k * 150 - 1, w: GX1 - SX, h: 2, c: k ? (k % 2 ? GRID : GRID2) : "#2a4d8c", free: true });
+for (let km = 0; km <= 150000; km += 5000) L.rect({ x: SX + km * K - 1.5, y: G1 + 16, w: 3, h: km % 25000 ? 12 : 22, c: km % 25000 ? "#2a4d8c" : "sky", free: true });
+for (let km = 0; km <= 150000; km += 25000) L.text({ x: SX + km * K, base: G1 + 84, s: 32, c: "sky", txt: String(km / 1000), align: "c", w: 200, legend: true });
+// the ship
+L.svg("circle", { cx: SX, cy: AX, r: 20, fill: "var(--sky)", class: "boot" });
+L.svg("circle", { cx: SX, cy: AX, r: 36, fill: "none", stroke: "var(--sky)", "stroke-width": 5, opacity: 0.6, class: "boot" });
+L.text({ x: SX, base: AX - 62, s: 36, c: "sky", txt: "Enterprise", align: "c", w: 300 });
+
+// the course and the target: one layer, drawn afresh for each probe while it is out of sight
+const course = L.layer({ x: 0, y: 0, w: 1, h: 1, cls: "lay boot" });
+course.innerHTML = `<svg width="${A[1]}" height="${PB}" style="left:0;top:0;overflow:visible"><path fill="none" stroke="var(--peach)" stroke-width="4" stroke-dasharray="14 16" opacity="0.65"/></svg>`;
+const coursePath = course.querySelector("path");
+const tgt = L.layer({ x: 0, y: 0, w: 1, h: 1, cls: "lay boot" });
+const halo = L.el("div", "", tgt), core = L.el("div", "", tgt);
+const tName = L.text({ x: 0, base: 0, s: 36, c: "peach", txt: "", align: "c", w: 600 }, tgt);
+const tKind = L.text({ x: 0, base: 0, s: 36, c: "sky", txt: "", align: "c", w: 600 }, tgt);
+tName.classList.remove("boot"); tKind.classList.remove("boot");
+const drawTarget = (g) => {
+  const T = g.T, r = T.rT;
+  coursePath.setAttribute("d", g.d);
+  tf(tgt, `translate3d(${g.tx.toFixed(1)}px,${g.ty.toFixed(1)}px,0)`);
+  Object.assign(core.style, { left: -r + "px", top: -r + "px", width: 2 * r + "px", height: 2 * r + "px", borderRadius: "50%",
+    background: `radial-gradient(circle at 40% 38%, #fff3e0 0%, var(--${T.c}) 38%, ${WIN} 100%)` });
+  const R = r * 1.9;
+  Object.assign(halo.style, { left: -R + "px", top: -R + "px", width: 2 * R + "px", height: 2 * R + "px", borderRadius: "50%",
+    border: `4px solid var(--${T.c})`, opacity: 0.35 });
+  L.set(tName, T.name); L.set(tKind, T.where);
+  tName.style.top = -R - 72 - L.BASELINE * 36 + "px";       // two lines above the halo, on a 46 px pitch
+  tKind.style.top = -R - 26 - L.BASELINE * 36 + "px";
+};
+
+// the probe: a marker, its name, and the survey sweep toward the target
+const sweep = L.layer({ x: -170, y: -170, w: 340, h: 340, cls: "boot" });
+sweep.style.background = "conic-gradient(from 72deg, rgba(255,176,112,0) 0deg, rgba(255,176,112,.42) 18deg, rgba(255,176,112,0) 36deg, rgba(255,176,112,0) 360deg)";
+sweep.style.borderRadius = "50%"; sweep.style.transformOrigin = "170px 170px";
+sweep.style.clipPath = "inset(0 0 0 50%)";
+const probe = L.layer({ x: 0, y: 0, w: 1, h: 1, cls: "lay boot" });
+L.el("div", "", probe, { left: "-16px", top: "-16px", width: "32px", height: "32px", background: "var(--orange)", transform: "rotate(45deg)" });
+L.el("div", "", probe, { left: "-30px", top: "-30px", width: "60px", height: "60px", borderRadius: "50%", border: "4px solid var(--orange)", opacity: 0.5 });
+const pName = L.text({ x: -70, base: 74, s: 36, c: "orange", txt: "", align: "c", w: 400 }, probe);   // below and behind: clear of the target
+pName.classList.remove("boot");
+
+// telemetry packets running home along the course
+const packets = Array.from({ length: 16 }, () => {
+  const d = L.layer({ x: -7, y: -7, w: 14, h: 14 });
+  d.style.background = "var(--peach)"; d.style.borderRadius = "50%"; d.style.opacity = 0;
+  return { e: d, s0: 0, t0: -99, n: -1 };
+});
+const PKT = 520;                                          // pixels a second
+
+// the mission's phases as a band under the plot, flush with its ends; a cursor runs along it
+const BY = 1484, BG = 6, BWEIGHT = [190, 210, 520, 300, 400, 280, 230];
+const bwSum = BWEIGHT.reduce((a, b) => a + b, 0), bwAvail = A[1] - A[0] - BG * (PHASES.length - 1);
+let bx = A[0];
+const bands = PHASES.map(([name, a, b], i) => {
+  const w = i === PHASES.length - 1 ? A[1] - bx : Math.round((BWEIGHT[i] / bwSum) * bwAvail);
+  const e = cls(L.box({ x: bx, y: BY, w, h: 64, c: DIM, label: name, fs: 32, r: i === 0 ? "l" : i === PHASES.length - 1 ? "r" : null }), "sw");
+  bx += w + BG;
+  return { e, x0: bx - w - BG, w, a, b };
+});
+const cursor = L.layer({ x: -2, y: BY - 12, w: 4, h: 88, cls: "boot" });
+cursor.style.background = "var(--white)";
+
+// ---------------- telemetry channels ----------------
+const chPill = pillHeader(B, 280, "Telemetry Channels", "sky", "orange", ["10 of 10 Channels"], "peach");
+L.text({ x: B[0], base: 400, s: 36, c: "sky", txt: "Subspace Carrier  ·  4,096-Word Frames  ·  Last 45 Seconds" });
+const CHBOX = 160, NAMEX = B[0] + CHBOX + L.GAP;
+const NAMEW = Math.ceil(Math.max(...CHANS.map((c) => L.textWidth(c.name, 36))) / 10) * 10 + 40;
+const VALW = Math.ceil(Math.max(...["-101.4 dBm", "88.88 mrad", "0.888 mC", "8,888 /cm³", "88.8 W/m²", "888.8 rad/h", "No Signal", "88,888 kq"].map((s) => L.textWidth(s, 52))) / 10) * 10 + 40;
+const TX = NAMEX + NAMEW, TW = B[1] - VALW - TX, TH = 9 * PITCH + 64;
+CHANS.forEach((ch, i) => {
+  const y = ROW0 + i * PITCH, c = i < 5 ? "sky" : "orange";
+  ch.ink = i < 5 ? "#5c9dff" : "#ff9c1a";
+  L.box({ x: B[0], y, w: CHBOX, h: 64, c: i % 2 ? (i < 5 ? "ice" : "peach") : c, label: "CH " + D2(i + 1), fs: 32, r: "l" });
+  L.text({ x: NAMEX, base: rowBase(i), s: 36, c: i < 5 ? "ice" : "peach", txt: ch.name });
+  L.rect({ x: TX, y, w: TW, h: 64, c: WIN });
+  for (let k = 1; k < 3; k++) L.rect({ x: TX + (TW / 3) * k - 1, y, w: 2, h: 64, c: GRID, free: true });
+  ch.v = L.text({ x: B[1], base: rowBase(i), s: 52, c: "white", txt: "", align: "r" });
+});
+// The traces scroll: two canvas tiles side by side in a clipped strip, slid as layers. The readings are
+// a function of time, so each tenth of a second the next slice is drawn a little ahead of view.
+const SPEED = TW / 45, LEAD = 0.25;                      // px a second; seconds drawn ahead
+const strip = L.el("div", "boot", L.stage, { position: "absolute", left: TX + "px", top: ROW0 + "px", width: TW + "px", height: TH + "px", overflow: "hidden" });
+const TILEW = TW + 8 + Math.ceil(LEAD * SPEED * 2) + 8;  // overlap, and room for the slice drawn ahead
+const tiles = [0, 1].map((k) => {
+  const c = L.canvas({ x: 0, y: 0, w: TILEW, h: TH }, strip);
+  c.cv.style.willChange = "transform"; c.idx = k;        // idx, not k: the kit keeps the pixel scale in c.k
+  return c;
+});
+const traceY = (i, k) => i * PITCH + 8 + (1 - L.clamp(k)) * 48;
+const drawRange = (tile, xa, xb) => {                    // draw strip positions xa..xb on one tile
+  const o = tile.idx * TW;
+  xa = Math.max(xa, o - 2); xb = Math.min(xb, o + TILEW + 2);
+  if (xb <= xa) return;
+  const g = tile.g, n = Math.max(1, Math.ceil((xb - xa) / 2));
+  g.lineWidth = 3.2; g.lineJoin = "round"; g.lineCap = "round";
+  const ms = [];
+  for (let j = 0; j <= n; j++) { const x = xa + ((xb - xa) * j) / n, T = x / SPEED; ms.push([x, T, model(T)]); }
+  CHANS.forEach((ch, i) => {
+    let run = null;
+    const flush = () => { if (run && run.pts.length > 1) { g.strokeStyle = run.on ? ch.ink : "#1d3a6a"; g.beginPath(); run.pts.forEach(([x, y], j) => (j ? g.lineTo(x - o, y) : g.moveTo(x - o, y))); g.stroke(); } };
+    for (const [x, T, m] of ms) {
+      const on = chOn(i, m.u) > 0.5, y = on ? traceY(i, ch.k(ch.f(m, T))) : traceY(i, 0) - 2;
+      if (!run || run.on !== on) { const last = run && run.pts[run.pts.length - 1]; flush(); run = { on, pts: last ? [last] : [] }; }
+      run.pts.push([x, y]);
+    }
+    flush();
+  });
+};
+let drawn = 0, filled = false, lastDraw = -1;
+tiles.forEach((c) => (c.onResize = () => { filled = false; }));   // a resize wipes the canvases: refill them
+const traces = (T) => {
+  const R = T * SPEED, Lft = R - TW;
+  if (!filled) {
+    filled = true;
+    tiles[0].idx = Math.floor(Lft / TW); tiles[1].idx = tiles[0].idx + 1;
+    drawn = R + LEAD * SPEED;
+    tiles.forEach((tl) => { tl.g.clearRect(0, 0, TILEW, TH); drawRange(tl, Lft - 6, drawn); });
+    lastDraw = T;
+  }
+  for (const tl of tiles) if (tl.idx * TW + TW + 8 < Lft - 1) {   // out of view: to the right-hand end, with what is already drawn there
+    tl.idx += 2; tl.g.clearRect(0, 0, TILEW, TH); drawRange(tl, tl.idx * TW - 4, drawn);
+  }
+  if (T - lastDraw >= 0.1 || drawn - R < 2) {
+    const to = R + LEAD * SPEED;
+    tiles.forEach((tl) => drawRange(tl, drawn - 1, to));
+    drawn = to; lastDraw = T;
+  }
+  tiles.forEach((tl) => tf(tl.cv, `translate3d(${(tl.idx * TW - Lft).toFixed(2)}px,0,0)`));
+};
+
+// ---------------- data received ----------------
+L.header({ x: B[0], y: ROW0 + 10 * PITCH, w: B[1] - B[0], label: "Data Received", c1: "orange", c2: "peach" });
+const DATAX = NAMEX, DATAW = TX + TW - DATAX;
+const dataRow = (row, label, c) => {
+  const y = ROW0 + row * PITCH, base = rowBase(row);
+  L.box({ x: B[0], y, w: CHBOX, h: 64, c, label, fs: 32, r: "l" });
+  L.rect({ x: DATAX, y: base - 26, w: DATAW, h: 26, c: TRACK });
+  return { bar: fill(DATAX, base - 26, DATAW, 26, c), v: L.text({ x: B[1], base, s: 52, c: "white", txt: "", align: "r" }), u: -1 };
+};
+const showBar = (g, k) => { k = L.clamp(k); if (Math.abs(k - g.u) > 0.0005) { g.u = k; tf(g.bar, `scaleX(${k.toFixed(4)})`); } };
+const dTotal = dataRow(11, "Received", "orange"), dRate = dataRow(12, "Downlink", "peach");
+const DMAX = 12000, RMAX = 300;
+
+// ---------------- flight data ----------------
+L.header({ x: P1[0], y: 1620, w: P1[1] - P1[0], label: "Flight Data", c1: "orange", c2: "sky", h: 48 });
+const FVW = Math.ceil(L.textWidth("888,888 km", 36) / 10) * 10 + 30;
+const flightRow = (i, name, c) => {
+  const base = STRIP(i), x0 = P1[0] + 300, x1 = P1[1] - FVW;
+  L.text({ x: P1[0], base, s: 36, c: "sky", txt: name });
+  L.rect({ x: x0, y: base - 18, w: x1 - x0, h: 18, c: TRACK });
+  return { bar: fill(x0, base - 18, x1 - x0, 18, c), v: L.text({ x: P1[1], base, s: 36, c: "white", txt: "", align: "r" }), u: -1 };
+};
+const fShip = flightRow(0, "Range from Ship", "orange"), fTgt = flightRow(1, "Range to Target", "sky"), fVel = flightRow(2, "Velocity", "peach");
+const fDelay = flightRow(3, "Signal Delay", "sky"), fFuel = flightRow(4, "Deuterium", "orange"), fMet = flightRow(5, "Mission Elapsed", "ice");
+
+// ---------------- sensor package ----------------
+L.header({ x: P2[0], y: 1620, w: P2[1] - P2[0], label: "Sensor Package", c1: "sky", c2: "orange", h: 48 });
+const SVW = Math.max(150, Math.ceil(L.textWidth("8,888 kq", 36) / 10) * 10 + 30);
+const SST = P2[0] + 330, SBAR = SST + Math.ceil(L.textWidth("Transmitting", 36) / 10) * 10 + 40;
+const sens = INSTR.map((I, i) => {
+  const base = STRIP(i);
+  L.text({ x: P2[0], base, s: 36, c: "peach", txt: I.name });
+  const st = cls(L.text({ x: SST, base, s: 36, c: "sky", txt: "" }), "sw");
+  L.rect({ x: SBAR, y: base - 18, w: P2[1] - SVW - SBAR, h: 18, c: TRACK });
+  return { I, st, bar: fill(SBAR, base - 18, P2[1] - SVW - SBAR, 18, i % 2 ? "orange" : "sky"), v: L.text({ x: P2[1], base, s: 36, c: "white", txt: "", align: "r" }), u: -1, word: null };
+});
+
+// ---------------- contact log ----------------
+L.header({ x: B[0], y: 1620, w: B[1] - B[0], label: "Contact Log", c1: "orange", c2: "peach", h: 48 });
+const LOGT = B[0] + 150, LOGP = B[0] + 800;
+const logRows = Array.from({ length: 6 }, (_, i) => ({
+  tm: L.text({ x: B[0], base: STRIP(i), s: 36, c: "sky", txt: "" }),
+  tx: L.text({ x: LOGT, base: STRIP(i), s: 36, c: "peach", txt: "" }),
+  pr: L.text({ x: LOGP, base: STRIP(i), s: 36, c: "ice", txt: "" }),
+  v: L.text({ x: B[1], base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }) }));
+const logged = [];
+const clockAt = (ago = 0) => { const d = new Date(Date.now() - ago * 1000); return `${D2(d.getHours())}:${D2(d.getMinutes())}:${D2(d.getSeconds())}`; };
+const logLine = (row, ago = 0) => {
+  logged.push([clockAt(ago), ...row]); if (logged.length > logRows.length) logged.shift();
+  logRows.forEach((r, i) => { const e = logged[i] || ["", "", "", ""]; L.set(r.tm, e[0]); L.set(r.tx, e[1]); L.set(r.pr, e[2]); L.set(r.v, e[3]); });
+};
+// what the log records in each mission, and when
+const EVENTS = [
+  [0.4, () => ["Probe launched", "Fwd Launcher"]],
+  [5.6, (g, m, T) => ["Telemetry lock, 10 channels", CHANS[0].f(m, T).toFixed(1) + " dBm"]],
+  [16, (g, m) => ["Boost complete, cruising", fmt(m.v) + " km/s"]],
+  [50, (g) => g.T.c1],
+  [76, (g, m) => ["Approach burn", fmt(m.rT) + " km"]],
+  [96, (g, m) => [`On station, ${g.T.short}`, fmt(m.rT) + " km"]],
+  [114, (g) => g.T.c2],
+  [132, () => ["Survey complete", fmt(dataAt(132)) + " kq"]],
+  [144, () => ["Final data burst received", fmt(dataAt(144)) + " kq"]],
+  [146.5, () => ["Telemetry closed", "End of Mission"]],
+];
+const logRow = (n, at) => { const T = n * CYCLE + at, m = model(T), [txt, det] = EVENTS.find((e) => e[0] === at)[1](m.g, m, T); return [txt, m.g.id, det]; };
+
+// ---------------- the clock ----------------
+const now = (t) => t + OFFSET;
+{ // the log as the watch found it: the last mission, then this one so far
+  const T0 = now(0), n = Math.floor(T0 / CYCLE), u = T0 - n * CYCLE, hist = [];
+  EVENTS.forEach(([at]) => hist.push([at - CYCLE - u, logRow(n - 1, at)]));
+  EVENTS.forEach(([at]) => { if (at <= u) hist.push([at - u, logRow(n, at)]); });
+  hist.slice(-6).forEach(([dt, row]) => logLine(row, -dt));
+}
+let cycleN = null, lastU = -1, lastPh = -1, lastWord = null, nextPkt = 0, pktI = 0, sweepPh = 0, tPrev = null;
+const cur = { m: null, T: 0 };
+L.tick((t) => {
+  const dt = tPrev === null ? 0 : Math.min(0.1, t - tPrev); tPrev = t;
+  const T = now(t), m = model(T), u = m.u, g = m.g;
+  cur.m = m; cur.T = T;
+  if (m.n !== cycleN) {                                   // a new probe, a new target
+    const first = cycleN === null;
+    cycleN = m.n; drawTarget(g); L.set(pName, g.id);
+    const sub = `${g.id}  ·  ${g.T.name}  ·  ${g.T.where}`;
+    if (first) { L.set(stateSub, sub); L.set(tgtPill, g.T.name); }
+    else swap([stateSub, tgtPill], () => { L.set(stateSub, sub); placeSub(); L.set(tgtPill, g.T.name); });
+  }
+  if (lastU >= 0) for (const [at] of EVENTS) if (lastU < at && u >= at) logLine(logRow(m.n, at));
+  lastU = u;
+  traces(T);
+  // the course and target come up for each probe and go when its telemetry closes
+  const vis = sm(0, 2, u) * (1 - sm(147, 150, u));
+  op(course, vis); op(tgt, vis);
+  tf(probe, `translate3d(${m.x.toFixed(1)}px,${m.y.toFixed(1)}px,0)`);
+  op(probe, sm(0.2, 1, u) * (1 - sm(146.5, 149, u)));
+  op(pName, sm(14, 17, u));
+  // the survey sweep: from the probe toward the target, swinging gently across it
+  sweepPh += dt * 0.5;
+  const ang = Math.atan2(g.ty - m.y, g.tx - m.x) * 180 / Math.PI;
+  tf(sweep, `translate3d(${m.x.toFixed(1)}px,${m.y.toFixed(1)}px,0) rotate(${(ang + 8 * Math.sin(sweepPh)).toFixed(2)}deg)`);
+  op(sweep, sv(u) * 0.9 + ap(u) * 0.35);
+  // telemetry packets: sent while the channels are up, more often the more data is flowing
+  const s0 = g.Lstop * fracAt(u), on = chOn(0, u) > 0.5 && u < 146;
+  if (on && t >= nextPkt && s0 > 60) {
+    nextPkt = t + L.clamp(2.2 - rateAt(u) / 110, 0.4, 2.2);
+    const p = packets[pktI++ % packets.length]; p.s0 = s0; p.t0 = t; p.n = m.n;
+  }
+  for (const p of packets) {
+    if (p.t0 < 0) continue;
+    const s = p.s0 - PKT * (t - p.t0);
+    if (s <= 0 || p.n !== m.n) { p.t0 = -99; op(p.e, 0); continue; }
+    const [x, y] = at(g, s);
+    tf(p.e, `translate3d(${x.toFixed(1)}px,${y.toFixed(1)}px,0)`);
+    op(p.e, vis * L.clamp(s / 60) * L.clamp((p.s0 - s) / 40));
+  }
+  // the phase band
+  const ph = Math.max(0, phaseAt(u)), bnd = bands[ph];
+  tf(cursor, `translate3d(${(bnd.x0 + bnd.w * L.clamp((u - bnd.a) / (bnd.b - bnd.a))).toFixed(1)}px,0,0)`);
+  op(cursor, Math.min(sm(0, 0.6, u), 1 - sm(CYCLE - 0.6, CYCLE, u)));
+});
+
+// readings, a few times a second
+L.every(250, () => {
+  const m = cur.m, T = cur.T, u = m.u, ph = phaseAt(u);
+  if (STATE[ph] !== lastWord) {
+    const first = lastWord === null, word = STATE[ph];
+    lastWord = word;
+    const doIt = () => { L.set(state, word); fg(state, ph === 4 || ph === 5 ? "peach" : "orange"); placeSub(); };
+    first ? doIt() : swap([state], doIt);
+  }
+  if (ph !== lastPh) {
+    lastPh = ph;
+    bands.forEach((b, i) => { bg(b.e, i === ph ? "orange" : i < ph ? "sky" : DIM); fg(b.e, i <= ph ? "#000" : "sky"); });
+  }
+  // channels
+  let non = 0;
+  CHANS.forEach((ch, i) => {
+    const on = chOn(i, u) > 0.5;
+    if (on) { non++; L.set(ch.v, ch.t(ch.f(m, T))); fg(ch.v, "white"); }
+    else { L.set(ch.v, "No Signal"); fg(ch.v, "#3d5f99"); }
+  });
+  L.set(chPill, `${non} of 10 Channels`); bg(chPill, non === 10 ? "peach" : non ? "sky" : "ice");
+  const pw = u < 2 ? "Acquiring Telemetry" : non ? "Telemetry Lock" : "Telemetry Closed";
+  L.set(pill, pw); bg(pill, pw === "Telemetry Lock" ? "peach" : "sky");
+  // data received
+  const D = dataAt(u), Rt = non ? rateAt(u) * (1 + 0.006 * Math.sin(T * 0.37)) : 0;
+  showBar(dTotal, D / DMAX); L.set(dTotal.v, fmt(D) + " kq");
+  showBar(dRate, Rt / RMAX); L.set(dRate.v, fmt(Rt) + " kq/s");
+  // flight
+  showBar(fShip, m.rS / 150000); L.set(fShip.v, fmt(m.rS) + " km");
+  showBar(fTgt, m.rT / 150000); L.set(fTgt.v, fmt(m.rT) + " km");
+  showBar(fVel, m.v / 2400); L.set(fVel.v, fmt(m.v) + " km/s");
+  const delay = m.rS / 299792;
+  showBar(fDelay, delay / 0.5); L.set(fDelay.v, delay.toFixed(3) + " s");
+  const fuel = 100 - 36 * sm(6, 16, u) - 30 * sm(76, 96, u) - 1.5 * sm(96, 144, u);
+  showBar(fFuel, fuel / 100); L.set(fFuel.v, fuel.toFixed(1) + "%");
+  showBar(fMet, u / CYCLE); L.set(fMet.v, `T+ ${D2(Math.floor(u / 60))}:${D2(Math.floor(u % 60))}`);
+  // instruments
+  sens.forEach((S) => {
+    const w = instrState(S.I, u);
+    if (w !== S.word) { S.word = w; L.set(S.st, w); fg(S.st, STATECOL[w]); }
+    const d = dataOf(S.I, u);
+    showBar(S, d / (S.I.cum[RN - 1] * 1.08)); L.set(S.v, fmt(d) + " kq");
+  });
+}, 0);
+});
+</script></body></html>

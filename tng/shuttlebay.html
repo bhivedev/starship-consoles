@@ -1,0 +1,478 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Shuttlebay</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* a shuttle on the bay plan: a rounded block with its name */
+  .craft { border-radius: 36px; display: flex; align-items: center; justify-content: center; color: #000;
+           font-size: 32px; line-height: 1; padding-top: 2px; }
+  .craft.live { box-shadow: 0 0 0 5px var(--white); }
+  .clip { overflow: hidden; }
+  .field { background: repeating-linear-gradient(180deg, rgba(143,211,255,.95) 0 18px, rgba(143,211,255,.35) 18px 46px, rgba(92,157,255,.8) 46px 60px, rgba(143,211,255,.3) 60px 92px); }
+  .beam { background: linear-gradient(90deg, rgba(143,211,255,.75), rgba(143,211,255,.35)); border-radius: 7px; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame, mirrored: sidebar on the right, title at top left ----------------
+const BAR = 64, TS = BAR / (L.BASELINE - L.CAP_TOP);
+L.box({ x: 40, y: 40, w: 92, h: BAR, c: "ice", r: "l" });
+const titleEl = L.text({ x: 132 + L.GAP, cap: 40, s: TS, c: "ice", txt: "Shuttlebay 2  •  Flight Control" });
+const afterTitle = 132 + L.GAP + titleEl.offsetWidth + L.GAP;
+L.rect({ x: afterTitle, y: 40, w: 320, h: BAR, c: "orange" });
+L.rect({ x: afterTitle + 320 + L.GAP, y: 40, w: 2600 - L.GAP - (afterTitle + 320 + L.GAP), h: BAR, c: "ice" });
+L.elbow({ corner: "tr", x: 2600, y: 40, w: 1216, h: 250, bw: 240, bh: BAR, R: 150, r: 60, c: "ice" });
+[[298, 140, "sky", "Bay 02"], [446, 70, "orange", "Flight"], [524, 420, "ice", "Cycle"], [952, 70, "peach", "13-02"],
+ [1030, 300, "sky", "Roster"], [1338, 70, "orange", "Atmos"], [1416, 216, "ice", "Tractor"]]
+  .forEach(([y, h, c, label]) => L.box({ x: 3576, y, w: 240, h, c, label }));
+L.elbow({ corner: "br", x: 2600, y: 1640, w: 1216, h: 480, bw: 240, bh: BAR, R: 150, r: 60, c: "orange" });
+L.text({ x: 3794, base: 1712, s: 40, c: "#000", txt: "Shuttlebay", align: "r", on: true });
+L.box({ x: 40, y: 2056, w: 92, h: BAR, c: "orange", r: "l" });
+[[132 + L.GAP, 700, "peach"], [132 + L.GAP + 700 + L.GAP, 900, "sky"]].forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
+L.rect({ x: 132 + 3 * L.GAP + 1600, y: 2056, w: 2600 - L.GAP - (132 + 3 * L.GAP + 1600), h: BAR, c: "orange" });
+
+const header = (x, y, w, label, lw, c1, c2, h = 56, fs = 32) => {
+  L.box({ x, y, w: lw, h, c: c1, label, fs, r: "l" });
+  L.rect({ x: x + lw + L.GAP, y, w: w - lw - L.GAP, h, c: c2 });
+};
+const fill = (x, y, w, h, c, origin = "0 0", parent) => {
+  const f = L.layer({ x, y, w, h }, parent);
+  f.style.background = c.startsWith("#") ? c : `var(--${c})`; f.style.transformOrigin = origin;
+  return f;
+};
+// write only what changed: an unchanged reading costs nothing
+const put = (e, txt) => { txt = String(txt); if (e.textContent !== txt) e.textContent = txt; };
+const css = (e, k, v) => { if (e.style[k] !== v) e.style[k] = v; };
+const pad2 = (n) => String(n).padStart(2, "0");
+const mss = (s) => { s = Math.max(0, Math.ceil(s)); return `${Math.floor(s / 60)}:${pad2(s % 60)}`; };
+const smooth = (k) => k * k * k * (k * (k * 6 - 15) + 10);
+
+// columns: left 40–2380, right 2440–3520; the bottom strip splits the left at 1240 | 1300
+const C1 = 40, C1R = 2380, C3 = 2440, C3R = 3520, MID = 1240, C2 = 1300;
+
+// ---------------- the cycle: 34 seconds, launch and recovery in turn ----------------
+const PHASES = [["Bay Pressurized", 9], ["Depressurizing", 5], ["Doors Opening", 4], ["Launch", 7], ["Doors Closing", 4], ["Repressurizing", 5]];
+const START = []; let acc = 0; PHASES.forEach(([, d]) => { START.push(acc); acc += d; });
+const CYCLE = acc;                                    // 34
+const P_DEP = START[1], P_OPEN = START[2], P_GO = START[3], P_CLOSE = START[4], P_REP = START[5];
+
+// ---------------- the craft ----------------
+const TYPES = { "Type-6": "peach", "Type-7": "butter", "Type-9": "ice" };
+const FLEET = [
+  ["Galileo", "Type-6", "NCC-1701-D/05", "Lt. Cmdr. Data"],
+  ["Onizuka", "Type-7", "NCC-1701-D/07", "Ens. Ro Laren"],
+  ["Sakharov", "Type-7", "NCC-1701-D/02", "Lt. Cmdr. La Forge"],
+  ["El-Baz", "Type-9", "NCC-1701-D/14", "Lt. Worf"],
+  ["Fermi", "Type-6", "NCC-1701-D/11", "Ens. Lefler"],
+  ["Magellan", "Type-9", "NCC-1701-D/09", "Lt. Barclay"],
+  ["Curie", "Type-6", "NCC-1701-D/06", "Ens. Sito Jaxa"],
+].map(([name, type, reg, pilot], i) => ({ i, name, type, reg, pilot, c: TYPES[type], pad: null, status: "Docked", mission: "Standby", legs: [], op: 1 }));
+const MISSIONS = [
+  ["Starbase 74", "Courier"], ["Kavis Alpha IV", "Survey"], ["Relay Station 47", "Repair Team"], ["U.S.S. Hood", "Rendezvous"],
+  ["Ogus II", "Medical Supply"], ["Velara III", "Science Team"], ["Deep Space 4", "Courier"], ["Tagra IV", "Away Team"],
+  ["Mordan IV", "Diplomatic"], ["Gamma Arietis", "Survey"],
+];
+let missionN = 0;
+const nextMission = () => MISSIONS[missionN++ % MISSIONS.length];
+let sd = 47781.2;
+
+// ---------------- the bay plan ----------------
+header(C1, 280, C1R - C1, "Shuttlebay 2  ·  Flight Deck", 480, "ice", "sky");
+const IN_T = 396, IN_B = 912, LANE = 654, DOOR = 1720, DOOR_W = 52;
+const PLAN_W = 1772 - 40, PLAN_H = 286;
+L.elbow({ corner: "tl", x: 40, y: 368, w: PLAN_W, h: PLAN_H, bw: 40, bh: 28, R: 64, r: 22, c: "sky" });
+L.elbow({ corner: "bl", x: 40, y: LANE, w: PLAN_W, h: PLAN_H, bw: 40, bh: 28, R: 64, r: 22, c: "sky" });
+L.rect({ x: 40, y: LANE - 40, w: 40, h: 80, c: "sky", free: true });   // the two walls meet without a seam
+L.rect({ x: 80, y: IN_T, w: DOOR - 80, h: IN_B - IN_T, c: "#081730", panel: true });
+// pads: [label, x, centre y]; the launch pad sits on the centre line
+const PAD_W = 380, PAD_H = 160;
+const PADS = [
+  { label: "Service", x: 100, y: 412 }, { label: "Pad 01", x: 520, y: 412 }, { label: "Pad 02", x: 920, y: 412 }, { label: "Pad 03", x: 1320, y: 412 },
+  { label: "Pad 04", x: 100, y: 736 }, { label: "Pad 05", x: 520, y: 736 }, { label: "Pad 06", x: 920, y: 736 }, { label: "Pad 07", x: 1320, y: 736 },
+];
+const LP = { label: "Launch", x: 100, y: 590, h: 128 };
+const padCentre = (p) => [p.x + 250, p.y + (p.h || PAD_H) / 2];
+// the centre line, inside and beyond the doors
+const lines = L.svg("g", { class: "boot" });
+for (let x = 500; x < DOOR - 30; x += 80) L.svg("rect", { x, y: LANE - 3, width: 40, height: 6, fill: "#1d355e" }, lines);
+for (const p of PADS) {
+  L.rect({ x: p.x, y: p.y, w: PAD_W, h: PAD_H, c: "#11264a", panel: true });
+  p.lbl = L.text({ x: p.x + 24, base: p.y + PAD_H / 2 + 13, s: 36, c: "sky", txt: p.label });
+}
+L.rect({ x: LP.x, y: LP.y, w: PAD_W, h: LP.h, c: "#1a2f55", panel: true });
+L.text({ x: LP.x + 24, base: LANE + 13, s: 36, c: "orange", txt: LP.label });
+
+// the approach corridor beyond the doors
+const OX = 1812, OR = C1R;
+L.rect({ x: OX, y: 572, w: OR - OX, h: 4, c: "#2a4a7a", free: true });
+L.rect({ x: OX, y: 732, w: OR - OX, h: 4, c: "#2a4a7a", free: true });
+for (let x = OX + 40; x < OR - 40; x += 96) L.svg("path", { d: `M${x},${LANE - 22} l18,22 l-18,22 h-12 l18,-22 l-18,-22 Z`, fill: "#1d355e" }, lines);
+// range from the doors, in metres
+const PXM = 18, RANGE_TICKS = [0, 10, 20, 30];
+RANGE_TICKS.forEach((m, k) => {
+  const x = OX + m * PXM;
+  L.rect({ x: x - 2, y: 744, w: 4, h: 22, c: "sky", free: true });
+  L.text({ x, base: 806, s: 32, c: "sky", txt: k === RANGE_TICKS.length - 1 ? m + " m" : String(m), align: "c", w: 120, legend: true });
+});
+const toPad = (x) => Math.max(0, (x - 350) / PXM);   // metres from the launch pad
+// status of the doors, the field and the corridor, above and below it
+const DOX = OX, DVX = OX + 200;
+const outside = [["Doors", 432], ["Field", 492], ["Corridor", 548], ["Tractor", 870], ["Traffic", 930]].map(([k, base]) => {
+  L.text({ x: DOX, base, s: 36, c: "sky", txt: k });
+  return L.text({ x: DVX, base, s: 40, c: "white", txt: "" });
+});
+
+// moving parts, all clipped to the plan
+const clip = L.layer({ x: 80, y: IN_T, w: OR - 80, h: IN_B - IN_T, cls: "clip" });
+const local = (x, y) => [x - 80, y - IN_T];
+// the tractor beam, from the launch pad's leading edge out to the shuttle it holds
+const BEAM_X = LP.x + PAD_W;
+const beam = L.layer({ x: BEAM_X - 80, y: LANE - 7 - IN_T, w: OR - BEAM_X, h: 14, cls: "beam" }, clip);
+beam.style.transformOrigin = "0 50%"; beam.style.opacity = 0;
+// the atmospheric forcefield, just inside the doors: light running down it
+const fieldBox = L.layer({ x: DOOR - 22 - 80, y: 0, w: 12, h: IN_B - IN_T, cls: "clip" }, clip);
+const fieldRun = L.layer({ x: 0, y: -(IN_B - IN_T), w: 12, h: 2 * (IN_B - IN_T), cls: "field" }, fieldBox);
+fieldBox.style.opacity = 0;
+// the space doors: two leaves that draw back into the bay's walls
+const HALF = (IN_B - IN_T - 8) / 2;
+const doorT = fill(DOOR - 80, 0, DOOR_W, HALF, "orange", "50% 0", clip);
+const doorB = fill(DOOR - 80, HALF + 8, DOOR_W, HALF, "orange", "50% 100%", clip);
+// the craft
+FLEET.forEach((s) => {
+  s.e = L.layer({ x: 0, y: 0, w: 220, h: 72, cls: "craft" }, clip);
+  s.e.style.background = `var(--${s.c})`; s.e.textContent = s.name;
+});
+const placeCraft = (s, x, y) => { s.x = x; s.y = y; const [lx, ly] = local(x - 110, y - 36); L.move(s.e, lx, ly); };
+
+// where everyone starts
+const byName = (n) => FLEET.find((s) => s.name === n);
+const at = (s, pad) => { s.pad = pad; s.status = "Docked"; s.mission = "Standby"; const [x, y] = padCentre(pad); placeCraft(s, x, y); };
+at(byName("Sakharov"), PADS[0]); byName("Sakharov").status = "Maintenance"; byName("Sakharov").mission = "Impulse Coil Refit";
+at(byName("Galileo"), PADS[1]); at(byName("El-Baz"), PADS[3]); at(byName("Onizuka"), PADS[5]); at(byName("Fermi"), PADS[6]);
+const away = [];                                      // in flight, first back first
+[["Magellan", MISSIONS[7]], ["Curie", MISSIONS[1]]].forEach(([n, m], k) => {
+  const s = byName(n); s.status = "Away"; s.mission = `${m[1]}  ·  ${m[0]}`; s.from = m[0]; s.due = (sd + 0.4 + k * 0.6).toFixed(1); s.op = 0;
+  s.e.style.opacity = 0; placeCraft(s, 2600, LANE); away.push(s);
+});
+missionN = 2;
+let onLP = null;                                      // the craft on the launch pad
+const docked = () => FLEET.filter((s) => s.status === "Docked" && s.pad);
+
+// a craft's route: straight legs, eased, each after the last
+const route = (s, pts, t0, gap = 0.3) => {
+  let t = t0;
+  for (let i = 1; i < pts.length; i++) {
+    const [x0, y0] = pts[i - 1], [x1, y1] = pts[i], len = Math.hypot(x1 - x0, y1 - y0);
+    if (len < 1) continue;
+    const dur = 0.6 + len / 560;
+    s.legs.push({ t0: t, dur, x0, y0, x1, y1, ease: smooth });
+    t += dur + gap;
+  }
+  return t;
+};
+
+// ---------------- status line ----------------
+const STATE_W = Math.max(...PHASES.map(([n]) => L.textWidth(n, 100)), L.textWidth("Recovery", 100));
+const state = L.text({ x: C1, cap: 150, s: 100, c: "ice", txt: "" });
+const sub = L.text({ x: C1 + Math.ceil(STATE_W / 10) * 10 + 60, base: 222, s: 38, c: "peach", txt: "" });
+const pill = L.box({ x: C3R - 400, y: 150, w: 400, h: 72, c: "sky", label: "", r: "lr", fs: 36 });
+pill.style.transition = "background-color 1s ease";
+
+// ---------------- the launch cycle ----------------
+header(C3, 280, C3R - C3, "Launch Cycle", 320, "orange", "peach");
+const PT0 = 368, PP = 96, PH = 72, TRK = C3 + 300 + L.GAP, TRKW = C3R - 130 - TRK;
+const phaseRows = PHASES.map(([name, d], i) => {
+  const y = PT0 + i * PP;
+  const box = L.box({ x: C3, y, w: 300, h: PH, c: "sky", label: name, fs: 30, r: "l" });
+  L.rect({ x: TRK, y, w: TRKW, h: PH, c: "#0c1b36" });
+  const bar = fill(TRK, y, TRKW, PH, "orange");
+  bar.style.transform = "scaleX(0)";
+  const time = L.text({ x: C3R, base: y + PH / 2 + 18, s: 52, c: "white", txt: d.toFixed(1), align: "r" });
+  return { box, bar, time, d, look: "", k: -1 };
+});
+
+// ---------------- the roster ----------------
+header(C1, 1000, C1R - C1, "Shuttle Roster", 340, "sky", "ice");
+const RC = { cls: 310, reg: 470, pilot: 780, loc: 1120, mis: 1400, st: 1900 };
+const HB = 1110, RB = 1172, RP = 62;
+[["Craft", C1], ["Class", RC.cls], ["Registry", RC.reg], ["Pilot", RC.pilot], ["Location", RC.loc], ["Mission", RC.mis], ["Status", RC.st]]
+  .forEach(([h, x]) => L.text({ x, base: HB, s: 36, c: "sky", txt: h }));
+L.text({ x: C1R, base: HB, s: 36, c: "sky", txt: "Time", align: "r" });
+FLEET.forEach((s, i) => {
+  const base = RB + i * RP;
+  L.box({ x: C1, y: base - 41, w: 240, h: 52, c: s.c, label: s.name, fs: 30, r: "l" });
+  L.text({ x: RC.cls, base, s: 40, c: s.c, txt: s.type });
+  L.text({ x: RC.reg, base, s: 40, c: "sky", txt: s.reg });
+  L.text({ x: RC.pilot, base, s: 40, c: "white", txt: s.pilot });
+  s.row = { loc: L.text({ x: RC.loc, base, s: 40, c: "ice", txt: "" }), mis: L.text({ x: RC.mis, base, s: 40, c: "white", txt: "" }),
+            st: L.text({ x: RC.st, base, s: 40, c: "white", txt: "" }), tm: L.text({ x: C1R, base, s: 40, c: "white", txt: "", align: "r" }) };
+});
+
+// ---------------- the flight plan ----------------
+header(C3, 1000, C3R - C3, "Flight Plan", 300, "peach", "orange");
+const FV = C3 + 290;
+const plan = ["Craft", "Operation", "Pilot", "Destination", "Heading", "Departure", "Velocity", "Clearance"].map((k, i) => {
+  const base = HB + i * RP;
+  return { k: L.text({ x: C3, base, s: 36, c: "peach", txt: k }), v: L.text({ x: FV, base, s: 40, c: "white", txt: "" }) };
+});
+const setPlan = (rows) => rows.forEach(([k, v], i) => { put(plan[i].k, k); put(plan[i].v, v); });
+
+// ---------------- bay atmosphere ----------------
+header(C1, 1620, MID - C1, "Bay Atmosphere", 340, "ice", "sky", 48, 28);
+const AV = 400;
+const ATM = [["Pressure", "kPa"], ["Temperature", "°C"], ["Humidity", "%"], ["Oxygen", "kPa"], ["Pump Flow", "m³/s"], ["Forcefield", "%"]]
+  .map(([k, u], i) => {
+    const base = 1734 + i * 54;
+    L.text({ x: C1, base, s: 36, c: "ice", txt: k });
+    L.text({ x: AV + 20, base, s: 36, c: "sky", txt: u });
+    return L.text({ x: AV, base, s: 44, c: "white", txt: "", align: "r" });
+  });
+// the cycle's pressure and field, drawn once; a cursor runs along them
+const GX = 560, GW = MID - GX, GY = 1700, GH = 304;
+L.rect({ x: GX, y: GY, w: GW, h: GH, c: "#071630" });
+const graph = L.svg("g", { class: "boot" });
+START.slice(1).forEach((s) => L.svg("rect", { x: GX + (s / CYCLE) * GW - 1, y: GY, width: 2, height: GH, fill: "#1a2f58" }, graph));
+const pressureAt = (c) => c < P_DEP ? 1 : c < P_OPEN ? 1 - L.ease((c - P_DEP) / (P_OPEN - P_DEP)) : c < P_REP ? 0 : L.ease((c - P_REP) / (CYCLE - P_REP));
+const fieldAt = (c) => c < P_OPEN ? 0 : c < P_OPEN + 1 ? smooth(c - P_OPEN) : c < P_CLOSE + 3.2 ? 1 : c < P_CLOSE + 4 ? 1 - smooth((c - P_CLOSE - 3.2) / 0.8) : 0;
+const doorAt = (c) => c < P_OPEN + 0.8 ? 0 : c < P_GO ? smooth((c - P_OPEN - 0.8) / 3.2) : c < P_CLOSE ? 1 : c < P_CLOSE + 3.2 ? 1 - smooth((c - P_CLOSE) / 3.2) : 0;
+const curve = (f, inset) => Array.from({ length: 341 }, (_, k) => {
+  const c = (k / 340) * CYCLE;
+  return `${(GX + (k / 340) * GW).toFixed(1)},${(GY + inset + (GH - 2 * inset) * (1 - f(c))).toFixed(1)}`;
+}).join(" ");
+L.svg("polyline", { points: curve(fieldAt, 40), fill: "none", stroke: "var(--orange)", "stroke-width": 5, "stroke-linejoin": "round" }, graph);
+L.svg("polyline", { points: curve(pressureAt, 24), fill: "none", stroke: "var(--ice)", "stroke-width": 6, "stroke-linejoin": "round" }, graph);
+const cursor = fill(GX - 2, GY, 4, GH, "white");
+
+// ---------------- tractor and docking ----------------
+header(C2, 1620, C1R - C2, "Tractor  ·  Docking Control", 440, "orange", "peach", 48, 28);
+const TV = 1760, TB = 1940, TBW = C1R - TB;
+const TR = [["Emitter Output", "%"], ["Beam Power", "MW"], ["Target Range", "m"], ["Velocity", "m/s"], ["Docking Clamps", ""], ["Guidance", ""]]
+  .map(([k, u], i) => {
+    const base = 1734 + i * 54;
+    L.text({ x: C2, base, s: 36, c: "peach", txt: k });
+    if (u) L.text({ x: TV + 20, base, s: 36, c: "orange", txt: u });
+    const r = { v: L.text({ x: TV, base, s: i < 4 ? 44 : 40, c: "white", txt: "", align: "r" }), base };
+    if (i < 4) {
+      L.rect({ x: TB, y: base - 24, w: TBW, h: 20, c: "#1c1a2e" });
+      r.bar = fill(TB, base - 24, TBW, 20, i === 0 ? "orange" : i === 1 ? "peach" : "ice"); r.bar.style.transform = "scaleX(0)";
+    }
+    return r;
+  });
+const LAMP_GAP = 12;
+const clamps = [0, 1, 2, 3].map((k) => {
+  const w = (TBW - 3 * LAMP_GAP) / 4;
+  return L.box({ x: TB + k * (w + LAMP_GAP), y: TR[4].base - 33, w, h: 40, c: "orange", label: "Clamp " + (k + 1), fs: 26 });
+});
+const guides = ["Bay Control", "Pilot"].map((k, i) => {
+  const w = (TBW - LAMP_GAP) / 2;
+  return L.box({ x: TB + i * (w + LAMP_GAP), y: TR[5].base - 33, w, h: 40, c: "sky", label: k, fs: 26 });
+});
+
+// ---------------- flight log ----------------
+header(C3, 1620, C3R - C3, "Flight Log", 280, "sky", "ice", 48, 28);
+const logRows = Array.from({ length: 6 }, (_, i) => {
+  const base = 1734 + i * 54;
+  return { sd: L.text({ x: C3, base, s: 36, c: "orange", txt: "" }), tx: L.text({ x: C3 + 170, base, s: 36, c: "ice", txt: "" }) };
+});
+const logged = [];
+const log = (txt) => {
+  logged.push([sd.toFixed(1), txt]); if (logged.length > 6) logged.shift();
+  logRows.forEach((r, i) => { const e = logged[i] || ["", ""]; put(r.sd, e[0]); put(r.tx, e[1]); });
+};
+sd -= 0.5;
+["Magellan  ·  departed  ·  Tagra IV", "Space doors sealed  ·  repressurizing", "Fermi  ·  tractor lock  ·  final approach",
+ "Fermi  ·  recovered  ·  tractor released", "Space doors sealed  ·  repressurizing"].forEach((e, i) => { if (i === 1 || i === 3) sd += 0.1; log(e); });
+sd += 0.1;
+
+// ---------------- the cycle's events ----------------
+let cycleN = -1, phaseN = -1, cyc = null;
+const heading = () => `Bearing ${pad2(L.irand(10, 350)).padStart(3, "0")} Mark ${L.irand(0, 30)}`;
+const beginCycle = (n, T) => {
+  const kind = n % 2 === 0 ? "launch" : "recovery";
+  cyc = { n, T, kind, launch: kind === "launch" };
+  if (kind === "launch") {
+    let ready = T + 0.5;
+    if (onLP) {                                        // last cycle's arrival clears the launch pad
+      const s = onLP, free = PADS.slice(1).filter((p) => !FLEET.some((f) => f.pad === p));
+      const pad = free.sort((a, b) => Math.abs(padCentre(a)[0] - s.x) - Math.abs(padCentre(b)[0] - s.x))[0];
+      const [px, py] = padCentre(pad);
+      ready = route(s, [[s.x, s.y], [px, LANE], [px, py]], T + 0.5) + 0.2;
+      s.pad = pad; s.status = "Docked"; s.mission = "Standby"; onLP = null;
+      log(`${s.name}  ·  to ${pad.label}`);
+    }
+    // the craft docked longest goes next
+    const d = docked().filter((s) => s.status === "Docked").sort((a, b) => (a.since || 0) - (b.since || 0))[0];
+    const [x0, y0] = [d.x, d.y], [lx, ly] = padCentre(LP);
+    route(d, [[x0, y0], [x0, LANE], [lx, ly]], ready);
+    const [dest, task] = nextMission();
+    d.status = "Prelaunch"; d.mission = `${task}  ·  ${dest}`; d.pad = null; d.dest = dest;
+    d.legs.push({ t0: T + P_GO + 0.6, dur: 5.8, x0: lx, y0: ly, x1: 2620, y1: ly, ease: (k) => k * k });
+    cyc.craft = d; cyc.heading = heading(); onLP = d;
+    log(`${d.name}  ·  prelaunch  ·  ${dest}`);
+  } else {
+    const r = away[0];
+    const [lx, ly] = padCentre(LP);
+    r.legs = [{ t0: T + P_GO + 0.5, dur: 6.2, x0: 2250, y0: LANE, x1: lx, y1: ly, ease: smooth }];
+    placeCraft(r, 2250, LANE);
+    cyc.craft = r; cyc.heading = heading();
+  }
+};
+const phaseEvent = (p) => {
+  const s = cyc.craft;
+  if (p === 1) log("Bay 2 depressurizing  ·  deck crew clear");
+  if (p === 2) log("Space doors opening  ·  forcefield up");
+  if (p === 3 && cyc.launch) { s.status = "Launching"; log(`${s.name}  ·  clamps released  ·  launch`); }
+  if (p === 3 && !cyc.launch) log(`${s.name}  ·  tractor lock  ·  final approach`);
+  if (p === 4) {
+    sd += 0.1;
+    if (cyc.launch) {
+      s.status = "Away"; s.due = (Math.max(sd, ...away.map((a) => +a.due)) + 0.3 + Math.random() * 0.2).toFixed(1); s.from = s.dest; s.legs = []; s.op = 0; s.e.style.opacity = 0;
+      away.push(s); onLP = null; log(`${s.name}  ·  departed  ·  ${s.dest}`);
+    } else {
+      away.shift(); s.status = "Docked"; s.mission = "Standby"; s.since = cyc.T; onLP = s; log(`${s.name}  ·  recovered  ·  tractor released`);
+    }
+  }
+  if (p === 5) log("Space doors sealed  ·  repressurizing");
+};
+
+// ---------------- the clock ----------------
+let shownField = 0;
+L.tick((t) => {
+  const n = Math.floor(t / CYCLE), c = t - n * CYCLE;
+  if (n !== cycleN) { cycleN = n; phaseN = 0; beginCycle(n, n * CYCLE); }
+  let p = 0; while (p < 5 && c >= START[p + 1]) p++;
+  while (phaseN < p) phaseEvent(++phaseN);
+  // the doors and the field
+  const dr = doorAt(c), fl = fieldAt(c);
+  css(doorT, "transform", `scaleY(${(1 - 0.94 * dr).toFixed(4)})`);
+  css(doorB, "transform", `scaleY(${(1 - 0.94 * dr).toFixed(4)})`);
+  css(fieldBox, "opacity", (fl * (0.82 + 0.12 * Math.sin(t * 2.3))).toFixed(3));
+  if (fl > 0) L.move(fieldRun, 0, ((t * 46) % 92) + (IN_B - IN_T) - 92 * Math.ceil((IN_B - IN_T) / 92));
+  // the craft
+  for (const s of FLEET) {
+    while (s.legs.length && t >= s.legs[0].t0 + s.legs[0].dur) {
+      const l = s.legs.shift(); s.x = l.x1; s.y = l.y1;
+      if (!s.legs.length) placeCraft(s, l.x1, l.y1);
+    }
+    const l = s.legs[0];
+    if (l && t >= l.t0) { const k = l.ease(L.clamp((t - l.t0) / l.dur)); placeCraft(s, L.mix(l.x0, l.x1, k), L.mix(l.y0, l.y1, k)); }
+  }
+  // the arriving craft: seen at the outer marker once the bay is emptying, then towed in
+  if (!cyc.launch) {
+    const r = cyc.craft;
+    if (r.status !== "Docked") {
+      const op = c < P_DEP ? 0 : smooth(L.clamp((c - P_DEP) / 2));
+      css(r.e, "opacity", op.toFixed(3));
+      if (c < P_GO + 0.5) placeCraft(r, 2250, LANE);
+    } else css(r.e, "opacity", "1");
+  } else {
+    const d = cyc.craft;
+    if (d.status === "Launching") css(d.e, "opacity", L.clamp(1 - (d.x - 2120) / 260).toFixed(3));
+  }
+  // the beam: from the launch pad to the craft it holds
+  const towing = !cyc.launch && c >= P_GO && c < P_CLOSE;
+  const r = cyc.craft;
+  const bw = towing ? L.clamp((r.x - 110 - BEAM_X) / (OR - BEAM_X)) : 0;
+  const bOp = towing ? smooth(L.clamp((c - P_GO) / 0.5)) * L.clamp(bw * 12) * (0.85 + 0.15 * Math.sin(t * 3.1)) : 0;
+  css(beam, "opacity", bOp.toFixed(3));
+  if (bOp > 0) css(beam, "transform", `scaleX(${bw.toFixed(4)})`);
+  // the launch cycle's bars
+  phaseRows.forEach((row, i) => {
+    const k = i < p ? 1 : i > p ? 0 : (c - START[i]) / row.d;
+    if (Math.abs(k - row.k) > 0.0005) { row.k = k; css(row.bar, "transform", `scaleX(${k.toFixed(4)})`); }
+  });
+  css(cursor, "transform", `translate3d(${((c / CYCLE) * GW).toFixed(2)}px,0,0)`);
+});
+
+// readings, four times a second
+const STATUS_C = { Docked: "sky", Prelaunch: "orange", Launching: "orange", Away: "white", Inbound: "butter", Maintenance: "mars" };
+L.every(250, (t) => {
+  if (!cyc) return;
+  const n = cycleN, c = t - n * CYCLE, T = n * CYCLE;
+  let p = 0; while (p < 5 && c >= START[p + 1]) p++;
+  const s = cyc.craft, launch = cyc.launch;
+  // status line
+  put(state, p === 3 ? (launch ? "Launch" : "Recovery") : PHASES[p][0]);
+  put(sub, `Cycle ${String(1407 + n).padStart(4, "0")}  ·  ${s.name}  ·  ${launch ? "Outbound for " + s.dest : "Inbound from " + s.from}  ·  Deck 13 Aft  ·  Bay 2 Control`);
+  const open = doorAt(c) > 0 || fieldAt(c) > 0;
+  pill.textContent = c >= P_DEP && c < P_OPEN ? "Evacuating Bay" : open ? "Bay Open to Space" : c >= P_REP ? "Restoring Air" : "Bay Sealed";
+  css(pill, "backgroundColor", open ? "var(--orange)" : c >= P_DEP && c < P_REP ? "var(--peach)" : "var(--sky)");
+  // the cycle panel
+  phaseRows.forEach((row, i) => {
+    const look = i < p ? "done" : i === p ? "now" : "next";
+    if (i === 3) put(row.box, launch ? "Launch" : "Recovery");
+    if (look !== row.look) {
+      row.look = look;
+      css(row.box, "background", look === "now" ? "var(--orange)" : look === "done" ? "var(--slate)" : "var(--sky)");
+      css(row.bar, "background", look === "done" ? "#26384f" : "var(--orange)");
+      css(row.time, "color", look === "now" ? "var(--white)" : look === "done" ? "var(--slate)" : "var(--sky)");
+    }
+    put(row.time, look === "now" ? (row.d - (c - START[i])).toFixed(1) : row.d.toFixed(1));
+  });
+  // roster
+  const nextRec = launch ? T + CYCLE + P_GO + 6.7 : T + P_GO + 6.7;
+  const launchAt = T + P_GO + 0.6;
+  away.forEach((a, k) => { if (k === 0 && a.status === "Away") a.status = "Inbound"; });
+  for (const f of FLEET) {
+    const live = f === s && (p > 0 || f.legs.length > 0) && f.status !== "Away";
+    if (live !== f.live) { f.live = live; f.e.classList.toggle("live", live); }
+    let loc = "In Flight", tm = "—";
+    if (f.status === "Maintenance") { loc = "Service Bay"; tm = "Refit 6 h"; }
+    else if (f.status === "Docked") loc = f === onLP && !f.legs.length ? "Launch Pad" : f.legs.length ? "Taxiing" : f.pad.label;
+    else if (f.status === "Prelaunch") { loc = f.legs.length > 1 ? "Taxiing" : "Launch Pad"; tm = "T– " + mss(launchAt - t); }
+    else if (f.status === "Launching") { loc = f.x < DOOR ? "Launch Pad" : "Corridor"; tm = "Launched"; }
+    else if (f.status === "Inbound") {
+      loc = !launch && c >= P_GO ? "Tractor Tow" : !launch && c >= P_DEP ? "Outer Marker" : "In Flight";
+      tm = "ETA " + mss(nextRec - t);
+    } else if (f.status === "Away") tm = "Due " + f.due;
+    put(f.row.loc, loc); put(f.row.mis, f.mission); put(f.row.st, f.status); put(f.row.tm, tm);
+    css(f.row.st, "color", `var(--${STATUS_C[f.status]})`);
+    css(f.row.mis, "color", f.mission === "Standby" ? "var(--sky)" : "var(--white)");
+  }
+  // flight plan
+  if (launch) setPlan([["Craft", `${s.name}  ·  ${s.type}`], ["Operation", "Departure"], ["Pilot", s.pilot], ["Destination", s.dest],
+    ["Heading", cyc.heading], ["Departure", `SD ${(sd + (p >= 4 ? 0 : 0.1)).toFixed(1)}`], ["Velocity", "Thrusters  ·  Full Impulse Once Clear"],
+    ["Clearance", p >= 2 ? "Granted  ·  Bay Control" : "Pending  ·  Bay Pressurized"]]);
+  else setPlan([["Craft", `${s.name}  ·  ${s.type}`], ["Operation", "Recovery"], ["Pilot", s.pilot], ["Origin", s.from],
+    ["Approach", cyc.heading], ["Arrival", `SD ${(sd + (p >= 4 ? 0 : 0.1)).toFixed(1)}`], ["Velocity", "Tractor Tow  ·  One-Quarter Impulse"],
+    ["Clearance", p >= 1 ? "Granted  ·  Bay Control" : "Holding  ·  Outer Marker"]]);
+  // atmosphere
+  const pr = pressureAt(c), fl = fieldAt(c);
+  const cool = c < P_DEP ? 0 : c < P_REP ? smooth(L.clamp((c - P_DEP) / 6)) : 1 - smooth((c - P_REP) / (CYCLE - P_REP));
+  put(ATM[0], (101.3 * pr).toFixed(1));
+  put(ATM[1], (21.0 - 5.8 * cool).toFixed(1));
+  put(ATM[2], Math.round(41 * pr));
+  put(ATM[3], (21.2 * pr).toFixed(1));
+  put(ATM[4], c >= P_DEP && c < P_OPEN ? "184" : c >= P_REP ? "212" : "0");
+  put(ATM[5], Math.round(fl * 100));
+  // tractor and docking
+  const towing = !launch && c >= P_GO && c < P_CLOSE && s.status !== "Docked";
+  const moving = (launch && s.status === "Launching") || towing;
+    const vel = moving && s.legs[0] ? (() => { const l = s.legs[0], k = L.clamp((t - l.t0) / l.dur), h = 0.01;
+    const v = (l.x1 - l.x0) * (l.ease(Math.min(1, k + h)) - l.ease(Math.max(0, k - h))) / (2 * h * l.dur) / PXM; return v; })() : 0;
+  const emitter = !launch && c >= P_DEP && c < P_CLOSE ? (c < P_GO ? 35 : 100) : 0;
+  put(TR[0].v, emitter); TR[0].bar.style.transform = `scaleX(${emitter / 100})`;
+  const pow = towing ? 3.6 + 0.4 * (1 - L.clamp((s.x - 350) / 1900)) : emitter ? 0.8 : 0;
+  put(TR[1].v, pow.toFixed(1)); TR[1].bar.style.transform = `scaleX(${(pow / 5).toFixed(3)})`;
+  const tracked = moving || (!launch && c >= P_DEP && s.status !== "Docked");
+  put(TR[2].v, tracked ? Math.round(toPad(s.x)) : "0");
+  TR[2].bar.style.transform = `scaleX(${tracked ? L.clamp(toPad(s.x) / 120).toFixed(3) : 0})`;
+  put(TR[3].v, Math.abs(vel).toFixed(1)); TR[3].bar.style.transform = `scaleX(${L.clamp(Math.abs(vel) / 40).toFixed(3)})`;
+  const engaged = launch ? c < P_GO : s.status === "Docked";
+  put(TR[4].v, engaged ? "Engaged" : "Released");
+  clamps.forEach((b, k) => css(b, "background", engaged ? "var(--orange)" : "var(--slate)"));
+  const pilot = launch && c >= P_GO;
+  put(TR[5].v, pilot ? "Pilot" : "Automatic");
+  css(guides[0], "background", pilot ? "var(--slate)" : "var(--sky)");
+  css(guides[1], "background", pilot ? "var(--peach)" : "var(--slate)");
+  // beyond the doors
+  const dr = doorAt(c);
+  put(outside[0], dr <= 0 ? "Sealed" : dr >= 1 ? "Open" : `${Math.round(dr * 100)}%  ${c < P_CLOSE ? "Opening" : "Closing"}`);
+  put(outside[1], fl >= 1 ? "Active  ·  Atmosphere Retained" : fl > 0 ? "Cycling" : "Standby");
+  put(outside[2], p === 3 ? (launch ? "Outbound  ·  " + s.name : "Inbound  ·  " + s.name) : !launch && p > 0 && p < 3 ? "Holding  ·  " + s.name : "Clear");
+  put(outside[3], towing ? "Locked  ·  " + s.name : emitter ? "Acquiring" : "Standby");
+  put(outside[4], `${away.length} Away  ·  ${FLEET.length - away.length} Aboard`);
+}, 0);
+});
+</script></body></html>

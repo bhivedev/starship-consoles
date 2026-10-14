@@ -1,0 +1,413 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Nebula Composition</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* swapped text dips and comes back; .boot (the start-up cascade) always wins */
+  .sw { transition: opacity .45s ease; }
+  .out:not(.boot) { opacity: .2; }
+  /* the probe: a diamond in a ring */
+  .probe { transition: opacity 1.4s ease; }
+  .probe i { position: absolute; display: block; }
+  .probe .ring { left: 0; top: 0; width: 56px; height: 56px; border: 4px solid var(--white); border-radius: 50%; }
+  .probe .dia { left: 17px; top: 17px; width: 22px; height: 22px; background: var(--pink); transform: rotate(45deg); }
+  .pulse { border: 5px solid var(--pink); border-radius: 50%; }
+  .dot { border-radius: 50%; background: var(--pink); transition: opacity 1s ease; }
+  .near { color: var(--pink) !important; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: a bracket, title centred ----------------
+L.frame({ type: "C", title: "Nebula Composition  •  Sensor Analysis", c: "pink", c2: "violet", accent: "lilac", foot: "Survey",
+  side: [[140, "violet", "Sci 03"], [70, "plum", "4585"], [420, "pink", "Nebula"], [70, "violet", "47"], [300, "plum", "Density"],
+         [70, "violet", "S6"], [216, "pink", "Probe"]],
+  side2: [[140, "plum", "Lab 02"], [70, "violet", "0611"], [420, "pink", "Spectra"], [70, "plum", "12"], [300, "violet", "Radiation"],
+          [70, "plum", "H6"], [216, "pink", "Hazards"]] });
+
+const TRACK = "#1e1238";
+const fill = (x, y, w, h, c) => {
+  const f = L.layer({ x, y, w, h });
+  f.style.background = c.startsWith("#") ? c : `var(--${c})`; f.style.transformOrigin = "0 0";
+  return f;
+};
+const cls = (e, ...c) => (e.classList.add(...c), e);
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const swap = (els, f) => { els.forEach((e) => e.classList.add("out")); setTimeout(() => { f(); els.forEach((e) => e.classList.remove("out")); }, 460); };
+const fmt = (n) => Math.round(n).toLocaleString("en");
+
+// Columns: the map 220–2380, the readings 2460–3620. Rows on the grid the other screens use.
+const LX = 220, LR = 2380, RX = 2460, RR = 3620;
+const ROW0 = 428, ROW1 = 1148, PITCH = 88;
+const base0 = (i) => ROW0 + i * PITCH + 52.5, base1 = (i) => ROW1 + i * PITCH + 52.5;
+const STRIP = (i) => 1734 + i * 54;
+
+// ---------------- the nebula: one density field, drawn once and read by every instrument ----------------
+const MX = LX, MY = 360, MW = LR - LX, MH = 1200;          // the map; 480 px to the light year, 0.5 LY grid
+const PX_LY = 480, MAXD = 8000;                           // particles per cm³ at the top of the scale
+let seed = 45852;
+const drand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+const NT = 256, lattice = Float32Array.from({ length: NT * NT }, () => drand());
+const sm = (x) => x * x * (3 - 2 * x);
+const vnoise = (x, y) => {
+  const xi = Math.floor(x), yi = Math.floor(y), fx = sm(x - xi), fy = sm(y - yi);
+  const a = (i, j) => lattice[((yi + j) & (NT - 1)) * NT + ((xi + i) & (NT - 1))];
+  return L.mix(L.mix(a(0, 0), a(1, 0), fx), L.mix(a(0, 1), a(1, 1), fx), fy);
+};
+const fbm = (x, y, oct = 5) => { let s = 0, a = 0.5, n = 0; for (let o = 0; o < oct; o++) { s += a * vnoise(x, y); n += a; x *= 2.03; y *= 2.03; a *= 0.5; } return s / n; };
+// lobes of gas, in grid units (240 px): the core, a ridge to the east, a western filament, a southern lobe
+const LOBES = [[4.8, 2.2, 1.25, 1.0], [7.0, 1.7, 0.95, 0.72], [3.4, 2.9, 0.95, 0.5], [6.1, 3.3, 0.85, 0.55], [2.4, 1.7, 0.7, 0.3], [8.0, 2.6, 0.6, 0.35]];
+const density = (x, y) => {                              // map px → 0..1 (of MAXD)
+  const u = x / 240, v = y / 240;
+  const wx = u + 0.9 * (fbm(u * 0.7 + 3.1, v * 0.7 + 1.7, 4) - 0.5), wy = v + 0.9 * (fbm(u * 0.7 + 8.3, v * 0.7 + 5.2, 4) - 0.5);
+  let lobe = 0;
+  for (const [cx, cy, s, a] of LOBES) lobe += a * Math.exp(-((wx - cx) ** 2 + (wy - cy) ** 2) / (2 * s * s));
+  const n = fbm(wx * 1.4 + 11, wy * 1.4 + 4);
+  return L.clamp(1 - Math.exp(-1.2 * lobe * (0.25 + 1.25 * n * n * 1.6)));
+};
+// the colour scale: black through violet and plum to pink, the same in the key above the readings
+const STOPS = [[0, [5, 3, 16]], [0.14, [24, 14, 56]], [0.32, [58, 38, 128]], [0.5, [107, 86, 216]], [0.68, [176, 116, 200]], [0.84, [244, 182, 230]], [1, [255, 236, 250]]];
+const cmap = (d) => {
+  for (let i = 1; i < STOPS.length; i++) if (d <= STOPS[i][0]) {
+    const [a, ca] = STOPS[i - 1], [b, cb] = STOPS[i], k = (d - a) / (b - a);
+    return ca.map((v, j) => Math.round(L.mix(v, cb[j], k)));
+  }
+  return STOPS[STOPS.length - 1][1];
+};
+// the field on a 3 px grid: the picture, and the contours
+const FS = 3, FW = MW / FS + 1, FH = MH / FS + 1, field = new Float32Array(FW * FH);
+for (let j = 0; j < FH; j++) for (let i = 0; i < FW; i++) field[j * FW + i] = density(i * FS, j * FS);
+const pic = document.createElement("canvas");
+pic.width = FW; pic.height = FH;
+{
+  const g = pic.getContext("2d"), im = g.createImageData(FW, FH);
+  for (let k = 0; k < FW * FH; k++) { const [r, gg, b] = cmap(field[k]); im.data.set([r, gg, b, 255], k * 4); }
+  g.putImageData(im, 0, 0);
+}
+// iso-density contours (marching squares on a 6 px grid)
+const CONT = [0.25, 0.5, 0.75];
+const contours = CONT.map((lv) => {
+  const segs = [], st = 2, at = (i, j) => field[j * FW + i];
+  for (let j = 0; j + st < FH; j += st) for (let i = 0; i + st < FW; i += st) {
+    const v = [at(i, j), at(i + st, j), at(i + st, j + st), at(i, j + st)];
+    const p = [[i, j], [i + st, j], [i + st, j + st], [i, j + st]];
+    const cross = [];
+    for (let e = 0; e < 4; e++) {
+      const a = v[e], b = v[(e + 1) % 4];
+      if ((a < lv) !== (b < lv)) { const k = (lv - a) / (b - a), A = p[e], B = p[(e + 1) % 4]; cross.push([(A[0] + (B[0] - A[0]) * k) * FS, (A[1] + (B[1] - A[1]) * k) * FS]); }
+    }
+    if (cross.length >= 2) segs.push([cross[0], cross[1]]);
+    if (cross.length === 4) segs.push([cross[2], cross[3]]);
+  }
+  return segs;
+});
+
+// ---------------- the survey: the ship, six sample points, the hazards ----------------
+const SHIP = [170, 650];
+const SAMPLES = [
+  { id: "S1", region: "outer shell", at: [600, 470], note: "Hydrogen rich", d: [0.6, -0.4, -0.2, -0.1, 0, 0.1] },
+  { id: "S2", region: "western filament", at: [880, 650], note: "Oxygen lines strong", d: [-0.7, 0, 0.6, 0.1, 0, 0] },
+  { id: "S3", region: "the core", at: [1150, 520], note: "Carbon enriched", d: [-1.6, 0.5, 0.5, 0.5, 0.05, 0.05] },
+  { id: "S4", region: "southern lobe", at: [1440, 720], note: "Helium enhanced", d: [-1.1, 1.0, 0, 0, 0.1, 0] },
+  { id: "S5", region: "eastern ridge", at: [1700, 540], note: "Neon lines present", d: [-0.5, 0, 0.1, 0, 0.35, 0.05] },
+  { id: "S6", region: "northeast lobe", at: [1960, 380], note: "Nitrogen enhanced", d: [-0.4, 0, -0.1, 0.1, 0, 0.4] },
+];
+const HAZ = [
+  { id: "H1", kind: "Ionized gas pocket", at: [790, 300], r: 100, adv: "Avoid" },
+  { id: "H2", kind: "Plasma discharge", at: [1290, 950], r: 135, adv: "Avoid" },
+  { id: "H3", kind: "Dark matter pocket", at: [1840, 880], r: 110, adv: "Monitor" },
+  { id: "H4", kind: "Quantum filament", seg: [[1390, 160], [1830, 250]], adv: "Keep clear" },
+  { id: "H5", kind: "Gravimetric shear", at: [480, 960], r: 105, adv: "Monitor" },
+  { id: "H6", kind: "Subspace distortion", at: [2060, 650], r: 70, adv: "Monitor" },
+];
+const hazDist = (h, x, y) => {                            // px from (x, y) to the hazard's edge
+  if (!h.seg) return Math.max(0, Math.hypot(x - h.at[0], y - h.at[1]) - h.r);
+  const [[ax, ay], [bx, by]] = h.seg, k = L.clamp(((x - ax) * (bx - ax) + (y - ay) * (by - ay)) / ((bx - ax) ** 2 + (by - ay) ** 2));
+  return Math.hypot(x - (ax + k * (bx - ax)), y - (ay + k * (by - ay)));
+};
+// the probe's course: a Catmull-Rom curve through the ship and the six samples, measured along its length
+const CTRL = [SHIP, ...SAMPLES.map((s) => s.at)];
+const path = [[...SHIP]], stopLen = [0];
+{
+  let len = 0;
+  for (let i = 0; i < CTRL.length - 1; i++) {
+    const p0 = CTRL[Math.max(0, i - 1)], p1 = CTRL[i], p2 = CTRL[i + 1], p3 = CTRL[Math.min(CTRL.length - 1, i + 2)];
+    for (let s = 1; s <= 48; s++) {
+      const t = s / 48, t2 = t * t, t3 = t2 * t;
+      const q = [0, 1].map((k) => 0.5 * (2 * p1[k] + (-p0[k] + p2[k]) * t + (2 * p0[k] - 5 * p1[k] + 4 * p2[k] - p3[k]) * t2 + (-p0[k] + 3 * p1[k] - 3 * p2[k] + p3[k]) * t3));
+      const last = path[path.length - 1];
+      len += Math.hypot(q[0] - last[0], q[1] - last[1]);
+      q.push(len); path.push(q);
+    }
+    stopLen.push(len);
+  }
+  path[0].push(0);
+}
+const pointAt = (s) => {                                  // the point a length s along the course
+  let lo = 0, hi = path.length - 1;
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (path[m][2] < s) lo = m; else hi = m; }
+  const a = path[lo], b = path[hi], k = b[2] > a[2] ? L.clamp((s - a[2]) / (b[2] - a[2])) : 0;
+  return [L.mix(a[0], b[0], k), L.mix(a[1], b[1], k)];
+};
+
+// ---------------- the map, drawn once ----------------
+const map = L.canvas({ x: MX, y: MY, w: MW, h: MH, panel: true });
+const STARS = Array.from({ length: 520 }, () => [drand() * MW, drand() * MH, drand() ** 3 * 2.4 + 0.9, drand()]);
+map.onResize = () => {
+  const g = map.g;
+  g.clearRect(0, 0, MW, MH);
+  g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high";
+  g.drawImage(pic, 0, 0, FW, FH, 0, 0, FW * FS, FH * FS);
+  // stars behind the thinner gas
+  for (const [x, y, r, b] of STARS) {
+    const d = density(x, y);
+    g.fillStyle = `rgba(232,224,255,${((0.25 + 0.6 * b) * (1 - d) ** 3).toFixed(3)})`;
+    g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
+  }
+  // the grid: half a light year
+  g.fillStyle = "rgba(150,120,230,.16)";
+  for (let x = 240; x < MW; x += 240) g.fillRect(x - 1, 0, 2, MH);
+  for (let y = 240; y < MH; y += 240) g.fillRect(0, y - 1, MW, 2);
+  // contours
+  contours.forEach((segs, i) => {
+    g.strokeStyle = ["rgba(199,160,216,.42)", "rgba(244,182,230,.5)", "rgba(255,236,250,.6)"][i];
+    g.lineWidth = 2.5; g.beginPath();
+    for (const [[x0, y0], [x1, y1]] of segs) { g.moveTo(x0, y0); g.lineTo(x1, y1); }
+    g.stroke();
+  });
+  // hazards: dashed rings, the filament a dashed line
+  g.setLineDash([14, 10]); g.lineWidth = 4; g.strokeStyle = "#ff8a6a";
+  for (const h of HAZ) {
+    g.beginPath();
+    if (h.seg) { g.moveTo(...h.seg[0]); g.lineTo(...h.seg[1]); } else g.arc(h.at[0], h.at[1], h.r, 0, 7);
+    g.stroke();
+  }
+  // the probe's course, dashed
+  g.strokeStyle = "rgba(255,255,255,.55)"; g.lineWidth = 3; g.setLineDash([18, 12]);
+  g.beginPath(); path.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.stroke();
+  g.setLineDash([]);
+  // sample points: open rings (lit from above as each is taken)
+  g.strokeStyle = "#f4b6e6"; g.lineWidth = 4;
+  for (const s of SAMPLES) { g.beginPath(); g.arc(s.at[0], s.at[1], 15, 0, 7); g.stroke(); }
+  // the ship: a chevron, holding station outside the boundary
+  const [sx, sy] = SHIP;
+  g.fillStyle = "#ffcc66";
+  g.beginPath(); g.moveTo(sx + 26, sy); g.lineTo(sx - 18, sy - 20); g.lineTo(sx - 8, sy); g.lineTo(sx - 18, sy + 20); g.closePath(); g.fill();
+};
+// labels on the map
+const lab = (x, y, txt, c, o = {}) => L.text(Object.assign({ x: MX + x, base: MY + y, s: 30, c, txt, legend: true }, o));
+SAMPLES.forEach((s, i) => lab(s.at[0] + [-24, 26, -26, 26, 26, 30][i], s.at[1] + [-26, 44, -26, 44, 44, 12][i], s.id, "white", { align: [ "r", "l", "r", "l", "l", "l"][i] }));
+HAZ.forEach((h) => {
+  const lo = h.id === "H2";                               // H2's upper right is in the bright core: label it below
+  const [x, y] = h.seg ? [h.seg[1][0] + 22, h.seg[1][1] + 12] : [h.at[0] + h.r * 0.71 + 12, h.at[1] + (lo ? h.r * 0.71 + 34 : -h.r * 0.71 - 4)];
+  lab(x, y, h.id, "#ff8a6a");
+});
+lab(SHIP[0] - 30, SHIP[1] + 62, "Enterprise", "butter");
+L.text({ x: MX + 40, base: MY + 72, s: 36, c: "lilac", txt: "Emission nebula  ·  Sensor composite  ·  Contours at 2,000, 4,000 and 6,000 per cm³" });
+// scale bar, bottom right
+{
+  const SBX = MX + MW - 60 - PX_LY, SBY = MY + MH - 66;
+  [0, 0.5, 1].forEach((d, i) => {
+    const x = SBX + d * PX_LY;
+    if (i) L.rect({ x: SBX + (d - 0.5) * PX_LY, y: SBY, w: PX_LY / 2, h: 14, c: i % 2 ? "lilac" : "plum", free: true });
+    L.rect({ x: x - 1.5, y: SBY - 10, w: 3, h: 24, c: "lilac", free: true });
+    L.text({ x, base: SBY - 22, s: 30, c: "lilac", txt: d.toFixed(1) + (d === 1 ? " LY" : ""), align: "c", w: 140, legend: true });
+  });
+}
+L.header({ x: LX, y: 280, w: LR - LX, label: "Particle Density  ·  Nebula FGC-47", c1: "pink", c2: "violet" });
+
+// the probe, its sampling pulse, and a dot on each sample once it is taken
+const PR = 28;
+const probe = cls(L.layer({ x: MX - PR, y: MY - PR, w: 2 * PR, h: 2 * PR }), "probe");
+L.el("i", "ring", probe); L.el("i", "dia", probe);
+const pulse = cls(L.layer({ x: MX - 60, y: MY - 60, w: 120, h: 120 }), "pulse");
+pulse.style.opacity = 0;
+const dots = SAMPLES.map((s) => { const e = cls(L.layer({ x: MX + s.at[0] - 9, y: MY + s.at[1] - 9, w: 18, h: 18 }), "dot"); e.style.opacity = 0; return e; });
+
+// ---------------- status line, and the density key over the readings ----------------
+const WORDS = ["Probe in Transit", "Sampling", "Survey Complete"];
+const SUBX = LX + Math.max(...WORDS.map((w) => L.textWidth(w, 100))) + 56;
+const state = cls(L.text({ x: LX, cap: 150, s: 100, c: "pink", txt: "" }), "sw");
+const stateSub = cls(L.text({ x: SUBX, base: 222, s: 38, c: "lilac", txt: "" }), "sw");
+{
+  const defs = L.svg("defs", {}), gr = L.svg("linearGradient", { id: "dens", x1: 0, x2: 1, y1: 0, y2: 0 }, defs);
+  for (let k = 0; k <= 20; k++) L.svg("stop", { offset: k / 20, "stop-color": `rgb(${cmap(k / 20).join(",")})` }, gr);
+  L.svg("rect", { x: RX, y: 150, width: RR - RX, height: 28, fill: "url(#dens)", class: "boot" });
+  [0, 2000, 4000, 6000, 8000].forEach((v, i) => {
+    const x = RX + (v / MAXD) * (RR - RX);
+    L.svg("rect", { x: x - 1.5 + (i === 0 ? 1.5 : i === 4 ? -1.5 : 0), y: 150, width: 3, height: 40, fill: "#c7a0d8", class: "boot" });
+    L.text({ x, base: 236, s: 30, c: "lilac", txt: i === 4 ? "8,000 per cm³" : fmt(v), align: i === 0 ? "l" : i === 4 ? "r" : "c", w: 200, legend: true });
+  });
+}
+
+// ---------------- gauges: a name, a track and its fill, a value ----------------
+const gauge = (o) => {
+  const { x, r, base, name, c, bx, brw, bh = 26, s = 52, ns = 40 } = o;
+  L.text({ x, base, s: ns, c: o.nc || "lilac", txt: name });
+  L.rect({ x: x + bx, y: base - bh, w: r - brw - (x + bx), h: bh, c: TRACK });
+  return { bar: fill(x + bx, base - bh, r - brw - (x + bx), bh, c), v: L.text({ x: r, base, s, c: "white", txt: "", align: "r" }), u: -1 };
+};
+const showBar = (g, k) => { k = L.clamp(k); if (Math.abs(k - g.u) > 0.0004) { g.u = k; tf(g.bar, `scaleX(${k.toFixed(4)})`); } };
+
+// ---------------- gas composition: log-scale bars, 0.1% to 100% ----------------
+const GX = RX + 300, GR = RR - 200;                       // the tracks
+L.header({ x: RX, y: 280, w: RR - RX, label: "Gas Composition", c1: "violet", c2: "pink", lw: GX - L.GAP - RX });
+const compCap = L.text({ x: RX, base: 400, s: 36, c: "pink", txt: "" });
+[0.1, 1, 10, 100].forEach((p, i) => L.text({ x: GX + (i / 3) * (GR - GX), base: 400, s: 30, c: "lilac", txt: p + "%", align: i === 0 ? "l" : i === 3 ? "r" : "c", w: 120, legend: true }));
+const GASES = [["Hydrogen", 71.1, "pink"], ["Helium", 25.4, "pink"], ["Oxygen", 1.6, "lilac"], ["Carbon", 0.85, "lilac"], ["Neon", 0.55, "plum"], ["Nitrogen", 0.5, "plum"]];
+const gas = GASES.map(([n, , c], i) => {
+  const g = gauge({ x: RX, r: RR, base: base0(i), name: n, c, bx: 300, brw: 200 });
+  for (let k = 1; k < 3; k++) L.rect({ x: GX + (k / 3) * (GR - GX) - 1, y: base0(i) - 26, w: 2, h: 26, c: "#3a2768", free: true });
+  return g;
+});
+const logk = (p) => L.clamp((Math.log10(Math.max(p, 0.1)) + 1) / 3);
+let comp = GASES.map((g) => g[1]), compFrom = comp.slice(), compTo = comp.slice(), compT0 = -99;
+const sampleComp = (s) => {                               // the sample's make-up: its own lean, and a little of this pass
+  const v = GASES.map((g, i) => Math.max(0.05, g[1] + s.d[i] + L.rand(-0.12, 0.12) * (i < 2 ? 2 : 0.4)));
+  const trace = 0.25 + L.rand(-0.05, 0.08), k = (100 - trace) / v.reduce((a, b) => a + b, 0);
+  return v.map((x) => x * k);
+};
+
+// ---------------- radiation at the probe ----------------
+L.header({ x: RX, y: 1000, w: RR - RX, label: "Radiation", c1: "pink", c2: "violet", lw: GX - L.GAP - RX });
+L.text({ x: RX, base: 1120, s: 36, c: "pink", txt: "At the probe  ·  Bars to probe tolerance" });
+const RAD = [["Gamma", "pink", 2.0], ["Thermionic", "pink", 2.0], ["Delta", "lilac", 1.0], ["Ionization", "lilac", 100], ["EM Interference", "plum", 100]]
+  .map(([n, c, tol], i) => Object.assign(gauge({ x: RX, r: RR, base: base1(i), name: n, c, bx: 300, brw: 200 }), { tol }));
+
+// ---------------- bottom strip: hazards, telemetry, the sample log ----------------
+const HX0 = LX, HX1 = 1260, TX0 = 1340, TX1 = LR;
+L.header({ x: HX0, y: 1620, w: HX1 - HX0, label: "Navigation Hazards", c1: "violet", c2: "pink", h: 48 });
+const HKX = HX0 + 124, HRX = 900;
+const hazRows = HAZ.map((h, i) => {
+  L.text({ x: HX0, base: STRIP(i), s: 36, c: "#ff8a6a", txt: h.id });
+  L.text({ x: HKX, base: STRIP(i), s: 36, c: "lilac", txt: h.kind });
+  L.text({ x: HX1, base: STRIP(i), s: 36, c: "pink", txt: h.adv, align: "r" });
+  return L.text({ x: HRX, base: STRIP(i), s: 36, c: "white", txt: "", align: "r" });
+});
+L.header({ x: TX0, y: 1620, w: TX1 - TX0, label: "Probe Telemetry", c1: "pink", c2: "violet", h: 48, lw: 236 });
+const tg = (i, name, c) => gauge({ x: TX0, r: TX1, base: STRIP(i), name, c, bx: 260, brw: 160, bh: 22, s: 36, ns: 36 });
+const TEL = { range: tg(0, "Range to Ship", "pink"), signal: tg(1, "Signal", "pink"), sensor: tg(2, "Sensor Range", "lilac"),
+  hull: tg(3, "Hull Temp", "lilac"), shield: tg(4, "Shield Load", "plum"), count: tg(5, "Samples", "violet") };
+L.header({ x: RX, y: 1620, w: RR - RX, label: "Sample Log", c1: "pink", c2: "violet", h: 48, lw: GX - L.GAP - RX });
+const logRows = Array.from({ length: 6 }, (_, i) => ({
+  sd: L.text({ x: RX, base: STRIP(i), s: 36, c: "pink", txt: "" }),
+  tx: L.text({ x: RX + 160, base: STRIP(i), s: 36, c: "lilac", txt: "" }),
+  by: L.text({ x: RR, base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }) }));
+let stardate = 45852.1 + L.irand(0, 30) / 10;
+const logged = [];
+const logLine = (txt, by) => {                            // newest at the foot; always in time order
+  stardate += 0.1;
+  logged.push([stardate.toFixed(1), txt, by]); if (logged.length > logRows.length) logged.shift();
+  logRows.forEach((r, i) => { const e = logged[i] || ["", "", ""]; L.set(r.sd, e[0]); L.set(r.tx, e[1]); L.set(r.by, e[2]); });
+};
+const sampleD = (s) => Math.round(density(...s.at) * MAXD / 10) * 10;
+
+// ---------------- the survey run: launch, six samples, done; then the next probe ----------------
+const SPEED = 85, DWELL = 7, LAUNCH = 2, DONE = 7, FADE = 1.6;
+let probeNo = L.irand(3, 6), run = null, phaseKey = "";
+// the previous probe's last samples, already in the log
+stardate -= 0.7;
+SAMPLES.slice(2).forEach((s) => logLine(`Probe ${probeNo - 1}  ·  ${s.id}  ·  ${s.note}`, fmt(sampleD(s)) + " /cm³"));
+logLine(`Probe ${probeNo - 1}  ·  Survey complete`, "6 / 6");
+compTo = comp = sampleComp(SAMPLES[5]); compFrom = comp.slice();
+L.set(compCap, "Sample S6");
+const newRun = (t) => {
+  const plan = [{ k: "launch", d: LAUNCH }];
+  for (let i = 1; i <= SAMPLES.length; i++) {
+    plan.push({ k: "move", d: (stopLen[i] - stopLen[i - 1]) / SPEED, i });
+    plan.push({ k: "dwell", d: DWELL, i });
+  }
+  plan.push({ k: "done", d: DONE }, { k: "fade", d: FADE });
+  run = { t0: t, plan, taken: 0 };
+  dots.forEach((d) => (d.style.opacity = 0));
+  logLine(`Probe ${probeNo} launched  ·  Class 2 sensor probe`, "Launch");
+};
+const phaseAt = (t) => {
+  let a = run.t0;
+  for (const p of run.plan) { if (t < a + p.d) return [p, (t - a) / p.d]; a += p.d; }
+  return [null, 1];
+};
+
+// ---------------- readings, smoothed so nothing jumps ----------------
+const sense = { d: 0, near: HAZ.map(() => 0) };
+let pos = [...SHIP], lastT = 0, probeOp = 0;
+const prox = (i) => sense.near[i];                       // 1 at a hazard's edge, falling off over half a light year
+
+L.tick((t) => {
+  if (!run) newRun(t);
+  const dt = Math.min(0.1, t - lastT); lastT = t;
+  let [p, k] = phaseAt(t);
+  if (!p) { probeNo++; newRun(t); [p, k] = phaseAt(t); }
+  // where the probe is
+  if (p.k === "launch") pos = [...SHIP];
+  else if (p.k === "move") pos = pointAt(L.mix(stopLen[p.i - 1], stopLen[p.i], L.ease(k)));
+  else if (p.k === "dwell") pos = [...SAMPLES[p.i - 1].at];
+  const want = p.k === "fade" ? 0 : 1;
+  if (want !== probeOp) { probeOp = want; probe.style.opacity = want; }
+  tf(probe, `translate3d(${pos[0].toFixed(1)}px,${pos[1].toFixed(1)}px,0)`);
+  // the sampling pulse: a ring that swells and fades, every 2.5 s while sampling
+  if (p.k === "dwell") {
+    const q = ((t - run.t0) % 2.5) / 2.5;
+    tf(pulse, `translate3d(${pos[0].toFixed(1)}px,${pos[1].toFixed(1)}px,0) scale(${(0.35 + 1.4 * q).toFixed(3)})`);
+    pulse.style.opacity = (0.9 * (1 - q) * Math.min(1, k * 8, (1 - k) * 8)).toFixed(3);
+  } else if (pulse.style.opacity !== "0") pulse.style.opacity = 0;
+  // a sample is in when its dwell ends
+  if (p.k !== "dwell" && p.i && p.k === "move" && run.taken < p.i - 1) takeSample(t, p.i - 1);
+  if ((p.k === "done" || p.k === "fade") && run.taken < SAMPLES.length) takeSample(t, SAMPLES.length);
+  // the instruments follow the probe, eased
+  const e = 1 - Math.exp(-dt / 1.3), ka = probeOp ? 1 : 0;
+  sense.d += (density(pos[0], pos[1]) * ka - sense.d) * e;
+  HAZ.forEach((h, i) => { sense.near[i] += (Math.exp(-hazDist(h, pos[0], pos[1]) / 240) * ka - sense.near[i]) * e; });
+  // composition eases to the newest sample over 2.5 s
+  const ck = L.ease(L.clamp((t - compT0) / 2.5));
+  comp = compFrom.map((v, i) => L.mix(v, compTo[i], ck));
+  gas.forEach((g, i) => showBar(g, logk(comp[i])));
+  // the phase, in words
+  const key = p.k === "launch" || p.k === "move" ? "move" + (p.i || 1) : p.k === "dwell" ? "dwell" + p.i : "done";
+  if (key !== phaseKey) { const first = !phaseKey; phaseKey = key; const f = () => showState(p); if (first) f(); else swap([state, stateSub], f); }
+});
+const takeSample = (t, n) => {
+  const s = SAMPLES[n - 1];
+  run.taken = n;
+  compFrom = comp.slice(); compTo = sampleComp(s); compT0 = t;
+  L.set(compCap, "Sample " + s.id);
+  dots[n - 1].style.opacity = 1;
+  logLine(`Probe ${probeNo}  ·  ${s.id}  ·  ${s.note}`, fmt(sampleD(s)) + " /cm³");
+  if (n === SAMPLES.length) setTimeout(() => logLine(`Probe ${probeNo}  ·  Survey complete`, "6 / 6"), 2600);
+};
+const showState = (p) => {
+  if (p.k === "launch" || p.k === "move") {
+    const s = SAMPLES[(p.i || 1) - 1];
+    L.set(state, WORDS[0]); L.set(stateSub, `Class 2 probe ${probeNo}  ·  Bound for ${s.id}, ${s.region}`);
+  } else if (p.k === "dwell") {
+    const s = SAMPLES[p.i - 1];
+    L.set(state, WORDS[1]); L.set(stateSub, `Probe ${probeNo} at ${s.id}, ${s.region}  ·  Mass spectrometer running`);
+  } else { L.set(state, WORDS[2]); L.set(stateSub, `Probe ${probeNo}  ·  Six samples returned  ·  Next probe readying`); }
+};
+
+// the numbers: four times a second
+L.every(250, () => {
+  comp.forEach((v, i) => L.set(gas[i].v, v.toFixed(v < 10 ? 2 : 1) + "%"));
+  const d = sense.d;
+  const rads = [0.06 + 0.9 * d + 0.7 * prox(1), 0.04 + 0.5 * d + 1.1 * prox(1), 0.02 + 0.45 * prox(3) + 0.3 * prox(5),
+    6 + 58 * d + 22 * prox(0), 5 + 52 * d + 26 * prox(0)];
+  rads.forEach((v, i) => {
+    const g = RAD[i]; showBar(g, v / g.tol);
+    L.set(g.v, i < 3 ? v.toFixed(2) + " rad/h" : Math.round(v) + "%");
+  });
+  const rng = Math.hypot(pos[0] - SHIP[0], pos[1] - SHIP[1]) / PX_LY;
+  showBar(TEL.range, rng / 4); L.set(TEL.range.v, rng.toFixed(2) + " LY");
+  const sig = 99 - 9 * rng - 24 * d - 10 * prox(5); showBar(TEL.signal, sig / 100); L.set(TEL.signal.v, Math.round(sig) + "%");
+  const sen = 100 - 62 * d - 12 * prox(0); showBar(TEL.sensor, sen / 100); L.set(TEL.sensor.v, Math.round(sen) + "%");
+  const hull = 290 + 620 * d + 260 * prox(1); showBar(TEL.hull, hull / 1500); L.set(TEL.hull.v, fmt(hull) + " K");
+  const sh = 6 + 64 * d + 18 * prox(1) + 12 * prox(0); showBar(TEL.shield, sh / 100); L.set(TEL.shield.v, Math.round(sh) + "%");
+  const n = run ? run.taken : 0; showBar(TEL.count, n / SAMPLES.length); L.set(TEL.count.v, `${n} / ${SAMPLES.length}`);
+  HAZ.forEach((h, i) => {
+    const r = hazDist(h, pos[0], pos[1]) / PX_LY;
+    L.set(hazRows[i], r.toFixed(2) + " LY");
+    hazRows[i].classList.toggle("near", r < 0.5);
+  });
+}, 0);
+});
+</script></body></html>

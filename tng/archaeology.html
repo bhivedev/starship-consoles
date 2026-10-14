@@ -1,0 +1,492 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Archaeology</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .band { position: absolute; }
+  .mk { position: absolute; width: 16px; height: 16px; background: var(--white); transform: rotate(45deg); }
+  .ring { border: 6px solid; border-radius: 12px; }
+  .lab { transition: color .8s ease; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame, mirrored: sidebar on the right, title at top left ----------------
+L.frame({ type: "B", title: "Archaeology  •  Excavation Site", c: "gold", c2: "peach", accent: "tan", foot: "Archaeology",
+  side: [[140, "gold", "Sci 04"], [70, "peach", "Grid"], [420, "gold", "Excavation"], [70, "butter", "Finds"],
+         [300, "peach", "Strata"], [70, "tan", "Lab"], [216, "gold", "Survey"]] });
+
+// the grid and the section 40–2240, the right-hand column 2300–3520
+const M0 = 40, M1 = 2240, R0 = 2300, R1 = 3520;
+const TRACK = "#2a2016", EARTH = "#3a2c1d";
+const fmt = (n) => n.toLocaleString("en");
+const pad = (n, k) => String(n).padStart(k, "0");
+const gauss = () => { let u = 0, v = 0; while (!u) u = Math.random(); while (!v) v = Math.random(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+const op = (e, v) => { v = v < 0.005 ? "0" : v > 0.995 ? "1" : v.toFixed(3); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const fg = (e, c) => { if (e._fg !== c) { e._fg = c; e.style.color = `var(--${c})`; } };
+const bg = (e, c) => { if (e._bg !== c) { e._bg = c; e.style.background = `var(--${c})`; } };
+const fill = (x, y, w, h, c) => { const f = L.layer({ x, y, w, h }); f.style.background = `var(--${c})`; f.style.transformOrigin = "0 0"; return f; };
+
+// ---------------- the ground: six strata, their boundaries rolling gently across the site ----------------
+const STRATA = [
+  { n: "I", name: "Topsoil", c: "olive" },
+  { n: "II", name: "Wind-blown silt", c: "sand", age: 8700, sd: 150, cnt: 6 },
+  { n: "III", name: "Destruction horizon", c: "sunset", age: 11350, sd: 120, cnt: 11 },
+  { n: "IV", name: "Occupation floor", c: "gold", age: 11900, sd: 140, cnt: 18 },
+  { n: "V", name: "Construction fill", c: "peach", age: 12600, sd: 180, cnt: 7 },
+  { n: "VI", name: "Basalt bedrock", c: "slate" },
+];
+const BASE = [38, 88, 133, 186, 236], AMP = [5, 8, 9, 9, 8], MAXD = 280;          // cm
+// boundary depths under grid row `row`, at `u` squares across from column A's left edge
+const bounds = (row, u) => BASE.map((b, j) => b + AMP[j] * Math.sin(0.55 * u + 0.9 * row) + 3 * Math.sin(0.31 * u * (1 + 0.2 * j) - 0.5 * row + 1.7 * j));
+const stratumAt = (bs, d) => { let s = 0; while (s < 5 && d >= bs[s]) s++; return s; };
+
+// ---------------- what the ground holds ----------------
+const FINDS = {
+  1: [["Obsidian flake", "Obsidian"], ["Wind-worn sherd", "Ceramic"], ["Bone fragment", "Bone"]],
+  2: [["Charcoal sample", "Charcoal"], ["Burnt daub", "Fired clay"], ["Fused ceramic", "Ceramic"], ["Arrowhead", "Copper alloy"], ["Carbonized beam", "Charcoal"]],
+  3: [["Painted sherd", "Ceramic"], ["Hearth stone", "Basalt"], ["Copper pin", "Copper alloy"], ["Grinding stone", "Basalt"],
+      ["Spindle whorl", "Fired clay"], ["Loom weight", "Fired clay"], ["Bone needle", "Bone"], ["Seal impression", "Clay"],
+      ["Carbonized grain", "Organic"], ["Oil lamp", "Ceramic"], ["Bead", "Glazed stone"], ["Inscribed tablet", "Clay"]],
+  4: [["Dressed stone", "Basalt"], ["Foundation deposit", "Copper alloy"], ["Coarse sherd", "Ceramic"], ["Bone fragment", "Bone"]],
+};
+const RARE = ["Naiskos figurine", "Fired clay"];                   // Kurlan: a figure of many figures
+const METHOD = { Charcoal: "Radiocarbon", Organic: "Radiocarbon", Bone: "Radiocarbon", Ceramic: "Thermoluminescence", "Fired clay": "Thermoluminescence" };
+const SWEIGHT = [0, 2, 3, 7, 2];
+
+// ---------------- the grid: 11 squares a row, a window of six rows onto the trench ----------------
+const GX = 232, P = 184, SQ = 168, NC = 11, NR = 6, GY = 428, WORK = 3;   // rows above WORK are finished
+const DK = SQ / MAXD;
+const LET = "ABCDEFGHIJK";
+const sqX = (c) => GX + c * P;
+const name = (sq) => LET[sq.c] + sq.row.num;
+
+L.header({ x: M0, y: 280, w: M1 - M0, label: "Excavation Grid  ·  Kurlan Settlement, Site 4", c1: "gold", c2: "peach" });
+L.text({ x: GX - 24, base: 404, s: 36, c: "gold", txt: "Row", align: "r" });
+for (let c = 0; c < NC; c++) L.text({ x: sqX(c) + SQ / 2, base: 404, s: 36, c: "gold", txt: LET[c], align: "c", w: 100, legend: true });
+
+const makeFinds = (bs, target) => {
+  const out = [], n = L.irand(2, 5), top = stratumAt(bs, target - 0.01);
+  for (let i = 0; i < n; i++) {
+    const ws = SWEIGHT.map((w, s) => (s >= 1 && s <= top ? w : 0)), sum = ws.reduce((a, b) => a + b, 0);
+    let r = Math.random() * sum, s = 1; while (r > ws[s]) { r -= ws[s]; s++; }
+    const a = bs[s - 1] + 5, b = Math.min(bs[s], target) - 5;
+    if (b <= a) continue;
+    const [obj, mat] = s === 3 && Math.random() < 0.04 ? RARE : L.pick(FINDS[s]);
+    out.push({ d: L.rand(a, b), s, obj, mat, mx: L.rand(26, SQ - 26) });
+  }
+  return out.sort((p, q) => p.d - q.d);
+};
+
+const rows = [];
+const makeRow = (lay) => {
+  const e = L.layer({ x: M0, y: GY, w: M1 - M0, h: SQ });
+  const label = L.text({ x: GX - 24 - M0, base: 74, s: 40, c: "tan", txt: "", align: "r", rightIn: true }, e);
+  const state = L.text({ x: GX - 24 - M0, base: 128, s: 36, c: "gold", txt: "", align: "r", rightIn: true }, e);
+  const row = { e, label, state, lay, y: lay * P, squares: [] };
+  for (let c = 0; c < NC; c++) {
+    const x = sqX(c) - M0;
+    const bands = STRATA.map((st) => L.el("div", "band", e, { left: x + "px", width: SQ + "px", background: `var(--${st.c})` }));
+    row.squares.push({ row, c, x, bands, cover: null, d: 0, target: 0, finds: [], fi: 0, state: "open", marks: [] });
+  }
+  row.squares.forEach((sq) => {                              // the covers last: everything else paints beneath them
+    sq.cover = L.layer({ x: sq.x, y: 0, w: SQ, h: SQ }, e);
+    sq.cover.style.background = EARTH; sq.cover.style.transformOrigin = "50% 100%";
+  });
+  L.move(e, 0, row.y);
+  rows.push(row);
+  return row;
+};
+const coverTo = (sq) => { sq.cover.style.transform = `scaleY(${(1 - sq.d / MAXD).toFixed(4)})`; };
+const addMark = (parent, before, x, y, fade) => {
+  const m = L.el("div", fade ? "mk layer" : "mk", parent, { left: x - 8 + "px", top: y - 8 + "px" });
+  parent.insertBefore(m, before);
+  if (fade) { m.style.opacity = "0"; m.born = L.t; }
+  return m;
+};
+const fading = [];                                         // markers fading in, then painted flat
+const markSquare = (sq, f, fade) => {
+  const m = addMark(sq.row.e, sq.row.squares[0].cover, sq.x + f.mx, L.clamp(f.d * DK, 10, SQ - 10), fade);
+  sq.marks.push(m);
+  if (fade) fading.push(m);
+};
+// a row's squares, fresh: `done` finished, the rest unopened
+const fillRow = (row, num, done = () => false) => {
+  row.num = num;
+  row.squares.forEach((sq) => {
+    sq.bs = bounds(num, sq.c + SQ / 2 / P);
+    const edges = [0, ...sq.bs, MAXD];
+    sq.bands.forEach((b, s) => { b.style.top = edges[s] * DK + "px"; b.style.height = (edges[s + 1] - edges[s]) * DK + "px"; });
+    sq.target = Math.random() < 0.2 ? sq.bs[2] : sq.bs[4];  // some stop on the occupation floor, left in place
+    sq.target = Math.round(sq.target);
+    sq.finds = makeFinds(sq.bs, sq.target); sq.fi = 0;
+    sq.marks.forEach((m) => m.remove()); sq.marks = [];
+    sq.state = "open"; sq.d = 0; sq.team = null;
+    if (done(sq)) { sq.state = "done"; sq.d = sq.target; sq.finds.forEach((f) => markSquare(sq, f, false)); sq.fi = sq.finds.length; }
+    coverTo(sq);
+  });
+  L.set(row.label, "Row " + num);
+  showRowState(row);
+};
+const showRowState = (row) => {
+  const n = row.squares.filter((s) => s.state === "done").length, started = row.squares.some((s) => s.state !== "open");
+  L.set(row.state, n === NC ? "Complete" : started ? `${n} of ${NC}` : "Unopened");
+  fg(row.state, n === NC ? "gold" : started ? "butter" : "tan");
+};
+const FIRST = 9;
+for (let i = 0; i < NR; i++) makeRow(i);
+rows.forEach((r, i) => fillRow(r, FIRST + i, i < WORK ? () => true : () => false));
+
+// ---------------- the teams ----------------
+const TEAMS = [["Capt. Picard", "white"], ["Lt. Cmdr. Data", "ice"], ["Ens. Ro", "lilac"]];
+const teams = TEAMS.map(([who, c], i) => {
+  const ring = L.layer({ x: 0, y: 0, w: SQ + 24, h: SQ + 24, cls: "ring" });
+  ring.style.borderColor = `var(--${c})`; op(ring, 0);
+  return { i, who, c, ring, sq: null, from: null, state: "idle", t0: 0, until: 0, rate: 2.2, vis: 0 };
+});
+const sqPos = (sq) => [sqX(sq.c), GY + sq.row.y];
+
+// the starting picture: the working row half dug, three squares open in it
+const work = rows[WORK];
+const order = L.rand(0, 1) < 0.5 ? [0, 1, 2, 3, 4, 5, 7, 6, 8, 9, 10] : [10, 9, 8, 7, 6, 5, 3, 4, 2, 1, 0];
+const nDone = L.irand(4, 6);
+order.slice(0, nDone).forEach((c) => { const sq = work.squares[c]; sq.state = "done"; sq.d = sq.target; sq.finds.forEach((f) => markSquare(sq, f, false)); sq.fi = sq.finds.length; coverTo(sq); });
+const startSquares = order.slice(nDone, nDone + 3).map((c) => work.squares[c]);
+showRowState(work);
+
+// ---------------- the catalog ----------------
+let catNo = 1180;
+const catalog = [];                                        // everything recorded, oldest first
+const pendingFinds = [];
+const finds0 = [];
+rows.slice(0, WORK + 1).forEach((r) => r.squares.forEach((sq) => { if (sq.state === "done") sq.finds.forEach((f) => finds0.push([sq, f])); }));
+teams.forEach((tm, i) => {
+  const sq = startSquares[i];
+  tm.sq = sq; sq.team = tm; sq.state = "active";
+  sq.d = L.rand(0.25, 0.75) * sq.target;
+  while (sq.fi < sq.finds.length && sq.finds[sq.fi].d <= sq.d) { finds0.push([sq, sq.finds[sq.fi]]); markSquare(sq, sq.finds[sq.fi], false); sq.fi++; }
+  coverTo(sq);
+  tm.state = "dig"; tm.vis = 1; tm.rate = L.rand(1.9, 2.6);
+});
+const entry = ([sq, f]) => ({ no: ++catNo, obj: f.obj, mat: f.mat, sq: name(sq), d: Math.round(f.d), s: f.s });
+finds0.slice(-7).forEach((x) => catalog.push(entry(x)));
+
+L.header({ x: R0, y: 280, w: R1 - R0, label: "Artifact Catalog", c1: "peach", c2: "gold" });
+const CC = { obj: 164, mat: 560, sq: 790, d: 1010, s: R1 - R0 };
+[["Cat No", 0, "l"], ["Object", CC.obj, "l"], ["Material", CC.mat, "l"], ["Square", CC.sq, "l"], ["Depth", CC.d, "r"], ["Stratum", CC.s, "r"]]
+  .forEach(([txt, x, align]) => L.text({ x: R0 + x, base: 404, s: 36, c: "gold", txt, align }));
+const CN = 7, CP = 72, CH = 56, CY = 428, CB = 45.2;
+const crow = Array.from({ length: CN }, (_, i) => {
+  const e = L.layer({ x: R0, y: CY, w: R1 - R0, h: CH });
+  const r = {
+    e, slot: i,
+    box: L.box({ x: 0, y: 0, w: 140, h: CH, c: "tan", label: "", fs: 28, r: "l" }, e),
+    obj: L.text({ x: CC.obj, base: CB, s: 36, c: "peach", txt: "" }, e),
+    mat: L.text({ x: CC.mat, base: CB, s: 36, c: "tan", txt: "" }, e),
+    sq: L.text({ x: CC.sq, base: CB, s: 36, c: "butter", txt: "" }, e),
+    d: L.text({ x: CC.d, base: CB, s: 36, c: "white", txt: "", align: "r", rightIn: true }, e),
+    s: L.text({ x: CC.s, base: CB, s: 36, c: "gold", txt: "", align: "r", rightIn: true }, e),
+  };
+  L.move(e, 0, i * CP);
+  return r;
+});
+const showCat = (r, x) => {
+  L.set(r.box, pad(x.no, 4)); L.set(r.obj, x.obj); L.set(r.mat, x.mat); L.set(r.sq, x.sq); L.set(r.d, x.d + " cm"); L.set(r.s, STRATA[x.s].n);
+  fg(r.s, STRATA[x.s].c);
+};
+const styleCat = () => crow.forEach((r) => {
+  const last = r.slot === CN - 1;
+  bg(r.box, last ? "butter" : "tan"); fg(r.obj, last ? "white" : "peach");
+});
+crow.forEach((r, i) => showCat(r, catalog[catalog.length - CN + i]));
+styleCat();
+let shownNo = catNo;
+
+// ---------------- the strata and their dates ----------------
+L.header({ x: R0, y: 1000, w: R1 - R0, label: "Stratigraphy  ·  Dating", c1: "gold", c2: "tan" });
+const SC = { name: 124, depth: 560, age: 1010, n: R1 - R0 };
+[["Stratum", 0, "l"], ["Description", SC.name, "l"], ["Depth", SC.depth, "l"], ["Age  ·  Years", SC.age, "r"], ["Dated", SC.n, "r"]]
+  .forEach(([txt, x, align]) => L.text({ x: R0 + x, base: 1124, s: 36, c: "gold", txt, align }));
+const SY0 = 1148, SP = 64, SH = 52, SB = 41.2;
+const errOf = (st) => Math.max(20, Math.round((1.4 * st.sd) / Math.sqrt(st.cnt) / 5) * 5);
+STRATA.forEach((st, i) => {
+  st.mean = st.age ? st.age + gauss() * st.sd * 0.3 : 0;
+  const y = SY0 + i * SP, base = y + SB;
+  const b = L.box({ x: R0, y, w: Math.round(L.textWidth("Stratum", 36)), h: SH, c: st.c, label: st.n, fs: 28, r: "l" });
+  if (st.c === "slate") b.style.color = "var(--white)";
+  L.text({ x: R0 + SC.name, base, s: 36, c: "peach", txt: st.name });
+  const top = i ? BASE[i - 1] : 0, bot = i < 5 ? BASE[i] : null;
+  L.text({ x: R0 + SC.depth, base, s: 36, c: "tan", txt: bot === null ? `Below ${top} cm` : `${top} – ${bot} cm` });
+  st.ageT = L.text({ x: R0 + SC.age, base, s: 36, c: "white", txt: st.age ? "" : i === 0 ? "Recent" : "2.4 million", align: "r" });
+  st.nT = L.text({ x: R1, base, s: 36, c: "white", txt: st.age ? "" : i === 0 ? "—" : "K–Ar", align: "r" });
+});
+const showStrata = () => STRATA.forEach((st) => {
+  if (!st.age) return;
+  L.set(st.ageT, `${fmt(Math.round(st.mean / 10) * 10)}  ± ${errOf(st)}`);
+  L.set(st.nT, st.cnt);
+});
+showStrata();
+
+// ---------------- the section: the working row's south face, under the grid's own columns ----------------
+const SXL = GX, SW = sqX(NC - 1) + SQ - GX, SYT = 1704, SHT = 299, SK = SHT / MAXD;
+const secHdr = L.box({ x: M0, y: 1620, w: sqX(4) - L.GAP - M0, h: 48, c: "peach", label: "", fs: 28, r: "l" });
+L.rect({ x: M0 + parseFloat(secHdr.style.width) + L.GAP, y: 1620, w: M1 - M0 - parseFloat(secHdr.style.width) - L.GAP, h: 48, c: "gold" });
+for (const d of [0, 100, 200]) {
+  const y = SYT + d * SK;
+  L.text({ x: 200, base: y + 11, s: 30, c: "tan", txt: d + " cm", align: "r", legend: true });
+  L.rect({ x: 210, y: y - 1, w: 14, h: 2, c: "tan", free: true });
+}
+const sec = L.layer({ x: SXL, y: SYT, w: SW, h: SHT });
+const secSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+secSvg.setAttribute("viewBox", `0 0 ${SW} ${SHT}`);
+Object.assign(secSvg.style, { position: "absolute", left: 0, top: 0, width: SW + "px", height: SHT + "px" });
+sec.appendChild(secSvg);
+const secPaths = STRATA.map((st) => L.svg("path", { fill: `var(--${st.c})` }, secSvg));
+for (let c = 0; c < NC - 1; c++) L.svg("rect", { x: c * P + SQ - 1, y: 0, width: P - SQ + 2, height: SHT, fill: "#000" }, secSvg);   // baulks, as in the grid: overlapping the covers so no seam shows
+const secCols = Array.from({ length: NC }, (_, c) => {
+  const cover = L.layer({ x: c * P, y: 0, w: SQ, h: SHT }, sec);
+  cover.style.background = "rgba(0,0,0,0.62)"; cover.style.transformOrigin = "50% 100%";
+  return { cover };
+});
+const secLines = secCols.map((_, c) => { const l = L.layer({ x: c * P, y: 0, w: SQ, h: 4 }, sec); l.style.background = "var(--white)"; return l; });
+secCols.forEach((sc, c) => (sc.line = secLines[c]));
+const nums = L.layer({ x: M0, y: SYT, w: 120, h: SHT });
+const numT = STRATA.map((st) => L.text({ x: 0, base: 0, s: 34, c: st.c, txt: st.n, legend: true }, nums));
+let secRow = null, secMarks = [];
+const secCover = (sq) => {
+  const sc = secCols[sq.c];
+  sc.cover.style.transform = `scaleY(${(1 - sq.d / MAXD).toFixed(4)})`;
+  L.move(sc.line, 0, sq.d * SK - 2);
+  op(sc.line, sq.d > 0.5 ? (sq.state === "done" ? 0.55 : 0.95) : 0);
+};
+const secMark = (sq, f, fade) => {
+  const m = addMark(sec, secCols[0].cover, sq.c * P + f.mx, L.clamp(f.d * SK, 10, SHT - 10), fade);
+  secMarks.push(m);
+  if (fade) fading.push(m);
+};
+const drawSection = (row) => {
+  secRow = row;
+  const pts = [];
+  for (let x = 0; x <= SW; x += 16) pts.push([x, bounds(row.num, x / P)]);
+  secPaths.forEach((p, s) => {
+    const top = pts.map(([x, b]) => `${x},${((s ? b[s - 1] : 0) * SK).toFixed(1)}`);
+    const bot = pts.map(([x, b]) => `${x},${((s < 5 ? b[s] : MAXD) * SK).toFixed(1)}`).reverse();
+    p.setAttribute("d", `M${top.join(" L")} L${bot.join(" L")} Z`);
+  });
+  secMarks.forEach((m) => m.remove()); secMarks = [];
+  row.squares.forEach((sq) => { secCover(sq); sq.finds.slice(0, sq.fi).forEach((f) => secMark(sq, f, false)); });
+  const b0 = bounds(row.num, SQ / 2 / P), edges = [0, ...b0, MAXD];
+  numT.forEach((e, s) => (e.style.top = ((edges[s] + edges[s + 1]) / 2) * SK + 12 - L.BASELINE * 34 + "px"));
+  L.set(secHdr, `Section  ·  Row ${row.num}  ·  South Face`);
+};
+drawSection(work);
+
+// ---------------- the lab ----------------
+L.header({ x: R0, y: 1620, w: R1 - R0, label: "Lab Analysis  ·  Science Lab 4", c1: "tan", c2: "peach", h: 48 });
+const LC = { src: 150, method: 480, bar: 760, barW: 220 };
+const labRows = Array.from({ length: 6 }, (_, i) => {
+  const base = 1734 + i * 54;
+  L.rect({ x: R0 + LC.bar, y: base - 26, w: LC.barW, h: 26, c: TRACK });
+  return {
+    no: L.text({ x: R0, base, s: 36, c: "orange", txt: "" }),
+    src: L.text({ x: R0 + LC.src, base, s: 36, c: "peach", txt: "" }),
+    m: L.text({ x: R0 + LC.method, base, s: 36, c: "tan", txt: "" }),
+    bar: fill(R0 + LC.bar, base - 26, LC.barW, 26, "butter"),
+    res: L.text({ x: R1, base, s: 36, c: "white", txt: "", align: "r", cls: "lab" }),
+    smp: null,
+  };
+});
+let sampleNo = 334;
+const samples = [];
+const addSample = (src, s, method) => { const x = { no: ++sampleNo, src, s, method, state: "Queued", p: 0, dur: L.rand(48, 72) }; samples.push(x); return x; };
+const doneSquares = () => rows.flatMap((r) => r.squares.filter((q) => q.state === "done"));
+const backlog = () => {                                     // samples taken earlier, waiting their turn
+  const sq = L.pick(doneSquares()), s = L.pick([1, 2, 3, 3, 4]);
+  const [src, method] = s === 1 ? ["Sediment", "OSL"] : s === 2 ? ["Charcoal", "Radiocarbon"] : s === 4 ? ["Coarse sherd", "Thermoluminescence"] : L.pick([["Charcoal", "Radiocarbon"], ["Painted sherd", "Thermoluminescence"]]);
+  return addSample(`${src}  ·  ${name(sq)}`, s, method);
+};
+const result = (x) => { const st = STRATA[x.s]; x.age = st.age + gauss() * st.sd; x.err = Math.round((st.sd * L.rand(0.8, 1.2)) / 10) * 10; };
+for (let i = 0; i < 4; i++) { const x = backlog(); x.state = "Complete"; x.p = 1; result(x); }
+for (let i = 0; i < 2; i++) { const x = backlog(); x.state = "Analyzing"; x.p = L.rand(0.15, 0.8); }
+for (let i = 0; i < 2; i++) backlog();
+const queued = () => samples.filter((x) => x.state === "Queued").length;
+const showLab = () => {
+  const live = samples.filter((x) => x.state !== "Complete"), done = samples.filter((x) => x.state === "Complete");
+  const list = [...done.slice(-(6 - live.length)), ...live].sort((a, b) => a.no - b.no).slice(0, 6);
+  labRows.forEach((r, i) => {
+    const x = list[i];
+    r.smp = x;
+    if (!x) return;
+    L.set(r.no, "S-" + pad(x.no, 4)); L.set(r.src, x.src); L.set(r.m, x.method);
+    L.set(r.res, x.state === "Complete" ? `${fmt(Math.round(x.age / 10) * 10)}  ± ${x.err}` : x.state === "Analyzing" ? Math.floor(x.p * 100) + "%" : "Queued");
+    fg(r.res, x.state === "Complete" ? "white" : x.state === "Analyzing" ? "butter" : "tan");
+    bg(r.bar, x.state === "Complete" ? "gold" : "butter");
+  });
+  while (samples.length > 40 && samples[0].state === "Complete") samples.shift();
+};
+showLab();
+
+// ---------------- status line, teams, totals ----------------
+const BIG = 100, stateTxt = L.text({ x: M0, cap: 150, s: BIG, c: "peach", txt: "" });
+const sub = L.text({ x: M0, base: 222, s: 38, c: "tan", txt: "Galen Memorial Expedition  ·  Federation Archaeology Council  ·  Capt. J.-L. Picard, visiting" });
+const pill = L.box({ x: R1 - 480, y: 150, w: 480, h: 72, c: "gold", label: "", r: "lr", fs: 36 });
+
+const LINE = 1580;
+L.text({ x: M0, base: LINE, s: 40, c: "tan", txt: "Teams" });
+teams.forEach((tm, i) => {
+  const x = sqX(4 * i);
+  L.rect({ x, y: LINE - 36, w: 36, h: 36, c: tm.c, free: true });
+  L.text({ x: x + 60, base: LINE, s: 40, c: "tan", txt: tm.who });
+  tm.val = L.text({ x: x + 60 + L.textWidth(tm.who, 40) + 28, base: LINE, s: 40, c: "white", txt: "" });
+});
+let squaresDone = 143, soil = 1984.6;                         // tonnes sieved this season
+L.text({ x: R0, base: LINE, s: 40, c: "tan", txt: "Squares Complete" });
+const doneT = L.text({ x: R0 + L.textWidth("Squares Complete", 40) + 28, base: LINE, s: 52, c: "white", txt: "" });
+const soilW = L.textWidth("9,999.9 t", 52);
+L.text({ x: R1 - soilW - 28, base: LINE, s: 40, c: "tan", txt: "Soil Sieved", align: "r" });
+const soilT = L.text({ x: R1, base: LINE, s: 52, c: "white", txt: "", align: "r" });
+
+// ---------------- digging ----------------
+const candidates = (tm) => rows.filter((r) => r.lay >= WORK).flatMap((r) => r.squares.filter((q) => q.state === "open" && !q.team))
+  .sort((a, b) => a.row.lay - b.row.lay || Math.abs(a.c - (tm.sq ? tm.sq.c : 5)) - Math.abs(b.c - (tm.sq ? tm.sq.c : 5)));
+const next = (tm, t) => {
+  const sq = candidates(tm)[0];
+  if (!sq) { tm.state = "idle"; return; }
+  tm.from = tm.sq; tm.sq = sq; sq.team = tm; tm.state = "move"; tm.t0 = t; tm.rate = L.rand(1.9, 2.6);
+  sq.state = "active"; showRowState(sq.row);
+};
+const complete = (sq) => {
+  sq.state = "done"; sq.team = null; squaresDone++;
+  showRowState(sq.row);
+  if (sq.row === secRow) secCover(sq);
+};
+const record = (sq, f) => {
+  if (sq.row === secRow) secMark(sq, f, true);
+  markSquare(sq, f, true);
+  pendingFinds.push(entry([sq, f]));
+  const method = METHOD[f.mat];
+  if (method && queued() < 2) addSample(`${f.obj}  ·  ${name(sq)}`, f.s, method);
+};
+
+// advancing the grid one row, once the working row is finished
+let adv = null;                                             // {phase, t0}
+const startAdvance = (t) => { adv = { phase: "fade", t0: t }; };
+const stepAdvance = (t) => {
+  if (!adv.top) adv.top = rows.find((r) => r.lay === 0);
+  const u = t - adv.t0, top = adv.top;
+  if (adv.phase === "fade") {
+    const k = L.clamp(u / 0.8);
+    op(top.e, 1 - k); op(sec, 1 - k); op(nums, 1 - k);
+    if (k >= 1) { adv = { phase: "slide", t0: t, top }; }
+  } else if (adv.phase === "slide") {
+    const k = L.ease(L.clamp(u / 1.6));
+    rows.forEach((r) => { if (r.lay > 0) { r.y = (r.lay - k) * P; L.move(r.e, 0, r.y); } });
+    if (k >= 1) {
+      const num = Math.max(...rows.map((r) => r.num)) + 1;
+      rows.forEach((r) => { r.lay = r === top ? NR - 1 : r.lay - 1; r.y = r.lay * P; L.move(r.e, 0, r.y); });
+      fillRow(top, num);
+      drawSection(rows.find((r) => r.lay === WORK));
+      adv = { phase: "in", t0: t, top };
+    }
+  } else {
+    const k = L.clamp(u / 1.0);
+    op(top.e, k); op(sec, k); op(nums, k);
+    if (k >= 1) adv = null;
+  }
+};
+
+// catalog: a finished record fades from the top, the rest move up, the new one arrives at the bottom
+let cat = null;
+const stepCatalog = (t) => {
+  if (!cat) {
+    if (!pendingFinds.length) return;
+    cat = { phase: "fade", t0: t };
+  }
+  if (!cat.row) cat.row = crow.find((r) => r.slot === 0);
+  const u = t - cat.t0, topRow = cat.row;
+  if (cat.phase === "fade") {
+    op(topRow.e, 1 - L.clamp(u / 0.7));
+    if (u >= 0.7) cat = { phase: "slide", t0: t, row: topRow };
+  } else if (cat.phase === "slide") {
+    const k = L.ease(L.clamp(u / 1.0));
+    crow.forEach((r) => { if (r.slot > 0) L.move(r.e, 0, (r.slot - k) * CP); });
+    if (k >= 1) {
+      crow.forEach((r) => (r.slot = r === topRow ? CN - 1 : r.slot - 1));
+      const x = pendingFinds.shift();
+      catalog.push(x); if (catalog.length > 60) catalog.shift();
+      showCat(topRow, x); L.move(topRow.e, 0, (CN - 1) * CP);
+      styleCat(); shownNo = x.no;
+      cat = { phase: "in", t0: t, row: topRow };
+    }
+  } else {
+    op(topRow.e, L.clamp(u / 0.8));
+    if (u >= 0.8) cat = null;
+  }
+};
+
+let last = null;
+L.tick((t) => {
+  const dt = last === null ? 0 : Math.min(0.1, t - last); last = t;
+  for (const tm of teams) {
+    if (tm.state === "idle" && !adv) next(tm, t);
+    if (tm.state === "move" && t - tm.t0 >= 2.6) tm.state = "dig";
+    if (tm.state === "record" && t >= tm.until) tm.state = "dig";
+    if (tm.state === "dig") {
+      const sq = tm.sq;
+      sq.d = Math.min(sq.target, sq.d + tm.rate * dt); soil += (tm.rate * dt) / 100 * 1.6;
+      coverTo(sq); if (sq.row === secRow) secCover(sq);
+      const f = sq.finds[sq.fi];
+      if (f && sq.d >= f.d) { sq.fi++; record(sq, f); tm.state = "record"; tm.until = t + 5.5; }
+      else if (sq.d >= sq.target) { complete(sq); next(tm, t); }
+    }
+    // the ring: on the square being dug, gliding to the next one, breathing while at work
+    if (tm.sq) {
+      let [x, y] = sqPos(tm.sq);
+      if (tm.state === "move" && tm.from) {
+        const k = L.ease(L.clamp((t - tm.t0) / 2.6)), [x0, y0] = sqPos(tm.from);
+        x = L.mix(x0, x, k); y = L.mix(y0, y, k);
+      }
+      L.move(tm.ring, x - 12, y - 12);
+    }
+    const goal = tm.state === "idle" ? 0 : tm.state === "record" ? 1 : 0.62 + 0.25 * Math.sin(t * 1.3 + tm.i * 2.1);
+    tm.vis += (goal - tm.vis) * 0.08; op(tm.ring, tm.vis);
+  }
+  if (!adv && rows.find((r) => r.lay === WORK).squares.every((q) => q.state === "done")) startAdvance(t);
+  if (adv) stepAdvance(t);
+  stepCatalog(t);
+  // markers that have finished fading in are painted flat into their row
+  for (let i = fading.length - 1; i >= 0; i--) {
+    const m = fading[i], k = L.clamp((t - m.born) / 1.2);
+    op(m, k);
+    if (k >= 1) { m.classList.remove("layer"); m.style.opacity = ""; fading.splice(i, 1); }
+  }
+  // the lab: two instruments, first in first out
+  let busy = samples.filter((x) => x.state === "Analyzing");
+  for (const x of busy) { x.p = Math.min(1, x.p + dt / x.dur); if (x.p >= 1) { x.state = "Complete"; result(x); const st = STRATA[x.s]; st.mean = (st.mean * st.cnt + x.age) / (st.cnt + 1); st.cnt++; showStrata(); } }
+  busy = samples.filter((x) => x.state === "Analyzing");
+  if (busy.length < 2) { const q = samples.find((x) => x.state === "Queued"); if (q) { q.state = "Analyzing"; q.p = 0; } }
+  for (const r of labRows) if (r.smp) r.bar.style.transform = `scaleX(${r.smp.p.toFixed(4)})`;
+});
+
+L.every(250, (t) => {
+  // the stratum most of the teams are in
+  const inG = teams.filter((tm) => tm.state === "dig" || tm.state === "record").map((tm) => stratumAt(tm.sq.bs, tm.sq.d));
+  const cnt = [0, 0, 0, 0, 0, 0]; inG.forEach((s) => cnt[s]++);
+  const s = inG.length ? cnt.indexOf(Math.max(...cnt)) : -1;
+  const word = s < 0 ? "Recording" : s === 0 ? "Clearing Topsoil" : "Excavating Stratum " + STRATA[s].n;
+  if (stateTxt.textContent !== word) { L.set(stateTxt, word); sub.style.left = M0 + L.textWidth(word, BIG) + 56 + "px"; }
+  teams.forEach((tm) => {
+    const sq = tm.sq;
+    L.set(tm.val, tm.state === "idle" ? "Sieving" : tm.state === "move" ? `To ${name(sq)}`
+      : `${name(sq)}  ·  ${Math.floor(sq.d)} cm  ·  ${STRATA[stratumAt(sq.bs, sq.d)].n}`);
+    fg(tm.val, tm.state === "record" ? "butter" : "white");
+  });
+  L.set(pill, `Finds Cataloged  ${fmt(shownNo)}`);
+  L.set(doneT, squaresDone);
+  L.set(soilT, soil.toFixed(1) + " t");
+  if (queued() < 1) backlog();
+  showLab();
+}, 0);
+});
+</script></body></html>

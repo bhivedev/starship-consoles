@@ -1,0 +1,443 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Pharmacy</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .sw { transition: background-color .8s ease, color .8s ease; }
+  .clip { overflow: hidden; }
+  .vial { overflow: hidden; border-radius: 12px; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame, mirrored: sidebar on the right, title at top left ----------------
+L.frame({ type: "B", title: "Pharmacy  •  Medical Replicator", c: "peach", c2: "pink", accent: "butter", foot: "Pharmacy",
+  side: [[140, "pink", "Med 05"], [70, "butter", "Rx"], [420, "peach", "Formulary"], [70, "pink", "Assay"],
+         [300, "peach", "Synthesis"], [70, "butter", "Orders"], [216, "pink", "Dispensary"]] });
+
+// two columns: the tables 40–2200, the replicator and its chart 2260–3520
+const L0 = 40, L1 = 2200, R0 = 2260, R1 = 3520;
+const TRACK = "#2e1c26", DARK = "#3a2430";
+const pad = (n, k = 2) => String(n).padStart(k, "0");
+const op = (e, v) => { v = v < 0.005 ? "0" : v > 0.995 ? "1" : v.toFixed(3); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const fg = (e, c) => { if (e._fg !== c) { e._fg = c; e.style.color = c.startsWith("#") ? c : `var(--${c})`; } };
+const bg = (e, c) => { if (e._bg !== c) { e._bg = c; e.style.background = c.startsWith("#") ? c : `var(--${c})`; } };
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const fill = (x, y, w, h, c, parent) => {
+  const f = L.layer({ x, y, w, h }, parent);
+  f.style.background = c.startsWith("#") ? c : `var(--${c})`; f.style.transformOrigin = "0 0";
+  return f;
+};
+// ship's time: the Mac's own clock, t seconds on the page clock (negative: before the page opened)
+const clockAt = (t) => { const d = new Date(Date.now() + (t - L.t) * 1000); return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
+
+// ---------------- the formulary ----------------
+// par: the doses the pharmacy keeps; reorder below 70 % of par, low below 40 %
+const COMP = [
+  { code: "18-3307", name: "Tricordrazine", cls: "Neural stimulant", form: "Hypospray", par: 240, dose: "10 cc", c: "pink", w: 1.6, amb: 1, kit: 1, track: 1 },
+  { code: "18-1102", name: "Inaprovaline", cls: "Cardiopulmonary stimulant", form: "Hypospray", par: 200, dose: "20 cc", c: "peach", w: 1.3, kit: 1, track: 1 },
+  { code: "18-2215", name: "Hyronalin", cls: "Radiation sickness", form: "Hypospray", par: 180, dose: "15 cc", c: "butter", w: 1.2, amb: 1, kit: 1, track: 1 },
+  { code: "18-0940", name: "Kelotane", cls: "Burn treatment", form: "Hypospray", par: 160, dose: "5 cc", c: "lilac", w: 1.1, amb: 1, kit: 1, track: 1 },
+  { code: "18-4471", name: "Dexalin", cls: "Oxygenation agent", form: "Hypospray", par: 120, dose: "20 cc", c: "tan", w: 0.7, kit: 1 },
+  { code: "18-5520", name: "Corophizine", cls: "Antibiotic", form: "Oral", par: 120, dose: "250 mg", c: "plum", w: 0.7, amb: 1 },
+  { code: "18-6033", name: "Melorazine", cls: "Sedative", form: "Hypospray", par: 96, dose: "5 cc", c: "orange", w: 0.5 },
+  { code: "18-7712", name: "Norepinephrine", cls: "Vasopressor", form: "Intravenous", par: 96, dose: "4 mg", c: "sand", w: 0.5 },
+];
+const TRK = COMP.filter((c) => c.track);
+const ratio = (c) => c.n / c.par;
+const wpick = (a) => { let r = Math.random() * a.reduce((s, c) => s + c.w, 0), i = 0; while ((r -= a[i].w) > 0 && i < a.length - 1) i++; return a[i]; };
+
+const PEOPLE = [["Lt. Cmdr. La Forge", "Main Engineering"], ["Ens. Sito Jaxa", "Biobed 3"], ["Lt. Worf", "Security Office"],
+  ["Lt. Barclay", "Quarters 0904"], ["Chief O'Brien", "Transporter Room 3"], ["Ens. Lavelle", "Biobed 5"], ["Cmdr. Riker", "Quarters 0901"],
+  ["Alexander Rozhenko", "Schoolroom 4"], ["Lt. Taurik", "Main Engineering"], ["Ens. Gomez", "Main Engineering"], ["Guinan", "Ten Forward"],
+  ["Keiko O'Brien", "Arboretum"], ["Lt. D'Sora", "Biobed 2"], ["Ens. Ro", "Quarters 0712"], ["Lt. Cmdr. Data", "Biobed 6"]];
+const KITS = [["Away Team Kit 2", "Transporter Room 3"], ["Emergency Kit 36", "Deck 36"], ["Shuttle Onizuka Medkit", "Shuttlebay 2"], ["Triage Cart 1", "Sickbay"]];
+
+// ---------------- what happens: orders take doses, the replicator puts them back ----------------
+const log = [];                                           // [t, text, who], oldest first
+let logReady = false;
+const note = (t, txt, who) => { log.push([clockAt(t), txt, who]); if (log.length > 40) log.shift(); if (logReady) showLog(); };
+let chartDirty = true;
+const record = (cp, t) => { if (cp.track) { cp.hist.push([t, ratio(cp)]); chartDirty = true; } };
+const dispense = (o, t) => {
+  const was = ratio(o.cp);
+  o.cp.n = Math.max(0, o.cp.n - o.qty); record(o.cp, t);
+  note(t, `${o.cp.name} ${o.cp.dose}${o.qty > 1 ? " × " + o.qty : ""} dispensed, ${o.who}`, o.by);
+  if (was >= 0.4 && ratio(o.cp) < 0.4) note(t, `${o.cp.name} below 40% of par`, "Pharmacy");
+};
+const stockBatch = (cp, n, t, b, purity) => {
+  cp.n = Math.min(cp.par, cp.n + n); record(cp, t);
+  note(t, `Batch B-${b} stocked, ${n} × ${cp.name}, purity ${purity}`, "Dr. Selar");
+};
+const rep = { st: "idle", run: null, cp: null, n: 0, filled: 0, t0: 0, batch: 2190, purity: "99.97%" };
+// the next compound to make: finish the run under way (to 90 % of par), else the lowest below 70 %
+const choose = () => {
+  if (rep.run && ratio(rep.run) < 0.9) return rep.run;
+  rep.run = null;
+  return COMP.filter((c) => ratio(c) < 0.7).sort((a, b) => ratio(a) - ratio(b))[0] || null;
+};
+const batchSize = (cp) => Math.max(1, Math.min(12, cp.par - cp.n));
+const purityNow = () => (99.92 + Math.random() * 0.07).toFixed(2) + "%";
+
+let rxNo = 5180;
+const newOrder = (busy = []) => {
+  let who, loc, cp, qty;
+  for (let k = 0; k < 8; k++) {
+    if (Math.random() < 0.15) { [who, loc] = L.pick(KITS); cp = wpick(COMP.filter((c) => c.kit)); qty = L.irand(4, 6); }
+    else {
+      [who, loc] = L.pick(PEOPLE);
+      const bed = /Biobed|Sickbay/.test(loc);
+      cp = wpick(COMP.filter((c) => bed || c.amb)); qty = Math.random() < 0.75 ? 1 : Math.random() < 0.7 ? 2 : 3;
+    }
+    if (!busy.includes(who)) break;
+  }
+  return { no: ++rxNo, who, loc, cp, qty, by: Math.random() < 0.6 ? "Dr. Crusher" : "Dr. Selar", born: -99 };
+};
+
+// the hour before the screen opened, run through the same rules: the chart's history and the stocks now
+const T0 = -3600;
+COMP.forEach((c) => { c.n = Math.round(c.par * L.rand(0.42, 0.9)); c.hist = [[T0, ratio(c)]]; });
+{
+  let tOrd = T0 + L.rand(0, 10), tRep = T0, pend = null;
+  for (let t = T0; t < 0; t += 0.5) {
+    if (t >= tOrd) { dispense(newOrder(), t); tOrd = t + L.rand(9.5, 13.5); }
+    if (pend && t >= pend.at) { stockBatch(pend.cp, pend.n, t, pend.b, purityNow()); pend = null; tRep = t + 2.5; }
+    if (!pend && t >= tRep) {
+      const cp = choose();
+      if (cp) { rep.run = cp; const n = batchSize(cp); pend = { cp, n, b: ++rep.batch, at: t + 3.5 + 4.2 * n + 6 }; }
+      else tRep = t + 1;
+    }
+  }
+  if (pend) rep.batch--;                                    // that batch is the one the screen starts on
+}
+
+// ---------------- status line ----------------
+const BIG = 100, stateTxt = L.text({ x: L0, cap: 150, s: BIG, c: "pink", txt: "" });
+const sub = L.text({ x: L0, base: 222, s: 38, c: "peach", txt: "Sickbay Pharmacy  ·  Deck 12  ·  Medical Replicator 2  ·  Dr. Beverly Crusher, Chief Medical Officer" });
+const pendPill = L.box({ x: R1 - 480, y: 150, w: 480, h: 72, c: "butter", label: "", r: "lr", fs: 36 });
+
+// ---------------- compounds inventory ----------------
+L.header({ x: L0, y: 280, w: L1 - L0, label: "Compounds Inventory  ·  Sickbay Formulary", c1: "peach", c2: "pink" });
+const IC = { name: 224, cls: 640, form: 1100, hand: 1440, gauge: 1480, gw: 400, status: L1 };
+[["Compound", IC.name, "l"], ["Class", IC.cls, "l"], ["Form", IC.form, "l"], ["On Hand", IC.hand, "r"],
+ ["Stock  ·  Reorder at 70%", IC.gauge, "l"], ["Status", IC.status, "r"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: 404, s: 36, c: "lilac", txt, align, w: 160 }));
+const IY = 428, IP = 64, IH = 52;
+COMP.forEach((cp, i) => {
+  const y = IY + i * IP, base = y + 40;
+  L.box({ x: L0, y, w: 160, h: IH, c: cp.c, label: cp.code, fs: 28, r: "l" });
+  L.text({ x: IC.name, base, s: 40, c: "peach", txt: cp.name });
+  L.text({ x: IC.cls, base, s: 36, c: "tan", txt: cp.cls });
+  L.text({ x: IC.form, base, s: 36, c: "lilac", txt: cp.form });
+  cp.handT = L.text({ x: IC.hand, base, s: 40, c: "white", txt: "", align: "r" });
+  L.rect({ x: IC.gauge, y: base - 26, w: IC.gw, h: 26, c: TRACK });
+  cp.bar = fill(IC.gauge, base - 26, IC.gw, 26, cp.c);
+  const mark = fill(IC.gauge + 0.7 * IC.gw - 2, base - 33, 4, 40, "white");
+  mark.style.opacity = 0.75;
+  cp.stT = L.text({ x: IC.status, base, s: 36, c: "tan", txt: "", align: "r", cls: "sw" });
+  cp.shown = cp.n;
+});
+const statusOf = (cp) => (rep.st !== "idle" && rep.cp === cp ? ["Synthesizing", "pink"] : ratio(cp) < 0.4 ? ["Low", "mars"]
+  : ratio(cp) < 0.7 ? ["Queued", "butter"] : ["Adequate", "tan"]);
+// the gauge and the count beside it move together
+L.tick(() => COMP.forEach((cp) => {
+  const d = cp.n - cp.shown;
+  if (Math.abs(d) < 0.02) cp.shown = cp.n; else cp.shown += d * 0.07;
+  tf(cp.bar, `scaleX(${(cp.shown / cp.par).toFixed(4)})`);
+  L.set(cp.handT, `${Math.round(cp.shown)} / ${cp.par}`);
+}));
+
+// ---------------- synthesis: the medical replicator ----------------
+L.header({ x: R0, y: 280, w: R1 - R0, label: "Synthesis  ·  Medical Replicator 2", c1: "pink", c2: "peach" });
+const nextT = L.text({ x: R0, base: 404, s: 36, c: "peach", txt: "" });
+const patT = L.text({ x: R1, base: 404, s: 36, c: "lilac", txt: "", align: "r" });
+const STAGES = [["Pattern", "lilac"], ["Synthesis", "pink"], ["Assay", "butter"], ["Stocked", "peach"]];
+const SGW = (R1 - R0 - 3 * 16) / 4;
+const stageBox = STAGES.map(([name], k) => L.box({ x: R0 + k * (SGW + 16), y: IY, w: SGW, h: IH, c: DARK, label: name, fs: 28,
+  r: k === 0 ? "l" : k === 3 ? "r" : null, cls: "sw" }));
+const showStages = (k) => stageBox.forEach((b, j) => {      // k: the stage under way (-1 standby)
+  const c = STAGES[j][1];
+  bg(b, j <= k ? c : DARK); fg(b, j <= k ? "#000" : c); op(b, j < k ? 0.45 : 1);
+});
+// the rack: twelve cartridges, filled one by one
+const VW = 83, VG = 24, VY = 520, VH = 280;
+const vials = Array.from({ length: 12 }, (_, j) => {
+  const x = R0 + j * (VW + VG);
+  L.rect({ x: x + 20, y: VY - 18, w: VW - 40, h: 12, rx: 4, c: "#4a3040", free: true });
+  const box = L.layer({ x, y: VY, w: VW, h: VH, cls: "vial" });
+  box.style.background = TRACK;
+  const f = fill(0, 0, VW, VH, "pink", box);
+  return { box, f, k: -1 };
+});
+const vialTo = (v, k) => { if (v.k !== k) { v.k = k; tf(v.f, `translate3d(0,${((1 - k) * VH).toFixed(1)}px,0)`); } };
+const scan = L.layer({ x: R0 - 8, y: VY - 24, w: 16, h: VH + 24 });
+scan.style.background = "linear-gradient(to right, rgba(242,242,255,0), rgba(242,242,255,.85) 50%, rgba(242,242,255,0))";
+op(scan, 0);
+const RD = [["Compound", R0, "l"], ["Batch", R0 + 500, "l"], ["Cartridges", R0 + 800, "l"], ["Purity", R1, "r"]].map(([txt, x, align]) => {
+  L.text({ x, base: 852, s: 40, c: "tan", txt, align });
+  return L.text({ x, base: 916, s: 52, c: "white", txt: "", align });
+});
+
+// ---------------- stock levels: the four most used, the last hour ----------------
+L.header({ x: R0, y: 1000, w: R1 - R0, label: "Stock Levels  ·  Percent of Par  ·  Last 60 Minutes", c1: "peach", c2: "pink" });
+TRK.forEach((cp, i) => {
+  const x = R0 + i * 315;
+  L.text({ x, base: 1124, s: 36, c: cp.c, txt: cp.name });
+});
+const CY = 1160, CH = 300, YT = 1190, YB = 1430, PX0 = R0 + 80, PX1 = R1 - 24, PW = PX1 - PX0, V = PW / 3600;
+L.rect({ x: R0, y: CY, w: R1 - R0, h: CH, c: "#1a1015", panel: true });
+const yOf = (v) => YB - v * (YB - YT);
+for (const v of [0, 20, 40, 60, 80, 100]) {
+  const y = yOf(v / 100);
+  L.rect({ x: PX0, y: y - 1, w: PW, h: 2, c: v === 40 ? "#6a2c26" : "#33232c", free: true });
+  L.text({ x: R0 + 24, base: y + 10.8, s: 30, c: v === 40 ? "mars" : "lilac", txt: String(v), legend: true });
+}
+L.rect({ x: PX0, y: yOf(0.7) - 1, w: PW, h: 2, c: "#7a5e2c", free: true });   // the reorder point, as on the gauges
+[["-60 min", 0, "l"], ["-45", 1, "c"], ["-30", 2, "c"], ["-15", 3, "c"], ["Now", 4, "r"]].forEach(([txt, k, align]) =>
+  L.text({ x: PX0 + (k * PW) / 4, base: 1514, s: 30, c: "lilac", txt, align, w: 160, legend: true }));
+const clip = L.layer({ x: PX0, y: CY, w: PW, h: CH, cls: "clip" });
+const mover = L.layer({ x: 0, y: 0, w: PW + 120, h: CH }, clip);
+const csvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+csvg.setAttribute("viewBox", `0 0 ${PW + 120} ${CH}`);
+Object.assign(csvg.style, { position: "absolute", left: 0, top: 0, width: PW + 120 + "px", height: CH + "px" });
+mover.appendChild(csvg);
+TRK.slice().reverse().forEach((cp) => {
+  cp.path = L.svg("path", { fill: "none", "stroke-width": 5, "stroke-linejoin": "miter" }, csvg);
+  cp.path.style.stroke = `var(--${cp.c})`;
+});
+let chartT = 0;
+const drawChart = (t) => {
+  chartT = t;
+  TRK.forEach((cp) => {
+    while (cp.hist.length > 2 && PW - (t - cp.hist[1][0]) * V < -20) cp.hist.shift();
+    let d = "";
+    cp.hist.forEach(([ti, v], k) => {
+      const x = (PW - (t - ti) * V).toFixed(1), y = (yOf(v) - CY).toFixed(1);
+      d += k ? ` H${x} V${y}` : `M${x},${y}`;
+    });
+    cp.path.setAttribute("d", d + ` H${PW + 120}`);
+  });
+  tf(mover, "translate3d(0,0,0)");
+};
+L.tick((t) => {
+  if (chartDirty || t - chartT > 20) { chartDirty = false; drawChart(t); }
+  else tf(mover, `translate3d(${(-(t - chartT) * V).toFixed(2)}px,0,0)`);
+});
+
+// ---------------- dosage orders: a queue that advances ----------------
+L.header({ x: L0, y: 1000, w: L1 - L0, label: "Dosage Orders", c1: "butter", c2: "peach" });
+const OC = { who: 224, cmp: 640, dose: 980, qty: 1060, route: 1100, loc: 1480, pill: 1900 };
+[["Patient", OC.who, "l"], ["Compound", OC.cmp, "l"], ["Dose", OC.dose, "r"], ["Qty", OC.qty, "r"],
+ ["Route", OC.route, "l"], ["Location", OC.loc, "l"], ["Status", L1, "r"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: 1124, s: 36, c: "lilac", txt, align, w: 160 }));
+const QY = 1148, QP = 80, QH = 64, QB = 46.4, QN = 5;
+const prog = L.layer({ x: OC.who, y: QY + QH + 5, w: OC.pill - 24 - OC.who, h: 6 });
+prog.style.background = TRACK;
+const progF = fill(0, 0, OC.pill - 24 - OC.who, 6, "pink", prog);
+const qrows = Array.from({ length: QN }, (_, i) => {
+  const e = L.layer({ x: L0, y: QY, w: L1 - L0, h: QH });
+  const at = (x) => x - L0;
+  const r = {
+    e, slot: i,
+    box: L.box({ x: 0, y: 0, w: 160, h: QH, c: "tan", label: "", fs: 32, r: "l", cls: "sw" }, e),
+    who: L.text({ x: at(OC.who), base: QB, s: 40, c: "peach", txt: "", cls: "sw" }, e),
+    cmp: L.text({ x: at(OC.cmp), base: QB, s: 40, c: "peach", txt: "" }, e),
+    dose: L.text({ x: at(OC.dose), base: QB, s: 36, c: "white", txt: "", align: "r", rightIn: true }, e),
+    qty: L.text({ x: at(OC.qty), base: QB, s: 36, c: "white", txt: "", align: "r", rightIn: true }, e),
+    route: L.text({ x: at(OC.route), base: QB, s: 36, c: "lilac", txt: "" }, e),
+    loc: L.text({ x: at(OC.loc), base: QB, s: 36, c: "tan", txt: "" }, e),
+    pill: L.box({ x: at(OC.pill), y: 0, w: L1 - OC.pill, h: QH, c: "tan", label: "", fs: 32, r: "lr", cls: "sw" }, e),
+  };
+  r.set = (o) => {
+    r.o = o;
+    L.set(r.box, "RX-" + o.no); L.set(r.who, o.who); L.set(r.cmp, o.cp.name); fg(r.cmp, o.cp.c);
+    L.set(r.dose, o.cp.dose); L.set(r.qty, o.qty); L.set(r.route, o.cp.form); L.set(r.loc, o.loc);
+  };
+  r.box.style.paddingBottom = r.pill.style.paddingBottom = "12px";   // labels on the row's baseline
+  L.move(e, 0, i * QP);
+  return r;
+});
+const busyWho = () => qrows.filter((r) => r.o).map((r) => r.o.who);
+qrows.forEach((r) => r.set(newOrder(busyWho())));
+const styleRows = (t) => qrows.forEach((r) => {
+  const top = r.slot === 0, fresh = t - r.o.born < 4;
+  bg(r.box, top ? "butter" : "tan"); fg(r.who, top ? "white" : "peach");
+  const [txt, c] = top ? ["Dispensing", "pink"] : fresh ? ["Verifying", "lilac"] : ["Verified", "tan"];
+  L.set(r.pill, txt); bg(r.pill, c);
+});
+let backlog = L.irand(1, 3);
+const showPending = () => L.set(pendPill, `Pending Orders  ${QN + backlog}`);
+let qPhase = "work", qT0 = 0, qU = L.rand(0.2, 0.6), qDur = L.rand(7, 10);
+
+// ---------------- the log ----------------
+const LOGR = 1420;
+L.header({ x: L0, y: 1620, w: LOGR - L0, label: "Pharmacy Log", c1: "tan", c2: "peach", h: 48 });
+const logRows = Array.from({ length: 6 }, (_, i) => {
+  const base = 1734 + i * 54;
+  return { tm: L.text({ x: L0, base, s: 36, c: "orange", txt: "" }), tx: L.text({ x: 220, base, s: 36, c: "peach", txt: "" }),
+           who: L.text({ x: LOGR, base, s: 36, c: "lilac", txt: "", align: "r" }) };
+});
+function showLog() {
+  const last = log.slice(-6);
+  logRows.forEach((r, i) => { const e = last[i]; L.set(r.tm, e ? e[0] : ""); L.set(r.tx, e ? e[1] : ""); L.set(r.who, e ? e[2] : ""); });
+}
+
+// ---------------- replicator feedstock ----------------
+const FX = 1480;
+const FBX = FX + L.header({ x: FX, y: 1620, w: L1 - FX, label: "Replicator Feedstock", c1: "peach", c2: "pink", h: 48 }) + L.GAP, FBW = L1 - 130 - FBX;
+const FEED = [["Sterile Water", 0.42], ["Saline Base", 0.30], ["Organic Suspension", 0.26], ["Protein Matrix", 0.18],
+              ["Carbon Polymer", 0.34], ["Trace Elements", 0.10]].map(([name, rate], i) => {
+  const base = 1734 + i * 54;
+  L.text({ x: FX, base, s: 36, c: "tan", txt: name });
+  L.rect({ x: FBX, y: base - 26, w: FBW, h: 26, c: TRACK });
+  const v = L.rand(38, 92);
+  return { name, rate, v, shown: v, bar: fill(FBX, base - 26, FBW, 26, "peach"), pct: L.text({ x: L1, base, s: 36, c: "white", txt: "", align: "r" }) };
+});
+L.tick(() => FEED.forEach((f) => {
+  const d = f.v - f.shown;
+  if (Math.abs(d) < 0.02) f.shown = f.v; else f.shown += d * (d > 0 ? 0.03 : 0.1);
+  tf(f.bar, `scaleX(${(f.shown / 100).toFixed(4)})`);
+  bg(f.bar, f.shown < 25 ? "mars" : "peach");
+  L.set(f.pct, Math.round(f.shown) + "%");
+}));
+const consume = (t) => FEED.forEach((f) => {
+  f.v = Math.max(0, f.v - f.rate * L.rand(0.8, 1.2));
+  if (f.v < 24) { f.v = L.rand(92, 97); note(t, `Feedstock replenished from matter reserve, ${f.name.toLowerCase()}`, "Replicator 2"); }
+});
+
+// ---------------- assay: the batch's release tests ----------------
+L.header({ x: R0, y: 1620, w: R1 - R0, label: "Assay  ·  Batch B-0000", c1: "pink", c2: "butter", h: 48 });
+const assayHdr = [...document.querySelectorAll(".bx")].pop();
+const TESTS = [
+  ["Purity", "99.90% min", () => null],
+  ["Potency", "98 – 102%", () => (99 + Math.random() * 2.2).toFixed(1) + "%"],
+  ["Pattern Fidelity", "99.995% min", () => (99.996 + Math.random() * 0.003).toFixed(3) + "%"],
+  ["Sterility", "No growth", () => "No growth"],
+  ["Pyrogens", "0.25 EU max", () => (0.01 + Math.random() * 0.05).toFixed(2) + " EU"],
+  ["Particulates", "None visible", () => "None visible"],
+].map(([name, spec, val], i) => {
+  const base = 1734 + i * 54;
+  L.text({ x: R0, base, s: 36, c: "tan", txt: name });
+  L.text({ x: R0 + 360, base, s: 36, c: "lilac", txt: spec });
+  return { val, res: L.text({ x: R1 - 300, base, s: 36, c: "white", txt: "", align: "r" }),
+           pill: L.box({ x: R1 - 260, y: Math.round(base - 33), w: 260, h: 44, c: DARK, label: "", fs: 28, r: "lr", cls: "sw" }) };
+});
+const assayRow = (r, st) => {                            // st: pending, testing, pass
+  L.set(r.pill, st === "pass" ? "Pass" : st === "testing" ? "Testing" : "Pending");
+  bg(r.pill, st === "pass" ? "tan" : st === "testing" ? "butter" : DARK); fg(r.pill, st === "pending" ? "lilac" : "#000");
+  if (st !== "pass") L.set(r.res, st === "testing" ? "In progress" : "—");
+};
+const passRow = (r, i) => { L.set(r.res, i === 0 ? rep.purity : r.val()); assayRow(r, "pass"); };
+
+// ---------------- the replicator's cycle ----------------
+const P_T = 3.5, FILL_T = 4.2, ASSAY_T = 6, STOCK_T = 2.5;
+const showNext = () => {
+  const q = COMP.filter((c) => c !== rep.run && ratio(c) < 0.7).sort((a, b) => ratio(a) - ratio(b)).slice(0, 3);
+  L.set(nextT, "Next  ·  " + (q.length ? q.map((c) => c.name).join("  ·  ") : "None below reorder point"));
+};
+const showRep = () => {
+  const on = rep.st !== "idle";
+  L.set(RD[0], on ? rep.cp.name : "Standby"); fg(RD[0], on ? "white" : "tan");
+  L.set(RD[1], "B-" + rep.batch);
+  L.set(RD[2], on ? `${rep.filled} / ${rep.n}` : "—");
+  L.set(RD[3], rep.st === "pattern" || rep.st === "synth" || (rep.st === "assay" && !rep.tested) ? "Pending" : rep.purity);
+  L.set(patT, on ? "Pattern " + rep.cp.code : "Replicator standing by");
+};
+const start = (cp, t) => {
+  rep.st = "pattern"; rep.cp = cp; rep.run = cp; rep.n = batchSize(cp); rep.filled = 0; rep.t0 = t; rep.batch++; rep.tested = 0;
+  rep.purity = purityNow();
+  vials.forEach((v, j) => { vialTo(v, 0); bg(v.f, cp.c); op(v.box, j < rep.n ? 1 : 0.35); op(v.f, 1); });
+  L.set(assayHdr, `Assay  ·  Batch B-${rep.batch}`);
+  TESTS.forEach((r) => assayRow(r, "pending"));
+  note(t, `Synthesis started, ${cp.name}, batch B-${rep.batch}`, "Replicator 2");
+  showStages(0); showRep();
+};
+showStages(-1);
+vials.forEach((v) => { vialTo(v, 0); op(v.box, 0.35); });
+TESTS.forEach((r, i) => passRow(r, i));
+L.set(assayHdr, `Assay  ·  Batch B-${rep.batch}`);
+
+let last = null;
+L.tick((t) => {
+  const dt = last === null ? 0 : Math.min(0.1, t - last); last = t;
+  // ---- the replicator ----
+  if (rep.st === "idle") {
+    if (t - rep.t0 > STOCK_T || rep.t0 === 0) { const cp = choose(); if (cp) start(cp, t); }
+  } else if (rep.st === "pattern") {
+    if (t - rep.t0 >= P_T) { rep.st = "synth"; rep.t0 = t; showStages(1); }
+  } else if (rep.st === "synth") {
+    const k = (t - rep.t0) / FILL_T, j = Math.min(rep.n - 1, Math.floor(k));
+    vialTo(vials[j], L.ease(L.clamp(k - j)));
+    for (let i = 0; i < j; i++) vialTo(vials[i], 1);
+    const done = Math.min(rep.n, Math.floor(k));
+    if (done > rep.filled) { rep.filled = done; consume(t); showRep(); }
+    if (rep.filled >= rep.n) { rep.st = "assay"; rep.t0 = t; showStages(2); }
+  } else if (rep.st === "assay") {
+    const u = t - rep.t0, i = Math.floor(u);
+    TESTS.forEach((r, k) => { if (k < i) { if (r.pill.textContent !== "Pass") { passRow(r, k); if (k === 0) { rep.tested = 1; showRep(); } } } else if (k === i) assayRow(r, "testing"); });
+    const w = (rep.n * (VW + VG) - VG) + 16, x = (u / ASSAY_T) * w;
+    tf(scan, `translate3d(${x.toFixed(1)}px,0,0)`);
+    op(scan, Math.min(1, u * 3, (ASSAY_T - u) * 3));
+    if (u >= ASSAY_T) {
+      TESTS.forEach((r, k) => { if (r.pill.textContent !== "Pass") passRow(r, k); });
+      op(scan, 0);
+      rep.st = "stock"; rep.t0 = t; showStages(3);
+      stockBatch(rep.cp, rep.n, t, rep.batch, rep.purity);
+    }
+  } else if (rep.st === "stock") {
+    const k = L.clamp((t - rep.t0) / STOCK_T);
+    vials.forEach((v) => op(v.f, 1 - L.ease(k)));
+    if (k >= 1) {
+      rep.st = "idle"; rep.t0 = t;
+      const cp = choose();
+      if (cp) start(cp, t);
+      else { showStages(-1); vials.forEach((v) => { vialTo(v, 0); op(v.f, 1); op(v.box, 0.35); }); showRep(); }
+    }
+  }
+  // ---- the orders ----
+  if (qPhase === "work") {
+    qU = Math.min(1, qU + dt / qDur);
+    tf(progF, `scaleX(${qU.toFixed(4)})`);
+    if (qU >= 1) {
+      qPhase = "done"; qT0 = t;
+      dispense(qrows.find((r) => r.slot === 0).o, t);
+      backlog = L.clamp(backlog + L.pick([-1, 0, 0, 1]), 0, 4);
+    }
+  } else {
+    const u = t - qT0, top = qrows.find((r) => r.slot === 0);
+    if (qPhase === "done") {
+      const k = L.clamp(u / 0.8);
+      op(top.e, 1 - k); op(prog, 1 - k);
+      if (k >= 1) { qPhase = "slide"; qT0 = t; }
+    } else if (qPhase === "slide") {
+      const k = L.ease(L.clamp(u / 1.2));
+      qrows.forEach((r) => { if (r.slot > 0) L.move(r.e, 0, (r.slot - k) * QP); });
+      if (k >= 1) {
+        qrows.forEach((r) => (r.slot = r.slot === 0 ? QN - 1 : r.slot - 1));
+        const o = newOrder(busyWho()); o.born = t;
+        top.set(o); L.move(top.e, 0, (QN - 1) * QP);
+        qU = 0; qDur = L.rand(7, 10); tf(progF, "scaleX(0)"); op(prog, 1);
+        styleRows(t); showPending();
+        qPhase = "arrive"; qT0 = t;
+      }
+    } else if (qPhase === "arrive") {
+      const k = L.clamp(u / 0.9);
+      op(qrows.find((r) => r.slot === QN - 1).e, k);
+      if (k >= 1) qPhase = "work";
+    }
+  }
+});
+
+let shownWord = "";
+L.every(250, (t) => {
+  const word = rep.st === "idle" ? "Dispensing" : rep.st === "assay" ? "Purity Assay" : rep.st === "stock" ? "Batch Stocked" : "Synthesizing";
+  if (word !== shownWord) { shownWord = word; L.set(stateTxt, word); sub.style.left = L0 + L.textWidth(word, BIG) + 56 + "px"; }
+  COMP.forEach((cp) => { const [txt, c] = statusOf(cp); L.set(cp.stT, txt); fg(cp.stT, c); });
+  showNext(); showRep(); styleRows(t);
+}, 0);
+
+styleRows(0); showPending(); showRep();
+logReady = true; showLog();
+});
+</script></body></html>

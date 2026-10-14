@@ -1,0 +1,399 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Exobiology</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* swapped text dips and comes back; .boot (the start-up cascade) always wins */
+  .sw { transition: opacity .45s ease, color 1.2s ease, background-color 1.2s ease; }
+  .out:not(.boot) { opacity: .2; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: a bracket, title centred ----------------
+L.frame({ type: "C", title: "Exobiology  •  Lifeform Analysis", c: "olive", c2: "butter", accent: "sand", foot: "Science",
+  side: [[140, "sand", "Bio 03"], [70, "butter", "0291"], [420, "olive", "Specimen"], [70, "sand", "34"], [300, "butter", "Cells"],
+         [70, "olive", "B6"], [216, "sand", "Stasis"]],
+  side2: [[140, "sand", "Lab 02"], [70, "olive", "1129"], [420, "butter", "Analysis"], [70, "sand", "61"], [300, "olive", "Genome"],
+          [70, "butter", "C2"], [216, "olive", "Log"]] });
+
+const TRACK = "#24220c", PANEL = "#100f05";
+const fill = (x, y, w, h, c, parent) => {
+  const f = L.layer({ x, y, w, h }, parent);
+  f.style.background = c.startsWith("#") ? c : `var(--${c})`; f.style.transformOrigin = "0 0";
+  return f;
+};
+const cls = (e, ...c) => (e.classList.add(...c), e);
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const op = (e, v) => { v = v.toFixed(3); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const fg = (e, c) => { if (e._fg !== c) { e._fg = c; e.style.color = `var(--${c})`; } };
+const swap = (els, f) => { els.forEach((e) => e.classList.add("out")); setTimeout(() => { f(); els.forEach((e) => e.classList.remove("out")); }, 460); };
+const fmt = (n) => Math.round(n).toLocaleString("en");
+
+// Columns: specimen 220–1060, cell 1120–2500, analysis 2560–3620. Rows on the 88 grid of the other screens.
+const LX = 220, LR = 1060, MX = 1120, MR = 2500, RX = 2560, RR = 3620;
+const ROW0 = 428, ROW1 = 1148, PITCH = 88;
+const base0 = (i) => ROW0 + i * PITCH + 52.5, base1 = (i) => ROW1 + i * PITCH + 52.5;
+const STRIP = (i) => 1734 + i * 54;
+const KEYW = 260, VX = LX + KEYW + L.GAP;                 // record keys, and where their values start
+const BX = 300, BRW = 200;                                 // gauges start 300 in, stop 200 short of the column's edge
+
+// ---------------- the specimens ----------------
+// comp: water, protein, lipid, carbohydrate, nucleic acid, mineral (% by mass)
+// cell: sides (0 = round), wall2 (a second wall), nuc [shape, size] or nucAt, vac, rings of organelles, spikes
+const SPECIMENS = [
+  { id: "EX-1104", name: "Tarchannen III Parasite", origin: "Tarchannen III", habitat: "Host tissue, thyroid", sample: "Tissue culture, frozen",
+    coll: "44664.5", cls: ["Eukaryote analogue", "Unicellular", "Parasitic", "Host genome insertion", "Level 4  ·  Quarantine"], level: 4,
+    chem: "Carbon-based  ·  Aqueous  ·  L-amino acids", comp: [72, 14, 6, 3, 3, 2],
+    gen: { type: "DNA", bp: 1860000, chrom: 3, gc: 58, coding: 91, rep: 4, match: 37, near: "Terran retrovirus" },
+    cell: { sides: 0, nuc: ["circle", 0.27], rings: [[0.55, 9, "circle", 26, "peach"], [0.76, 18, "dia", 14, "sand"]], spikes: [16, 44] },
+    diam: 3.2, mem: 7.4, sym: 9 },
+  { id: "EX-0937", name: "Thermophilic Chemotroph", origin: "Celtris III", habitat: "Subterranean thermal vents", sample: "Vent sediment core",
+    coll: "45128.9", cls: ["Prokaryote analogue", "Unicellular", "Chemosynthetic, sulphur", "Binary fission", "Level 1"], level: 1,
+    chem: "Carbon-based  ·  Aqueous  ·  L-amino acids", comp: [64, 18, 8, 3, 4, 3],
+    gen: { type: "DNA", bp: 2340000, chrom: 1, gc: 66, coding: 88, rep: 2, match: 52, near: "Terran archaea" },
+    cell: { sides: 8, nuc: ["rosette", 0.3], rings: [[0.64, 8, "hex", 24, "gold"], [0.82, 16, "circle", 10, "sand"]], spikes: [0, 0] },
+    diam: 1.8, mem: 9.6, sym: 8 },
+  { id: "EX-1212", name: "Highland Lichen", origin: "Minos Korva", habitat: "Exposed basalt, 3,400 m", sample: "Rock scraping",
+    coll: "46357.4", cls: ["Symbiotic colony", "Multicellular", "Photosynthetic", "Sporulation", "Level 1"], level: 1,
+    chem: "Carbon-based  ·  Aqueous  ·  L-amino acids", comp: [58, 16, 6, 14, 2, 4],
+    gen: { type: "DNA", bp: 38400000, chrom: 9, gc: 49, coding: 46, rep: 22, match: 61, near: "Terran lichen" },
+    cell: { sides: 6, nuc: ["hex", 0.24], rings: [[0.58, 6, "rect", 64, "olive"], [0.83, 12, "circle", 12, "sand"]], spikes: [0, 0] },
+    diam: 14, mem: 8.1, sym: 6 },
+  { id: "EX-0855", name: "Marine Diatom Analogue", origin: "Narendra III", habitat: "Shallow coastal shelf", sample: "Water sample, 2 litres",
+    coll: "43625.2", cls: ["Eukaryote analogue", "Unicellular, silica shell", "Photosynthetic", "Mitotic division", "Level 1"], level: 1,
+    chem: "Carbon-based  ·  Saline  ·  L-amino acids", comp: [61, 12, 7, 9, 2, 9],
+    gen: { type: "DNA", bp: 27100000, chrom: 22, gc: 46, coding: 52, rep: 18, match: 44, near: "Terran diatom" },
+    cell: { sides: 12, wall2: true, nuc: ["circle", 0.2], rings: [[0.47, 12, "tri", 22, "butter"], [0.71, 24, "circle", 9, "sand"]], spikes: [0, 0] },
+    diam: 40, mem: 7.9, sym: 12 },
+  { id: "EX-1340", name: "Felicium Source Plant", origin: "Brekka", habitat: "Cultivated terraces", sample: "Leaf cutting",
+    coll: "43469.1", cls: ["Vascular plant analogue", "Multicellular", "Photosynthetic", "Vegetative cloning", "Level 2  ·  Narcotic alkaloid"], level: 2,
+    chem: "Carbon-based  ·  Aqueous  ·  L-amino acids", comp: [70, 8, 3, 16, 1, 2],
+    gen: { type: "DNA", bp: 412000000, chrom: 14, gc: 38, coding: 24, rep: 61, match: 33, near: "Terran poppy" },
+    cell: { sides: 4, wall2: true, vac: 0.4, nucAt: [0.6, 45, 0.15], rings: [[0.56, 4, "rect", 64, "olive"]], spikes: [0, 0] },
+    diam: 52, mem: 8.8, sym: 4 },
+  { id: "EX-1418", name: "Atmospheric Spore", origin: "Bre'el IV", habitat: "Upper atmosphere, 18 km", sample: "Atmospheric filter",
+    coll: "43539.6", cls: ["Fungus analogue", "Unicellular, dormant", "Chemoheterotroph", "Sporulation", "Level 2"], level: 2,
+    chem: "Carbon-based  ·  Aqueous  ·  D-amino acids", comp: [12, 30, 22, 28, 4, 4],
+    gen: { type: "DNA", bp: 9800000, chrom: 6, gc: 54, coding: 63, rep: 9, match: 29, near: "Terran mould" },
+    cell: { sides: 0, wall2: true, nuc: ["tri", 0.22], rings: [[0.56, 3, "circle", 40, "tan"], [0.72, 12, "dia", 13, "butter"]], spikes: [24, 30] },
+    diam: 6, mem: 11.2, sym: 3 },
+  { id: "EX-0291", name: "Protocell Reconstruction", origin: "Earth, Sector 001", habitat: "Tidal pool, 3.5 billion years BP", sample: "Sensor reconstruction",
+    coll: "47988.1", cls: ["Pre-cellular vesicle", "Unicellular", "Autocatalytic", "Vesicle fission", "Level 1"], level: 1,
+    chem: "Carbon-based  ·  Saline  ·  Mixed chirality", comp: [86, 4, 7, 1, 2, 0],
+    gen: { type: "RNA", bp: 1200, chrom: 1, gc: 51, coding: 82, rep: 0, match: 68, near: "Terran ribozyme" },
+    cell: { sides: 0, thin: true, rings: [[0.42, 5, "circle", 32, "sand"], [0.7, 10, "circle", 9, "olive"]], spikes: [0, 0] },
+    diam: 0.8, mem: 4.1, sym: 5 },
+  { id: "EX-1505", name: "Cave Fungus", origin: "El-Adrel IV", habitat: "Ravine cave floor", sample: "Cave floor scraping",
+    coll: "45047.2", cls: ["Fungus analogue", "Multicellular, hyphal", "Saprotroph", "Sporulation", "Level 1"], level: 1,
+    chem: "Carbon-based  ·  Aqueous  ·  L-amino acids", comp: [66, 15, 5, 11, 2, 1],
+    gen: { type: "DNA", bp: 31600000, chrom: 8, gc: 44, coding: 51, rep: 15, match: 47, near: "Terran truffle" },
+    cell: { sides: 5, nuc: ["circle", 0.18], rings: [[0.5, 5, "hex", 34, "olive"], [0.76, 10, "circle", 14, "peach"]], spikes: [0, 0] },
+    diam: 9, mem: 8.4, sym: 5 },
+];
+
+// ---------------- the cycle of one analysis ----------------
+// transfer 0–2.4 s, imaging 2.4–10, sequencing 10–28, classifying 28–32, complete until 40
+const T_IMG = 2.4, T_SEQ = 10, T_CLS = 28, T_DONE = 32, CYCLE = 40;
+const WORDS = ["Transfer", "Imaging", "Sequencing", "Classifying", "Analysis Complete"];
+const phaseAt = (u) => (u < T_IMG ? 0 : u < T_SEQ ? 1 : u < T_CLS ? 2 : u < T_DONE ? 3 : 4);
+
+// ---------------- status line ----------------
+const state = cls(L.text({ x: LX, cap: 150, s: 100, c: "butter", txt: "" }), "sw");
+const stateSub = cls(L.text({ x: MX, base: 222, s: 38, c: "sand", txt: "" }), "sw");
+const contain = cls(L.box({ x: RR - 420, y: 150, w: 420, h: 72, c: "olive", label: "", r: "lr", fs: 36 }), "sw");
+
+// ---------------- the specimen record ----------------
+L.header({ x: LX, y: 280, w: LR - LX, label: "Specimen", c1: "butter", c2: "olive", lw: KEYW });
+const recCap = cls(L.text({ x: VX, base: 400, s: 36, c: "sand", txt: "" }), "sw");
+const REC = ["Designation", "Lifeform", "Origin", "Habitat", "Sample", "Collected"].map((k, i) => {
+  L.box({ x: LX, y: ROW0 + i * PITCH, w: KEYW, h: 64, c: i % 2 ? "sand" : "olive", label: k, fs: 32, r: "l" });
+  return cls(L.text({ x: VX, base: base0(i), s: 48, c: i === 0 ? "butter" : "white", txt: "" }), "sw");
+});
+
+// ---------------- classification ----------------
+L.header({ x: LX, y: 1000, w: LR - LX, label: "Classification", c1: "olive", c2: "butter", lw: KEYW });
+const clsCap = cls(L.text({ x: VX, base: 1120, s: 36, c: "sand", txt: "" }), "sw");
+const CLS = ["Taxon", "Structure", "Metabolism", "Reproduction", "Biohazard"].map((k, i) => {
+  L.box({ x: LX, y: ROW1 + i * PITCH, w: KEYW, h: 64, c: i % 2 ? "olive" : "sand", label: k, fs: 32, r: "l" });
+  return cls(L.text({ x: VX, base: base1(i), s: 48, c: "white", txt: "" }), "sw");
+});
+
+// ---------------- the cell: imaged, turning slowly in the field ----------------
+const CX = (MX + MR) / 2, CY = 996, RING = 440, CR = 380;
+L.header({ x: MX, y: 280, w: MR - MX, label: "Cell Structure", c1: "butter", c2: "sand" });
+const imgCap = cls(L.text({ x: MX, base: 400, s: 36, c: "sand", txt: "" }), "sw");
+const imgMag = cls(L.text({ x: MR, base: 400, s: 36, c: "olive", txt: "", align: "r" }), "sw");
+L.rect({ x: MX, y: ROW0, w: MR - MX, h: 1564 - ROW0, c: PANEL, panel: true });
+// the reticle: a ring with ticks every 10°, longer every 30°, and a faint cross
+L.svg("circle", { cx: CX, cy: CY, r: RING, fill: "none", stroke: "#3c3816", "stroke-width": 3, class: "boot" });
+L.svg("circle", { cx: CX, cy: CY, r: RING - 60, fill: "#15140a", class: "boot" });
+for (let a = 0; a < 360; a += 10) {
+  const long = a % 30 === 0, s = Math.sin((a * Math.PI) / 180), c = -Math.cos((a * Math.PI) / 180);
+  const r0 = RING + 6, r1 = RING + (long ? 30 : 16);
+  L.svg("line", { x1: CX + r0 * s, y1: CY + r0 * c, x2: CX + r1 * s, y2: CY + r1 * c, stroke: long ? "var(--olive)" : "#5a5424", "stroke-width": long ? 5 : 3, class: "boot" });
+}
+
+// four readings in the panel's corners
+const CORNER = [["Diameter", MX + 40, ""], ["Membrane", MR - 40, "r"], ["Organelles", MX + 40, ""], ["Symmetry", MR - 40, "r"]];
+const corner = CORNER.map(([name, x, align], i) => {
+  const top = i < 2, lb = top ? 492 : 1474;
+  L.text({ x, base: lb, s: 40, c: "olive", txt: name, align });
+  return cls(L.text({ x, base: lb + 62, s: 52, c: "white", txt: "", align }), "sw");
+});
+// a scale bar under the ring: a round number of microns, its length true to the drawing
+const SB_W = 240;
+const sbar = fill(CX - SB_W / 2, 1484, SB_W, 10, "sand");
+sbar.style.transformOrigin = "50% 50%";
+const sbarL = cls(L.text({ x: CX, base: 1536, s: 36, c: "sand", txt: "", align: "c", w: 400 }), "sw");
+
+// the drawing itself, rebuilt for each specimen on a layer that turns
+const cellL = L.layer({ x: CX - 480, y: CY - 480, w: 960, h: 960 });
+cellL.style.opacity = 0;
+const NS = "http://www.w3.org/2000/svg";
+const cellSvg = document.createElementNS(NS, "svg");
+cellSvg.setAttribute("viewBox", "-480 -480 960 960"); cellSvg.setAttribute("width", 960); cellSvg.setAttribute("height", 960);
+Object.assign(cellSvg.style, { position: "absolute", left: "0", top: "0" });
+cellL.appendChild(cellSvg);
+const f1 = (v) => v.toFixed(1);
+const V = (c) => `var(--${c})`;
+const poly = (n, r, rot = 0) => {
+  if (!n) return null;
+  const p = [];
+  for (let i = 0; i < n; i++) { const a = rot + (i / n) * Math.PI * 2; p.push(`${f1(r * Math.sin(a))},${f1(-r * Math.cos(a))}`); }
+  return p.join(" ");
+};
+const outline = (n, r, attrs) => {
+  const a = Object.entries(attrs).map(([k, v]) => `${k}="${v}"`).join(" ");
+  return n ? `<polygon points="${poly(n, r, n % 2 ? 0 : Math.PI / n)}" ${a}/>` : `<circle r="${f1(r)}" ${a}/>`;
+};
+const shapeAt = (kind, x, y, s, ang, c) => {
+  const tr = `transform="translate(${f1(x)},${f1(y)}) rotate(${f1((ang * 180) / Math.PI)})"`;
+  if (kind === "circle") return `<circle cx="${f1(x)}" cy="${f1(y)}" r="${s / 2}" fill="${V(c)}"/>`;
+  if (kind === "hex") return `<polygon ${tr} points="${poly(6, s / 2)}" fill="none" stroke="${V(c)}" stroke-width="5"/>`;
+  if (kind === "tri") return `<polygon ${tr} points="${poly(3, s / 2)}" fill="${V(c)}"/>`;
+  if (kind === "dia") return `<polygon ${tr} points="${poly(4, s / 2)}" fill="${V(c)}"/>`;
+  // rect: a chloroplast, long side along the ring, with its stacked thylakoid lines
+  const w = s, h = s * 0.42;
+  return `<g ${tr}><rect x="${-w / 2}" y="${-h / 2}" width="${w}" height="${h}" rx="${h / 2}" fill="#3a3814" stroke="${V(c)}" stroke-width="4"/>` +
+    [-0.22, 0, 0.22].map((k) => `<line x1="${f1(-w * 0.3)}" y1="${f1(k * h)}" x2="${f1(w * 0.3)}" y2="${f1(k * h)}" stroke="${V(c)}" stroke-width="3"/>`).join("") + "</g>";
+};
+const drawCell = (sp) => {
+  const c = sp.cell, n = c.sides;
+  let s = "";
+  // spines or flagella, straight, from the wall outwards
+  if (c.spikes[0]) for (let i = 0; i < c.spikes[0]; i++) {
+    const a = (i / c.spikes[0]) * Math.PI * 2, r0 = CR - 4, r1 = CR + c.spikes[1];
+    s += `<line x1="${f1(r0 * Math.sin(a))}" y1="${f1(-r0 * Math.cos(a))}" x2="${f1(r1 * Math.sin(a))}" y2="${f1(-r1 * Math.cos(a))}" stroke="${V("olive")}" stroke-width="5" stroke-linecap="round"/>`;
+  }
+  // the wall (doubled for a shell), the membrane inside it
+  s += outline(n, CR, { fill: "#1c1a09", stroke: V("olive"), "stroke-width": c.thin ? 5 : 12 });
+  if (c.wall2) s += outline(n, CR - 22, { fill: "none", stroke: V("olive"), "stroke-width": 5 });
+  s += outline(n, CR - (c.wall2 ? 44 : 30), { fill: "#232009", stroke: V("butter"), "stroke-width": 4 });
+  // the cytoplasm's faint lattice ring
+  const latR = Math.min(CR * 0.66, (CR - 44) * (n ? Math.cos(Math.PI / n) : 1) - 40);
+  s += `<circle r="${f1(latR)}" fill="none" stroke="#4a4520" stroke-width="3" stroke-dasharray="10 14"/>`;
+  if (c.vac) s += `<circle r="${f1(CR * c.vac)}" fill="#1a1d14" stroke="${V("sand")}" stroke-width="4"/>`;
+  // organelles, in rings with the specimen's symmetry
+  for (const [rf, cnt, kind, size, col] of c.rings) for (let i = 0; i < cnt; i++) {
+    const a = (i / cnt) * Math.PI * 2 + (kind === "circle" && cnt > 12 ? Math.PI / cnt : 0), r = CR * rf;
+    s += shapeAt(kind, r * Math.sin(a), -r * Math.cos(a), size, a + Math.PI / 2, col);
+  }
+  // the nucleus: a shape with its nucleolus, or a nucleoid of loops
+  const nucleus = (x, y, kind, rf) => {
+    const r = CR * rf;
+    if (kind === "rosette") return [0, 1, 2, 3].map((k) => { const a = (k / 4) * Math.PI * 2; return `<circle cx="${f1(x + r * 0.45 * Math.sin(a))}" cy="${f1(y - r * 0.45 * Math.cos(a))}" r="${f1(r * 0.5)}" fill="none" stroke="${V("butter")}" stroke-width="4"/>`; }).join("");
+    const nn = { circle: 0, hex: 6, tri: 3 }[kind];
+    const body = nn ? `<polygon transform="translate(${f1(x)},${f1(y)})" points="${poly(nn, r, nn % 2 ? 0 : Math.PI / nn)}" fill="#3a3512" stroke="${V("butter")}" stroke-width="6"/>`
+      : `<circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(r)}" fill="#3a3512" stroke="${V("butter")}" stroke-width="6"/>`;
+    return body + `<circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(r * 0.32)}" fill="${V("butter")}"/>`;
+  };
+  if (c.nuc) s += nucleus(0, 0, c.nuc[0], c.nuc[1]);
+  if (c.nucAt) { const [rf, deg, sz] = c.nucAt, a = (deg * Math.PI) / 180; s += nucleus(CR * rf * Math.sin(a), -CR * rf * Math.cos(a), "circle", sz); }
+  cellSvg.innerHTML = s;
+};
+// the imaging scan: a bright line passing down the field, a soft band behind it
+const scanL = L.layer({ x: CX - RING, y: CY - RING, w: 2 * RING, h: 6 });
+scanL.style.background = "linear-gradient(to right, rgba(255,204,102,0), rgba(255,204,102,.95) 16%, rgba(255,230,180,1) 50%, rgba(255,204,102,.95) 84%, rgba(255,204,102,0))";
+scanL.style.opacity = 0;
+const scanB = L.layer({ x: CX - RING, y: CY - RING - 90, w: 2 * RING, h: 90 });
+scanB.style.background = "linear-gradient(to bottom, rgba(169,154,58,0), rgba(169,154,58,.22))";
+scanB.style.opacity = 0;
+
+// ---------------- biochemistry ----------------
+const gaugeRow = (x, r, base, name, c) => {
+  L.text({ x, base, s: 40, c: "sand", txt: name });
+  L.rect({ x: x + BX, y: base - 26, w: r - BRW - (x + BX), h: 26, c: TRACK });
+  return { bar: fill(x + BX, base - 26, r - BRW - (x + BX), 26, c), v: L.text({ x: r, base, s: 52, c: "white", txt: "", align: "r" }), u: -1 };
+};
+const showBar = (g, k) => { k = L.clamp(k); if (Math.abs(k - g.u) > 0.0005) { g.u = k; tf(g.bar, `scaleX(${k.toFixed(4)})`); } };
+L.header({ x: RX, y: 280, w: RR - RX, label: "Biochemistry", c1: "olive", c2: "butter", lw: BX - L.GAP });
+const chemCap = cls(L.text({ x: RX, base: 400, s: 36, c: "sand", txt: "" }), "sw");
+const COMP = [["Water", "butter"], ["Protein", "olive"], ["Lipid", "butter"], ["Carbohydrate", "olive"], ["Nucleic Acid", "butter"], ["Mineral", "olive"]]
+  .map(([n, c], i) => gaugeRow(RX, RR, base0(i), n, c));
+
+// ---------------- genome ----------------
+L.header({ x: RX, y: 1000, w: RR - RX, label: "Genome", c1: "butter", c2: "olive", lw: BX - L.GAP });
+const genCap = cls(L.text({ x: RX, base: 1120, s: 36, c: "sand", txt: "" }), "sw");
+const GEN = [["Sequenced", "butter"], ["GC Content", "olive"], ["Coding Density", "olive"], ["Repeat Content", "olive"], ["Database Match", "sand"]]
+  .map(([n, c], i) => gaugeRow(RX, RR, base1(i), n, c));
+
+// ---------------- the stasis bays ----------------
+const SD = 47391.2 + L.irand(0, 40) / 10;
+let stardate = SD;
+const bays = [0, 1, 2, 3, 4, 5].map((i) => ({ sp: SPECIMENS[i], last: null }));
+let pool = SPECIMENS.slice(6);
+L.header({ x: LX, y: 1620, w: MR - LX, label: "Stasis Bays", c1: "olive", c2: "butter", h: 48, lw: KEYW });
+const hl = fill(LX, STRIP(0) - 38, MR - LX, 48, "#2a280e");
+const BC = { bay: LX, id: LX + 140, name: LX + 380, origin: LX + 960, haz: LX + 1500, last: MR - 440, st: MR };
+const bayRows = bays.map((b, i) => {
+  const row = { bay: L.text({ x: BC.bay, base: STRIP(i), s: 36, c: "olive", txt: `Bay ${i + 1}` }) };
+  for (const k of ["id", "name", "origin", "haz", "last"]) row[k] = cls(L.text({ x: BC[k], base: STRIP(i), s: 36, c: "sand", txt: "" }), "sw");
+  row.st = cls(L.text({ x: BC.st, base: STRIP(i), s: 36, c: "sand", txt: "", align: "r" }), "sw");
+  return row;
+});
+const showBay = (i, cur) => {
+  const b = bays[i], r = bayRows[i];
+  L.set(r.id, b.sp.id); L.set(r.name, b.sp.name); L.set(r.origin, b.sp.origin);
+  L.set(r.haz, `Level ${b.sp.level}`); L.set(r.last, b.last ? `SD ${b.last}` : "Not scanned");
+  L.set(r.st, cur ? "Analyzing" : "In Stasis");
+  const c = cur ? "white" : "sand";
+  ["id", "name", "origin", "haz", "last"].forEach((k) => fg(r[k], c));
+  fg(r.st, cur ? "butter" : "olive"); fg(r.bay, cur ? "butter" : "olive");
+};
+
+// ---------------- the analysis log ----------------
+L.header({ x: RX, y: 1620, w: RR - RX, label: "Analysis Log", c1: "butter", c2: "olive", h: 48, lw: BX - L.GAP });
+const logRows = Array.from({ length: 6 }, (_, i) => ({
+  sd: L.text({ x: RX, base: STRIP(i), s: 36, c: "olive", txt: "" }),
+  tx: L.text({ x: RX + 160, base: STRIP(i), s: 36, c: "sand", txt: "" }),
+  by: L.text({ x: RR, base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }) }));
+const logged = [];
+const logLine = (txt, by) => {
+  stardate += 0.1;
+  logged.push([stardate.toFixed(1), txt, by]); if (logged.length > logRows.length) logged.shift();
+  logRows.forEach((r, i) => { const e = logged[i] || ["", "", ""]; L.set(r.sd, e[0]); L.set(r.tx, e[1]); L.set(r.by, e[2]); });
+  return stardate.toFixed(1);
+};
+// the pass before this one: every bay scanned in turn, the last finishing just now
+stardate = SD - 3.2;
+bays.forEach((b, i) => { stardate += 0.4; b.last = stardate.toFixed(1); });
+stardate -= 0.4;
+const prev = bays[5].sp;
+logLine("Stasis field recalibrated", "Bay 2");
+logLine(`Transferred from stasis bay 6`, prev.id);
+logLine(`Cell structure imaged  ·  ${prev.diam} microns`, prev.id);
+logLine(`Genome sequenced  ·  ${fmt(prev.gen.bp)} ${prev.gen.type === "RNA" ? "bases" : "base pairs"}`, prev.id);
+bays[5].last = logLine(`Classified  ·  biohazard level ${prev.level}`, prev.id);
+logLine("Analysis chamber decontaminated", "Lab 2");
+
+// ---------------- showing a specimen ----------------
+const pct = (v) => Math.round(v) + "%";
+const scaleFor = (diam) => {                             // a round length about a quarter of the cell across
+  const want = diam / 4, steps = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50];
+  return steps.reduce((a, b) => (Math.abs(Math.log(b / want)) < Math.abs(Math.log(a / want)) ? b : a));
+};
+const fmtMicrons = (v) => (v < 1 ? v.toFixed(1) : String(v)) + (v === 1 ? " Micron" : " Microns");
+let cur = null, prevComp = [0, 0, 0, 0, 0, 0], bayIdx = 0, cycleT0 = 0, phase = -1, clsShown = 0;
+const showRecord = (sp, i) => {
+  L.set(recCap, `Stasis bay ${i + 1}  ·  Lab 2, Deck 11`);
+  [sp.id, sp.name, sp.origin, sp.habitat, sp.sample, `Stardate ${sp.coll}`].forEach((v, k) => L.set(REC[k], v));
+  L.set(contain, `Containment Level ${sp.level}`);
+  contain.style.background = sp.level >= 4 ? "var(--orange)" : sp.level >= 2 ? "var(--butter)" : "var(--olive)";
+  CLS.forEach((e) => { L.set(e, "Pending"); fg(e, "olive"); });
+  L.set(clsCap, "Awaiting sequence data");
+  L.set(genCap, "Awaiting imaging");
+  L.set(chemCap, "Spectral analysis pending");
+};
+const showImaging = (sp) => {
+  L.set(corner[0], fmtMicrons(sp.diam)); L.set(corner[1], `${sp.mem} nm`);
+  L.set(corner[2], String(sp.cell.rings.reduce((a, r) => a + r[1], 0) + (sp.cell.nuc || sp.cell.nucAt ? 1 : 0) + (sp.cell.vac ? 1 : 0)));
+  L.set(corner[3], `${sp.sym}-Fold Radial`);
+  const sb = scaleFor(sp.diam), w = (2 * CR * sb) / sp.diam;
+  tf(sbar, `scaleX(${(w / SB_W).toFixed(4)})`);
+  L.set(sbarL, fmtMicrons(sb));
+  L.set(imgCap, `${sp.id}  ·  ${sp.name}`);
+  L.set(imgMag, `Magnification ${fmt(Math.round(1600 / sp.diam / 10) * 10 * 100)}×`);
+};
+const bayStart = (t) => {
+  cur = bays[bayIdx].sp; cycleT0 = t; phase = -1; clsShown = 0;
+  bays.forEach((_, i) => showBay(i, i === bayIdx));
+  tf(hl, `translate3d(0,${bayIdx * 54}px,0)`);
+  logLine(`Transferred from stasis bay ${bayIdx + 1}`, cur.id);
+};
+
+// ---------------- the clock ----------------
+let rot = 0, lastT = 0, drawnFor = null, started = false;
+L.tick((t) => {
+  const dt = Math.min(0.1, t - lastT); lastT = t;
+  if (!started) { started = true; bayStart(t); }
+  let u = t - cycleT0;
+  if (u >= CYCLE) {
+    // the next bay; after a full pass, one bay takes a newly collected specimen
+    prevComp = cur.comp.slice();
+    bayIdx = (bayIdx + 1) % 6;
+    if (bayIdx === 0 && pool.length) {
+      const k = L.irand(1, 5), out = bays[k].sp;
+      bays[k] = { sp: pool.shift(), last: null }; pool.push(out);
+      logLine(`Specimen placed in stasis bay ${k + 1}`, bays[k].sp.id);
+    }
+    bayStart(t); u = 0;
+  }
+  // the cell turns, one revolution in four minutes; it fades across the transfer
+  rot = (rot + dt * 1.5) % 360;
+  tf(cellL, `translate3d(0,0,0) rotate(${rot.toFixed(2)}deg)`);
+  if (u < T_IMG / 2) op(cellL, drawnFor ? 1 - L.ease(u / (T_IMG / 2)) : 0);
+  else {
+    if (drawnFor !== cur) { drawnFor = cur; drawCell(cur); }
+    op(cellL, L.ease(L.clamp((u - T_IMG / 2) / (T_IMG / 2))));
+  }
+  // the imaging scan passes down the cell once
+  const k = (u - T_IMG) / (T_SEQ - T_IMG - 0.6);
+  if (k > 0 && k < 1) {
+    const y = L.ease(k) * (2 * RING - 6), a = Math.min(1, k * 8, (1 - k) * 8);
+    tf(scanL, `translate3d(0,${y.toFixed(1)}px,0)`); tf(scanB, `translate3d(0,${y.toFixed(1)}px,0)`);
+    op(scanL, a); op(scanB, a * Math.min(1, y / 90));
+  } else { op(scanL, 0); op(scanB, 0); }
+  // biochemistry: the old readings fall away during the transfer, the new ones rise as the spectra come in
+  const out = 1 - L.ease(L.clamp(u / T_IMG)), inn = L.ease(L.clamp((u - T_IMG) / 5));
+  COMP.forEach((g, i) => { g.val = u < T_IMG ? prevComp[i] * out : cur.comp[i] * inn; showBar(g, g.val / 100); });
+  // genome: sequencing fills; the statistics settle as the reads accumulate
+  const p = L.clamp((u - T_SEQ) / (T_CLS - T_SEQ - 1));
+  const G = cur.gen, finals = [100, G.gc, G.coding, G.rep, G.match];
+  GEN.forEach((g, i) => {
+    let v;
+    if (u < T_SEQ) v = 0;
+    else if (i === 0) v = 100 * p;
+    else v = Math.max(0, finals[i] * L.ease(L.clamp(p * 1.6)) + 4 * (1 - p) * Math.sin(t * 0.9 + i * 1.7) * L.clamp(p * 6));
+    g.val = v; showBar(g, v / 100);
+  });
+  // phases: the status line, the captions and the log
+  const ph = phaseAt(u);
+  if (ph !== phase) {
+    const first = phase === -1; phase = ph;
+    const show = () => {
+      L.set(state, WORDS[ph]);
+      L.set(stateSub, `${cur.id}  ·  ${cur.name}  ·  Stasis bay ${bayIdx + 1}`);
+      if (ph === 0) showRecord(cur, bayIdx);
+      if (ph === 1) { showImaging(cur); L.set(chemCap, cur.chem); L.set(genCap, "Awaiting sequencer"); }
+      if (ph === 2) L.set(genCap, `${G.type}  ·  ${fmt(G.bp)} ${G.type === "RNA" ? "bases" : "base pairs"}  ·  ${G.chrom} ${G.chrom === 1 ? "chromosome" : "chromosomes"}`);
+      if (ph === 3) L.set(clsCap, `Nearest match  ·  ${G.near}`);
+      if (ph === 4) L.set(clsCap, `Classified  ·  nearest ${G.near}`);
+    };
+    if (first) show(); else swap([state, stateSub], show);
+    if (ph === 2) logLine(`Cell structure imaged  ·  ${fmtMicrons(cur.diam).toLowerCase()}`, cur.id);
+    if (ph === 3) logLine(`Genome sequenced  ·  ${fmt(G.bp)} ${G.type === "RNA" ? "bases" : "base pairs"}`, cur.id);
+    if (ph === 4) { bays[bayIdx].last = logLine(`Classified  ·  biohazard level ${cur.level}`, cur.id); showBay(bayIdx, true); }
+  }
+  // the classification fills in, one line at a time
+  const want = u < T_CLS ? 0 : Math.min(5, 1 + Math.floor((u - T_CLS) / 0.8));
+  while (clsShown < want) { const e = CLS[clsShown]; L.set(e, cur.cls[clsShown]); fg(e, "white"); clsShown++; }
+});
+// the numbers beside the gauges, a few times a second
+L.every(250, () => {
+  COMP.forEach((g) => L.set(g.v, g.val !== undefined ? pct(g.val) : ""));
+  GEN.forEach((g, i) => L.set(g.v, g.val ? pct(g.val) : i === 0 ? "0%" : "—"));
+}, 0);
+});
+</script></body></html>

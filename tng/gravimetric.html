@@ -1,0 +1,389 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Gravimetric Analysis</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .sw { transition: background-color .9s ease, color .9s ease; }
+  .mesh canvas { will-change: opacity; }
+  .sweep { overflow: hidden; }
+  .body { position: absolute; border-radius: 50%; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: mirrored, sidebar on the right ----------------
+L.frame({ type: "B", title: "Gravimetric Analysis  •  Distortion Field", c: "olive", c2: "sand", accent: "butter", foot: "Science",
+  side: [[140, "sand", "Grav 03"], [70, "butter", "4353"], [420, "olive", "Distortion"], [70, "sand", "06"], [300, "olive", "Contour"],
+         [70, "butter", "B4"], [216, "sand", "Tidal"]] });
+
+const LX = 40, LR = 760, MX = 824, MR = 2736, RX = 2800, RR = 3520;      // three columns, 64 apart
+const ROW0 = 428, ROW1 = 1128, PITCH = 88;                               // rows of 64 on an 88 grid
+const rowBase = (y0, i) => y0 + i * PITCH + 52.5;
+const TRACK = "#2a2810", DIM = "#6a6440", PANEL = "#0e0d06";
+const fill = (x, y, w, h, c, parent) => {
+  const f = L.layer({ x, y, w, h }, parent);
+  f.style.background = c.startsWith("#") ? c : `var(--${c})`; f.style.transformOrigin = "0 0";
+  return f;
+};
+const later = (ms, f, jitter) => L.every(ms, (t) => { if (t > 1) f(t); }, jitter);
+const fmt = (n, d = 0) => n.toLocaleString("en", { minimumFractionDigits: d, maximumFractionDigits: d });
+
+// ---------------- the physics: Bre'el IV and its satellite ----------------
+// One world unit is 150,000 km (the sensor range). Potentials in MJ/kg.
+const KM = 150000, GMP = 3.544e14, GMS = 4.94e12;                       // m³/s²
+const KP = GMP / (KM * 1e3) / 1e6;                                       // 2.3627 MJ/kg per world unit⁻¹
+const KS = 4 * GMS / (KM * 1e3) / 1e6;                                   // the satellite's well, drawn four times deeper to be seen
+const SP = 0.05, SS = 0.05;                                              // display softening of the two wells
+const A = 0.64, E = 0.12, OMEGA = 35 * Math.PI / 180;                    // orbit: 96,000 km, perigee to the front right
+const PERIOD = 2 * Math.PI * Math.sqrt((A * KM * 1e3) ** 3 / GMP);       // s: 3 d 15 h
+const MODEL = 1200, TS = PERIOD / MODEL;                                 // the orbit model runs 1,200 : 1
+const M0 = Math.random() * 2 * Math.PI;
+const DECAY = 12.6, ADECAY = 4.1;                                        // km/h at perigee, at apogee
+const LEVELS = [-3, -4, -5, -6, -8, -12, -20, -40];                      // contours, MJ/kg
+const BANDC = ["#4a4630", "#7d7656", "#a99a3a", "#bdb497", "#d6c46a", "#ffcc66", "#ffe2a0", "#fff4d6", "#fffaf0"];
+const band = (phi) => { let b = 0; while (b < LEVELS.length && phi < LEVELS[b]) b++; return b; };
+const moonAt = (t) => {                                                  // world position and true anomaly
+  const M = M0 + (2 * Math.PI * t) / TS;
+  let Ea = M; for (let i = 0; i < 6; i++) Ea -= (Ea - E * Math.sin(Ea) - M) / (1 - E * Math.cos(Ea));
+  const th = 2 * Math.atan2(Math.sqrt(1 + E) * Math.sin(Ea / 2), Math.sqrt(1 - E) * Math.cos(Ea / 2));
+  const r = A * (1 - E * Math.cos(Ea)), ang = OMEGA - th;                // counter-clockwise seen from above
+  return { u: r * Math.cos(ang), v: r * Math.sin(ang), r, th: ((th * 180 / Math.PI) + 360) % 360 };
+};
+const phiAt = (u, v, m) => -KP / Math.hypot(u, v, SP) - KS / Math.hypot(u - m.u, v - m.v, SS);
+const PHI0 = -KP;                                                        // the primary alone at the rim
+const depth = (phi) => Math.max(0, Math.log(phi / PHI0));
+
+// ---------------- status line ----------------
+const stateTxt = L.text({ x: LX, cap: 150, s: 100, c: "butter", txt: "" });
+const stateSub = L.text({ x: 0, base: 222, s: 38, c: "sand", txt: "" });
+const setState = (word, sub) => {
+  L.set(stateTxt, word);
+  stateSub.style.left = LX + L.textWidth(word, 100) + 40 + "px";
+  L.set(stateSub, sub);
+};
+L.box({ x: RR - 400, y: 150, w: 400, h: 72, c: "olive", label: "Orbit Decaying", r: "lr", fs: 36 });
+const stardate0 = 43539.1 + Math.random() * 0.05;
+L.text({ x: RX, base: 222, s: 40, c: "sand", txt: "Stardate" });
+const sdVal = L.text({ x: RX + L.textWidth("Stardate", 40) + 24, base: 222, s: 52, c: "white", txt: "" });
+const stardate = (t = L.t) => (stardate0 + t / 3600 / 8.766).toFixed(1);
+
+// ---------------- tables (top left and right) ----------------
+const table = (x, y0, rows, colors) => rows.map(([label, cap], i) => {
+  const base = rowBase(y0, i);
+  L.box({ x, y: y0 + i * PITCH, w: 220, h: 64, c: colors[i % colors.length], label, fs: 32, r: "l" });
+  return { v: L.text({ x: x + 244, base, s: 52, c: "white", txt: "" }),
+           c: L.text({ x: x + 720, base, s: 36, c: "sand", txt: cap, align: "r" }) };
+});
+L.header({ x: LX, y: 280, w: LR - LX, label: "Gravitational Sources", c1: "olive", c2: "sand" });
+L.text({ x: LX, base: 400, s: 36, c: "sand", txt: "Primary and satellite" });
+L.text({ x: LR, base: 400, s: 36, c: "sand", txt: "Class M", align: "r" });
+const src = table(LX, ROW0, [["Primary Mass", "Earth masses"], ["Radius", "Bre'el IV"], ["Surface Gravity", "Equatorial"],
+  ["Satellite Mass", "Lunar masses"], ["Satellite Radius", "Mean"], ["Mass Ratio", "Satellite : primary"]],
+  ["olive", "sand", "butter", "olive", "sand", "butter"]);
+[["0.889"], ["6,240 km"], ["0.93 g"], ["1.01"], ["1,705 km"], ["1 : 71.8"]].forEach(([v], i) => L.set(src[i].v, v));
+
+L.header({ x: RX, y: 280, w: RR - RX, label: "Satellite Orbit", c1: "sand", c2: "olive" });
+L.text({ x: RX, base: 400, s: 36, c: "sand", txt: "Bre'el IV satellite  ·  tidally locked" });
+L.text({ x: RR, base: 400, s: 36, c: "butter", txt: "Roche limit 17,290 km", align: "r" });
+const orb = table(RX, ROW0, [["Range", "From primary"], ["Perigee", "Falling"], ["Apogee", "Falling"], ["Eccentricity", "Orbit"],
+  ["Period", "Sidereal"], ["Decay Rate", "At perigee"]], ["sand", "olive", "butter", "sand", "olive", "butter"]);
+L.set(orb[3].v, E.toFixed(3));
+L.set(orb[4].v, `${Math.floor(PERIOD / 86400)} d ${Math.round((PERIOD % 86400) / 3600)} h`);
+L.set(orb[5].v, `${DECAY.toFixed(1)} km/h`);
+
+// ---------------- the distortion field: a contour mesh, Bre'el IV at its heart ----------------
+L.header({ x: MX, y: 280, w: MR - MX, label: "Distortion Field  ·  Bre'el IV System", c1: "olive", c2: "butter" });
+L.text({ x: MX, base: 400, s: 36, c: "sand", txt: "Gravimetric contour mesh  ·  primary and satellite" });
+L.text({ x: MR, base: 400, s: 36, c: "sand", txt: "Contours  -3  to  -40 MJ/kg", align: "r" });
+const SX = MX, SY = ROW0, SW = MR - MX, SH = 1544 - ROW0;
+L.rect({ x: SX, y: SY, w: SW, h: SH, c: PANEL, panel: true });
+const CX = SX + SW / 2, CYW = 916;                                       // centre of the sheet's rim
+const RXW = 790, RYW = 350, PV = 0.16, DZ = 112;                         // half-axes, perspective, depth px per unit
+const proj = (u, v, d) => { const f = 1 + PV * v; return [CX + u * RXW * f, CYW + (v * RYW + d * DZ) * f]; };
+const MW = 1700, MH = 780, MX0 = Math.round(CX - MW / 2), MY0 = CYW - 330;
+const wrap = L.layer({ x: MX0, y: MY0, w: MW, h: MH, cls: "mesh" });
+const cvs = [0, 1].map(() => L.canvas({ x: 0, y: 0, w: MW, h: MH }, wrap));
+const N = 22, SAMP = 150, CG = 110;                                      // grid lines each way, samples per line, contour grid
+let drawnFor = [0, 0];
+const drawMesh = (c, t) => {
+  const g = c.g, m = moonAt(t);
+  g.fillStyle = PANEL; g.fillRect(0, 0, MW, MH);
+  const paths = new Map();
+  const seg = (key, x1, y1, x2, y2) => { let p = paths.get(key); if (!p) paths.set(key, (p = new Path2D())); p.moveTo(x1 - MX0, y1 - MY0); p.lineTo(x2 - MX0, y2 - MY0); };
+  const fade = (u, v) => L.clamp((1 - Math.hypot(u, v)) / 0.16);
+  // grid lines along u and along v
+  for (let dir = 0; dir < 2; dir++) for (let i = 1; i < 2 * N; i++) {
+    const a = -1 + i / N;
+    let prev = null;
+    for (let k = 0; k <= SAMP; k++) {
+      const b = -1 + (2 * k) / SAMP, u = dir ? a : b, v = dir ? b : a;
+      if (u * u + v * v > 1) { prev = null; continue; }
+      const phi = phiAt(u, v, m), p = proj(u, v, depth(phi));
+      if (prev) {
+        const al = Math.round(fade((u + prev.u) / 2, (v + prev.v) / 2) * 6);
+        if (al > 0) seg(`g${band(phi)}:${al}`, prev.p[0], prev.p[1], p[0], p[1]);
+      }
+      prev = { u, v, p };
+    }
+  }
+  // contours: marching squares over the sheet
+  const F = new Float32Array((CG + 1) * (CG + 1)), P = [];
+  for (let j = 0; j <= CG; j++) for (let i = 0; i <= CG; i++) {
+    const u = -1 + (2 * i) / CG, v = -1 + (2 * j) / CG;
+    F[j * (CG + 1) + i] = phiAt(u, v, m);
+  }
+  const at = (i, j) => F[j * (CG + 1) + i];
+  const wpt = (i, j) => [-1 + (2 * i) / CG, -1 + (2 * j) / CG];
+  LEVELS.forEach((lv, li) => {
+    for (let j = 0; j < CG; j++) for (let i = 0; i < CG; i++) {
+      const c4 = [[i, j], [i + 1, j], [i + 1, j + 1], [i, j + 1]], f4 = c4.map(([a, b]) => at(a, b));
+      const pts = [];
+      for (let e = 0; e < 4; e++) {
+        const fa = f4[e], fb = f4[(e + 1) % 4];
+        if ((fa < lv) !== (fb < lv)) {
+          const k = (lv - fa) / (fb - fa), [ua, va] = wpt(...c4[e]), [ub, vb] = wpt(...c4[(e + 1) % 4]);
+          pts.push([ua + (ub - ua) * k, va + (vb - va) * k]);
+        }
+      }
+      for (let s = 0; s + 1 < pts.length; s += 2) {
+        const [u1, v1] = pts[s], [u2, v2] = pts[s + 1];
+        const al = Math.round(fade((u1 + u2) / 2, (v1 + v2) / 2) * 6);
+        if (al <= 0) continue;
+        const p1 = proj(u1, v1, depth(lv)), p2 = proj(u2, v2, depth(lv));
+        seg(`c${li + 1}:${al}`, p1[0], p1[1], p2[0], p2[1]);
+      }
+    }
+  });
+  g.lineCap = "round";
+  for (const [key, p] of paths) {
+    const [kind, rest] = [key[0], key.slice(1)], [b, al] = rest.split(":").map(Number);
+    g.strokeStyle = BANDC[b];
+    g.globalAlpha = (al / 6) * (kind === "g" ? 0.7 : 1);
+    g.lineWidth = kind === "g" ? 2 : 4;
+    g.stroke(p);
+  }
+  g.globalAlpha = 1;
+};
+const FADE = 0.5;                                                        // the mesh is redrawn twice a second and cross-faded
+let front = 0, nextAt = 0, frontFor = 0;
+cvs.forEach((c, i) => {
+  c.cv.style.zIndex = i === front ? 2 : 1;
+  c.onResize = () => drawMesh(c, i === front ? frontFor : frontFor - FADE);
+});
+L.tick((t) => {
+  if (t < nextAt) return;
+  const b = 1 - front, c = cvs[b];
+  frontFor = Math.max(nextAt, t) + FADE;
+  drawMesh(c, frontFor);
+  c.cv.style.zIndex = 2; cvs[front].cv.style.zIndex = 1;
+  c.cv.style.opacity = "1";
+  const an = c.cv.animate([{ opacity: 0 }, { opacity: 1 }], { duration: FADE * 1000, easing: "linear" });
+  an.onfinish = () => an.cancel();                                     // no finished animations pile up over hours
+  front = b; nextAt = frontFor;
+});
+
+// the sweep: a band of light crossing the sheet while the array scans
+const sweepBox = L.layer({ x: MX0, y: MY0, w: MW, h: MH, cls: "sweep" });
+const sm = "radial-gradient(ellipse 800px 360px at 850px 400px, #000 70%, transparent 100%)";
+sweepBox.style.webkitMaskImage = sm; sweepBox.style.maskImage = sm;
+const sweep = L.el("div", "layer", sweepBox, { left: "0px", top: "0px", width: "120px", height: MH + "px", opacity: "0",
+  background: "linear-gradient(to right, rgba(255,204,102,0) 0%, rgba(255,204,102,.05) 60%, rgba(255,214,140,.16) 92%, rgba(255,240,200,.6) 98.5%, rgba(255,240,200,0) 100%)" });
+
+// the two bodies, sitting in their wells
+const body = (r, grad) => {
+  const e = L.el("div", "layer body", L.stage, { left: "0px", top: "0px", width: 2 * r + "px", height: 2 * r + "px", background: grad });
+  return e;
+};
+const planet = body(72, "radial-gradient(circle at 38% 34%, #fff6d8 0%, #e6d48a 22%, #a99a3a 58%, #4e4818 88%, #2a260c 100%)");
+const moon = body(24, "radial-gradient(circle at 38% 34%, #ffffff 0%, #ddd6bc 35%, #9a937a 75%, #555038 100%)");
+const placeBodies = (t) => {
+  const m = moonAt(t);
+  const pp = proj(0, 0, depth(phiAt(0, 0, m)));
+  L.move(planet, pp[0] - 72, pp[1] - 72 - 40, 0);
+  const mp = proj(m.u, m.v, depth(phiAt(m.u, m.v, m)));
+  L.move(moon, mp[0] - 24, mp[1] - 24 - 14, 0);
+};
+L.tick(placeBodies);
+
+// the four corner readings, printed on the field
+const corner = (x, align, top, label) => {
+  const lb = top ? SY + 48 + 26 : SY + SH - 48 - 62;
+  return { l: L.text({ x, base: lb, s: 36, c: "sand", txt: label, align }), v: L.text({ x, base: lb + 62, s: 52, c: "white", txt: "", align }) };
+};
+const cPri = corner(SX + 48, "l", true, "Primary Well");
+const cRng = corner(SX + SW - 48, "r", true, "Satellite Range");
+const cAn = corner(SX + 48, "l", false, "True Anomaly");
+const cMod = corner(SX + SW - 48, "r", false, "Orbit Model");
+L.set(cPri.v, "-56.8 MJ/kg"); L.set(cMod.v, `${fmt(MODEL)} : 1`);
+
+// ---------------- field profile (lower left): the well, cut along the line to the satellite ----------------
+L.header({ x: LX, y: 1000, w: LR - LX, label: "Field Profile", c1: "sand", c2: "olive" });
+L.text({ x: LX, base: 1100, s: 36, c: "sand", txt: "Potential  ·  MJ/kg" });
+L.text({ x: LR, base: 1100, s: 36, c: "sand", txt: "Range  ·  1,000 km", align: "r" });
+const PRX = LX, PRY = ROW1, PRW = LR - LX, PRH = 1544 - ROW1;
+const prof = L.canvas({ x: PRX, y: PRY, w: PRW, h: PRH, panel: true });
+const PX0 = 112, PX1 = PRW - 40, PY0 = 26, PDZ = 104;                     // plot box, in the canvas
+const SHOWN = [-3, -5, -8, -12, -20, -40];
+SHOWN.forEach((lv) => L.text({ x: PRX + 80, base: PRY + PY0 + depth(lv) * PDZ + 11, s: 30, c: "sand", txt: String(lv), align: "r", legend: true }));
+[0, 50, 100, 150].forEach((km, i) => L.text({ x: PRX + PX0 + (km / 150) * (PX1 - PX0), base: PRH + PRY - 22, s: 30, c: "sand",
+  txt: fmt(km), align: i === 3 ? "r" : i === 0 ? "l" : "c", w: 200, legend: true }));
+let profFor = 0;
+const drawProfile = () => {
+  const g = prof.g, m = moonAt(profFor), dm = Math.hypot(m.u, m.v), ux = m.u / dm, vx = m.v / dm;
+  g.fillStyle = PANEL; g.fillRect(0, 0, PRW, PRH);
+  const Y = (d) => PY0 + d * PDZ, X = (r) => PX0 + r * (PX1 - PX0);
+  g.lineWidth = 2;
+  SHOWN.forEach((lv) => { g.strokeStyle = BANDC[band(lv - 1e-6)]; g.globalAlpha = 0.35; g.beginPath(); g.moveTo(PX0, Y(depth(lv))); g.lineTo(PX1, Y(depth(lv))); g.stroke(); });
+  g.globalAlpha = 1;
+  const yBot = PRH - 70;
+  const pts = [];
+  for (let k = 0; k <= 240; k++) { const r = k / 240; pts.push([X(r), Math.min(yBot, Y(depth(phiAt(ux * r, vx * r, m))))]); }
+  g.beginPath(); g.moveTo(PX0, yBot + 8); pts.forEach(([x, y]) => g.lineTo(x, y)); g.lineTo(PX1, yBot + 8); g.closePath();
+  g.fillStyle = "rgba(169,154,58,.18)"; g.fill();
+  g.beginPath(); pts.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
+  g.strokeStyle = "#ffcc66"; g.lineWidth = 4; g.stroke();
+  g.strokeStyle = "#a99a3a"; g.lineWidth = 3;                            // the axis and the satellite's range
+  g.beginPath(); g.moveTo(PX0, yBot + 8); g.lineTo(PX1, yBot + 8); g.stroke();
+  const xm = X(dm), x1 = X(dm * 0.833);
+  g.fillStyle = "#f2f2ff"; g.beginPath(); g.arc(xm, Y(depth(phiAt(m.u, m.v, m))) - 8, 9, 0, 7); g.fill();
+  g.strokeStyle = "#ffcc66"; g.beginPath(); g.moveTo(xm, yBot - 4); g.lineTo(xm, yBot + 18); g.stroke();
+  g.strokeStyle = "#bdb497"; g.beginPath(); g.moveTo(x1, yBot); g.lineTo(x1, yBot + 14); g.stroke();
+};
+prof.onResize = drawProfile;
+L.every(1000, (t) => { profFor = t; drawProfile(); }, 0);
+
+// ---------------- tidal readings (lower right) ----------------
+L.header({ x: RX, y: 1000, w: RR - RX, label: "Tidal Readings", c1: "olive", c2: "sand" });
+[["Bre'el IV surface", 0], ["Level", 244], ["Value", 720, "r"]].forEach(([txt, dx, align]) => L.text({ x: RX + dx, base: 1100, s: 36, c: "sand", txt, align }));
+const BARW = 236;
+const TID = [["Tidal Accel", (k) => `${fmt(6.97 * k, 2)} mGal`, 12], ["Ocean Tide", (k) => `${fmt(34.2 * k, 1)} m`, 60],
+  ["Crust Strain", (k) => `${fmt(3.2 * k, 2)} ppm`, 5.6], ["Atmos Tide", (k) => `${fmt(4.8 * k, 2)} hPa`, 8.4],
+  ["Seismic", (k) => `${(3.4 + 2 * Math.log10(k)).toFixed(1)} Richter`, 4]];
+const tide = TID.map(([label, f, max], i) => {
+  const base = rowBase(ROW1, i), c = ["olive", "sand", "butter", "sand", "olive"][i];
+  L.box({ x: RX, y: ROW1 + i * PITCH, w: 220, h: 64, c, label, fs: 32, r: "l" });
+  L.rect({ x: RX + 244, y: base - 26, w: BARW, h: 26, c: TRACK });
+  return { f: fill(RX + 244, base - 26, BARW, 26, c), e: L.text({ x: RX + 720, base, s: 52, c: "white", txt: "", align: "r" }), fmt: f, max,
+    v: 0.5, goal: 0.5, drawn: false };
+});
+L.tick(() => tide.forEach((g) => {
+  const d = g.goal - g.v;
+  if (Math.abs(d) < 0.0004 && g.drawn) return;
+  g.v += d * 0.05; g.drawn = true;
+  g.f.style.transform = `scaleX(${L.clamp(g.v).toFixed(4)})`;
+}));
+
+// ---------------- gravimetric sweep (bottom middle) ----------------
+L.header({ x: MX, y: 1620, w: MR - MX, label: "Gravimetric Sweep  ·  Lateral Sensor Array", c1: "sand", c2: "olive", h: 48 });
+const NSEG = 10, SPC = (SW + 8) / NSEG;
+const segX = (i) => Math.round(MX + i * SPC);
+const segs = Array.from({ length: NSEG }, (_, i) => {
+  const x = segX(i), x2 = segX(i + 1) - 8;
+  return L.box({ x, y: 1772, w: (i === NSEG - 1 ? MR : x2) - x, h: 80, c: TRACK, label: `${(i + 1) * 10}%`, fs: 28, cls: "sw",
+    r: i === 0 ? "l" : i === NSEG - 1 ? "r" : null });
+});
+const cell = (i, j, label, base = 1734) => {
+  L.text({ x: segX(i), base, s: 40, c: "sand", txt: label });
+  return L.text({ x: segX(j), base, s: 52, c: "white", txt: "" });
+};
+const pSweep = cell(0, 1, "Sweep"), pProg = cell(3, 4, "Progress"), pNoise = cell(7, 8, "Noise");
+L.rect({ x: MX, y: 1876, w: MR - MX, h: 16, c: TRACK });
+const progBar = fill(MX, 1876, MR - MX, 16, "olive");
+const pArr = cell(0, 1, "Array", 1950), pEl = cell(3, 4, "Elapsed", 1950), pNext = cell(7, 8, "Next", 1950);
+let segShown = -1;
+const showSegs = (lit) => {
+  if (lit === segShown) return; segShown = lit;
+  segs.forEach((e, i) => {
+    e.style.background = i < lit ? `var(--${i === lit - 1 ? "butter" : "olive"})` : TRACK;
+    e.style.color = i < lit ? "#000" : DIM;
+  });
+};
+
+// ---------------- gravimetric log (bottom left) ----------------
+L.header({ x: LX, y: 1620, w: LR - LX, label: "Gravimetric Log", c1: "olive", c2: "butter", h: 48 });
+const logRows = Array.from({ length: 5 }, (_, i) => {
+  const base = 1734 + i * 54;
+  return { sd: L.text({ x: LX, base, s: 36, c: "olive", txt: "" }), tx: L.text({ x: LX + 164, base, s: 36, c: "sand", txt: "" }) };
+});
+const logged = [];
+const log = (txt) => {
+  logged.push([stardate(), txt]); if (logged.length > 5) logged.shift();
+  logRows.forEach((r, i) => { const e = logged[i]; L.set(r.sd, e ? e[0] : ""); L.set(r.tx, e ? e[1] : ""); r.tx.style.color = i === logged.length - 1 ? "var(--white)" : "var(--sand)"; });
+};
+
+// ---------------- sensor configuration (bottom right) ----------------
+L.header({ x: RX, y: 1620, w: RR - RX, label: "Sensor Configuration", c1: "butter", c2: "sand", h: 48 });
+const cfg = [["Lateral Array", "Gravimetric"], ["Mesh Resolution", "Contour grid"], ["Sensor Range", "Radius"],
+  ["Sweeps", "This watch"], ["Last Sweep", "Stardate"]].map(([nm, k], i) => {
+  const base = 1734 + i * 54;
+  L.text({ x: RX, base, s: 36, c: "sand", txt: nm }); L.text({ x: RX + 300, base, s: 36, c: "olive", txt: k });
+  return L.text({ x: RR, base, s: 36, c: "white", txt: "", align: "r" });
+});
+L.set(cfg[1], "1,200 km"); L.set(cfg[2], `${fmt(KM)} km`);
+
+// ---------------- the cycle: scan, analyse, track ----------------
+const SCAN = 26, ANALYSE = 6, TRACK_T = 18;
+let phase = "track", ph0 = 0, sweepN = L.irand(11, 16), lastSweep = null, noise = 0.31;
+const phaseAt = (t) => {
+  const dt = t - ph0;
+  if (phase === "scan" && dt >= SCAN) { phase = "analyse"; ph0 = t; log(`Sweep ${sweepN} complete, analyzing`); }
+  else if (phase === "analyse" && dt >= ANALYSE) { phase = "track"; ph0 = t; lastSweep = stardate(t); log("Contour mesh updated"); }
+  else if (phase === "track" && dt >= TRACK_T) { phase = "scan"; ph0 = t; sweepN++; log(`Gravimetric sweep ${sweepN} begun`); }
+};
+L.tick((t) => {
+  phaseAt(t);
+  const k = phase === "scan" ? L.clamp((t - ph0) / SCAN) : phase === "analyse" ? 1 : 0;
+  progBar.style.transform = `scaleX(${k.toFixed(4)})`;
+  if (phase === "scan") {
+    // a steady sweep, so its leading edge sits where the progress figure says
+    sweep.style.transform = `translate3d(${(-120 + k * (MW + 120)).toFixed(1)}px,0,0)`;
+    sweep.style.opacity = Math.min(1, k * 12, (1 - k) * 12).toFixed(2);
+  } else if (sweep.style.opacity !== "0") sweep.style.opacity = "0";
+});
+
+// ---------------- readings, a few times a second ----------------
+L.every(250, (t) => {
+  const m = moonAt(t), lostP = (DECAY * t) / 3600, lostA = (ADECAY * t) / 3600;
+  const rng = m.r * KM - L.mix(lostP, lostA, (m.r / A - (1 - E)) / (2 * E));
+  const peri = A * (1 - E) * KM - lostP, apo = A * (1 + E) * KM - lostA;
+  L.set(sdVal, stardate(t));
+  const dt = t - ph0;
+  if (phase === "scan") setState("Scanning", `Gravimetric sweep ${sweepN}  ·  Bre'el IV and its satellite  ·  lateral sensor array`);
+  else if (phase === "analyse") setState("Analyzing", `Sweep ${sweepN} returns  ·  rebuilding the contour mesh of the Bre'el IV system`);
+  else setState("Tracking", `Satellite orbit decaying  ·  perigee falling ${DECAY.toFixed(1)} km/h  ·  Bre'el IV`);
+  // orbit
+  L.set(orb[0].v, `${fmt(rng)} km`); L.set(orb[1].v, `${fmt(peri, 1)} km`); L.set(orb[2].v, `${fmt(apo, 1)} km`);
+  L.set(cRng.v, `${fmt(rng)} km`); L.set(cAn.v, `${m.th.toFixed(1)}°`);
+  // tides go as the inverse cube of the range
+  const k3 = (96000 / rng) ** 3;
+  tide.forEach((g) => { g.goal = L.clamp((g === tide[4] ? 3.4 + 2 * Math.log10(k3) : parseFloat(g.fmt(k3).replace(/,/g, ""))) / g.max); L.set(g.e, g.fmt(k3)); });
+  // sweep
+  const k = phase === "scan" ? L.clamp(dt / SCAN) : phase === "analyse" ? 1 : 0;
+  showSegs(Math.floor(k * 10 + 1e-6));
+  noise += (L.rand(0.28, 0.36) - noise) * 0.1;
+  L.set(pSweep, `No. ${sweepN}`);
+  L.set(pProg, phase === "track" ? "Idle" : `${Math.floor(k * 100)}%`);
+  L.set(pNoise, `${noise.toFixed(2)}%`);
+  L.set(pArr, phase === "scan" ? "Scanning" : phase === "analyse" ? "Processing" : "Standby");
+  L.set(pEl, phase === "scan" ? `${Math.floor(dt)} s` : phase === "analyse" ? `${SCAN} s` : "—");
+  L.set(pNext, phase === "track" ? `In ${Math.max(1, Math.ceil(TRACK_T - dt))} s` : phase === "scan" ? `${Math.max(1, Math.ceil(SCAN - dt))} s left` : "Mesh update");
+  L.set(cfg[0], phase === "scan" ? "Scanning" : phase === "analyse" ? "Processing" : "Standby");
+  L.set(cfg[3], String(sweepN - (phase === "scan" ? 1 : 0)));
+  L.set(cfg[4], lastSweep || stardate0.toFixed(1));
+}, 0);
+
+const ROUTINE = ["Tidal readings sent to Bre'el IV", "Perigee falling, 12.6 km/h", "Satellite mass unchanged",
+  "Warp field option under study", "Bre'el IV reports tidal surges", "Primary field steady", "Satellite spin axis stable"];
+let rdeck = [];
+later(15000, () => {
+  if (phase !== "track") return;
+  if (!rdeck.length) rdeck = ROUTINE.slice().sort(() => Math.random() - 0.5);
+  log(rdeck.pop());
+}, 0.3);
+
+log("Lateral sensors to gravimetric mode"); log("Bre'el IV satellite in decaying orbit"); log(`Perigee ${fmt(A * (1 - E) * KM)} km and falling`);
+log(`Sweep ${sweepN} complete`); log("Contour mesh updated");
+phase = "track"; ph0 = -TRACK_T + 4;                                     // the first sweep begins a few seconds in
+});
+</script></body></html>

@@ -1,0 +1,229 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Antimatter Containment</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* swapped text dips and comes back; colors change slowly; .boot (the start-up cascade) always wins */
+  .sw { transition: opacity .45s ease, background-color 1.2s ease, color 1.2s ease; }
+  .out:not(.boot) { opacity: .2; }
+  .clip { position: absolute; overflow: hidden; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: a bracket, title centred ----------------
+L.frame({ type: "C", title: "Antimatter Containment  •  Storage Pods", c: "pink", c2: "lilac", accent: "plum", foot: "Pods",
+  side: [[140, "lilac", "Bay 01"], [70, "plum", "4210"], [420, "pink", "Storage"], [70, "butter", "42"], [300, "lilac", "Fields"],
+         [70, "plum", "A1"], [216, "pink", "Deck 42"]],
+  side2: [[140, "lilac", "Eject 02"], [70, "plum", "7731"], [420, "pink", "Transfer"], [70, "butter", "06"], [300, "lilac", "Coils"],
+          [70, "plum", "B3"], [216, "pink", "Safe"]] });
+
+const TRACK = "#2c1830", DIM = "#3a2342", BOTTLE = "#1d1022", VOID = "#120914";
+const fill = (x, y, w, h, c, origin = "0 0", parent) => {
+  const f = L.layer({ x, y, w, h }, parent);
+  f.style.background = c.startsWith("#") ? c : `var(--${c})`; f.style.transformOrigin = origin;
+  return f;
+};
+const cls = (e, ...c) => (e.classList.add(...c), e);
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const op = (e, v) => { v = v < 0.005 ? "0" : v > 0.995 ? "1" : v.toFixed(2); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const bg = (e, c) => { if (e._bg !== c) { e._bg = c; e.style.background = c.startsWith("#") ? c : `var(--${c})`; } };
+const fg = (e, c) => { if (e._fg !== c) { e._fg = c; e.style.color = c.startsWith("#") ? c : `var(--${c})`; } };
+const swap = (els, f) => { els.forEach((e) => e.classList.add("out")); setTimeout(() => { f(); els.forEach((e) => e.classList.remove("out")); }, 460); };
+const smooth = (x) => { x = L.clamp(x); return x * x * (3 - 2 * x); };
+
+// The wall: four columns of pod monitors, 570 wide and 40 apart (220–2620); the systems column 2660–3620.
+// Three rows, 588 apart. Every panel is a header and five rows of 64 on a 100 pitch, so baselines are
+// shared right across the screen.
+const MW = 570, MG = 40, ROWS = [280, 868, 1456];
+const RX = 2660, RR = 3620, BX = 300, BRW = 220;
+const rowTop = (y0, k) => y0 + 84 + 100 * k, rowBase = (y0, k) => rowTop(y0, k) + 52.5;
+
+// ---------------- the pods ----------------
+// [fill %, field %], Pod 12 empty and held at standby field
+const PODS = [[92.4, 99.82], [88.1, 99.78], [74.6, 99.85], [96.0, 99.80], [81.3, 99.76], [67.9, 99.83],
+              [90.2, 99.81], [85.5, 99.79], [78.8, 99.84], [94.7, 99.77], [59.2, 99.80], [0, 15.0]];
+const STANDBY = 11;
+// the coils lie over the antimatter: one overlay, drawn once, above the bottles
+const coilSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+const pods = PODS.map(([f0, field], i) => {
+  const x0 = 220 + (i % 4) * (MW + MG), y0 = ROWS[Math.floor(i / 4)];
+  const name = `Pod ${String(i + 1).padStart(2, "0")}`;
+  const lw = L.header({ x: x0, y: y0, w: MW, label: name, c1: i === STANDBY ? "plum" : "pink", c2: "lilac" });
+  // the header bar lights butter while this pod feeds the reaction chamber
+  const hot = fill(x0 + lw + L.GAP, y0, MW - lw - L.GAP, 56, "butter"); op(hot, 0);
+
+  // the magnetic bottle: a capsule in its well, field coils round it, the antimatter suspended clear of the walls
+  const PX = x0, PY = rowTop(y0, 0), PW = 210, PH = 464;
+  L.rect({ x: PX, y: PY, w: PW, h: PH, c: BOTTLE, panel: true });
+  const cx = PX + PW / 2, CT = PY + 28, CB = PY + PH - 28, CW = 112;
+  L.svg("rect", { x: cx - CW / 2, y: CT, width: CW, height: CB - CT, rx: CW / 2, fill: VOID, stroke: "var(--lilac)", "stroke-width": 4, class: "boot" });
+  const IN = 14, FW = CW - 2 * IN, FH = CB - CT - 2 * IN;
+  const clip = L.el("div", "clip", L.stage, { left: cx - FW / 2 + "px", top: CT + IN + "px", width: FW + "px", height: FH + "px", borderRadius: FW / 2 + "px" });
+  const body = fill(0, 0, FW, FH, "pink", "0 0", clip);
+  body.style.background = "linear-gradient(to right, #b97aa8, #f4b6e6 38%, #ffe2f6 52%, #f4b6e6 66%, #b97aa8)";
+  const band = fill(0, 0, FW, 70, "#fff", "0 0", clip);
+  band.style.background = "linear-gradient(rgba(255,255,255,0), rgba(255,240,250,.55) 50%, rgba(255,255,255,0))";
+  // seven field coils over the bottle
+  const coils = L.svg("g", { class: "boot" }, coilSvg);
+  const NC = 7;
+  for (let k = 0; k < NC; k++) {
+    const y = CT + 44 + (k * (CB - CT - 88)) / (NC - 1);
+    L.svg("rect", { x: cx - 78, y: y - 6, width: 156, height: 12, rx: 6, fill: `var(--${i === STANDBY ? "plum" : k % 3 === 1 ? "lilac" : "plum"})` }, coils);
+  }
+  // readings: a small table beside the bottle
+  const TX = x0 + 240, TR = x0 + MW;
+  const reading = (k, label) => {
+    L.text({ x: TX, base: rowBase(y0, k), s: 40, c: "lilac", txt: label });
+    return L.text({ x: TR, base: rowBase(y0, k), s: 52, c: "white", txt: "", align: "r" });
+  };
+  const vField = reading(0, "Field"), vFill = reading(1, "Fill"), vTemp = reading(2, "Temp"), vCoils = reading(3, "Coils");
+  const pill = cls(L.box({ x: TX, y: rowTop(y0, 4), w: TR - TX, h: 64, c: i === STANDBY ? "plum" : "lilac", label: i === STANDBY ? "Empty  ·  Standby" : "Sealed", fs: 32, r: "lr" }), "sw");
+  L.set(vCoils, i === STANDBY ? "7 / 7  Low" : "7 / 7");
+  return { i, name, fill: f0, field, body, band, hot, FH, vField, vFill, vTemp, pill, phase: Math.random() * 6, flow: 0, lit: 0,
+           w: L.rand(0.05, 0.09), shown: -1 };
+});
+coilSvg.setAttribute("viewBox", "0 0 3840 2160"); coilSvg.setAttribute("width", 3840); coilSvg.setAttribute("height", 2160);
+Object.assign(coilSvg.style, { position: "absolute", left: 0, top: 0, pointerEvents: "none" });
+L.stage.appendChild(coilSvg);
+const showFill = (p) => {
+  const y = Math.round(p.FH * (1 - p.fill / 100) * 4) / 4;
+  if (y !== p.shown) { p.shown = y; tf(p.body, `translate3d(0,${y}px,0)`); }
+};
+pods.forEach(showFill);
+op(pods[STANDBY].body, 0);                                   // the empty pod: nothing in the bottle
+
+// ---------------- status line ----------------
+const state = cls(L.text({ x: 220, cap: 150, s: 100, c: "pink", txt: "Containment Fields Secure" }), "sw");
+const stateSub = L.text({ x: 220 + 2 * (MW + MG), base: 222, s: 38, c: "lilac", txt: "" });
+L.box({ x: RR - 400, y: 150, w: 400, h: 72, c: "lilac", label: "Ejection Safe", r: "lr", fs: 36 });
+
+// ---------------- the systems column ----------------
+const gaugeRow = (y0, k, name, c) => {
+  const base = rowBase(y0, k);
+  L.text({ x: RX, base, s: 40, c: "lilac", txt: name });
+  L.rect({ x: RX + BX, y: base - 26, w: RR - BRW - (RX + BX), h: 26, c: TRACK });
+  return { bar: fill(RX + BX, base - 26, RR - BRW - (RX + BX), 26, c), v: L.text({ x: RR, base, s: 52, c: "white", txt: "", align: "r" }), u: -1 };
+};
+const showBar = (g, k) => { k = L.clamp(k); if (Math.abs(k - g.u) > 0.0005) { g.u = k; tf(g.bar, `scaleX(${k.toFixed(4)})`); } };
+const buttonRow = (y, labels, lit, c, gap = 8, fs = 32) => {
+  const w = (RR - RX - (labels.length - 1) * gap) / labels.length;
+  return labels.map((label, i) => {
+    const b = cls(L.box({ x: RX + i * (w + gap), y, w, h: 64, c: lit.includes(i) ? c : DIM, label, fs,
+      r: i === 0 ? "l" : i === labels.length - 1 ? "r" : null }), "sw");
+    fg(b, lit.includes(i) ? "#000" : "lilac");
+    return b;
+  });
+};
+
+// containment field generators
+const [YA, YB, YC] = ROWS;
+L.header({ x: RX, y: YA, w: RR - RX, label: "Containment Field Generators", c1: "pink", c2: "lilac" });
+const gens = [["Generator A", "pink"], ["Generator B", "lilac"], ["Generator C", "pink"], ["Generator D", "lilac"]]
+  .map(([n, c], k) => gaugeRow(YA, k, n, c));
+buttonRow(rowTop(YA, 4), ["Primary EPS", "Secondary EPS", "Battery", "Fusion Backup"], [0], "pink");
+
+// transfer to the reaction chamber
+L.header({ x: RX, y: YB, w: RR - RX, label: "Transfer to Reaction Chamber", c1: "lilac", c2: "pink" });
+const srcBox = cls(L.box({ x: RX, y: rowTop(YB, 0), w: BX - L.GAP, h: 64, c: "lilac", label: "Pod 03", fs: 32, r: "l" }), "sw");
+const CDX = RX + BX, CDW = RR - BX - CDX;                     // the magnetic conduit, between the two boxes
+const cdY = rowBase(YB, 0) - 26;
+L.rect({ x: CDX, y: cdY, w: CDW, h: 26, c: TRACK });
+L.box({ x: RR - BX + L.GAP, y: rowTop(YB, 0), w: BX - L.GAP, h: 64, c: "pink", label: "Reaction Chamber", fs: 32, r: "r" });
+const PER = 64;                                               // packets: a stripe pattern slid one period and back, seamless
+const cdClip = L.el("div", "clip", L.stage, { left: CDX + "px", top: cdY + "px", width: CDW + "px", height: "26px" });
+const packets = fill(-PER, 0, CDW + 2 * PER, 26, "butter", "0 0", cdClip);
+packets.style.background = `repeating-linear-gradient(to right, var(--butter) 0 34px, rgba(0,0,0,0) 34px ${PER}px)`;
+op(packets, 0);
+const reserve = gaugeRow(YB, 1, "Chamber Reserve", "pink");
+const flowG = gaugeRow(YB, 2, "Flow Rate", "butter");
+const conduit = gaugeRow(YB, 3, "Conduit Field", "lilac");
+const xferPill = cls(L.box({ x: RX, y: rowTop(YB, 4), w: RR - RX, h: 64, c: "plum", label: "", fs: 32, r: "lr" }), "sw");
+
+// the ejection system: always safe
+L.header({ x: RX, y: YC, w: RR - RX, label: "Pod Ejection System", c1: "pink", c2: "plum" });
+buttonRow(rowTop(YC, 0), ["Safe", "Armed"], [0], "lilac");
+const plain = (k, name, txt, note) => {
+  L.text({ x: RX, base: rowBase(YC, k), s: 40, c: "lilac", txt: name });
+  L.text({ x: RR, base: rowBase(YC, k), s: 40, c: "plum", txt: note, align: "r" });
+  return L.text({ x: RX + BX, base: rowBase(YC, k), s: 52, c: "white", txt });
+};
+plain(1, "Pod Hatches", "Sealed", "12 of 12  ·  Interlocked");
+plain(2, "Ejection Rails", "De-energized", "0.0 MW");
+plain(3, "Authorization", "None Pending", "Captain  ·  Chief Engineer");
+const PG = 12, PBW = (RR - RX - 11 * PG) / 12;
+pods.forEach((p, i) => L.box({ x: RX + i * (PBW + PG), y: rowTop(YC, 4), w: PBW, h: 64, c: i === STANDBY ? "plum" : "lilac",
+  label: String(i + 1).padStart(2, "0"), fs: 28, r: i === 0 ? "l" : i === 11 ? "r" : null }));
+
+// ---------------- the transfer cycle ----------------
+// The reaction chamber keeps a small reserve. It runs down while the warp core burns; at 80% one pod
+// tops it up through the magnetic conduit, a few grams a second, until it reads 92%.
+const DRAIN = 0.16, LOW = 80, HIGH = 92, RATE = 1.84;         // %/s; g/s at full flow
+let R = 82.1, xfer = null, flow = 0, sdBase = 47634.2;
+const startXfer = (t) => {
+  const pool = pods.filter((p) => p.i !== STANDBY && p.fill > 50 && (!xfer || p !== xfer.pod));
+  const pod = pool.reduce((a, b) => (b.fill > a.fill ? b : a));         // the fullest pod feeds the chamber
+  xfer = { pod, t0: t, ending: false };
+  swap([srcBox], () => L.set(srcBox, pod.name));
+  swap([state], () => { L.set(state, "Antimatter Transfer Active"); fg(state, "butter"); });
+  swap([xferPill], () => { L.set(xferPill, `Transferring  ·  ${pod.name} to Reaction Chamber`); bg(xferPill, "butter"); });
+  swap([pod.pill], () => { L.set(pod.pill, "Transferring"); bg(pod.pill, "butter"); });
+};
+const endXfer = () => {
+  const pod = xfer.pod;
+  xfer.ending = true;
+  swap([state], () => { L.set(state, "Containment Fields Secure"); fg(state, "pink"); });
+  swap([xferPill], () => { L.set(xferPill, `Standby  ·  Next Transfer at ${LOW}% Reserve`); bg(xferPill, "plum"); });
+  swap([pod.pill], () => { L.set(pod.pill, "Sealed"); bg(pod.pill, "lilac"); });
+};
+L.set(xferPill, `Standby  ·  Next Transfer at ${LOW}% Reserve`);
+
+let tPrev = null;
+L.tick((t) => {
+  const dt = tPrev === null ? 0 : Math.min(0.1, t - tPrev); tPrev = t;
+  if (!xfer && R <= LOW && t > 3) startXfer(t);
+  if (xfer && !xfer.ending && R >= HIGH) endXfer();
+  const want = xfer && !xfer.ending ? 1 : 0;
+  flow += (want - flow) * Math.min(1, dt * 0.9);              // the conduit eases up and down
+  if (xfer && xfer.ending && flow < 0.004) { flow = 0; xfer = null; }
+  R += (-DRAIN + flow * 1.25) * dt;
+  if (xfer) { xfer.pod.fill -= flow * 0.045 * dt; xfer.pod.lit = flow; }
+  // the antimatter: a slow glint rising through each bottle; in the feeding pod it runs down to the outlet
+  for (const p of pods) {
+    if (p.i === STANDBY) { op(p.band, 0); continue; }
+    const feeding = xfer && xfer.pod === p ? flow : 0;
+    const top = p.FH * (1 - p.fill / 100), span = p.FH - top + 70;
+    const u = ((t * p.w + p.phase / 6) % 1 + 1) % 1, d = ((t * 0.34 + p.phase / 6) % 1 + 1) % 1;
+    const y = L.mix(p.FH - u * span, top - 70 + d * span, feeding);
+    tf(p.band, `translate3d(0,${y.toFixed(1)}px,0)`);
+    op(p.band, Math.sin(Math.PI * L.mix(u, d, feeding)) * 0.9);
+    op(p.hot, p === (xfer && xfer.pod) ? smooth(flow * 1.2) : 0);
+  }
+  // packets along the conduit
+  tf(packets, `translate3d(${(((t * 52) % PER) + PER) % PER}px,0,0)`);
+  op(packets, smooth(flow * 1.15));
+});
+
+L.every(1000, (t) => {
+  const sd = sdBase + t / 31557.6;
+  const total = pods.reduce((a, p) => a + p.fill, 0) / 11;
+  L.set(stateSub, `Deck 42  ·  11 Pods Charged  ·  Stores at ${total.toFixed(1)}% Capacity  ·  Stardate ${sd.toFixed(1)}`);
+  for (const p of pods) {
+    const f = p.i === STANDBY ? 15.0 + 0.02 * Math.sin(t * 0.07 + p.phase) : p.field + 0.05 * Math.sin(t * 0.045 + p.phase);
+    L.set(p.vField, f.toFixed(2) + "%");
+    L.set(p.vFill, p.i === STANDBY ? "0.0%" : p.fill.toFixed(1) + "%");
+    L.set(p.vTemp, (p.i === STANDBY ? 4.2 : 1.86 + 0.02 * Math.sin(t * 0.03 + p.phase)).toFixed(2) + " K");
+    showFill(p);
+  }
+  gens.forEach((g, k) => {
+    const v = 0.9955 + 0.0025 * Math.sin(t * 0.04 + k * 1.7) + (k === 1 ? -0.004 : 0);
+    showBar(g, v); L.set(g.v, (v * 100).toFixed(2) + "%");
+  });
+  showBar(reserve, R / 100); L.set(reserve.v, R.toFixed(1) + "%");
+  showBar(flowG, flow); L.set(flowG.v, (flow * RATE).toFixed(2) + " g/s");
+  const cf = 0.08 + 0.917 * smooth(flow * 1.4);
+  showBar(conduit, cf); L.set(conduit.v, (cf * 100).toFixed(1) + "%");
+}, 0);
+});
+</script></body></html>

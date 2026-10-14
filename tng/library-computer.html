@@ -1,0 +1,381 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Library Computer</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* rows and the record fade between states; .boot (the start-up cascade) always wins */
+  .fade { transition: opacity .45s ease; }
+  .dim:not(.boot) { opacity: .38; }
+  .out:not(.boot) { opacity: .2; }   /* a record dips, never goes black, while it changes */
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: sidebar left, title top right ----------------
+const BAR = 64;
+L.title({ x: 3700, y: 40, h: BAR, c: "peach", txt: "Library Computer  •  Access and Retrieval" });
+// (L.title measures with a canvas, which sets this line ~11px wider than the page draws it; use the page's own width)
+const titleLeft = 3700 - document.querySelector("[data-title]").offsetWidth;
+L.box({ x: 3724, y: 40, w: 92, h: BAR, c: "orange", r: "r" });
+L.elbow({ corner: "tl", x: 40, y: 40, w: 1360, h: 250, bw: 240, bh: BAR, R: 150, r: 60, c: "orange" });
+L.rect({ x: 1400 + L.GAP, y: 40, w: 300, h: BAR, c: "butter" });
+L.rect({ x: 1724 + L.GAP, y: 40, w: titleLeft - L.GAP - (1724 + L.GAP), h: BAR, c: "orange" });
+[[298, 140, "peach", "LIB 07"], [446, 70, "butter", "Query"], [524, 420, "orange", "Access"], [952, 70, "sky", "Index"],
+ [1030, 300, "peach", "Records"], [1338, 70, "butter", "Xref"], [1416, 216, "orange", "Archive"]]
+  .forEach(([y, h, c, label]) => L.box({ x: 40, y, w: 240, h, c, label }));
+L.elbow({ corner: "bl", x: 40, y: 1640, w: 1500, h: 480, bw: 240, bh: BAR, R: 150, r: 60, c: "peach" });
+L.text({ x: 258, base: 1712, s: 40, c: "#000", txt: "Retrieval", align: "r", on: true });
+[[1540 + L.GAP, 600, "orange"], [2164 + L.GAP, 900, "butter"], [3088 + L.GAP, 3700 - (3088 + L.GAP), "peach"]]
+  .forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
+L.box({ x: 3724, y: 2056, w: 92, h: BAR, c: "orange", r: "r" });
+
+const header = (x, y, w, label, lw, c1, c2) => {
+  L.box({ x, y, w: lw, h: 56, c: c1, label, fs: 32, r: "l" });
+  L.rect({ x: x + lw + L.GAP, y, w: w - lw - L.GAP, h: 56, c: c2 });
+};
+const small = (x, y, w, label, lw, c1, c2) => {
+  L.box({ x, y, w: lw, h: 48, c: c1, label, fs: 28, r: "l" });
+  L.rect({ x: x + lw + L.GAP, y, w: w - lw - L.GAP, h: 48, c: c2 });
+};
+const cls = (e, ...c) => (e.classList.add(...c), e);
+// write only what changed: an unchanged reading costs nothing
+const put = (e, txt) => { if (e.textContent !== txt) e.textContent = txt; };
+const css = (e, k, v) => { if (e.style[k] !== v) e.style[k] = v; };
+
+// The columns: left 330–1530, right 1590–3816; the right column splits again at 3200 | 3260.
+const LX = 330, LR = 1530, RX = 1590, RR = 3816, SPLIT = 3200, AX = 3260;
+
+// ---------------- the library: queries, their results, and the records' abstracts ----------------
+// Each result: [title, source, relevance, stardate entered, media, abstract]. The first three of each
+// query carry an abstract — they are the records the computer displays once the search completes.
+const QUERIES = [
+  { a: "Dilithium crystal formation", b: "Coridan system", scope: "Federation Geological Survey", method: "Associative  ·  Depth 3",
+    cat: "Geology", access: "Unrestricted", matches: 1284, res: [
+    ["Dilithium: Natural Formation in Planetary Crusts", "Federation Geological Survey", 98.7, "45120.6", "Text  ·  Visual",
+     "Dilithium forms naturally only where three conditions meet: a silicate crust under long tectonic pressure, trace lithium in solution, and ages of exposure to a stellar wind rich in heavy ions. Crystals grow along fault lines over tens of thousands of years. Under a high-frequency electromagnetic field the lattice becomes porous to antimatter, which is what lets a warp core regulate the matter–antimatter reaction safely. Fewer than one world in eight hundred surveyed holds deposits worth mining, and the known fields have often been fought over."],
+    ["Coridan: Planetary Survey and Mining History", "Federation Archives", 96.1, "41377.2", "Text  ·  Visual",
+     "Coridan holds some of the richest dilithium deposits charted in Federation space, and for two centuries its mines have shaped both its economy and its politics. Early surface workings were stripped by offworld syndicates before the planetary government could regulate them, and illegal extraction continued for decades, drawing raiders to the system. Coridan's petition to join the Federation was debated at the Babel Conference of 2268, where the delegates' quarrel over its mineral wealth came close to ending the conference. Admission followed in time."],
+    ["Dilithium Recrystallization Techniques", "Starfleet Corps of Engineers", 91.4, "46210.9", "Text",
+     "Dilithium degrades in service: every hour in an active warp core fractures a little more of its lattice, and a fractured crystal regulates the reaction poorly. Older starships carried spares and replaced them at refit. Modern practice recrystallizes them in place, using a controlled flux of gamma radiation from the core itself to anneal the fractures, which extends a crystal's working life many times over. Engineers are cautioned that an uneven flux can leave stress planes invisible to routine scans, and that a crystal annealed nine times should be retired."],
+    ["Coridan Admission Debate, Babel Conference", "Federation Council Records", 84.2, "", "", ""],
+    ["Dilithium Lattice Stress Under Warp Load", "Utopia Planitia Yards", 79.5, "", "", ""],
+    ["Mineral Rights in Unaligned Systems", "Federation Council Records", 71.8, "", "", ""]] },
+  { a: "Battle of Wolf 359", b: "Fleet losses and aftermath", scope: "Starfleet Archives", method: "Chronological  ·  Depth 2",
+    cat: "Military History", access: "Starfleet Only", matches: 2716, res: [
+    ["The Battle of Wolf 359", "Starfleet Archives", 99.4, "44002.3", "Text  ·  Visual",
+     "On stardate 44002.3 a single Borg cube was met at Wolf 359 by a fleet of forty starships under the command of Admiral J. P. Hanson. The cube adapted to Federation weapons within minutes of the first engagement. Thirty-nine ships were destroyed and more than eleven thousand lives were lost. The Enterprise, pursuing the cube toward Earth, recovered its captain from the Borg and used him to disable the cube in orbit. The battle remains the gravest single defeat in Starfleet's history, and its lessons reshaped fleet doctrine and starship design for a generation."],
+    ["Borg Incursion into Federation Space", "Starfleet Intelligence", 95.8, "43989.1", "Text  ·  Sensor Logs",
+     "The cube was first detected entering Federation space near the Jouret system, where the colony at New Providence had already been removed from the planet's surface, leaving only a crater where the settlement had stood. Starfleet recalled ships from across the quadrant to intercept the cube on its course for Sector 001. Telemetry from the Enterprise, which engaged the cube twice before Wolf 359, gave the first measurements of Borg shield adaptation and of the cube's regenerative systems, and remains the most complete record of a Borg vessel under fire."],
+    ["Rebuilding the Fleet After Wolf 359", "Starfleet Command", 92.0, "45370.4", "Text",
+     "Starfleet's losses at Wolf 359 prompted the fastest shipbuilding program since the wars of the previous century. Construction at Utopia Planitia was accelerated, and design work began on vessels built first for defense rather than exploration. Analysis of the battle recordings informed new shield modulation protocols, the rotation of phaser frequencies in combat, and a revised doctrine that forbids commanders to engage an adapting enemy one ship at a time. Memorials to the thirty-nine lost ships stand at Starfleet Headquarters and at each of the yards that built them."],
+    ["U.S.S. Saratoga, NCC-31911: Service Record", "Starfleet Archives", 87.3, "", "", ""],
+    ["Admiral J. P. Hanson: Biography", "Starfleet Archives", 82.6, "", "", ""],
+    ["Transwarp Conduits: Theoretical Notes", "Daystrom Institute", 74.1, "", "", ""]] },
+  { a: "Bajoran wormhole", b: "Stability and origin", scope: "Bajoran Archives  ·  Federation Science", method: "Associative  ·  Depth 4",
+    cat: "Astrophysics", access: "Unrestricted", matches: 941, res: [
+    ["The Bajoran Wormhole", "Federation Science Council", 99.1, "46379.1", "Text  ·  Visual",
+     "Discovered on stardate 46379 by Commander Benjamin Sisko and Lieutenant Jadzia Dax, the Bajoran wormhole is the only stable wormhole known. It links the Denorios Belt in the Bajoran system with the Idran system in the Gamma Quadrant, some seventy thousand light-years away. Its stability is attributed to verteron membranes sustained by the wormhole's inhabitants, non-corporeal beings who do not experience time as a sequence. Within days, Deep Space 9 was moved from Bajoran orbit to the wormhole's mouth, to oversee traffic between the quadrants."],
+    ["The Celestial Temple in Bajoran Faith", "Bajoran Archives", 94.6, "46380.0", "Text",
+     "For Bajorans the wormhole is the Celestial Temple, home of the Prophets, who are believed to have watched over Bajor through ten thousand years of its history. Nine Orbs, said to be sent by the Prophets, have appeared over the millennia; they are kept in the monasteries as objects of devotion, and those who look into them report visions. The discovery of the Temple was greeted on Bajor as the fulfilment of prophecy, and the Starfleet officer who first entered it was named the Emissary by Kai Opaka, to the surprise of the Federation and of the officer himself."],
+    ["Verteron Particles and Subspace Stability", "Daystrom Institute", 90.2, "46871.5", "Text  ·  Visual",
+     "Verterons are subatomic particles found in high concentration at the mouth of the Bajoran wormhole, where they form a membrane that holds the aperture open and gives it its bloom on entry. Their discovery gave theorists the first working model of a self-sustaining subspace tunnel. Laboratory study has proved difficult: verterons decay within nanoseconds once separated from the membrane, and every attempt to open an artificial wormhole by verteron emission has collapsed within seconds. Its makers, it is agreed, understand subspace far better than we do."],
+    ["Deep Space 9: Station History", "Starfleet Archives", 85.7, "", "", ""],
+    ["The Denorios Belt and Its Plasma Field", "Bajoran Institute of Science", 80.3, "", "", ""],
+    ["Gamma Quadrant Survey, First Contacts", "Starfleet Exploration", 76.9, "", "", ""]] },
+  { a: "Warp field theory", b: "Cochrane limits", scope: "Daystrom Institute  ·  Starfleet R&D", method: "Keyword  ·  Depth 3",
+    cat: "Propulsion", access: "Unrestricted", matches: 3352, res: [
+    ["Zefram Cochrane and the First Warp Flight", "Federation Archives", 98.9, "", "Text  ·  Visual",
+     "On the fifth of April 2063 Zefram Cochrane launched the Phoenix from a missile silo near Bozeman, Montana, and became the first human to travel faster than light. The flight was observed by a Vulcan survey ship passing through the solar system, which landed that evening and made humanity's first contact with another species. Cochrane spent his later years refining the field theory that bears his name, and in 2117, at the age of eighty-seven, he left Earth aboard a small craft and was not seen again. The silo is preserved today as a museum."],
+    ["Warp Field Geometry and Subspace Displacement", "Daystrom Institute", 95.2, "42211.8", "Text  ·  Visual",
+     "A warp drive does not move a starship through space; it moves a region of space around it. Nested layers of subspace field, generated by the coils of the nacelles, distort the continuum asymmetrically, and the ship is carried forward with the distortion, never itself exceeding the speed of light. The strength of each layer is measured in cochranes. On the revised warp scale the energy needed rises steeply above warp 9, and warp 10 stands for infinite velocity, a limit that no vessel can reach because at that speed it would occupy every point in the universe at once."],
+    ["Subspace Damage and the Warp Speed Limit", "Federation Council Records", 91.7, "47310.2", "Text",
+     "In 2370 the research of Serova and Rabal in the Hekaras Corridor showed that repeated travel at high warp weakens the fabric of subspace, and in time can tear it open. A rift formed in the corridor during the investigation. The Federation Council responded by limiting all vessels to warp 5 except in emergencies, and by funding new nacelle designs that keep the warp field from touching subspace at all. Starfleet now logs the speed of every transit through the regions where field stress is highest, and permits higher warp there only on the authority of a flag officer."],
+    ["Soliton Wave Propulsion Trials", "Daystrom Institute", 86.4, "", "", ""],
+    ["Transwarp Development Program, Excelsior", "Starfleet R&D", 81.0, "", "", ""],
+    ["Variable Geometry Nacelle Design", "Utopia Planitia Yards", 73.5, "", "", ""]] },
+  { a: "Vulcan history", b: "Time of Awakening", scope: "Vulcan Science Academy", method: "Chronological  ·  Depth 3",
+    cat: "History", access: "Unrestricted", matches: 1867, res: [
+    ["Surak and the Time of Awakening", "Vulcan Science Academy", 99.6, "", "Text",
+     "In the fourth century of the common era Vulcan was a world of violent passions, its nations armed with atomic weapons and close to destroying one another. The philosopher Surak taught that emotion must be governed by logic, and that peace begins in the discipline of the individual mind. His followers carried the teaching across the planet in the period now called the Time of Awakening, and in time the wars ended. Surak himself is said to have died on a mission of peace, and his teaching remains the foundation of Vulcan law, science and family life to this day."],
+    ["The Sundering: Vulcan Emigration", "Vulcan Science Academy", 96.3, "", "Text",
+     "Not all Vulcans accepted the teaching of Surak. Those who refused it, calling themselves the ones who march beneath the raptor's wings, left Vulcan in a great migration and after long wandering settled the twin worlds of Romulus and Remus. The Romulan Star Empire descends from them. Their kinship with the Vulcans was unknown to the Federation until 2266, when a visual transmission from a Romulan bird-of-prey revealed the resemblance to the crew of the Enterprise. Vulcan scholars had long suspected it; reunification remains a subject of quiet debate."],
+    ["Mount Seleya and the Katra Tradition", "Vulcan Science Academy", 92.8, "", "Text  ·  Visual",
+     "Mount Seleya, in the deserts of Vulcan, has been a place of pilgrimage since before the Time of Awakening. Its temple keeps the katra rituals, by which a Vulcan's living spirit may be passed to another mind before death and later placed in the Hall of Ancient Thought. The rite of fal-tor-pan, which reunites a katra with its living body, had passed out of memory into legend when it was performed at Mount Seleya for Captain Spock in 2285. The temple's high priestesses have spoken of the rite only rarely since, and permit no record of its forms to be kept."],
+    ["Kolinahr: The Purging of Emotion", "Vulcan Science Academy", 87.9, "", "", ""],
+    ["First Contact, 2063: The Vulcan Account", "Federation Archives", 83.4, "", "", ""],
+    ["The Kir'Shara and Surak's Writings", "Vulcan Science Academy", 78.2, "", "", ""]] },
+];
+// every result gets a record number, a size and a count of cross-references, fixed for the session
+QUERIES.forEach((q) => q.res.forEach((r) => {
+  r.num = L.digits(5) + "-" + String(L.irand(1, 99)).padStart(2, "0");
+  r.size = L.irand(90, 860) + " kiloquads";
+  r.xref = L.irand(140, 4200).toLocaleString("en");
+}));
+
+// ---------------- the cycle ----------------
+// Searching (9 s): the progress bar fills and the six results arrive one by one, replacing the last
+// query's. Then the three best records are displayed in turn, 8 s each. 33 s per query.
+const SEARCH = 9, SHOW = 8, PER = 3, CYCLE = SEARCH + PER * SHOW;
+const ROWS = 6, REVEAL = (i) => 1.2 + i * 1.25;
+
+// ---------------- status line ----------------
+const stateTxt = L.text({ x: LX, cap: 150, s: 100, c: "butter", txt: "Searching" });
+const stateSub = L.text({ x: RX, base: 222, s: 38, c: "peach", txt: "" });          // on the right column's line
+const qPill = L.box({ x: 3416, y: 150, w: 400, h: 72, c: "peach", label: "", r: "lr", fs: 36 });
+
+// ---------------- current query ----------------
+header(LX, 280, LR - LX, "Current Query", 340, "orange", "peach");
+const VX = 560;                                                                       // the values' column
+L.text({ x: LX, base: 404, s: 40, c: "peach", txt: "Query" });
+const qA = L.text({ x: VX, base: 404, s: 52, c: "white", txt: "" });
+const qB = L.text({ x: VX, base: 480, s: 52, c: "white", txt: "" });
+L.text({ x: LX, base: 556, s: 40, c: "peach", txt: "Scope" });
+const qScope = L.text({ x: VX, base: 556, s: 52, c: "white", txt: "" });
+L.text({ x: LX, base: 632, s: 40, c: "peach", txt: "Method" });
+const qMethod = L.text({ x: VX, base: 632, s: 52, c: "white", txt: "" });
+L.text({ x: LX, base: 708, s: 40, c: "peach", txt: "Progress" });
+L.rect({ x: VX, y: 708 - 30, w: 1340 - VX, h: 30, c: "#2a1a10" });
+const progBar = L.layer({ x: VX, y: 708 - 30, w: 1340 - VX, h: 30 });
+progBar.style.background = "var(--orange)"; progBar.style.transformOrigin = "0 0";
+const progTxt = L.text({ x: LR, base: 708, s: 52, c: "white", txt: "", align: "r" });
+L.text({ x: LX, base: 784, s: 40, c: "peach", txt: "Scanned" });
+const scanned = L.text({ x: VX, base: 784, s: 52, c: "white", txt: "" });
+L.text({ x: LX, base: 860, s: 40, c: "peach", txt: "Matches" });
+const matches = L.text({ x: VX, base: 860, s: 52, c: "white", txt: "" });
+
+// ---------------- search results ----------------
+header(RX, 280, RR - RX, "Search Results", 340, "sky", "ice");
+const CX = { num: RX + 48, title: 1880, src: 2760, rel: AX }, BARX = 3400;
+[["Record", RX], ["Title", CX.title], ["Source", CX.src], ["Relevance", CX.rel]]
+  .forEach(([h, x]) => L.text({ x, base: 404, s: 36, c: "sky", txt: h }));
+const rowBase = (i) => 480 + i * 76;                                                  // the query panel's rows
+const rows = Array.from({ length: ROWS }, (_, i) => {
+  const base = rowBase(i);
+  L.rect({ x: RX, y: base - 40, w: 24, h: 48, c: "#2a1a10" });                       // the selection slot
+  L.rect({ x: BARX, y: base - 26, w: RR - BARX, h: 26, c: "#141c36" });
+  const bar = L.layer({ x: BARX, y: base - 26, w: RR - BARX, h: 26 });
+  bar.style.background = "var(--sky)"; bar.style.transformOrigin = "0 0"; bar.style.transition = "opacity .45s ease";
+  return {
+    num: cls(L.text({ x: CX.num, base, s: 40, c: "orange", txt: "" }), "fade"),
+    title: cls(L.text({ x: CX.title, base, s: 40, c: "white", txt: "" }), "fade"),
+    src: cls(L.text({ x: CX.src, base, s: 40, c: "peach", txt: "" }), "fade"),
+    rel: cls(L.text({ x: CX.rel, base, s: 40, c: "white", txt: "" }), "fade"),
+    bar, u: 0, goal: 0,
+  };
+});
+const marker = L.layer({ x: RX, y: 0, w: 24, h: 48 });
+marker.style.background = "var(--butter)"; marker.style.opacity = 0; marker.style.transition = "opacity .45s ease";
+let markerY = rowBase(0) - 40;
+const fillRow = (i, r) => {
+  const row = rows[i];
+  row.num.textContent = r.num; row.title.textContent = r[0]; row.src.textContent = r[1]; row.rel.textContent = r[2].toFixed(1) + "%";
+  row.goal = r[2] / 100;
+};
+const dimRow = (i, on) => [rows[i].num, rows[i].title, rows[i].src, rows[i].rel].forEach((e) => e.classList.toggle("dim", on));
+
+// ---------------- isolinear access ----------------
+header(LX, 1000, LR - LX, "Isolinear Access", 360, "peach", "butter");
+L.text({ x: LX, base: 1112, s: 40, c: "peach", txt: "Transfer Rate" });
+const rateTxt = L.text({ x: LR, base: 1112, s: 52, c: "white", txt: "", align: "r" });
+const CHX = 480, NCH = 12, CHG = 18, CHW = (LR - CHX - (NCH - 1) * CHG) / NCH, CHH = 118;
+const chips = [];
+["Bank A", "Bank B", "Bank C"].forEach((bank, r) => {
+  const y = 1148 + r * 138;
+  L.text({ x: LX, base: y + CHH / 2 + 14, s: 40, c: r === 1 ? "sky" : "peach", txt: bank });
+  for (let k = 0; k < NCH; k++) {
+    const x = CHX + k * (CHW + CHG);
+    L.rect({ x, y, w: CHW, h: CHH, rx: 6, c: r === 1 ? "#14203c" : "#33220f" });
+    L.rect({ x: x + 10, y: y + CHH - 16, w: CHW - 20, h: 6, c: r === 1 ? "#2a4070" : "#5a3f1a", free: true });   // the contact edge
+    const lit = L.layer({ x, y, w: CHW, h: CHH });
+    lit.style.borderRadius = "6px";
+    lit.style.background = r === 1 ? "linear-gradient(var(--ice), var(--sky))" : "linear-gradient(var(--butter), var(--orange))";
+    lit.style.opacity = 0;
+    chips.push({ lit, v: 0, shown: -1, bank: r });
+  }
+});
+let readAt = 0, readPos = L.irand(0, chips.length - 1);
+
+// ---------------- record display ----------------
+header(RX, 1000, RR - RX, "Record Display", 340, "orange", "peach");
+const REC_W = SPLIT - RX, REC_LINES = 5, ABS = 48;
+const recBase = (i) => (i === 0 ? 1112 : 1196 + (i - 1) * 74);               // the title, then five lines of abstract
+const recTitle = cls(L.text({ x: RX, base: 1112, s: 52, c: "butter", txt: "" }), "fade");
+const recLines = Array.from({ length: REC_LINES }, (_, i) => cls(L.text({ x: RX, base: recBase(i + 1), s: ABS, c: "white", txt: "" }), "fade"));
+const ATTRS = ["Record", "Category", "Entered", "Size", "Cross-Refs", "Access"];
+const attrVals = ATTRS.map((name, i) => {
+  L.text({ x: AX, base: recBase(i), s: 40, c: "peach", txt: name });
+  return cls(L.text({ x: RR, base: recBase(i), s: 48, c: "white", txt: "", align: "r" }), "fade");
+});
+const recEls = [recTitle, ...recLines, ...attrVals];
+// greedy word wrap, measured in the LCARS face
+const wrap = (txt, s, w) => {
+  const out = []; let line = "";
+  for (const word of txt.split(" ")) {
+    const next = line ? line + " " + word : word;
+    if (L.textWidth(next, s) <= w || !line) line = next; else { out.push(line); line = word; }
+  }
+  if (line) out.push(line);
+  return out;
+};
+const showRecord = (q, r) => {
+  recTitle.textContent = r[0];
+  wrap(r[5], ABS, REC_W).forEach((l, i, a) => i < REC_LINES && (recLines[i].textContent = l));
+  for (let i = wrap(r[5], ABS, REC_W).length; i < REC_LINES; i++) recLines[i].textContent = "";
+  [r.num, q.cat, r[3] ? "Stardate " + r[3] : "Pre-Federation", r.size, r.xref, q.access]
+    .forEach((v, i) => (attrVals[i].textContent = v));
+};
+
+// ---------------- database statistics ----------------
+small(LX, 1620, LR - LX, "Database Statistics", 360, "peach", "butter");
+let indexed = 4812337105, xrefs = 61904227318, active = 1206, access = 4.1;
+const STATS = [["Records Indexed", () => indexed.toLocaleString("en")], ["Access Time", () => access.toFixed(1) + " ms"],
+  ["Cross-Refs", () => xrefs.toLocaleString("en")], ["Active Queries", () => active.toLocaleString("en")],
+  ["Linked Archives", () => "2,417"], ["Index Integrity", () => "99.998%"],
+  ["Subspace Link", () => "Starbase 74"], ["Last Update", () => sd.toFixed(1)]];
+const SW = (LR - LX - 120) / 2;
+const statVals = STATS.map(([name], i) => {
+  const x = LX + (i % 2) * (SW + 120), base = 1734 + Math.floor(i / 2) * 90;
+  L.text({ x, base, s: 40, c: "peach", txt: name });
+  return L.text({ x: x + SW, base, s: 52, c: "white", txt: "", align: "r" });
+});
+
+// ---------------- access log ----------------
+small(RX, 1620, SPLIT - RX, "Access Log", 300, "orange", "peach");
+const logRows = Array.from({ length: 6 }, (_, i) => {
+  const base = 1734 + i * 54;
+  return { sd: L.text({ x: RX, base, s: 36, c: "orange", txt: "" }), tx: L.text({ x: RX + 190, base, s: 36, c: "peach", txt: "" }) };
+});
+let sd = 47772.4, logged = [];
+const logLine = (txt) => {
+  sd += 0.1; logged.push([sd.toFixed(1), txt]); if (logged.length > 6) logged.shift();
+  logRows.forEach((r, i) => { const e = logged[i]; r.sd.textContent = e ? e[0] : ""; r.tx.textContent = e ? e[1] : ""; });
+};
+
+// ---------------- memory core ----------------
+small(AX, 1620, RR - AX, "Memory Core", 280, "sky", "ice");
+const cores = [["Core 1  ·  Primary", 0.64], ["Core 2  ·  Primary", 0.58], ["Core 3  ·  Backup", 0.37]].map(([name, u], i) => {
+  const base = 1734 + i * 108;                            // every second line of the access log
+  L.text({ x: AX, base, s: 36, c: "ice", txt: name });
+  const v = L.text({ x: RR, base, s: 36, c: "white", txt: "", align: "r" });
+  L.rect({ x: AX, y: base + 18, w: RR - AX, h: 22, c: "#141c36" });
+  const bar = L.layer({ x: AX, y: base + 18, w: RR - AX, h: 22 });
+  bar.style.background = i === 2 ? "var(--ice)" : "var(--sky)"; bar.style.transformOrigin = "0 0";
+  return { v, bar, u, base: u, goal: u };
+});
+
+// ---------------- a guard: every record's words fit their places ----------------
+{
+  const bad = [];
+  const fits = (txt, s, w, where) => { if (L.textWidth(txt, s) > w) bad.push(`${where}: "${txt}"`); };
+  for (const q of QUERIES) {
+    fits(q.a, 52, LR - VX, "query"); fits(q.b, 52, LR - VX, "query"); fits(q.scope, 52, LR - VX, "scope");
+    for (const r of q.res) {
+      fits(r[0], 40, CX.src - CX.title - 40, "title"); fits(r[1], 40, CX.rel - CX.src - 40, "source");
+      if (!r[5]) continue;
+      fits(r[0], 52, REC_W, "record title");
+      const w = wrap(r[5], ABS, REC_W), last = L.textWidth(w[w.length - 1], ABS) / REC_W;
+      if (w.length !== REC_LINES) bad.push(`abstract of "${r[0]}" runs to ${w.length} lines (wants ${REC_LINES})`);
+      else if (last < 0.5) bad.push(`abstract of "${r[0]}" ends on a short line (${Math.round(last * 100)}%)`);
+    }
+  }
+  if (bad.length) setTimeout(() => { throw new Error("library-computer: " + bad.join(" | ")); });
+}
+
+// ---------------- the starting state: the previous query, complete ----------------
+let qn = -1, q = null, revealed = 0, sel = -1, done = false;
+const prevQ = QUERIES[QUERIES.length - 1];
+prevQ.res.forEach((r, i) => { fillRow(i, r); rows[i].u = rows[i].goal; });
+showRecord(prevQ, prevQ.res[0]);
+[["Record " + prevQ.res[1].num + " retrieved", prevQ.res[1][0]], ["Record " + prevQ.res[2].num + " retrieved", prevQ.res[2][0]],
+ ["Index partition 14 rebuilt", "Cross-references verified"], ["Archive sync complete", "Starbase 74 subspace relay"],
+ ["Query 0410 complete", "Klingon succession law  ·  6 records"]].forEach(([a, b]) => logLine(a + "  ·  " + b));
+// (the log reads oldest first, so these were written in order; the first is the oldest)
+
+const startQuery = (n) => {
+  qn = n; q = QUERIES[n % QUERIES.length]; revealed = 0; sel = -1; done = false;
+  qA.textContent = q.a; qB.textContent = q.b; qScope.textContent = q.scope; qMethod.textContent = q.method;
+  for (let i = 0; i < ROWS; i++) { dimRow(i, true); rows[i].title.style.color = "var(--white)"; }
+  recEls.forEach((e) => e.classList.add("dim"));
+  qPill.textContent = "Query " + String(411 + n).padStart(4, "0");
+  logLine(`Query ${String(411 + n).padStart(4, "0")} initiated  ·  ${q.a}, ${q.b}`);
+};
+let recSwap = null;
+const select = (k) => {
+  sel = k;
+  rows.forEach((r, i) => (r.title.style.color = i === k ? "var(--butter)" : "var(--white)"));
+  recEls.forEach((e) => { e.classList.remove("dim"); e.classList.add("out"); });
+  recSwap = setTimeout(() => {                            // swap while invisible, then fade back in
+    showRecord(q, q.res[k]);
+    recEls.forEach((e) => e.classList.remove("out"));
+  }, 480);
+  logLine(`Record ${q.res[k].num} retrieved  ·  ${q.res[k][0]}`);
+};
+
+// ---------------- the clock ----------------
+let tPrev = null, prog = 1, rate = 610, rateGoal = 610;
+L.tick((t) => {
+  const dt = tPrev === null ? 0 : Math.min(0.1, t - tPrev); tPrev = t;
+  const n = Math.floor(t / CYCLE), u = t - n * CYCLE;
+  if (n !== qn) startQuery(n);
+  const searching = u < SEARCH;
+  const x = L.clamp(u / SEARCH);
+  prog = searching ? 1 - Math.pow(1 - x, 1.7) : 1;
+  css(progBar, "transform", `scaleX(${prog.toFixed(4)})`);
+  while (revealed < ROWS && u >= REVEAL(revealed)) {
+    rows[revealed].u = 0; fillRow(revealed, q.res[revealed]); dimRow(revealed, false); revealed++;
+  }
+  if (!searching) {
+    if (!done) { done = true; logLine(`Query ${String(411 + qn).padStart(4, "0")} complete  ·  ${q.matches.toLocaleString("en")} matches  ·  ${ROWS} records`); }
+    const k = Math.min(PER - 1, Math.floor((u - SEARCH) / SHOW));
+    if (k !== sel) select(k);
+  }
+  for (const r of rows) {                                  // relevance bars grow to their value
+    r.u += (r.goal - r.u) * Math.min(1, dt * 3.2);
+    css(r.bar, "transform", `scaleX(${r.u.toFixed(4)})`);
+    css(r.bar, "opacity", r.title.classList.contains("dim") ? "0.38" : "1");
+  }
+  const goalY = rowBase(Math.max(0, sel)) - 40;
+  markerY += (goalY - markerY) * Math.min(1, dt * 6);
+  css(marker, "transform", `translate3d(0px, ${markerY.toFixed(1)}px, 0px)`);
+  css(marker, "opacity", sel >= 0 ? "1" : "0");
+  // isolinear chips: the read head lights a chip, which then fades; fast while searching
+  if (t >= readAt) {
+    readAt = t + (searching ? L.rand(0.1, 0.16) : L.rand(0.3, 0.5));
+    readPos = Math.random() < 0.75 ? (readPos + 1) % chips.length : L.irand(0, chips.length - 1);
+    chips[readPos].v = 1;
+  }
+  for (const c of chips) {
+    c.v *= Math.exp(-dt * 0.9);
+    const o = Math.round(c.v * 50) / 50;
+    if (o !== c.shown) { c.lit.style.opacity = o; c.shown = o; }
+  }
+  rateGoal = searching ? 4700 : 610;
+  rate += (rateGoal - rate) * Math.min(1, dt * 1.2);
+  for (const c of cores) {
+    c.u += (c.goal - c.u) * Math.min(1, dt * 0.6);
+    css(c.bar, "transform", `scaleX(${c.u.toFixed(3)})`);
+  }
+});
+L.every(250, (t) => {
+  const u = t % CYCLE, searching = u < SEARCH;
+  put(stateTxt, searching ? "Searching" : "Retrieval Complete");
+  css(stateTxt, "color", searching ? "var(--butter)" : "var(--ice)");
+  put(stateSub, searching ? `Federation database  ·  Cross-referencing ${Math.round(prog * 2417).toLocaleString("en")} of 2,417 linked archives`
+                          : `Record ${sel + 1} of ${PER}  ·  ${q.res[Math.max(0, sel)][0]}`);
+  put(progTxt, (prog * 100).toFixed(1) + "%");
+  put(scanned, Math.round(prog * indexed).toLocaleString("en") + " records");
+  put(matches, Math.round(Math.pow(prog, 1.4) * q.matches).toLocaleString("en"));
+  put(rateTxt, (Math.round(rate / 10) * 10).toLocaleString("en") + " kiloquads/s");
+  statVals.forEach((v, i) => put(v, STATS[i][1]()));
+  cores.forEach((c) => put(c.v, (c.u * 100).toFixed(1) + "%"));
+}, 0);
+L.every(2000, (t) => {                                    // the library grows, slowly; load wanders
+  indexed += L.irand(1, 6); xrefs += L.irand(4, 40);
+  active = L.clamp(active + L.irand(-9, 9), 1150, 1260);
+  access = L.clamp(access + L.rand(-0.1, 0.1), 3.8, 4.4);
+  const searching = t % CYCLE < SEARCH;
+  cores.forEach((c, i) => (c.goal = L.clamp(c.base + (searching && i < 2 ? 0.08 : 0) + L.rand(-0.02, 0.02), 0.2, 0.95)));
+}, 0.2);
+});
+</script></body></html>

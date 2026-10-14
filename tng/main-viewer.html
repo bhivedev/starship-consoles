@@ -1,0 +1,434 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Main Viewer</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .sw { transition: background-color .9s ease, color .9s ease; }
+  .brk { position: absolute; left: 0; top: 0; width: 64px; height: 64px; border: 0 solid var(--ice); }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: wide, no sidebars — the viewer is the screen ----------------
+L.frame({ type: "D", title: "Main Viewer  •  Telemetry", c: "sky", c2: "ice", accent: "blue" });
+
+const G = L.GAP;
+const LX = 40, LR = 760, MX = 824, MR = 3032, RX = 3096, RR = 3816;      // three columns, 64 apart
+const ROW0 = 428, ROW1 = 1128, PITCH = 88;                               // rows of 64 on an 88 grid
+const rowBase = (y0, i) => y0 + i * PITCH + 52.5;
+const TRACK = "#0c1a36";
+const fill = (x, y, w, h, c, parent) => {
+  const f = L.layer({ x, y, w, h }, parent);
+  f.style.background = c.startsWith("#") ? c : `var(--${c})`; f.style.transformOrigin = "0 0";
+  return f;
+};
+const later = (ms, f, jitter) => L.every(ms, (t) => { if (t > 1) f(t); }, jitter);
+const fmt = (n) => Math.round(n).toLocaleString("en");
+const pad = (n, k = 2) => String(n).padStart(k, "0");
+
+// ---------------- the voyage ----------------
+const DEST = { name: "Starbase 74", where: "Tarsas III", sector: "Sector 21503", heading: "047 mark 012" };
+let destLy = 1.8642;                                     // light-years still to go
+const WARP_C = [0, 1, 10, 39, 102, 214, 392, 656, 1024, 1516];   // the TNG scale: warp factor → times light
+const cOf = (w) => { const i = Math.min(8, Math.floor(w)); return L.mix(WARP_C[i], WARP_C[i + 1], w - i); };
+const QIMP = 18737;                                      // one-quarter impulse, km/s
+// systems surveyed on the way: [name, diameter km, status, light, mid, dark, glow rgb]
+const TARGETS = [
+  ["Bre'el IV", 11960, "Lunar orbit decaying", "#cfe9ff", "#4f86c9", "#10234a", "143,211,255"],
+  ["Narendra III", 12410, "Klingon outpost", "#f4dcaa", "#b38a4a", "#3a2810", "255,204,102"],
+  ["Deneb IV", 13020, "Farpoint Station", "#ece6cc", "#8e9a6a", "#262e1c", "201,214,170"],
+  ["El-Adrel IV", 10870, "Uninhabited", "#ffd6b8", "#c46a3a", "#44190a", "255,176,112"],
+  ["Minos Korva", 12150, "Federation colony", "#dcf2ff", "#5c9dff", "#162a66", "92,157,255"],
+  ["Mintaka III", 9780, "Pre-warp culture", "#ebe6cb", "#a99a3a", "#353012", "214,200,120"],
+].map(([name, D, status, c1, c2, c3, glow]) => ({ name, D, status, c1, c2, c3, glow }));
+let course = Math.floor(Math.random() * TARGETS.length);  // the next survey on the course
+const nextTarget = (k = 0) => TARGETS[(course + k) % TARGETS.length];
+
+// ---------------- status line ----------------
+const stateTxt = L.text({ x: LX, cap: 150, s: 100, c: "ice", txt: "" });
+const stateSub = L.text({ x: 0, base: 222, s: 38, c: "sky", txt: "" });
+const setState = (word, sub) => {
+  L.set(stateTxt, word);
+  stateSub.style.left = LX + L.textWidth(word, 100) + 40 + "px";
+  L.set(stateSub, sub);
+};
+L.box({ x: RR - 400, y: 150, w: 400, h: 72, c: "sky", label: "Condition Green", r: "lr", fs: 36 });
+const stardate0 = 47634.4 + Math.random() * 0.05;
+L.text({ x: RX, base: 222, s: 40, c: "sky", txt: "Stardate" });               // on the right column's edge
+const sdVal = L.text({ x: RX + L.textWidth("Stardate", 40) + 24, base: 222, s: 52, c: "white", txt: "" });
+const stardate = (t = L.t) => (stardate0 + t / 3600 / 8.766).toFixed(1);   // a thousand a year
+
+// ---------------- helm control (top left) ----------------
+L.header({ x: LX, y: 280, w: LR - LX, label: "Helm Control", c1: "sky", c2: "blue" });
+L.text({ x: LX, base: 400, s: 36, c: "ice", txt: "Helm" });
+const helmNote = L.text({ x: LR, base: 400, s: 36, c: "ice", txt: "", align: "r" });
+const table = (x, y0, rows, colors) => rows.map(([label, cap], i) => {
+  const base = rowBase(y0, i);
+  L.box({ x, y: y0 + i * PITCH, w: 220, h: 64, c: colors[i % colors.length], label, fs: 32, r: "l" });
+  return { v: L.text({ x: x + 244, base, s: 52, c: "white", txt: "" }),
+           c: cap === null ? null : L.text({ x: x + 720, base, s: 36, c: "sky", txt: cap, align: "r" }) };
+});
+const helm = table(LX, ROW0, [["Heading", "Galactic"], ["Destination", DEST.where], ["Sector", "Federation"], ["Distance", "Light-years"],
+  ["Arrival", ""], ["Conn", "Helm Officer"]], ["sky", "ice", "blue", "sky", "ice", "blue"]);
+L.set(helm[0].v, DEST.heading); L.set(helm[1].v, DEST.name); L.set(helm[2].v, DEST.sector); L.set(helm[5].v, "Ensign Ro Laren");
+
+// ---------------- target analysis (top right) ----------------
+L.header({ x: RX, y: 280, w: RR - RX, label: "Target Analysis", c1: "ice", c2: "sky" });
+L.text({ x: RX, base: 400, s: 36, c: "ice", txt: "Sensors" });
+const tgtNote = L.text({ x: RR, base: 400, s: 36, c: "ice", txt: "", align: "r" });
+const tgt = table(RX, ROW0, [["Contact", "Target 01"], ["Class", "Planet"], ["Range", ""], ["Bearing", ""], ["Diameter", "Equatorial"], ["Status", null]],
+  ["ice", "sky", "blue", "ice", "sky", "blue"]);
+
+// ---------------- gauges (lower left and right) ----------------
+const gauges = (x, rows, colors, heads) => {
+  heads.forEach(([txt, dx, align]) => L.text({ x: x + dx, base: 1100, s: 36, c: "ice", txt, align }));
+  return rows.map(([label, v], i) => {
+    const base = rowBase(ROW1, i);
+    L.box({ x, y: ROW1 + i * PITCH, w: 220, h: 64, c: colors[i % colors.length], label, fs: 32, r: "l" });
+    L.rect({ x: x + 244, y: base - 26, w: 316, h: 26, c: TRACK });
+    return { f: fill(x + 244, base - 26, 316, 26, colors[i % colors.length]), e: L.text({ x: x + 720, base, s: 52, c: "white", txt: "", align: "r" }),
+             v, goal: v, drawn: false };
+  });
+};
+L.header({ x: LX, y: 1000, w: LR - LX, label: "Warp Field", c1: "ice", c2: "sky" });
+const field = gauges(LX, [["Port Nacelle", 0.62], ["Stbd Nacelle", 0.62], ["Symmetry", 0.994], ["Plasma Flow", 0.6], ["Antimatter", 0.58]],
+  ["sky", "sky", "ice", "blue", "ice"], [["Subsystem", 0], ["Output", 244], ["Level", 720, "r"]]);
+L.header({ x: RX, y: 1000, w: RR - RX, label: "Forward Sensors", c1: "sky", c2: "blue" });
+const sens = gauges(RX, [["Particles", 0.31], ["Gravimetric", 0.12], ["EM Field", 0.22], ["Subspace", 0.44], ["Deflector", 0.68]],
+  ["ice", "sky", "blue", "ice", "sky"], [["Sensor", 0], ["Reading", 244], ["Level", 720, "r"]]);
+L.tick(() => [...field, ...sens].forEach((g) => {
+  const d = g.goal - g.v;
+  if (Math.abs(d) < 0.0004 && g.drawn) return;
+  g.v += d * 0.035; g.drawn = true;
+  g.f.style.transform = `scaleX(${L.clamp(g.v).toFixed(4)})`;
+}));
+L.every(300, () => [...field, ...sens].forEach((g) => L.set(g.e, (L.clamp(g.v) * 100).toFixed(1) + "%")), 0);
+
+// ---------------- the viewer ----------------
+L.header({ x: MX, y: 280, w: MR - MX, label: "Main Viewer  ·  Forward", c1: "sky", c2: "ice" });
+const SX = MX, SY = ROW0, SW = MR - MX, SH = 1544 - ROW0, CX = SW / 2, CY = SH / 2;
+const PXRAD = SW / (Math.PI / 3);                         // 60° across the viewer at magnification 1
+L.rect({ x: SX, y: SY, w: SW, h: SH, c: "#050f29", panel: true });
+// the bearing scale above it: ticks every 5°, figures every 10°
+for (let k = -6; k <= 6; k++) {
+  const x = SX + CX + k * (SW / 12), major = k % 2 === 0;
+  L.rect({ x: x - 2 - (k === -6 ? -2 : k === 6 ? 2 : 0), y: major ? 406 : 412, w: 4, h: major ? 16 : 10, c: "ice", free: true });
+}
+const bearLab = [-3, -2, -1, 0, 1, 2, 3].map((k) => {
+  const x = SX + CX + k * (SW / 6), align = k === -3 ? "l" : k === 3 ? "r" : "c";
+  return L.text({ x, base: 396, s: 34, c: "ice", txt: "", align, w: 160, legend: true });
+});
+const showBearings = (centre, mag) => bearLab.forEach((e, i) => {
+  let b = centre + (i - 3) * 10 / mag; b = ((b % 360) + 360) % 360;
+  L.set(e, mag === 1 ? pad(Math.round(b) % 360, 3) : (b < 100 ? (b < 10 ? "00" : "0") : "") + b.toFixed(1));
+});
+showBearings(0, 1);
+
+const screen = L.layer({ x: SX, y: SY, w: SW, h: SH });
+screen.style.overflow = "hidden";
+const space = L.layer({ x: 0, y: 0, w: SW, h: SH }, screen);   // the stars: zoomed and faded as one
+const sky = L.canvas({ x: 0, y: 0, w: SW, h: SH }, space);
+L.stars(sky, 520, ["#8fb4ff", "#5c7dff", "#c9d6ff", "#ffffff", "#8fd3ff"], 2.4);
+
+// star streaks: each a short gradient bar on its own layer, sent outward from the vanishing point
+const STREAK_C = ["255,255,255", "201,230,255", "143,211,255", "92,157,255", "220,236,255"];
+const RMAX = Math.hypot(CX, CY) + 20;
+const spawn = (s, any) => {
+  s.a = Math.random() * 360; s.r = any ? Math.exp(L.rand(Math.log(20), Math.log(RMAX))) : 14 + 360 * Math.random() ** 2;
+  s.age = any ? 9 : 0; s.z = L.rand(0.75, 1.3);
+};
+const streaks = Array.from({ length: 80 }, () => {
+  const c = L.pick(STREAK_C), h = L.pick([2, 3, 3, 4]);
+  const e = L.el("div", "layer", space, { left: "0px", top: "0px", width: "100px", height: h + "px", transformOrigin: `0 ${h / 2}px`,
+    background: `linear-gradient(to right, rgba(${c},0), rgba(${c},.55) 55%, rgba(${c},1))`, borderRadius: h / 2 + "px" });
+  const s = { e, h }; spawn(s, true); return s;
+});
+let S = 1;                                              // streak speed: 1 at warp, a drift at impulse
+const S_IMP = 0.012, K = 2.3, TRAIL = 0.24;
+let lastT = null, frameN = 0;
+L.tick((t) => {
+  // at impulse the field barely drifts: a third of the frames is plenty
+  if (S < 0.05 && ++frameN % 3) return;
+  const dt = lastT === null ? 0 : Math.min(0.2, t - lastT); lastT = t;
+  const v = K * S;
+  for (const s of streaks) {
+    s.r *= Math.exp(v * s.z * dt); s.age += dt;
+    const len = Math.max(s.h + 1, s.r * (1 - Math.exp(-v * s.z * TRAIL)));
+    if (s.r - len > RMAX) { spawn(s, false); continue; }
+    const o = L.clamp(s.r / 110) * L.clamp(s.age * Math.max(S, 0.08) / 0.45) * L.mix(0.45, 1, L.clamp(S / 0.25));   // at impulse the field's own stars lead
+    s.e.style.transform = `translate3d(${CX.toFixed(1)}px,${(CY - s.h / 2).toFixed(1)}px,0) rotate(${s.a.toFixed(2)}deg) translateX(${(s.r - len).toFixed(1)}px) scaleX(${(len / 100).toFixed(4)})`;
+    const os = o.toFixed(2);
+    if (s.os !== os) { s.os = os; s.e.style.opacity = os; }
+  }
+});
+
+// the planet, and the target box that follows it
+const PB = 520;
+const planet = L.el("div", "layer", screen, { left: "0px", top: "0px", width: PB + "px", height: PB + "px", borderRadius: "50%", opacity: 0 });
+const paint = (T) => {
+  // lit from the upper left: the sphere's own shading, darkening at the limb, and the night side
+  planet.style.background = `linear-gradient(128deg, rgba(2,6,20,0) 42%, rgba(2,6,20,.82) 66%, rgba(2,6,20,.96) 84%),
+    radial-gradient(circle closest-side, rgba(2,6,20,0) 72%, rgba(2,6,20,.5) 100%),
+    radial-gradient(circle at 36% 32%, ${T.c1} 0%, ${T.c2} 46%, ${T.c3} 100%)`;
+  planet.style.boxShadow = `0 0 46px 8px rgba(${T.glow},.32)`;
+};
+const box = L.el("div", "", screen, { position: "absolute", left: "0px", top: "0px", width: SW + "px", height: SH + "px", opacity: 0 });
+box.className = "layer";
+const corners = [[1, 1, 0, 0], [0, 1, 1, 0], [1, 0, 0, 1], [0, 0, 1, 1]].map(([l, t, r, b]) =>
+  L.el("div", "brk layer", box, { borderLeftWidth: l * 6 + "px", borderTopWidth: t * 6 + "px", borderRightWidth: r * 6 + "px", borderBottomWidth: b * 6 + "px" }));
+const tagL = L.layer({ x: 0, y: 0, w: 260, h: 48 }, box);
+L.box({ x: 0, y: 0, w: 260, h: 48, c: "ice", label: "Target Lock", fs: 28, r: "l" }, tagL);
+const nameL = L.layer({ x: 0, y: 0, w: 700, h: 110 }, box);
+const tName = L.text({ x: 0, base: 44, s: 52, c: "white", txt: "" }, nameL);
+const tInfo = L.text({ x: 0, base: 96, s: 36, c: "ice", txt: "" }, nameL);
+const place = (x, y, px) => {                           // the planet's centre and size on the viewer
+  const sc = Math.max(px, 10) / PB;
+  planet.style.transform = `translate3d(${(x - PB / 2).toFixed(1)}px,${(y - PB / 2).toFixed(1)}px,0) scale(${sc.toFixed(4)})`;
+  const a = Math.max(px * 1.32, 132) / 2;
+  [[-a, -a], [a - 64, -a], [-a, a - 64], [a - 64, a - 64]].forEach(([dx, dy], i) => L.move(corners[i], x + dx, y + dy));
+  L.move(tagL, x - a, y - a - 72);
+  L.move(nameL, x - a, y + a + 18);
+};
+
+// what lies over the picture: corner brackets, the reticle, the mark scale
+const ov = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+ov.setAttribute("viewBox", `0 0 ${SW} ${SH}`);
+Object.assign(ov.style, { position: "absolute", left: SX + "px", top: SY + "px", width: SW + "px", height: SH + "px" });
+L.stage.appendChild(ov);
+const ovr = (x, y, w, h, c = "var(--ice)", op = 1) => L.svg("rect", { x, y, width: w, height: h, fill: c, opacity: op }, ov);
+for (const [x, y, sx, sy] of [[24, 24, 1, 1], [SW - 24, 24, -1, 1], [24, SH - 24, 1, -1], [SW - 24, SH - 24, -1, -1]]) {
+  ovr(sx > 0 ? x : x - 96, sy > 0 ? y : y - 6, 96, 6);
+  ovr(sx > 0 ? x : x - 6, sy > 0 ? y : y - 96, 6, 96);
+}
+for (const [dx, dy, w, h] of [[-96, -2, 60, 4], [36, -2, 60, 4], [-2, -96, 4, 60], [-2, 36, 4, 60]]) ovr(CX + dx, CY + dy, w, h, "var(--ice)", 0.7);
+for (let k = -5; k <= 5; k++) {                         // the mark scale down both sides, every 5°
+  const y = CY + k * (SW / 12), w = k % 2 === 0 ? 28 : 16;
+  if (y < 150 || y > SH - 150) continue;
+  ovr(0, y - 2, w, 4, "var(--ice)", 0.75); ovr(SW - w, y - 2, w, 4, "var(--ice)", 0.75);
+}
+
+// the four corner readings, printed on the picture
+const corner = (x, align, top, label) => {
+  const lb = top ? SY + 64 + 26 : SY + SH - 64 - 64;
+  return { l: L.text({ x, base: lb, s: 36, c: "sky", txt: label, align }), v: L.text({ x, base: lb + 62, s: 52, c: "white", txt: "", align }) };
+};
+const cSpeed = corner(SX + 64, "l", true, "Speed");
+const cMag = corner(SX + SW - 64, "r", true, "Magnification");
+const cRange = corner(SX + 64, "l", false, "Range");
+const cBear = corner(SX + SW - 64, "r", false, "Bearing");
+
+// ---------------- propulsion (bottom middle) ----------------
+L.header({ x: MX, y: 1620, w: MR - MX, label: "Propulsion", c1: "ice", c2: "sky", h: 48 });
+const SEGS = ["1/4 Impulse", "1/2 Impulse", "3/4 Impulse", "Full Impulse", ...Array.from({ length: 9 }, (_, i) => `Warp ${i + 1}`)];
+const SP = (SW + 8) / SEGS.length;
+const segs = SEGS.map((label, i) => {
+  const x = Math.round(MX + i * SP), x2 = Math.round(MX + (i + 1) * SP) - 8;
+  return L.box({ x, y: 1772, w: (i === SEGS.length - 1 ? MR : x2) - x, h: 80, c: TRACK, label, fs: 28, cls: "sw",
+    r: i === 0 ? "l" : i === SEGS.length - 1 ? "r" : null });
+});
+const segX = (i) => Math.round(MX + i * SP);
+// readings sit on the segment grid: the label over one segment, the value from the next
+const cell = (i, j, label, base = 1734) => {
+  L.text({ x: segX(i), base, s: 40, c: "sky", txt: label });
+  return L.text({ x: segX(j), base, s: 52, c: "white", txt: "" });
+};
+const pSpeed = cell(0, 1, "Speed"), pVel = cell(4, 5, "Velocity"), pDamp = cell(9, 11, "Inertial Dampers");
+L.rect({ x: MX, y: 1876, w: segX(4) - 8 - MX, h: 16, c: "sky" });
+L.rect({ x: segX(4), y: 1876, w: MR - segX(4), h: 16, c: "ice" });
+const impDrive = cell(0, 1, "Impulse Drive", 1950), warpDrive = cell(4, 5, "Warp Drive", 1950);
+let segShown = "";
+const showSegs = (lit, cur) => {
+  const key = lit + "/" + cur; if (key === segShown) return; segShown = key;
+  segs.forEach((e, i) => {
+    const on = i <= lit, c = i === cur ? "white" : i < 4 ? "sky" : "ice";
+    e.style.background = on ? `var(--${c})` : TRACK;
+    e.style.color = on ? "#000" : `var(--${i < 4 ? "sky" : "ice"})`;
+  });
+};
+
+// ---------------- helm log (bottom left) ----------------
+L.header({ x: LX, y: 1620, w: LR - LX, label: "Helm Log", c1: "sky", c2: "ice", h: 48 });
+const logRows = Array.from({ length: 5 }, (_, i) => {
+  const base = 1734 + i * 54;
+  return { sd: L.text({ x: LX, base, s: 36, c: "sky", txt: "" }), tx: L.text({ x: LX + 164, base, s: 36, c: "ice", txt: "" }) };
+});
+const logged = [];
+const log = (txt) => {
+  logged.push([stardate(), txt]); if (logged.length > 5) logged.shift();
+  logRows.forEach((r, i) => { const e = logged[i]; L.set(r.sd, e ? e[0] : ""); L.set(r.tx, e ? e[1] : ""); r.tx.style.color = i === logged.length - 1 ? "var(--white)" : "var(--ice)"; });
+};
+
+// ---------------- course plot (bottom right) ----------------
+L.header({ x: RX, y: 1620, w: RR - RX, label: "Course Plot", c1: "blue", c2: "sky", h: 48 });
+const plotRows = Array.from({ length: 5 }, (_, i) => {
+  const base = 1734 + i * 54;
+  return { n: L.text({ x: RX, base, s: 36, c: "ice", txt: "" }), k: L.text({ x: RX + 300, base, s: 36, c: "sky", txt: "" }),
+           s: L.text({ x: RR, base, s: 36, c: "ice", txt: "", align: "r" }) };
+});
+let surveyed = null, surveying = false;
+const showPlot = () => {
+  const rows = [];
+  if (surveyed) rows.push([surveyed.name, `Class M  ·  ${fmt(surveyed.D)} km`, "Complete", "sky"]);
+  for (let k = 0; rows.length < 4; k++) rows.push([nextTarget(k).name, `Class M  ·  ${fmt(nextTarget(k).D)} km`, k === 0 ? (surveying ? "In Progress" : "Next") : "Scheduled", k === 0 ? "white" : "ice"]);
+  rows.push([DEST.name, "Destination", destLy.toFixed(2) + " ly", "ice"]);
+  rows.forEach(([n, k, s, c], i) => {
+    const r = plotRows[i]; L.set(r.n, n); L.set(r.k, k); L.set(r.s, s);
+    r.n.style.color = r.s.style.color = `var(--${c})`;
+  });
+};
+
+// ---------------- the voyage, in phases ----------------
+// warp → drop (4 s) → survey (28.6 s: lock, magnify, sweep, back to 1, release) → accel (4.5 s) → warp
+let phase = "warp", p0 = 0, warpFor = 20, W = 6, wf = 6, T = null, R = 0, R0 = 0, M = 1, Meff = 1, off = [0, 0], bear = [0, 0];
+let sweep = 0, lockOp = 0, planetOp = 0, zoomK = 0, logged1 = {};
+const once = (key, f) => { if (!logged1[key]) { logged1[key] = 1; f(); } };
+const MAG_IN = 4, MAG_OUT = 25, MAGT = 2.8, SURVEY = 28.6, DROP = 4, ACCEL = 4.5;
+const warpWord = () => `Warp Factor ${W}`;
+const warpSub = () => `Course ${DEST.heading}  ·  ${DEST.name}  ·  Ensign Ro at the conn`;
+setState(warpWord(), warpSub());
+
+// the stars zoom with the magnification: out and faded, then in again at the new power
+const zoomSpace = (k, origin) => {
+  space.style.transformOrigin = `${origin[0].toFixed(1)}px ${origin[1].toFixed(1)}px`;
+  const sc = k < 0.5 ? 1 + 1.4 * k : 0.55 + 0.9 * (k - 0.5);
+  space.style.transform = `scale(${sc.toFixed(4)})`;
+  space.style.opacity = Math.abs(1 - 2 * k).toFixed(3);
+};
+
+let lastV = null;
+L.tick((t) => {
+  const u = t - p0, dtv = lastV === null ? 0 : Math.min(0.1, t - lastV); lastV = t;
+  if (phase === "warp") {
+    S = 1; wf = W;
+    if (u > warpFor) {
+      phase = "drop"; p0 = t; T = nextTarget(); paint(T);
+      M = L.pick([20, 50]); R0 = (T.D * PXRAD * M) / L.rand(320, 350); R = R0;
+      bear = [L.pick([-1, 1]) * L.irand(3, 9), L.pick([-1, 1]) * L.irand(1, 4)];
+      off = [bear[0] * PXRAD * Math.PI / 180, -bear[1] * PXRAD * Math.PI / 180];
+      logged1 = {}; log(`Dropping to impulse, ${T.name.replace(/ [IVX]+$/, "")} system`);
+      setState("Impulse Power", `Survey of ${T.name}  ·  one-quarter impulse  ·  Ensign Ro at the conn`);
+    }
+  } else if (phase === "drop") {
+    const k = L.ease(L.clamp(u / DROP));
+    S = L.mix(1, S_IMP, Math.pow(k, 0.5)); wf = W * (1 - k);
+    planetOp = L.clamp((u - DROP + 1.2) / 1.2);
+    if (u >= DROP) { phase = "survey"; p0 = t; surveying = true; showPlot(); }
+  } else if (phase === "survey") {
+    S = S_IMP; wf = 0;
+    R = R0 - QIMP * u;
+    planetOp = 1;
+    lockOp = u < MAG_OUT + MAGT ? L.clamp((u - 0.4) / 0.8) : 1 - L.clamp((u - MAG_OUT - MAGT) / 0.8);
+    if (u > 1.5) once("contact", () => log(`Contact: ${T.name}, class M planet`));
+    if (u > MAG_IN) once("mag", () => log(`On screen, magnification factor ${M}`));
+    if (u > 8) once("sweep", () => log(`Sensor sweep of ${T.name} begun`));
+    if (u > MAG_OUT) once("done", () => { log(`Survey of ${T.name} complete`); surveying = false; surveyed = T; course++; showPlot(); });
+    if (u < MAG_IN) zoomK = 0;
+    else if (u < MAG_IN + MAGT) zoomK = L.ease((u - MAG_IN) / MAGT);
+    else if (u < MAG_OUT) zoomK = 1;
+    else zoomK = 1 - L.ease(L.clamp((u - MAG_OUT) / MAGT));
+    sweep = L.clamp((u - 8) / (MAG_OUT - 8.5));
+    if (u >= SURVEY) {
+      phase = "accel"; p0 = t; W = L.pick([5, 6, 6, 7]);
+      log(`Resuming course, warp ${W}`);
+      setState(warpWord(), warpSub());
+    }
+  } else if (phase === "accel") {
+    const k = L.ease(L.clamp(u / ACCEL));
+    S = L.mix(S_IMP, 1, k * k); wf = W * k;
+    planetOp = 1 - L.clamp(u / 1.4);
+    if (u >= ACCEL) { phase = "warp"; p0 = t; warpFor = L.rand(38, 52); }
+  }
+  // the magnification: logarithmic, so the zoom feels even; the target slides to the centre as it grows
+  const inZoom = phase === "survey" && t - p0 >= MAG_IN && t - p0 < MAG_OUT + MAGT;
+  Meff = Math.pow(M, zoomK);
+  if (inZoom && zoomK > 0 && zoomK < 1) zoomSpace(phase === "survey" && t - p0 < MAG_OUT ? zoomK : 1 - zoomK, zoomK < 0.5 ? [CX + off[0], CY + off[1]] : [CX, CY]);
+  else if (space._z !== 1) { space.style.transform = ""; space.style.opacity = 1; }
+  space._z = inZoom && zoomK > 0 && zoomK < 1 ? 0 : 1;
+  if (T && planetOp > 0) {
+    const px = R > 0 ? (T.D / R) * PXRAD * Meff : 10;
+    let x = CX + off[0] * (1 - zoomK), y = CY + off[1] * (1 - zoomK);
+    if (phase === "accel") { const g = 1 + 2.5 * L.clamp((t - p0) / 1.4) ** 2; x = CX + off[0] * g; y = CY + off[1] * g; }
+    place(x, y, px);
+  }
+  const po = planetOp.toFixed(3), lo = lockOp.toFixed(3);
+  if (planet._o !== po) { planet._o = po; planet.style.opacity = po; }
+  if (box._o !== lo) { box._o = lo; box.style.opacity = lo; }
+  // distance only falls at warp, at the ship's real speed
+  if (phase === "warp" || phase === "accel" || phase === "drop") destLy -= (cOf(wf) / 31557600) * dtv;
+});
+
+// ---------------- readings, a few times a second ----------------
+const velTxt = () => (wf >= 1 ? `${fmt(cOf(wf))} c` : `${fmt(phase === "warp" ? 0 : QIMP)} km/s`);
+const speedTxt = () => (wf >= 1 ? `Warp ${wf.toFixed(1)}` : "1/4 Impulse");
+const bearTxt = (b) => `${pad(((b[0] % 360) + 360) % 360, 3)} mark ${b[1] < 0 ? 360 + b[1] : b[1]}`;
+let shownMag = 1;
+L.every(250, (t) => {
+  const atWarp = wf >= 1, inSurvey = phase === "survey";
+  L.set(sdVal, stardate(t));
+  L.set(cSpeed.v, speedTxt()); L.set(pSpeed, speedTxt()); L.set(pVel, velTxt());
+  L.set(pDamp, phase === "drop" || phase === "accel" ? "Compensating" : "Nominal");
+  L.set(impDrive, atWarp ? "Standby" : "Engaged"); L.set(warpDrive, atWarp ? "Engaged" : "Standby");
+  const magShown = Math.round(Meff);
+  L.set(cMag.v, `Factor ${magShown}`);
+  if (inSurvey && magShown !== shownMag && (zoomK > 0.5) !== (shownMag > 1)) { shownMag = zoomK > 0.5 ? M : 1; showBearings(zoomK > 0.5 ? bear[0] : 0, shownMag); }
+  if (!inSurvey && shownMag !== 1) { shownMag = 1; showBearings(0, 1); }
+  const tgtNear = inSurvey || phase === "drop" || (phase === "accel" && t - p0 < 1.4);
+  L.set(cRange.l, tgtNear ? `Range  ·  ${T.name}` : `Range  ·  ${DEST.name}`);
+  L.set(cRange.v, tgtNear ? `${fmt(R)} km` : `${destLy.toFixed(4)} ly`);
+  L.set(cBear.v, tgtNear ? bearTxt(bear) : "000 mark 0");
+  // segments: what is lit, and where the ship is now
+  if (atWarp) showSegs(3 + Math.floor(wf), 3 + Math.floor(wf)); else if (phase === "warp") showSegs(-1, -1); else showSegs(0, 0);
+  // helm
+  L.set(helm[3].v, destLy.toFixed(4));
+  const secs = (destLy / cOf(W)) * 31557600;
+  L.set(helm[4].v, `${Math.floor(secs / 3600)} h ${pad(Math.floor(secs / 60) % 60)} m ${pad(Math.floor(secs) % 60)} s`);
+  L.set(helm[4].c, `At Warp ${W}`);
+  L.set(helmNote, atWarp ? "Course laid in" : "Survey hold");
+  // the target
+  const X = tgtNear ? T : nextTarget();
+  L.set(tgt[0].v, X.name); L.set(tgt[1].v, "Class M"); L.set(tgt[4].v, `${fmt(X.D)} km`);
+  if (tgtNear) {
+    L.set(tgt[2].v, `${fmt(R)} km`); L.set(tgt[2].c, phase === "accel" ? "Receding" : "Closing");
+    L.set(tgt[3].v, bearTxt(bear)); L.set(tgt[3].c, "Relative");
+    L.set(tgt[5].v, inSurvey && sweep > 0 && sweep < 1 ? `Sensor sweep  ·  ${Math.floor(sweep * 100)}%` : X.status);
+    L.set(tgtNote, sweep >= 1 || phase === "accel" ? "Survey complete" : "Tracking");
+  } else {
+    L.set(tgt[2].v, "Long range"); L.set(tgt[2].c, "On course");
+    L.set(tgt[3].v, "000 mark 0"); L.set(tgt[3].c, "Dead ahead");
+    L.set(tgt[5].v, X.status); L.set(tgtNote, "Survey scheduled");
+  }
+  L.set(tName, T ? T.name : ""); L.set(tInfo, T ? `Class M  ·  Range ${fmt(R)} km` : "");
+}, 0);
+L.every(4000, showPlot, 0);
+
+// gauges follow the drive, and drift a little
+L.every(700, () => {
+  const k = wf / 9.6, imp = wf < 1 && phase !== "warp";
+  field[0].goal = k * (1 + 0.006 * Math.sin(L.t * 0.3)); field[1].goal = k * (1 + 0.006 * Math.sin(L.t * 0.3 + 1.3));
+  field[2].goal = phase === "drop" || phase === "accel" ? 0.982 : 0.994;
+  field[3].goal = imp ? 0.14 : 0.08 + 0.85 * k; field[4].goal = imp ? 0.06 : 0.06 + 0.82 * k;
+  sens[4].goal = imp ? 0.24 : 0.3 + 0.5 * k;
+}, 0);
+later(6000, () => {
+  const close = phase === "survey" ? 1 : 0;
+  sens[0].goal = L.clamp(0.28 + L.rand(-0.06, 0.06));
+  sens[1].goal = L.clamp((close ? 0.64 : 0.12) + L.rand(-0.04, 0.04));
+  sens[2].goal = L.clamp((close ? 0.48 : 0.2) + L.rand(-0.04, 0.04));
+  sens[3].goal = L.clamp((wf >= 1 ? 0.44 : 0.1) + L.rand(-0.04, 0.04));
+}, 0.3);
+
+const ROUTINE = ["Stellar drift correction applied", "Navigational deflector nominal", "Subspace field geometry stable",
+  "Long range sensor sweep logged", "Course correction, 0.02 degrees", "Passing interstellar dust cloud", "Warp field balanced, nacelles in phase"];
+let rdeck = [];
+later(13000, () => {
+  if (phase !== "warp" || L.t - p0 < 5 || L.t - p0 > warpFor - 4) return;
+  if (!rdeck.length) rdeck = ROUTINE.slice().sort(() => Math.random() - 0.5);
+  log(rdeck.pop());
+}, 0.3);
+
+log(`Course laid in, ${DEST.name}`); log("Ensign Ro has the conn"); log(`Survey of ${nextTarget().name} scheduled`);
+log("Navigational deflector nominal"); log(`Warp ${W}, engaged`);
+showPlot();
+});
+</script></body></html>

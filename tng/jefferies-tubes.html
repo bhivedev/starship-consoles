@@ -1,0 +1,423 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Jefferies Tubes</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  .crew { border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #000;
+          font-size: 30px; line-height: 1; padding-top: 3px; }
+  .ring { border-radius: 50%; border: 5px solid; }
+  .sw { transition: background-color .8s ease, color .8s ease; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame, mirrored: sidebar on the right, title at top left ----------------
+L.frame({ type: "B", title: "Jefferies Tubes  •  Access Network", c: "tan", c2: "gold", accent: "orange", foot: "Tubes",
+  side: [[140, "gold", "Eng 07"], [70, "orange", "Decks"], [420, "tan", "Network"], [70, "butter", "Teams"],
+         [300, "gold", "Hatches"], [70, "orange", "Orders"], [216, "tan", "Sensors"]] });
+
+// the map 40–2340, the right-hand column 2400–3520
+const M0 = 40, M1 = 2340, R0 = 2400, R1 = 3520;
+const TRACK = "#2a2016";
+const pad2 = (n) => String(n).padStart(2, "0");
+const smooth = (k) => k * k * k * (k * (k * 6 - 15) + 10);
+const fill = (x, y, w, h, c, origin = "0 0") => {
+  const f = L.layer({ x, y, w, h });
+  f.style.background = c.startsWith("#") ? c : `var(--${c})`; f.style.transformOrigin = origin;
+  return f;
+};
+const op = (e, v) => { v = v < 0.005 ? "0" : v > 0.995 ? "1" : v.toFixed(2); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const bg = (e, c) => { if (e._bg !== c) { e._bg = c; e.style.background = `var(--${c})`; } };
+const fg = (e, c) => { if (e._fg !== c) { e._fg = c; e.style.color = `var(--${c})`; } };
+
+// ---------------- the network: decks 30–38, frames 96–140 ----------------
+const DECK0 = 30, ND = 9, NK = 12, P = 182, HS = 32;
+const X = (k) => M1 - HS / 2 - (NK - 1 - k) * P;           // the last hatch ends flush with the map's edge
+const DY = (i) => 476 + i * 132;
+const FRAME = (k) => 96 + 4 * k;
+// tube runs on each deck (columns), the bulkheads between them, and the access hatches
+const SEGS = [[[0, 11]], [[0, 5], [6, 11]], [[1, 11]], [[0, 7], [8, 11]], [[0, 11]], [[0, 4], [5, 11]], [[0, 11]], [[0, 9]], [[2, 11]]];
+const HATCH = [[0, 5, 11], [0, 5, 6, 11], [1, 6, 11], [0, 3, 7, 8, 11], [0, 4, 9, 11], [0, 4, 5, 11], [0, 6, 11], [0, 4, 9], [2, 8, 11]];
+// ladders: [upper deck, column], down to the next deck
+const LADDERS = [[0, 2], [0, 9], [1, 4], [1, 7], [2, 2], [2, 10], [3, 1], [3, 6], [3, 10], [4, 3], [4, 8],
+                 [5, 2], [5, 7], [5, 10], [6, 5], [6, 8], [7, 3], [7, 6]];
+const segOf = (i, k) => SEGS[i].findIndex(([a, b]) => k >= a && k <= b);
+const key = (i, k) => i * 100 + k, deckOf = (n) => Math.floor(n / 100), colOf = (n) => n % 100;
+const pt = (n) => [X(colOf(n)), DY(deckOf(n))];
+
+const net = L.svg("g", { class: "boot" });
+const TUBE = "#6b5536", RAIL = "#8c7150";
+// the frame scale across the top, faint frame lines behind the tubes
+L.text({ x: M0, base: 404, s: 36, c: "tan", txt: "Frame" });
+for (let k = 0; k < NK; k++) {
+  L.text({ x: X(k), base: 404, s: 34, c: "gold", txt: String(FRAME(k)), align: "c", w: 120, legend: true });
+  L.svg("rect", { x: X(k) - 1, y: 436, width: 2, height: DY(ND - 1) - 436 + 40, fill: "#2c2418" }, net);
+}
+// the decks
+for (let i = 0; i < ND; i++) L.box({ x: M0, y: DY(i) - 24, w: 190, h: 48, c: i % 2 ? "gold" : "tan", label: "Deck " + (DECK0 + i), fs: 30, r: "l" });
+// ladders: two rails and their rungs
+for (const [i, k] of LADDERS) {
+  const y0 = DY(i) + 5, y1 = DY(i + 1) - 5, x = X(k);
+  L.svg("rect", { x: x - 12, y: y0, width: 4, height: y1 - y0, fill: RAIL }, net);
+  L.svg("rect", { x: x + 8, y: y0, width: 4, height: y1 - y0, fill: RAIL }, net);
+  for (let y = y0 + 14; y < y1 - 8; y += 16) L.svg("rect", { x: x - 8, y, width: 16, height: 3, fill: RAIL }, net);
+}
+// tubes
+SEGS.forEach((segs, i) => segs.forEach(([a, b]) => L.svg("rect", { x: X(a), y: DY(i) - 5, width: X(b) - X(a), height: 10, fill: TUBE }, net)));
+// access panels at every frame; junctions where a ladder lands
+const junction = new Set();
+for (const [i, k] of LADDERS) { junction.add(key(i, k)); junction.add(key(i + 1, k)); }
+SEGS.forEach((segs, i) => segs.forEach(([a, b]) => { for (let k = a; k <= b; k++) {
+  if (HATCH[i].includes(k)) continue;
+  if (junction.has(key(i, k))) L.svg("circle", { cx: X(k), cy: DY(i), r: 15, fill: "var(--gold)" }, net);
+  else L.svg("rect", { x: X(k) - 7, y: DY(i) - 7, width: 14, height: 14, fill: "#9a7d55" }, net);
+} }));
+// the hatches: a square with its seal across it
+const hatches = [];
+HATCH.forEach((ks, i) => ks.forEach((k, j) => {
+  const node = key(i, k), x = X(k), y = DY(i);
+  const sq = L.svg("rect", { x: x - HS / 2, y: y - HS / 2, width: HS, height: HS, rx: 4, fill: "var(--tan)" }, net);
+  L.svg("rect", { x: x - 10, y: y - 2.5, width: 20, height: 5, fill: "#000" }, net);
+  hatches.push({ node, name: `${DECK0 + i}-${"ABCDE"[j]}`, sq, state: "Sealed", openUntil: -1, look: "" });
+}));
+const hatchAt = new Map(hatches.map((h) => [h.node, h]));
+
+// the graph: along the tubes, and up and down the ladders (climbing costs more)
+const adj = new Map(), add = (a, b, w) => { (adj.get(a) || adj.set(a, []).get(a)).push([b, w]); (adj.get(b) || adj.set(b, []).get(b)).push([a, w]); };
+SEGS.forEach((segs, i) => segs.forEach(([a, b]) => { for (let k = a; k < b; k++) add(key(i, k), key(i, k + 1), P); }));
+for (const [i, k] of LADDERS) add(key(i, k), key(i + 1, k), 132 * 1.8);
+const NODES = [...adj.keys()];
+const dijkstra = (from, avoid = new Set()) => {
+  const dist = new Map([[from, 0]]), prev = new Map(), done = new Set();
+  for (;;) {
+    let u = -1, best = Infinity;
+    for (const [k, v] of dist) if (!done.has(k) && v < best) { best = v; u = k; }
+    if (u < 0) return { dist, prev };
+    done.add(u);
+    for (const [v, w0] of adj.get(u)) { const w = w0 + (avoid.has(v) ? 2400 : 0); if (best + w < (dist.get(v) ?? Infinity)) { dist.set(v, best + w); prev.set(v, u); } }
+  }
+};
+
+// ---------------- the teams ----------------
+const TEAMS = [["Lt. Barclay", 3, "butter"], ["Ens. Taurik", 2, "orange"], ["Ens. Gomez", 3, "ice"], ["Lt. Duffy", 2, "peach"], ["Lt. Shimoda", 3, "lilac"]];
+const teams = TEAMS.map(([lead, n, c], i) => {
+  const ring = L.layer({ x: 0, y: 0, w: 72, h: 72, cls: "ring" });
+  ring.style.borderColor = `var(--${c})`; op(ring, 0);
+  const band = L.layer({ x: 0, y: 0, w: 10, h: 44 });
+  band.style.background = "var(--mars)"; op(band, 0);
+  const segs = Array.from({ length: 12 }, () => { const e = L.layer({ x: 0, y: 0, w: 6, h: 6 }); e.style.background = `var(--${c})`; op(e, 0); return e; });
+  return { i, lead, n, c, ring, band, segs, legs: [], node: null, x: 0, y: 0, mode: "off", until: 0, order: null, vis: 0, ringOn: 0, bandOn: 0 };
+});
+// the markers go above the routes, the rings and the bands
+teams.forEach((tm) => {
+  const e = L.layer({ x: 0, y: 0, w: 48, h: 48, cls: "crew" });
+  e.style.background = `var(--${tm.c})`; e.textContent = tm.i + 1; op(e, 0);
+  tm.e = e;
+});
+const place = (tm) => L.move(tm.e, tm.x - 24, tm.y - 24);
+
+// ---------------- work orders ----------------
+const TASKS = {
+  lock: ["EPS tap replacement", "Plasma conduit inspection", "Power coupling realignment"],
+  plain: ["Isolinear relay exchange", "ODN conduit test", "Inertial damper relay check", "SIF emitter calibration",
+          "Coolant line inspection", "Gravity plating diagnostic", "Chroniton residue sweep", "Sensor cluster repair"],
+  hatch: ["Pressure seal test", "Hatch seal replacement"],
+};
+let woN = 7340, doneShift = 11, cycles = 186;
+const orders = [];                                         // queued and assigned, in order
+const claimedSites = () => new Set(orders.filter((o) => o.state !== "Complete").map((o) => o.site));
+const newOrder = () => {
+  const r = Math.random(), type = r < 0.3 ? "lock" : r < 0.5 ? "hatch" : "plain", used = claimedSites();
+  const pool = type === "hatch" ? hatches.map((h) => h.node) : NODES.filter((n) => !hatchAt.has(n));
+  const site = L.pick(pool.filter((n) => !used.has(n)));
+  const o = { wo: ++woN, type, task: L.pick(TASKS[type]), site, team: null, p: 0, dur: L.rand(50, 95), state: "Queued", doneAt: 0 };
+  orders.push(o);
+  return o;
+};
+const siteName = (n) => hatchAt.has(n) ? `Hatch ${hatchAt.get(n).name}` : `Deck ${DECK0 + deckOf(n)}  ·  Frame ${FRAME(colOf(n))}`;
+// hatches a conduit job locks out: the ones on its own tube run, within three frames
+const lockedBy = (o) => {
+  const i = deckOf(o.site), k = colOf(o.site), s = segOf(i, k);
+  return hatches.filter((h) => deckOf(h.node) === i && segOf(i, colOf(h.node)) === s && Math.abs(colOf(h.node) - k) <= 3);
+};
+const working = () => orders.filter((o) => o.state === "In Progress");
+const isLocked = (h) => working().some((o) => o.type === "lock" && lockedBy(o).includes(h));
+
+// ---------------- moving through the tubes ----------------
+const H_SPEED = 64, V_SPEED = 38;                          // design px per second: crawling, and climbing
+const route = (tm, dest, t) => {
+  // around the other teams where it can: nobody climbs over a crew at work
+  const { prev } = dijkstra(tm.node, new Set(teams.filter((o) => o !== tm && o.mode !== "off" && !o.legs.length).map((o) => o.node)));
+  const path = [dest]; while (path[0] !== tm.node) path.unshift(prev.get(path[0]));
+  const pts = path.map(pt), legs = [];
+  let from = pts[0];
+  for (let i = 1; i < pts.length; i++) {
+    const nx = pts[i + 1], p = pts[i];
+    const turn = !nx || Math.sign(nx[0] - p[0]) !== Math.sign(p[0] - from[0]) || Math.sign(nx[1] - p[1]) !== Math.sign(p[1] - from[1]);
+    if (turn) {
+      const v = p[0] === from[0], len = Math.hypot(p[0] - from[0], p[1] - from[1]);
+      legs.push({ from, to: p, v, dur: 0.6 + len / (v ? V_SPEED : H_SPEED), t0: null });
+      from = p;
+    }
+  }
+  tm.segs.forEach((e) => op(e, 0));
+  legs.forEach((l, j) => {
+    if (!tm.segs[j]) { const n = L.layer({ x: 0, y: 0, w: 6, h: 6 }); n.style.background = `var(--${tm.c})`; L.stage.insertBefore(n, teams[0].ring); tm.segs.push(n); }
+    const e = (l.seg = tm.segs[j]), [x0, y0] = l.from, [x1, y1] = l.to;
+    Object.assign(e.style, { left: Math.min(x0, x1) - 3 + "px", top: Math.min(y0, y1) - 3 + "px",
+      width: Math.abs(x1 - x0) + 6 + "px", height: Math.abs(y1 - y0) + 6 + "px", transform: "none",
+      transformOrigin: l.v ? (y1 < y0 ? "50% 0" : "50% 100%") : (x1 < x0 ? "0 50%" : "100% 50%") });
+    op(e, 0.85);
+  });
+  if (legs.length) legs[0].t0 = t;
+  tm.legs = legs; tm.dest = dest;
+};
+const nearestHatch = (tm, avoid) => {
+  const { dist } = dijkstra(tm.node), busy = new Set(teams.filter((o) => o !== tm && o.dest !== undefined).map((o) => o.dest));
+  return hatches.filter((h) => !isLocked(h) && !busy.has(h.node) && h !== avoid && !claimedSites().has(h.node))
+    .sort((a, b) => dist.get(a.node) - dist.get(b.node))[0];
+};
+const take = (tm, t) => {                                  // the next order in the queue
+  let o = orders.find((o) => o.state === "Queued");
+  if (!o) o = newOrder();
+  o.state = "En Route"; o.team = tm; tm.order = o;
+  return o;
+};
+const showRing = (tm, o) => { L.move(tm.ring, X(colOf(o.site)) - 36, DY(deckOf(o.site)) - 36); };
+const placeBand = (tm, o) => {
+  const hs = lockedBy(o), i = deckOf(o.site), k = colOf(o.site), [a, b] = SEGS[i][segOf(i, k)];
+  const k0 = Math.max(a, k - 3), k1 = Math.min(b, k + 3);
+  Object.assign(tm.band.style, { left: X(k0) - 22 + "px", top: DY(i) - 22 + "px", width: X(k1) - X(k0) + 44 + "px" });
+  return hs;
+};
+const enter = (tm, t) => {                                 // a team comes in through a hatch near its job
+  const o = take(tm, t);
+  const { dist } = dijkstra(o.site);
+  const used = new Set(teams.filter((x) => x.mode !== "off").map((x) => x.node));
+  const h = hatches.filter((h) => !isLocked(h) && !used.has(h.node) && h.node !== o.site)
+    .sort((a, b) => dist.get(a.node) + L.rand(0, 500) - dist.get(b.node) - L.rand(0, 500))[0];
+  tm.node = h.node; [tm.x, tm.y] = pt(h.node); place(tm);
+  h.openUntil = t + 4.5; cycles++;
+  tm.mode = "entering"; tm.until = t + 2.2;
+  showRing(tm, o);
+};
+const arrive = (tm, t) => {
+  tm.node = tm.dest; tm.dest = undefined;
+  if (tm.mode === "travel") {
+    tm.mode = "work"; tm.order.state = "In Progress";
+    if (tm.order.type === "lock") placeBand(tm, tm.order);
+  } else if (tm.mode === "exit") {
+    const h = hatchAt.get(tm.node);
+    if (isLocked(h)) { const n = nearestHatch(tm); if (n) { route(tm, n.node, t); return; } }
+    h.openUntil = t + 4; cycles++;
+    tm.mode = "leaving"; tm.until = t + 2.4;
+  }
+};
+const finish = (tm, t) => {                                // the job is done: on to the next, or out
+  const o = tm.order;
+  o.state = "Complete"; o.p = 1; o.doneAt = t; doneShift++;
+  tm.order = null;
+  if (Math.random() < 0.75 || teams.filter((x) => x.mode === "off" || x.mode === "exit" || x.mode === "leaving").length >= 1) { const n = take(tm, t); showRing(tm, n); route(tm, n.site, t); tm.mode = "travel"; }
+  else { const h = nearestHatch(tm); if (h) { route(tm, h.node, t); tm.mode = "exit"; } else { const n = take(tm, t); showRing(tm, n); route(tm, n.site, t); tm.mode = "travel"; } }
+};
+
+// ---------------- status line ----------------
+const stateTxt = L.text({ x: M0, cap: 150, s: 100, c: "butter", txt: "" });
+L.text({ x: M0 + L.textWidth("5 Teams In Tubes", 100) + 56, base: 222, s: 38, c: "tan",
+  txt: "Engineering section  ·  Decks 30 – 38  ·  9 tubes  ·  18 ladders  ·  32 access hatches" });
+const pill = L.box({ x: R1 - 440, y: 150, w: 440, h: 72, c: "gold", label: "", r: "lr", fs: 36 });
+
+// ---------------- the map header ----------------
+L.header({ x: M0, y: 280, w: M1 - M0, label: "Tube Network  ·  Decks 30 – 38", c1: "tan", c2: "gold" });
+
+// ---------------- maintenance teams ----------------
+L.header({ x: R0, y: 280, w: R1 - R0, label: "Maintenance Teams", c1: "orange", c2: "tan" });
+const TC = { lead: R0 + 210, crew: R0 + 500, loc: R0 + 540 };
+[["Team", R0, "l"], ["Lead", TC.lead, "l"], ["Crew", TC.crew, "r"], ["Location", TC.loc, "l"], ["Status", R1, "r"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: 404, s: 36, c: "gold", txt, align }));
+const ROW0 = 428, PITCH = 88, rowBase = (i) => ROW0 + i * PITCH + 52.5;
+const trows = teams.map((tm, i) => {
+  const base = rowBase(i);
+  L.box({ x: R0, y: ROW0 + i * PITCH, w: 180, h: 64, c: tm.c, label: "Team " + (i + 1), fs: 30, r: "l" });
+  L.text({ x: TC.lead, base, s: 40, c: "tan", txt: tm.lead });
+  return {
+    crew: L.text({ x: TC.crew, base, s: 52, c: "white", txt: String(tm.n), align: "r" }),
+    loc: L.text({ x: TC.loc, base, s: 36, c: "butter", txt: "" }),
+    st: L.text({ x: R1, base, s: 40, c: "white", txt: "", align: "r" }),
+  };
+});
+
+// ---------------- access hatches ----------------
+const HY = 920, KEYS = [["Sealed", "tan"], ["Open", "butter"], ["Locked Out", "mars"]];
+const keyW = KEYS.map(([n]) => Math.ceil((L.textWidth(n + "  32", 32) + 60) / 10) * 10);
+const keyX0 = R1 - keyW.reduce((a, b) => a + b, 0) - 2 * 12;
+L.header({ x: R0, y: HY, w: keyX0 - L.GAP - R0, label: "Access Hatches", c1: "gold", c2: "tan" });
+let kx = keyX0;
+const keys = KEYS.map(([n, c], i) => { const b = L.box({ x: kx, y: HY, w: keyW[i], h: 56, c, label: n, fs: 32, r: i === 2 ? "r" : null }); kx += keyW[i] + 12; return b; });
+const TW = (R1 - R0 - 7 * 16) / 8, TY0 = 1000, TP = 88;
+hatches.forEach((h, j) => {
+  h.tile = L.box({ x: R0 + (j % 8) * (TW + 16), y: TY0 + Math.floor(j / 8) * TP, w: TW, h: 64, c: "tan", label: h.name, fs: 30, cls: "sw" });
+});
+const lastBase = 1420;
+L.text({ x: R0, base: lastBase, s: 40, c: "tan", txt: "Hatch Cycles This Shift" });
+const cycTxt = L.text({ x: R1, base: lastBase, s: 52, c: "white", txt: "", align: "r" });
+L.text({ x: R0, base: lastBase + 70, s: 40, c: "tan", txt: "Last Cycled" });
+const lastTxt = L.text({ x: R1, base: lastBase + 70, s: 40, c: "butter", txt: "", align: "r" });
+L.text({ x: R0, base: lastBase + 140, s: 40, c: "tan", txt: "Work Orders Complete This Shift" });
+const doneTxt = L.text({ x: R1, base: lastBase + 140, s: 52, c: "white", txt: "", align: "r" });
+
+// ---------------- work orders ----------------
+L.header({ x: M0, y: 1620, w: M1 - M0, label: "Work Orders", c1: "orange", c2: "tan", h: 48 });
+const WC = { task: 230, site: 760, team: 1150, bar: 1300, barW: 600, pct: 2030, st: M1 };
+const wrows = Array.from({ length: 6 }, (_, i) => {
+  const base = 1734 + i * 54;
+  L.rect({ x: WC.bar, y: base - 26, w: WC.barW, h: 26, c: TRACK });
+  return {
+    wo: L.text({ x: M0, base, s: 36, c: "orange", txt: "" }),
+    task: L.text({ x: WC.task, base, s: 36, c: "white", txt: "" }),
+    site: L.text({ x: WC.site, base, s: 36, c: "tan", txt: "" }),
+    team: L.text({ x: WC.team, base, s: 36, c: "butter", txt: "" }),
+    bar: fill(WC.bar, base - 26, WC.barW, 26, "gold"),
+    pct: L.text({ x: WC.pct, base, s: 36, c: "white", txt: "", align: "r" }),
+    st: L.text({ x: WC.st, base, s: 36, c: "white", txt: "", align: "r" }),
+    o: null,
+  };
+});
+
+// ---------------- tube conditions ----------------
+L.header({ x: R0, y: 1620, w: R1 - R0, label: "Tube Conditions", c1: "tan", c2: "gold", h: 48 });
+const CN = R0 + 330;
+const COND = [["Atmosphere", "Normal  100.8 – 101.8 kPa"], ["Temperature", "Normal  18.0 – 22.0 °C"], ["Air Exchange", "Normal  4.0 – 8.0 / h"],
+  ["Plasma Conduits", "Normal  Shielded"], ["Forcefields", "Normal  Standby"], ["Personnel In Tubes", "Limit  20  ·  Teams of 2 or 3"]].map(([label, norm], i) => {
+  const base = 1734 + i * 54;
+  L.text({ x: R0, base, s: 36, c: "tan", txt: label });
+  L.text({ x: CN, base, s: 36, c: "gold", txt: norm });
+  return L.text({ x: R1, base, s: 36, c: "white", txt: "", align: "r" });
+});
+let kpa = 101.3, temp = 19.4;
+
+// ---------------- the starting picture: four teams at work, one standing down ----------------
+for (let i = 0; i < 8; i++) newOrder();
+teams.forEach((tm, i) => {
+  if (i === 4) { tm.mode = "off"; tm.until = 9; return; }
+  const o = take(tm, 0);
+  tm.node = o.site; [tm.x, tm.y] = pt(o.site); place(tm);
+  o.state = "In Progress"; o.p = L.rand(0.1, 0.75); tm.mode = "work"; tm.vis = 1; op(tm.e, 1);
+  showRing(tm, o);
+  if (o.type === "lock") placeBand(tm, o);
+});
+
+// ---------------- the clock ----------------
+let last = null;
+L.tick((t) => {
+  const dt = last === null ? 0 : Math.min(0.1, t - last); last = t;
+  for (const tm of teams) {
+    if (tm.mode === "off" && t >= tm.until) enter(tm, t);
+    if (tm.mode === "entering" && t >= tm.until) { tm.mode = "travel"; route(tm, tm.order.site, t); }
+    if (tm.mode === "leaving" && t >= tm.until) { tm.mode = "off"; tm.node = null; tm.until = t + L.rand(14, 24); }
+    if ((tm.mode === "travel" || tm.mode === "exit") && tm.legs.length) {
+      const leg = tm.legs[0];
+      const k = smooth(L.clamp((t - leg.t0) / leg.dur));
+      tm.x = L.mix(leg.from[0], leg.to[0], k); tm.y = L.mix(leg.from[1], leg.to[1], k);
+      leg.seg.style.transform = `${leg.v ? "scaleY" : "scaleX"}(${(1 - k).toFixed(4)})`;
+      place(tm);
+      if (k >= 1) {
+        op(leg.seg, 0);
+        tm.legs.shift();
+        if (tm.legs.length) tm.legs[0].t0 = t + 0.5;      // a pause at the corner, to turn or take the ladder
+        else arrive(tm, t);
+      }
+    } else if ((tm.mode === "travel" || tm.mode === "exit") && !tm.legs.length) arrive(tm, t);
+    if (tm.mode === "work") {
+      const o = tm.order;
+      o.p = Math.min(1, o.p + dt / o.dur);
+      if (o.p >= 1) finish(tm, t);
+    }
+    // the marker fades in and out at a hatch; the job ring breathes; the lock-out band fades
+    const vis = tm.mode === "off" ? 0 : tm.mode === "leaving" ? 1 - L.clamp((t - (tm.until - 2.4)) / 1.4) : tm.mode === "entering" ? L.clamp((t - (tm.until - 2.2)) / 1.4) : 1;
+    op(tm.e, vis);
+    const ringGoal = tm.order ? (tm.mode === "work" ? 0.55 + 0.3 * Math.sin(t * 1.4 + tm.i) : 0.45) : 0;
+    tm.ringOn += (ringGoal - tm.ringOn) * 0.08; op(tm.ring, tm.ringOn);
+    const bandGoal = tm.mode === "work" && tm.order.type === "lock" ? 0.3 : 0;
+    tm.bandOn += (bandGoal - tm.bandOn) * 0.05; op(tm.band, tm.bandOn);
+  }
+  // completed orders leave the list after a while; the queue is kept topped up
+  for (let j = orders.length - 1; j >= 0; j--) if (orders[j].state === "Complete" && t - orders[j].doneAt > 8) orders.splice(j, 1);
+  while (orders.length < 7) newOrder();
+  // progress bars follow their orders
+  for (const r of wrows) if (r.o) r.bar.style.transform = `scaleX(${r.o.p.toFixed(4)})`;
+});
+
+const STATUS = { off: "Stand Down", entering: "Entering", work: "On Task", leaving: "Exiting" };
+const where = (tm) => {
+  if (tm.mode === "off") return "Main Engineering";
+  if (tm.legs.length && (tm.mode === "travel" || tm.mode === "exit")) {
+    const leg = tm.legs[0];
+    if (leg.v) { const a = Math.round((Math.min(leg.from[1], leg.to[1]) - DY(0)) / 132) + DECK0; return `Ladder  ·  Decks ${a} – ${a + 1}`; }
+    const i = Math.round((tm.y - DY(0)) / 132), k = Math.round((tm.x - X(0)) / P);
+    return `Tube ${DECK0 + i}  ·  Frame ${FRAME(k)}`;
+  }
+  return tm.node !== null ? siteName(tm.node) : "";
+};
+let lastCycled = "Hatch 36-B  ·  Team 3";
+L.every(250, (t) => {
+  // hatches
+  const counts = { Sealed: 0, Open: 0, "Locked Out": 0 };
+  const lockedNow = new Set(working().filter((o) => o.type === "lock").flatMap(lockedBy));
+  const hatchJob = new Set(working().filter((o) => o.type === "hatch").map((o) => o.site));
+  for (const h of hatches) {
+    const st = hatchJob.has(h.node) || h.openUntil > t ? "Open" : lockedNow.has(h) ? "Locked Out" : "Sealed";
+    if (st === "Open" && h.state !== "Open" && h.openUntil > t) {
+      const tm = teams.find((x) => x.node === h.node && x.mode !== "off");
+      if (tm) lastCycled = `Hatch ${h.name}  ·  Team ${tm.i + 1}`;
+    }
+    h.state = st; counts[st]++;
+    const c = st === "Open" ? "butter" : st === "Locked Out" ? "mars" : "tan";
+    if (h.look !== c) { h.look = c; h.sq.setAttribute("fill", `var(--${c})`); bg(h.tile, c); }
+  }
+  keys.forEach((b, i) => L.set(b, `${KEYS[i][0]}  ${counts[KEYS[i][0]]}`));
+  L.set(pill, `Hatches Sealed  ${counts.Sealed} / ${hatches.length}`);
+  L.set(cycTxt, cycles);
+  L.set(lastTxt, lastCycled);
+  L.set(doneTxt, doneShift);
+  // teams
+  const inside = teams.filter((tm) => tm.mode !== "off");
+  L.set(stateTxt, inside.length === 0 ? "Tubes Clear" : inside.length === 1 ? "1 Team In Tubes" : `${inside.length} Teams In Tubes`);
+  teams.forEach((tm, i) => {
+    const r = trows[i];
+    const moving = tm.legs.length && (tm.mode === "travel" || tm.mode === "exit");
+    const st = moving ? (tm.legs[0].v ? "Climbing" : tm.mode === "exit" ? "Exiting" : "In Tube") : STATUS[tm.mode] || "In Tube";
+    L.set(r.st, st); fg(r.st, st === "On Task" ? "butter" : st === "Stand Down" ? "tan" : "white");
+    L.set(r.loc, where(tm)); fg(r.loc, tm.mode === "off" ? "tan" : "butter");
+    fg(r.crew, tm.mode === "off" ? "tan" : "white");
+  });
+  // work orders: assigned first, then the queue
+  const list = orders.slice().sort((a, b) => (a.state === "Queued") - (b.state === "Queued") || a.wo - b.wo).slice(0, 6);
+  wrows.forEach((r, i) => {
+    const o = list[i];
+    if (r.o !== o) { r.o = o; if (o) r.bar.style.transform = `scaleX(${o.p.toFixed(4)})`; }
+    if (!o) return;
+    L.set(r.wo, "WO " + o.wo);
+    L.set(r.task, o.task);
+    L.set(r.site, siteName(o.site));
+    L.set(r.team, o.team ? "Team " + (o.team.i + 1) : "—");
+    L.set(r.pct, Math.floor(o.p * 100) + "%");
+    L.set(r.st, o.state);
+    fg(r.st, o.state === "In Progress" ? "butter" : o.state === "Complete" ? "gold" : o.state === "Queued" ? "tan" : "white");
+    r.bar.style.background = `var(--${o.state === "Complete" ? "gold" : o.team ? o.team.c : "tan"})`;
+  });
+  // conditions
+  const locks = working().filter((o) => o.type === "lock").length;
+  L.set(COND[0], kpa.toFixed(1) + " kPa");
+  L.set(COND[1], temp.toFixed(1) + " °C");
+  L.set(COND[2], "6.0 / h");
+  L.set(COND[3], locks ? `${locks} Isolated` : "Shielded");
+  const lockDecks = [...new Set(working().filter((o) => o.type === "lock").map((o) => DECK0 + deckOf(o.site)))].sort();
+  L.set(COND[4], lockDecks.length ? `Active  ·  Deck ${lockDecks.join(", ")}` : "Standby");
+  fg(COND[3], locks ? "mars" : "white"); fg(COND[4], locks ? "mars" : "white");
+  L.set(COND[5], inside.reduce((a, tm) => a + tm.n, 0));
+}, 0);
+L.every(6000, () => { kpa = L.clamp(kpa + L.rand(-0.05, 0.05), 101.1, 101.5); temp = L.clamp(temp + L.rand(-0.1, 0.1), 18.8, 20.2); }, 0.3);
+});
+</script></body></html>

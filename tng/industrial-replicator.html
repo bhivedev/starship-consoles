@@ -1,0 +1,603 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Industrial Replicator</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* swapped text dips and comes back; colors change slowly; .boot (the start-up cascade) always wins */
+  .sw { transition: opacity .45s ease, background-color 1.2s ease, color 1.2s ease; }
+  .out:not(.boot) { opacity: .2; }
+  .clip { overflow: hidden; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: a bracket, title centred ----------------
+L.frame({ type: "C", title: "Industrial Replicator  •  Fabrication", c: "gold", c2: "tan", accent: "orange", foot: "Fab",
+  side: [[140, "tan", "Fab 02"], [70, "orange", "2716"], [420, "gold", "Queue"], [70, "butter", "27"], [300, "tan", "Stocks"],
+         [70, "orange", "C4"], [216, "gold", "Deck 27"]],
+  side2: [[140, "tan", "Ind 02"], [70, "orange", "5094"], [420, "gold", "Pattern"], [70, "butter", "04"], [300, "tan", "Energy"],
+          [70, "orange", "E7"], [216, "gold", "Output"]] });
+
+const NS = "http://www.w3.org/2000/svg";
+const TRACK = "#2e200c", DIM = "#3a2a12", CHAMBER = "#171006";
+const fill = (x, y, w, h, c, origin = "0 0", parent) => {
+  const f = L.layer({ x, y, w, h }, parent);
+  f.style.background = c.startsWith("#") || c.includes("(") ? c : `var(--${c})`; f.style.transformOrigin = origin;
+  return f;
+};
+const cls = (e, ...c) => (e.classList.add(...c), e);
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const op = (e, v) => { v = v < 0.005 ? "0" : v > 0.995 ? "1" : v.toFixed(2); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const bg = (e, c) => { if (e._bg !== c) { e._bg = c; e.style.background = c.startsWith("#") ? c : `var(--${c})`; } };
+const fg = (e, c) => { if (e._fg !== c) { e._fg = c; e.style.color = c.startsWith("#") ? c : `var(--${c})`; } };
+const swap = (els, f) => { els.forEach((e) => e.classList.add("out")); setTimeout(() => { f(); els.forEach((e) => e.classList.remove("out")); }, 460); };
+const D2 = (n) => String(n).padStart(2, "0");
+const fmt = (n, d = 0) => n.toLocaleString("en", { minimumFractionDigits: d, maximumFractionDigits: d });
+const ease = (x) => L.ease(L.clamp(x));
+
+// Columns: left 220–1080, the chamber 1140–2700, right 2760–3620. Rows of 64 on an 88 pitch from 428
+// (upper) and 1148 (lower), shared across all three columns; the bottom strip on a 54 grid.
+const LX = 220, LR = 1080, MX = 1140, MR = 2700, RX = 2760, RR = 3620;
+const BX = 340, BRW = 240;                                   // gauges: bar 340 in, stops 240 short of the edge
+const ROW0 = 428, ROW1 = 1148, PITCH = 88;
+const base0 = (i) => ROW0 + i * PITCH + 52.5, base1 = (i) => ROW1 + i * PITCH + 52.5;
+const STRIP = (i) => 1734 + i * 54;
+
+const gaugeRow = (x, r, base, name, c, bx = BX, brw = BRW) => {
+  const n = L.text({ x, base, s: 40, c: "tan", txt: name });
+  L.rect({ x: x + bx, y: base - 26, w: r - brw - (x + bx), h: 26, c: TRACK });
+  return { n, bar: fill(x + bx, base - 26, r - brw - (x + bx), 26, c), v: L.text({ x: r, base, s: 52, c: "white", txt: "", align: "r" }), u: -1 };
+};
+const showBar = (g, k) => { k = L.clamp(k); if (Math.abs(k - g.u) > 0.0002) { g.u = k; tf(g.bar, `scaleX(${k.toFixed(4)})`); } };
+
+// ---------------- what the replicator makes ----------------
+// The five bulk stocks, in the order of every composition.
+const MATS = [["Tritanium", "gold", 14000, 0.82], ["Duranium", "tan", 16000, 0.77], ["Verterium Cortenide", "orange", 9000, 0.69],
+              ["Rodinium", "butter", 6000, 0.74], ["Polysilicate", "peach", 5000, 0.86]];
+
+// ---------------- the parts, as geometric patterns ----------------
+// Each part is a few solids (in mm, z up): a turned body (lathe), a shape extruded upward (prismZ) or a
+// section extruded front to back (prismY). They are seen from a little above, drawn once as SVG; the
+// chamber only moves layers over them.
+const D2R = Math.PI / 180, YAW = -36 * D2R, PIT = 16 * D2R;
+const cY = Math.cos(YAW), sY = Math.sin(YAW), cP = Math.cos(PIT), sP = Math.sin(PIT);
+const rot = ([x, y, z]) => [x * cY - y * sY, x * sY + y * cY, z];          // [across, depth, up]
+const TOWARD = [0, -cP, sP], LIGHT = (() => { const v = [-0.5, -0.55, 0.68], n = Math.hypot(...v); return v.map((a) => a / n); })();
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const scrX = (p) => p[0], scrY = (p) => -p[2] * cP - p[1] * sP, depth = (p) => p[1] * cP - p[2] * sP;
+const TAU = 2 * Math.PI;
+
+// Every line carries, for each segment, the normals of the surfaces it lies on: a segment is in front
+// when any of them faces us, so hidden lines can be drawn dim.
+const UP = [0, 0, 1];
+function lathe(P, o = {}) {
+  const N = o.seg || 40, M = o.mer || 16;
+  const pt = (z, r, a) => [r * Math.cos(a), r * Math.sin(a), z];
+  const segN = (j, a) => { const [z0, r0] = P[j - 1], [z1, r1] = P[j]; return [(z1 - z0) * Math.cos(a), (z1 - z0) * Math.sin(a), -(r1 - r0)]; };
+  // a ring, its segments lying on the surfaces of profile segments js (and facing up, if up)
+  const ring = (z, r, js, up) => ({ pts: Array.from({ length: N }, (_, k) => pt(z, r, (k / N) * TAU)), closed: true,
+    ns: Array.from({ length: N }, (_, k) => { const a = ((k + 0.5) / N) * TAU; return [...js.map((j) => segN(j, a)), ...(up ? [UP] : [])]; }) });
+  const lines = [], faces = [];
+  const H0 = P[0][0], H1 = P[P.length - 1][0], last = P.length - 1;
+  P.forEach(([z, r], i) => { if (r > 0.5) lines.push(ring(z, r, [i, i + 1].filter((j) => j >= 1 && j <= last), i === last)); });
+  const nl = o.layers || 16;
+  for (let i = 1; i < nl; i++) {                             // the deposition layers, between the turns of the profile
+    const z = H0 + ((H1 - H0) * i) / nl;
+    for (let j = 1; j < P.length; j++) {
+      const [z0, r0] = P[j - 1], [z1, r1] = P[j];
+      if (z > z0 && z < z1) { lines.push(ring(z, r0 + ((r1 - r0) * (z - z0)) / (z1 - z0), [j])); break; }
+    }
+  }
+  for (let m = 0; m < M; m++) {
+    const a = (m / M) * TAU;
+    lines.push({ pts: P.map(([z, r]) => pt(z, r, a)), ns: P.slice(1).map((_, j) => [segN(j + 1, a)]) });
+  }
+  for (let j = 1; j < P.length; j++) {
+    const [z0, r0] = P[j - 1], [z1, r1] = P[j];
+    if (z0 === z1 && r0 === r1) continue;
+    for (let k = 0; k < N; k++) {
+      const a0 = (k / N) * TAU, a1 = ((k + 1) / N) * TAU;
+      faces.push({ pts: [pt(z0, r0, a0), pt(z0, r0, a1), pt(z1, r1, a1), pt(z1, r1, a0)], n: segN(j, (a0 + a1) / 2) });
+    }
+  }
+  const [zt, rt] = P[last];
+  if (rt > 0.5) faces.push({ pts: Array.from({ length: N }, (_, k) => pt(zt, rt, (k / N) * TAU)), n: UP });
+  if (o.bore) {
+    faces.push({ pts: Array.from({ length: N }, (_, k) => pt(zt, o.bore, (k / N) * TAU)), n: UP, dark: true, bias: 1 });
+    lines.push(ring(zt, o.bore, [], true));
+  }
+  return { lines, faces };
+}
+const ccw = (poly) => { let a = 0; poly.forEach((p, i) => { const q = poly[(i + 1) % poly.length]; a += p[0] * q[1] - q[0] * p[1]; }); return a > 0 ? poly : poly.slice().reverse(); };
+// a shape in the floor plane, extruded upward
+function prismZ(poly, z0, z1, o = {}) {
+  poly = ccw(poly);
+  const n = poly.length, lines = [], faces = [];
+  const en = (i) => { const [x0, y0] = poly[i], [x1, y1] = poly[(i + 1) % n]; return [y1 - y0, -(x1 - x0), 0]; };   // outward
+  const at = (z, up) => ({ pts: poly.map(([x, y]) => [x, y, z]), closed: true, ns: poly.map((_, i) => (up ? [en(i), UP] : [en(i)])) });
+  lines.push(at(z0), at(z1, true));
+  const nl = o.layers || 0;
+  for (let i = 1; i < nl; i++) lines.push(at(z0 + ((z1 - z0) * i) / nl));
+  (o.vert || poly.map((_, i) => i)).forEach((i) => lines.push({ pts: [[...poly[i], z0], [...poly[i], z1]], ns: [[en(i), en((i + n - 1) % n)]] }));
+  for (let i = 0; i < n; i++) {
+    const [x0, y0] = poly[i], [x1, y1] = poly[(i + 1) % n];
+    faces.push({ pts: [[x0, y0, z0], [x1, y1, z0], [x1, y1, z1], [x0, y0, z1]], n: en(i) });
+  }
+  faces.push({ pts: poly.map(([x, y]) => [x, y, z1]), n: UP });
+  return { lines, faces };
+}
+// a section in the upright (x, z) plane, extruded from front (y0) to back (y1)
+function prismY(poly, y0, y1, o = {}) {
+  poly = ccw(poly);
+  const n = poly.length, lines = [], faces = [];
+  const en = (i) => { const [x0, z0] = poly[i], [x1, z1] = poly[(i + 1) % n]; return [z1 - z0, 0, -(x1 - x0)]; };   // outward
+  const fn = (y) => [0, Math.sign(y - (y0 + y1) / 2), 0];
+  const at = (y) => ({ pts: poly.map(([x, z]) => [x, y, z]), closed: true, ns: poly.map((_, i) => [en(i), fn(y)]) });
+  lines.push(at(y0), at(y1));
+  (o.vert || poly.map((_, i) => i)).forEach((i) => lines.push({ pts: [[poly[i][0], y0, poly[i][1]], [poly[i][0], y1, poly[i][1]]], ns: [[en(i), en((i + n - 1) % n)]] }));
+  const zs = poly.map((p) => p[1]), zlo = Math.min(...zs), zhi = Math.max(...zs), nl = o.layers || 0;
+  for (let i = 1; i < nl; i++) {                             // layer lines across both faces: the section's scanline
+    const z = zlo + ((zhi - zlo) * i) / nl, xs = [];
+    for (let j = 0; j < n; j++) {
+      const [ax, az] = poly[j], [bx, bz] = poly[(j + 1) % n];
+      if ((az <= z && bz > z) || (bz <= z && az > z)) xs.push(ax + ((z - az) * (bx - ax)) / (bz - az));
+    }
+    xs.sort((a, b) => a - b);
+    for (let k = 0; k + 1 < xs.length; k += 2) for (const y of [y0, y1]) lines.push({ pts: [[xs[k], y, z], [xs[k + 1], y, z]], ns: [[fn(y)]] });
+  }
+  for (let i = 0; i < n; i++) {
+    const [x0, z0] = poly[i], [x1, z1] = poly[(i + 1) % n];
+    faces.push({ pts: [[x0, y0, z0], [x1, y0, z1], [x1, y1, z1], [x0, y1, z0]], n: en(i) });
+  }
+  faces.push({ pts: poly.map(([x, z]) => [x, y0, z]), n: fn(y0) });
+  faces.push({ pts: poly.map(([x, z]) => [x, y1, z]), n: fn(y1) });
+  return { lines, faces };
+}
+const arcPts = (cx, cz, r, a0, a1, k) => Array.from({ length: k + 1 }, (_, i) => { const a = (a0 + ((a1 - a0) * i) / k) * D2R; return [cx + r * Math.cos(a), cz + r * Math.sin(a)]; });
+
+// the patterns
+const SHAPES = {
+  // a warp coil segment: a stilted arch of verterium cortenide
+  coil: () => {
+    const K = 24, outer = arcPts(0, 160, 300, 0, 180, K), inner = arcPts(0, 160, 200, 180, 0, K);
+    const poly = [[300, 0], ...outer, [-300, 0], [-200, 0], ...inner, [200, 0]];
+    const vert = poly.map((_, i) => i).filter((i) => i <= 1 || (i >= K && i <= K + 4) || i >= 2 * K + 2 || i % 4 === 1);
+    return [prismY(poly, -75, 75, { vert, layers: 20 })];
+  },
+  // a plasma conduit section: a flanged tube with two stiffening rings
+  conduit: () => [lathe([[0, 150], [28, 150], [28, 112], [150, 112], [150, 128], [180, 128], [180, 112], [320, 112], [320, 128],
+                         [350, 128], [350, 112], [472, 112], [472, 150], [500, 150]], { bore: 92, layers: 18 })],
+  // an EPS power coupling: a hexagonal base, the collar and the tap
+  coupling: () => [
+    prismZ(Array.from({ length: 6 }, (_, k) => [150 * Math.cos(k * 60 * D2R), 150 * Math.sin(k * 60 * D2R)]), 0, 90, { layers: 4 }),
+    lathe([[90, 92], [250, 92], [250, 116], [282, 116], [282, 58], [380, 58]], { layers: 12, bore: 30 })],
+  // a hull plate: a curved tritanium panel, its stringers on the inner face
+  plate: () => {
+    const R = 900, A = 19, k = 16;
+    const p = (r, a) => [r * Math.sin(a * D2R), r * Math.cos(a * D2R) - R];
+    const band = [...Array.from({ length: k + 1 }, (_, i) => p(R, -A + (2 * A * i) / k)), ...Array.from({ length: k + 1 }, (_, i) => p(R + 34, A - (2 * A * i) / k))];
+    const out = [prismZ(band, 0, 560, { layers: 16, vert: [0, 4, 8, 12, 16, 17, 21, 25, 29, 33] })];
+    for (const a of [-12, 0, 12]) {
+      const t = [Math.cos(a * D2R), -Math.sin(a * D2R)], nn = [Math.sin(a * D2R), Math.cos(a * D2R)], c = p(R, a);
+      const q = (u, v) => [c[0] + t[0] * u - nn[0] * v, c[1] + t[1] * u - nn[1] * v];
+      out.push(prismZ([q(-14, 0), q(14, 0), q(14, 46), q(-14, 46)], 0, 560, { layers: 16 }));
+    }
+    return out;
+  },
+  // a mounting bracket: an angle of duranium with two gussets
+  bracket: () => [
+    prismY([[-240, 0], [240, 0], [240, 44], [-186, 44], [-186, 380], [-240, 380]], -140, 140, { layers: 18, vert: [0, 1, 2, 3, 4, 5] }),
+    prismY([[-186, 44], [70, 44], [-186, 290]], -112, -86, { layers: 10 }),
+    prismY([[-186, 44], [70, 44], [-186, 290]], 86, 112, { layers: 10 })],
+  // a deuterium injector: the nozzle below, the body, the manifold collar and the feed
+  injector: () => [lathe([[0, 30], [90, 74], [112, 74], [112, 116], [280, 116], [280, 146], [312, 146], [312, 66], [396, 66], [396, 86], [420, 86]],
+                         { layers: 18, bore: 40 })],
+};
+
+// the chamber: the object stands on the platform in a box 720 × 770
+const OBJ = { x: 1560, y: 456, w: 720, h: 770 }, OW = OBJ.w, OH = OBJ.h, MAXW = 600, MAXH = 690, FOOT = OH - 4;
+const f1 = (v) => v.toFixed(1);
+function build(prims) {
+  const lines = [], faces = [];
+  for (const pr of prims) {
+    for (const l of pr.lines) lines.push({ pts: l.pts.map(rot), closed: l.closed, vis: l.ns.map((ns) => ns.some((v) => dot(rot(v), TOWARD) > 1e-6)) });
+    for (const f of pr.faces) faces.push({ ...f, pts: f.pts.map(rot), n: rot(f.n) });
+  }
+  const all = lines.flatMap((l) => l.pts);
+  const xs = all.map(scrX), ys = all.map(scrY);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const s = Math.min(MAXW / (x1 - x0), MAXH / (y1 - y0));
+  const X = (p) => OW / 2 + (scrX(p) - (x0 + x1) / 2) * s, Y = (p) => FOOT - (y1 - scrY(p)) * s;
+  // the pattern: every line, the far ones dimmer
+  let front = "", back = "";
+  for (const l of lines) {
+    const n = l.pts.length, m = l.closed ? n : n - 1;
+    for (let i = 0; i < m; i++) {
+      const a = l.pts[i], b = l.pts[(i + 1) % n], seg = `M${f1(X(a))},${f1(Y(a))}L${f1(X(b))},${f1(Y(b))}`;
+      if (l.vis[i]) front += seg; else back += seg;
+    }
+  }
+  // the solid: faces toward us, lit from above left, far ones first
+  const shown = faces.filter((f) => dot(f.n, TOWARD) > 1e-6);
+  shown.forEach((f) => { f.d = f.pts.reduce((a, p) => a + depth(p), 0) / f.pts.length - (f.bias || 0); });
+  shown.sort((a, b) => b.d - a.d);
+  let solid = "";
+  for (const f of shown) {
+    const nl = Math.hypot(...f.n), b = 0.26 + 0.74 * Math.max(0, dot(f.n, LIGHT) / nl);
+    const c = f.dark ? [26, 18, 6] : [L.mix(70, 226, b), L.mix(46, 168, b), L.mix(12, 64, b)].map(Math.round);
+    const d = "M" + f.pts.map((p) => `${f1(X(p))},${f1(Y(p))}`).join("L") + "Z";
+    solid += `<path d="${d}" fill="rgb(${c})" stroke="rgb(${c})" stroke-width="0.8"/>`;
+  }
+  // where the object is, row by row: the width of the deposition front
+  const BIN = 4, NB = Math.ceil(OH / BIN), lo = new Array(NB).fill(Infinity), hi = new Array(NB).fill(-Infinity);
+  for (const l of lines) {
+    const n = l.pts.length, m = l.closed ? n : n - 1;
+    for (let i = 0; i < m; i++) {
+      const a = l.pts[i], b = l.pts[(i + 1) % n], ax = X(a), ay = Y(a), bx = X(b), by = Y(b);
+      const k = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 3));
+      for (let j = 0; j <= k; j++) {
+        const x = L.mix(ax, bx, j / k), bi = Math.floor(L.mix(ay, by, j / k) / BIN);
+        if (bi >= 0 && bi < NB) { lo[bi] = Math.min(lo[bi], x); hi[bi] = Math.max(hi[bi], x); }
+      }
+    }
+  }
+  const H = (y1 - y0) * s;
+  const zmax = Math.max(...all.map((p) => p[2]));
+  return { front, back, solid, top: FOOT - H, lo, hi, BIN, NB, layers: Math.round(zmax / 0.25), mm: zmax,
+           span: (y) => { let b = L.clamp(Math.floor(y / BIN), 0, NB - 1); for (let d = 0; d < NB; d++) for (const c of [b - d, b + d]) if (c >= 0 && c < NB && lo[c] < Infinity) return [lo[c], hi[c]]; return [OW / 2, OW / 2]; } };
+}
+
+const PARTS = {
+  coil:     { name: "Warp Coil Segment",      pat: "WC-4410-V", comp: [0, 10, 82, 8, 0],   kg: 186.0, dest: "Main Engineering",   qty: [2, 3] },
+  conduit:  { name: "Plasma Conduit Section", pat: "PC-2209-D", comp: [18, 74, 0, 8, 0],   kg: 48.2,  dest: "Jefferies Tube 25",  qty: [4, 8] },
+  coupling: { name: "EPS Power Coupling",     pat: "EP-0712-R", comp: [30, 12, 0, 50, 8],  kg: 22.4,  dest: "EPS Junction 12",    qty: [6, 10] },
+  plate:    { name: "Hull Plate",             pat: "HP-1701-T", comp: [64, 30, 0, 0, 6],   kg: 96.5,  dest: "Cargo Bay 4",        qty: [3, 6] },
+  bracket:  { name: "Mounting Bracket",       pat: "MB-0388-D", comp: [10, 86, 0, 4, 0],   kg: 9.6,   dest: "Shuttlebay 2",       qty: [8, 12] },
+  injector: { name: "Deuterium Injector",     pat: "DI-3307-R", comp: [42, 0, 0, 50, 8],   kg: 31.4,  dest: "Main Engineering",   qty: [2, 4] },
+};
+const ORDER = ["coil", "conduit", "coupling", "plate", "bracket", "injector"];
+
+// ---------------- status line ----------------
+L.text({ x: LX, cap: 150, s: 100, c: "gold", txt: "Fabricating" });
+const stateSub = cls(L.text({ x: MX, base: 222, s: 38, c: "tan", txt: "" }), "sw");
+const stagePill = cls(L.box({ x: RR - 400, y: 150, w: 400, h: 72, c: "gold", label: "", r: "lr", fs: 36 }), "sw");
+
+// ---------------- the fabrication queue ----------------
+L.header({ x: LX, y: 280, w: LR - LX, label: "Fabrication Queue", c1: "gold", c2: "tan" });
+const QJW = 170, QNX = LX + QJW + L.GAP;
+[["Job", LX, ""], ["Part", QNX, ""], ["Units", LR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: 400, s: 36, c: "gold", txt, align }));
+const qRows = Array.from({ length: 6 }, (_, i) => ({
+  box: cls(L.box({ x: LX, y: ROW0 + i * PITCH, w: QJW, h: 64, c: DIM, label: "", fs: 32, r: "l" }), "sw"),
+  name: cls(L.text({ x: QNX, base: base0(i), s: 40, c: "tan", txt: "" }), "sw"),
+  units: cls(L.text({ x: LR, base: base0(i), s: 52, c: "white", txt: "", align: "r" }), "sw"),
+}));
+let jobNum = 4471;
+const newJob = (key, qty) => { const p = PARTS[key]; return { num: jobNum++, key, p, qty: qty || L.irand(...p.qty), done: 0 }; };
+const queue = [newJob("coil", 3), newJob("conduit", 6), newJob("coupling", 8), newJob("plate", 4), newJob("bracket", 12), newJob("injector", 2)];
+queue[0].done = 1;
+let nextKind = 0;
+const showQueue = () => qRows.forEach((r, i) => {
+  const j = queue[i], on = i === 0;
+  L.set(r.box, `J-${j.num}`); bg(r.box, on ? "gold" : DIM); fg(r.box, on ? "#000" : "tan");
+  L.set(r.name, j.p.name); fg(r.name, on ? "butter" : "tan");
+  L.set(r.units, `${j.done} / ${j.qty}`);
+});
+
+// ---------------- raw material stocks ----------------
+L.header({ x: LX, y: 1000, w: LR - LX, label: "Raw Material Stocks", c1: "tan", c2: "gold" });
+[["Stock", LX, ""], ["Bulk Reserve", LX + BX, ""], ["Level", LR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: 1120, s: 36, c: "gold", txt, align }));
+const stocks = MATS.map(([name, c, cap, mean], i) => ({ ...gaugeRow(LX, LR, base1(i), name, c), cap, mean, lvl: mean + L.rand(-0.03, 0.01) }));
+
+// ---------------- the fabrication chamber ----------------
+L.header({ x: MX, y: 280, w: MR - MX, label: "Fabrication Chamber  ·  Layer Deposition", c1: "gold", c2: "orange" });
+const partName = cls(L.text({ x: MX, base: 400, s: 40, c: "butter", txt: "" }), "sw");
+const partMat = cls(L.text({ x: MR, base: 400, s: 40, c: "tan", txt: "", align: "r" }), "sw");
+L.rect({ x: MX, y: ROW0, w: MR - MX, h: 872, c: CHAMBER, panel: true });
+// the rails, the emitter above and the platform below: drawn once
+const RAILL = 1494, RAILR = 2334, PLAT = OBJ.y + FOOT + 2;
+L.rect({ x: RAILL - 14, y: 444, w: RAILR - RAILL + 40, h: 12, c: "#4a3714", rx: 6, free: true });
+for (const x of [RAILL, RAILR]) L.rect({ x, y: 456, w: 12, h: PLAT + 18 - 456, c: "#3a2a10", free: true });
+L.rect({ x: RAILL - 14, y: PLAT, w: RAILR - RAILL + 40, h: 16, c: "#4a3714", rx: 8, free: true });
+const padGlow = fill(RAILL - 14, PLAT, RAILR - RAILL + 40, 16, "gold"); padGlow.style.borderRadius = "8px"; op(padGlow, 0);
+const emitGlow = fill(RAILL - 14, 444, RAILR - RAILL + 40, 12, "butter"); emitGlow.style.borderRadius = "6px"; op(emitGlow, 0);
+
+// the part: the pattern's wireframe, the solid laid down under it (clipped below the deposition front),
+// the front itself, and the deposition head riding the rails
+const svgIn = (parent) => {
+  const s = document.createElementNS(NS, "svg");
+  s.setAttribute("viewBox", `0 0 ${OW} ${OH}`); s.setAttribute("width", OW); s.setAttribute("height", OH);
+  Object.assign(s.style, { position: "absolute", left: "0", top: "0", overflow: "visible" });
+  parent.appendChild(s); return s;
+};
+const patL = L.layer({ x: OBJ.x, y: OBJ.y, w: OW, h: OH });
+const patSvg = svgIn(patL);
+const clipL = L.layer({ x: OBJ.x, y: OBJ.y, w: OW, h: OH, cls: "clip" });
+const solidL = L.layer({ x: 0, y: 0, w: OW, h: OH }, clipL);
+const solidSvg = svgIn(solidL);
+const geo = {};
+for (const k of ORDER) {
+  const g = build(SHAPES[k]());
+  g.gp = L.svg("g", { display: "none" }, patSvg);
+  // a height scale down each rail, in this part's millimetres: a tick every 20, a figure every 100
+  const pxmm = (FOOT - g.top) / g.mm, lx = RAILL - OBJ.x, rx = RAILR + 12 - OBJ.x;
+  let ticks = "", figs = "";
+  for (let mm = 0; mm <= g.mm + 0.01; mm += 20) {
+    const y = f1(FOOT - mm * pxmm), big = mm % 100 === 0, w = big ? 30 : 16;
+    ticks += `M${lx - 4 - w},${y}H${lx - 4}M${rx + 4},${y}H${rx + 4 + w}`;
+    if (big) figs += `<text x="${lx - 50}" y="${(+y + 11.5).toFixed(1)}" text-anchor="end" font-size="32" style="fill:var(--gold)">${mm}</text>`;
+  }
+  g.gp.innerHTML = `<path d="${ticks}" fill="none" stroke="var(--tan)" stroke-width="3" opacity=".8"/>${figs}` + `<path d="${g.back}" fill="none" stroke="var(--tan)" stroke-width="2" opacity=".26"/>` +
+                   `<path d="${g.front}" fill="none" stroke="var(--tan)" stroke-width="2" opacity=".62"/>`;
+  g.gs = L.svg("g", { display: "none" }, solidSvg);
+  g.gs.innerHTML = g.solid + `<path d="${g.front}" fill="none" stroke="var(--butter)" stroke-width="2" opacity=".55"/>`;
+  geo[k] = g;
+}
+const frontL = L.layer({ x: OBJ.x, y: OBJ.y, w: OW, h: 8 });
+frontL.style.background = "linear-gradient(to right, rgba(255,204,102,0), rgba(255,204,102,.95) 16%, rgba(255,244,214,1) 50%, rgba(255,204,102,.95) 84%, rgba(255,204,102,0))";
+frontL.style.transformOrigin = "50% 50%"; op(frontL, 0);
+const HEADW = RAILR - RAILL + 40;
+const head = L.layer({ x: RAILL - 14, y: OBJ.y, w: HEADW, h: 20 });
+head.innerHTML = `<svg width="${HEADW}" height="20" style="position:absolute;left:0;top:0">
+  <rect x="0" y="0" width="40" height="20" rx="4" style="fill:var(--gold)"/><rect x="${HEADW - 40}" y="0" width="40" height="20" rx="4" style="fill:var(--gold)"/>
+  <rect x="40" y="7" width="${HEADW - 80}" height="6" style="fill:var(--tan)" opacity=".7"/></svg>`;
+op(head, 0);
+const scanL = L.layer({ x: OBJ.x, y: OBJ.y, w: OW, h: 4 });
+scanL.style.background = "linear-gradient(to right, rgba(201,167,124,0), rgba(201,167,124,.9) 15%, rgba(201,167,124,.9) 85%, rgba(201,167,124,0))";
+op(scanL, 0);
+const inspL = L.layer({ x: OBJ.x, y: OBJ.y, w: 6, h: OH });
+inspL.style.background = "linear-gradient(rgba(255,204,102,0), rgba(255,204,102,.9) 12%, rgba(255,204,102,.9) 88%, rgba(255,204,102,0))";
+op(inspL, 0);
+const beamL = L.layer({ x: OBJ.x, y: OBJ.y, w: OW, h: OH });
+beamL.style.transformOrigin = "0 0";
+beamL.style.background = "repeating-linear-gradient(90deg, rgba(255,204,102,0) 0 22px, rgba(255,214,140,.2) 22px 26px), " +
+  "linear-gradient(rgba(255,204,102,0), rgba(255,204,102,.16) 30%, rgba(255,204,102,.16) 70%, rgba(255,204,102,0))";
+op(beamL, 0);
+
+// readings in the chamber's four corners
+const CL = MX + 32, CR = MR - 32;
+const corner = (x, align, lb, vb, label) => ({ l: L.text({ x, base: lb, s: 36, c: "gold", txt: label, align }), v: L.text({ x, base: vb, s: 52, c: "white", txt: "", align }) });
+const cPat = corner(CL, "l", base0(0), base0(1), "Pattern");
+const cUnit = corner(CR, "r", base0(0), base0(1), "Unit");
+const cHt = corner(CL, "l", base1(0) - PITCH, base1(0), "Build Height");
+const cDev = corner(CR, "r", base1(0) - PITCH, base1(0), "Deviation");
+cls(cPat.v, "sw");
+
+// the stages, under the chamber, and the build against the part
+const STAGES = [[0, 3, "Pattern Load", "tan"], [3, 33, "Layer Deposition", "gold"], [33, 38, "Inspection", "butter"], [38, 41.5, "Transport", "orange"]];
+const UNIT = 41.5;
+const stageAt = (u) => (u < 3 ? 0 : u < 33 ? 1 : u < 38 ? 2 : 3);
+const SBW = (MR - MX - 3 * L.GAP) / 4;
+const stageBox = STAGES.map(([, , label], k) => {
+  const b = cls(L.box({ x: MX + k * (SBW + L.GAP), y: ROW1 + 2 * PITCH, w: SBW, h: 64, c: DIM, label, fs: 32, r: k === 0 ? "l" : k === 3 ? "r" : null }), "sw");
+  fg(b, "tan");
+  return { b, state: "" };
+});
+// the build against the whole part: a labelled box, the bar, the count
+const boxRow = (i, label, c, bc) => {
+  const base = base1(i);
+  L.box({ x: MX, y: base - 52.5, w: BX - L.GAP, h: 64, c: bc, label, fs: 32, r: "l" });
+  L.rect({ x: MX + BX, y: base - 26, w: MR - 300 - (MX + BX), h: 26, c: TRACK });
+  return { bar: fill(MX + BX, base - 26, MR - 300 - (MX + BX), 26, c), v: L.text({ x: MR, base, s: 52, c: "white", txt: "", align: "r" }), u: -1 };
+};
+const gLayer = boxRow(3, "Layer", "gold", "tan");
+const gMass = boxRow(4, "Mass Deposited", "orange", "gold");
+
+// ---------------- energy use ----------------
+L.header({ x: RX, y: 280, w: RR - RX, label: "Energy Use", c1: "gold", c2: "tan" });
+L.text({ x: RX, base: 400, s: 36, c: "gold", txt: "EPS Tap 27-04  ·  Fed from the Warp Core" });
+const EN = [["Power Draw", "gold"], ["Phase Coils", "tan"], ["Matter Stream", "orange"], ["Pattern Buffer", "tan"], ["Confinement", "gold"], ["Coolant", "tan"]]
+  .map(([n, c], i) => ({ ...gaugeRow(RX, RR, base0(i), n, c), val: 0 }));
+
+// ---------------- delivered this shift ----------------
+L.header({ x: RX, y: 1000, w: RR - RX, label: "Delivered This Shift", c1: "tan", c2: "gold" });
+const DUX = RR - 270;
+[["Part", RX, ""], ["Units", DUX, "r"], ["Mass", RR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: 1120, s: 36, c: "gold", txt, align }));
+const dRows = Array.from({ length: 5 }, (_, i) => ({
+  name: cls(L.text({ x: RX, base: base1(i), s: 40, c: "tan", txt: "" }), "sw"),
+  units: cls(L.text({ x: DUX, base: base1(i), s: 52, c: "white", txt: "", align: "r" }), "sw"),
+  mass: cls(L.text({ x: RR, base: base1(i), s: 52, c: "white", txt: "", align: "r" }), "sw"),
+}));
+const delivered = [["Hull Plate", 4, 386.0], ["Plasma Conduit Section", 6, 289.2], ["Deuterium Injector", 2, 62.8],
+                   ["EPS Power Coupling", 8, 179.2], ["Mounting Bracket", 12, 115.2]];
+const showDelivered = () => dRows.forEach((r, i) => {
+  const [n, u, kg] = delivered[i];
+  L.set(r.name, n); L.set(r.units, String(u)); L.set(r.mass, fmt(kg, 1) + " kg");
+});
+
+// ---------------- power draw, the last ten minutes ----------------
+L.header({ x: LX, y: 1620, w: LR - LX, label: "Power Draw  ·  Last Hour", c1: "gold", c2: "orange", h: 48 });
+L.text({ x: LX, base: STRIP(0), s: 36, c: "tan", txt: "EPS Draw" });
+const drawV = L.text({ x: LR, base: STRIP(0), s: 36, c: "white", txt: "", align: "r" });
+const CH = L.canvas({ x: LX, y: 1758, w: LR - LX, h: 2010 - 1758 });
+const NPT = 61, PMAX = 20, CMAX = 16;
+const pw = [];
+const drawChart = () => {
+  const g = CH.g, w = CH.w, h = CH.h, dx = w / (NPT - 1), Y = (v) => h - 4 - (v / CMAX) * (h - 8);
+  g.clearRect(0, 0, w, h);
+  g.fillStyle = CHAMBER; g.fillRect(0, 0, w, h);
+  g.fillStyle = TRACK;
+  for (const v of [4, 8, 12]) g.fillRect(0, Math.round(Y(v)) - 1, w, 2);
+  g.beginPath(); g.moveTo(0, h);
+  pw.forEach((v, k) => g.lineTo(k * dx, Y(v)));
+  g.lineTo(w, h); g.closePath(); g.fillStyle = "rgba(214,160,50,0.18)"; g.fill();
+  g.beginPath(); pw.forEach((v, k) => (k ? g.lineTo(k * dx, Y(v)) : g.moveTo(0, Y(v))));
+  g.lineWidth = 3; g.lineJoin = "round"; g.strokeStyle = "#d6a032"; g.stroke();
+  g.fillStyle = "#ffcc66"; g.beginPath(); g.arc(w - 7, Y(pw[NPT - 1]), 6, 0, 7); g.fill();
+};
+CH.onResize = () => { if (pw.length) drawChart(); };
+
+// ---------------- fabrication log ----------------
+L.header({ x: MX, y: 1620, w: MR - MX, label: "Fabrication Log", c1: "tan", c2: "gold", h: 48 });
+const LOGT = MX + 170;
+const logRows = Array.from({ length: 6 }, (_, i) => ({
+  tm: L.text({ x: MX, base: STRIP(i), s: 36, c: "gold", txt: "" }),
+  tx: L.text({ x: LOGT, base: STRIP(i), s: 36, c: "tan", txt: "" }),
+  v: L.text({ x: MR, base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }) }));
+const logged = [];
+const clockAt = (ago = 0) => { const d = new Date(Date.now() - ago * 1000); return `${D2(d.getHours())}:${D2(d.getMinutes())}:${D2(d.getSeconds())}`; };
+const logLine = (txt, v, ago = 0) => {
+  logged.push([clockAt(ago), txt, v]); if (logged.length > logRows.length) logged.shift();
+  logRows.forEach((r, i) => { const e = logged[i] || ["", "", ""]; L.set(r.tm, e[0]); L.set(r.tx, e[1]); L.set(r.v, e[2]); });
+};
+
+// ---------------- shift totals ----------------
+L.header({ x: RX, y: 1620, w: RR - RX, label: "Shift Totals", c1: "orange", c2: "tan", h: 48 });
+const TOT = ["Units Fabricated", "Mass Fabricated", "Energy Used", "Matter Reclaimed", "Rejected for Tolerance", "Replicator Uptime"]
+  .map((n, i) => { L.text({ x: RX, base: STRIP(i), s: 36, c: "tan", txt: n }); return L.text({ x: RR, base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }); });
+const tot = { units: 148, kg: 4862.4, gj: 61.84, rec: 312.6 };
+const showTotals = () => {
+  L.set(TOT[0], fmt(tot.units)); L.set(TOT[1], fmt(tot.kg, 1) + " kg"); L.set(TOT[2], tot.gj.toFixed(2) + " GJ");
+  L.set(TOT[3], fmt(tot.rec, 1) + " kg"); L.set(TOT[4], "0"); L.set(TOT[5], "99.97%");
+};
+
+// ---------------- a guard: every name fits its place ----------------
+{
+  const bad = [];
+  const fits = (txt, s, w, where) => { if (L.textWidth(txt, s) > w) bad.push(`${where}: "${txt}" ${Math.round(L.textWidth(txt, s))}>${Math.round(w)}`); };
+  for (const k of ORDER) {
+    const p = PARTS[k];
+    fits(p.name, 40, LR - 140 - QNX, "queue");
+    fits(p.name, 40, DUX - 130 - RX, "delivered");
+    fits(`Unit 3 of 12 complete  ·  ${p.name}`, 36, MR - 200 - LOGT, "log");
+    fits(`Job J-4471 delivered to ${p.dest}`, 36, MR - 200 - LOGT, "log");
+  }
+  for (const [n] of MATS) fits(n, 40, BX - 30, "stocks");
+  if (bad.length) setTimeout(() => { throw new Error("industrial-replicator: " + bad.join(" | ")); });
+}
+
+// ---------------- the work ----------------
+const power = (st, p) => [5.2, 9.4 + p.kg * 0.03, 4.4, 8.6][st];
+const target = (st, p, t) => [
+  power(st, p) + 0.05 * Math.sin(t * 0.3),
+  st === 1 ? 0.78 + p.kg * 0.0004 : st === 3 ? 0.42 : 0.14,
+  st === 1 ? p.kg * 2 : 0,
+  0.9991 + 0.0004 * Math.sin(t * 0.05),
+  0.986 + 0.002 * Math.sin(t * 0.037),
+  0,
+];
+let unitT0 = -14, shown = null;
+const job = () => queue[0];
+const showPart = () => {
+  const j = job(), g = geo[j.key];
+  if (shown !== g) {
+    if (shown) { shown.gp.setAttribute("display", "none"); shown.gs.setAttribute("display", "none"); }
+    g.gp.removeAttribute("display"); g.gs.removeAttribute("display"); shown = g;
+  }
+  const main = j.p.comp.indexOf(Math.max(...j.p.comp));
+  L.set(partName, j.p.name); L.set(partMat, `${MATS[main][0]}  ·  ${j.p.kg.toFixed(1)} kg per Unit`);
+  L.set(cPat.v, j.p.pat);
+};
+const showSub = () => L.set(stateSub, `Industrial Replicator 2  ·  Deck 27  ·  Job J-${job().num} for ${job().p.dest}  ·  ${queue.length - 1} Jobs Queued`);
+const completeUnit = () => {
+  const j = job();
+  j.done++; tot.units++; tot.kg += j.p.kg;
+  if (j.done < j.qty) {
+    logLine(`Unit ${j.done} of ${j.qty} complete  ·  ${j.p.name}`, j.p.kg.toFixed(1) + " kg");
+    L.set(qRows[0].units, `${j.done} / ${j.qty}`);
+  } else {
+    logLine(`Job J-${j.num} delivered to ${j.p.dest}`, fmt(j.p.kg * j.qty, 1) + " kg");
+    delivered.unshift([j.p.name, j.qty, j.p.kg * j.qty]); delivered.pop();
+    swap(dRows.flatMap((r) => [r.name, r.units, r.mass]), showDelivered);
+    queue.shift();
+    queue.push(newJob(ORDER[nextKind++ % ORDER.length]));
+    swap(qRows.flatMap((r) => [r.box, r.name, r.units]), showQueue);
+    swap([partName, partMat, cPat.v, stateSub], () => { showPart(); showSub(); });
+    setTimeout(() => logLine(`Pattern ${job().p.pat} loaded  ·  ${job().p.name}`, `J-${job().num}`), 1200);
+  }
+};
+
+// the starting state
+showQueue(); showDelivered(); showTotals(); showPart(); showSub();
+[["Unit 3 of 4 complete  ·  Hull Plate", "96.5 kg", 99], ["Bulk stocks replenished by matter reclamation", "+420.0 kg", 80],
+ ["Job J-4470 delivered to Cargo Bay 4", "386.0 kg", 57], ["Pattern WC-4410-V loaded  ·  Warp Coil Segment", "J-4471", 55],
+ ["Conduit pattern revised from U.S.S. Jenolan records", "PC-2209-D", 31], ["Unit 1 of 3 complete  ·  Warp Coil Segment", "186.0 kg", 14]].forEach(([txt, v, ago]) => logLine(txt, v, ago));
+// the last hour, a minute at a time: each minute's average over the units it held
+const cycleAvg = (p) => STAGES.reduce((a, [u0, u1], i) => a + (u1 - u0) * power(i, p), 0) / UNIT;
+const PAST = [["coil", 1], ["plate", 2.8], ["conduit", 4.2], ["injector", 1.4], ["coupling", 5.5], ["bracket", 8.3], ["plate", 4.2],
+              ["conduit", 5.6], ["coil", 4.2], ["coupling", 6.9], ["bracket", 6.9], ["injector", 2.8], ["plate", 6]];
+{
+  let m = 0, v = null;
+  const per = [];
+  for (const [key, mins] of PAST) for (let i = 0; i < mins && per.length < NPT; i++, m++) per.push(cycleAvg(PARTS[key]));
+  while (per.length < NPT) per.push(per[per.length - 1]);
+  per.reverse().forEach((x, i) => { v = v === null ? x : v * 0.55 + x * 0.45; pw.push(v * (1 + 0.012 * Math.sin(i * 1.7))); });
+}
+drawChart();
+EN.forEach((g, i) => { g.val = target(stageAt(14), job().p, 0)[i]; });
+EN[5].val = 0.58;
+
+// ---------------- the clock ----------------
+let tPrev = null, st = -1;
+L.tick((t) => {
+  const dt = tPrev === null ? 0 : Math.min(0.1, t - tPrev); tPrev = t;
+  while (t - unitT0 >= UNIT) { completeUnit(); unitT0 += UNIT; }
+  const u = t - unitT0, j = job(), g = shown;
+  if (g !== geo[j.key] && u < 1) showPart();                  // a new job's pattern, while the chamber is empty
+  const s = stageAt(u);
+  if (s !== st) {
+    st = s;
+    swap([stagePill], () => { L.set(stagePill, STAGES[s][2]); bg(stagePill, STAGES[s][3]); });
+    stageBox.forEach((b, i) => { const v = i < s ? "done" : i === s ? "on" : ""; if (v !== b.state) { b.state = v; bg(b.b, v === "done" ? "tan" : v === "on" ? STAGES[i][3] : DIM); fg(b.b, v ? "#000" : "tan"); } });
+    L.set(cUnit.v, `${j.done + 1} of ${j.qty}`);
+  }
+  // the build: the front climbs one layer at a time, and the solid is shown below it
+  const k = L.clamp((u - 3) / 30), layer = Math.floor(k * g.layers), kl = layer / g.layers;
+  const f = L.mix(FOOT + 2, g.top - 2, kl);
+  tf(clipL, `translate3d(0,${f1(f)}px,0)`); tf(solidL, `translate3d(0,${f1(-f)}px,0)`);
+  const fade = u < 39 ? 1 : 1 - ease((u - 39) / 2);
+  op(patL, Math.min(ease(u / 1.5), fade));
+  op(clipL, fade);
+  if (s === 1) {
+    const [x0, x1] = g.span(f), w = Math.min(OW, x1 - x0 + 70);
+    tf(frontL, `translate3d(${f1((x0 + x1) / 2 - OW / 2)}px,${f1(f - 4)}px,0) scaleX(${(w / OW).toFixed(3)})`);
+    tf(head, `translate3d(0,${f1(f - 10)}px,0)`);
+  }
+  op(frontL, s === 1 ? Math.min(1, (u - 3) * 2, (33 - u) * 2) : 0);
+  op(head, u < 3 ? ease((u - 1.5) / 1.5) : u < 33 ? 1 : 1 - ease((u - 33) / 1.2));
+  if (u < 3) tf(head, `translate3d(0,${f1(FOOT - 8)}px,0)`);
+  op(padGlow, s === 1 ? 0.35 + 0.1 * Math.sin(t * 1.3) : 0);
+  op(emitGlow, u < 3 ? 0.8 * Math.sin((Math.PI * u) / 3) : s === 1 ? 0.25 : 0);
+  // the pattern is read down the part; the finished part is swept across; then it is transported out
+  if (u > 0.2 && u < 2.8) { const q = (u - 0.2) / 2.6; tf(scanL, `translate3d(0,${f1(L.mix(g.top - 10, FOOT, q))}px,0)`); op(scanL, 0.9 * Math.sin(Math.PI * q)); } else op(scanL, 0);
+  if (s === 2) { const q = (u - 33.3) / 4.4, [x0, x1] = g.span((g.top + FOOT) / 2); tf(inspL, `translate3d(${f1(L.mix(x0 - 40, x1 + 40, L.clamp(q)))}px,0,0)`); op(inspL, L.clamp(q) > 0 && q < 1 ? Math.sin(Math.PI * q) : 0); } else op(inspL, 0);
+  if (s === 3) {
+    const xs = g.lo.filter((v) => v < Infinity), x0 = Math.min(...xs) - 30, x1 = Math.max(...g.hi.filter((v) => v > -Infinity)) + 30;
+    tf(beamL, `translate3d(${f1(x0)}px,${f1(g.top - 30)}px,0) scale(${((x1 - x0) / OW).toFixed(3)},${((FOOT - g.top + 34) / OH).toFixed(3)})`);
+  }
+  op(beamL, s === 3 ? 0.9 * Math.sin(Math.PI * L.clamp((u - 38) / 3.4)) : 0);
+  // energy: eased toward what the stage asks for
+  const tg = target(s, j.p, t);
+  tg[5] = 0.36 + 0.016 * EN[0].val;
+  EN.forEach((e, i) => { e.val += (tg[i] - e.val) * Math.min(1, dt * (i === 5 ? 0.12 : 0.9)); });
+  // the stocks: drawn down while layers are laid, refilled by reclamation
+  stocks.forEach((m, i) => {
+    if (s === 1) m.lvl -= (j.p.comp[i] / 100) * j.p.kg * (dt / 30) / m.cap;
+    m.lvl += (m.mean - m.lvl) * dt * 0.004;
+  });
+  tot.gj += (EN[0].val * dt) / 1000;
+  acc += EN[0].val * dt; accT += dt;
+});
+L.every(250, (t) => {
+  const u = t - unitT0, j = job(), g = shown, s = stageAt(u);
+  const k = L.clamp((u - 3) / 30), layer = Math.floor(k * g.layers);
+  showBar(gLayer, layer / g.layers); L.set(gLayer.v, `${fmt(layer)} / ${fmt(g.layers)}`);
+  showBar(gMass, layer / g.layers); L.set(gMass.v, `${((layer / g.layers) * j.p.kg).toFixed(1)} kg`);
+  L.set(cHt.v, `${(layer * 0.25).toFixed(1)} mm`);
+  L.set(cDev.v, s === 0 ? "0 nm" : `${Math.round(112 + 18 * Math.sin(t * 0.4) + 7 * Math.sin(t * 1.1))} nm`);
+  const [P, C, M, B, F, K] = EN;
+  showBar(P, P.val / PMAX); L.set(P.v, P.val.toFixed(1) + " MW");
+  showBar(C, C.val); L.set(C.v, (C.val * 100).toFixed(1) + "%");
+  showBar(M, M.val / 480); L.set(M.v, Math.round(M.val) + " kg/min");
+  showBar(B, B.val); L.set(B.v, (B.val * 100).toFixed(2) + "%");
+  showBar(F, F.val); L.set(F.v, (F.val * 100).toFixed(1) + "%");
+  showBar(K, K.val); L.set(K.v, (K.val * 100).toFixed(1) + "%");
+  L.set(drawV, `Now  ${P.val.toFixed(1)} MW`);
+  stocks.forEach((m, i) => { showBar(m, m.lvl); L.set(m.v, (m.lvl * 100).toFixed(1) + "%"); fg(m.n, s === 1 && j.p.comp[i] >= 10 ? "butter" : "tan"); });
+}, 0);
+L.every(1000, () => showTotals(), 0);
+let acc = 0, accT = 0;
+L.every(60000, () => { if (accT > 0) { pw.shift(); pw.push(pw[NPT - 2] * 0.55 + (acc / accT) * 0.45); acc = accT = 0; drawChart(); } }, 0);
+L.every(30000, () => { tot.rec += L.rand(0.4, 1.6); }, 0.3);
+});
+</script></body></html>

@@ -1,0 +1,435 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Music Archive</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* swapped text dips and comes back; colors change slowly; .boot (the start-up cascade) always wins */
+  .sw { transition: opacity .45s ease, background-color 1s ease, color 1s ease; }
+  .out:not(.boot) { opacity: .15; }
+  .wv { transition: opacity .45s ease; }
+  .wout:not(.boot) { opacity: 0; }
+  .rc { transition: color .8s ease, background-color .8s ease; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: mirrored, sidebar on the right ----------------
+L.frame({ type: "B", title: "Music  •  Cultural Archive", c: "violet", c2: "butter", accent: "lilac", foot: "Music",
+  side: [[140, "lilac", "Lib 07"], [70, "butter", "4471"], [420, "violet", "Archive"], [70, "lilac", "Audio"], [300, "violet", "Library"],
+         [70, "butter", "06"], [216, "lilac", "Channels"]] });
+
+const INK = "#9d8cf5", TRACK = "#1c1636", GRID = "#2a2152", DIM = "#43389a", BAND = "#2a2250";
+const cls = (e, ...c) => (e.classList.add(...c), e);
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const op = (e, v) => { v = v < 0.005 ? "0" : v > 0.995 ? "1" : v.toFixed(2); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const bg = (e, c) => { if (e._bg !== c) { e._bg = c; e.style.background = c.startsWith("#") ? c : `var(--${c})`; } };
+const fg = (e, c) => { if (e._fg !== c) { e._fg = c; e.style.color = c.startsWith("#") ? c : `var(--${c})`; } };
+const fill = (x, y, w, h, c, origin = "0 0", parent) => {
+  const f = L.layer({ x, y, w, h, cls: "boot" }, parent);
+  f.style.background = c.startsWith("#") ? c : `var(--${c})`; f.style.transformOrigin = origin;
+  return f;
+};
+const D2 = (n) => String(n).padStart(2, "0");
+const fmt = (n) => Math.round(n).toLocaleString("en");
+const mss = (s) => { s = Math.max(0, Math.floor(s)); return `${Math.floor(s / 60)}:${D2(s % 60)}`; };
+const swap = (els, f) => { els.forEach((e) => e.classList.add("out")); setTimeout(() => { f(); els.forEach((e) => e.classList.remove("out")); }, 460); };
+const rng = (seed) => () => { seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t ^= t + Math.imul(t ^ (t >>> 7), 61 | t); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+const minutes = () => (Date.now() - new Date().getTimezoneOffset() * 60000) / 60000;   // local minutes since the epoch
+const hhmm = (m) => { m = ((Math.floor(m) % 1440) + 1440) % 1440; return `${D2(Math.floor(m / 60))}:${D2(m % 60)}`; };
+
+// Two columns over a three-panel strip. Rows of 48 on a 60 grid, shared across each pair of panels.
+const A = [40, 2100], B = [2160, 3520];
+const ROW0 = 428, P = 60, RH = 48, rowY = (i) => ROW0 + i * P, rowBase = (i) => rowY(i) + 37;
+const LROW0 = 1148, lrowY = (i) => LROW0 + i * P, lrowBase = (i) => lrowY(i) + 37;
+const STRIP = (i) => 1734 + i * 54;
+const P1 = [40, 1040], P2 = [1100, 2100], P3 = [2160, 3520];
+
+// columns as wide as what they hold, the space left shared equally between them; returns each column's anchor
+const spread = (x0, x1, cols) => {
+  const wd = cols.map(([h, vals]) => Math.max(L.textWidth(h, 36), ...vals.map((v) => L.textWidth(v, 36))));
+  const gap = (x1 - x0 - wd.reduce((a, b) => a + b, 0)) / (cols.length - 1);
+  let x = x0;
+  return cols.map(([, , align], k) => { const at = align === "r" ? (k === cols.length - 1 ? x1 : x + wd[k]) : x; x += wd[k] + gap; return Math.round(at); });
+};
+
+// ---------------- the library ----------------
+const COMPOSERS = {
+  bach:      { box: "J. S. Bach",          full: "Johann Sebastian Bach",   sur: "Bach",       origin: "Earth",  period: "1685 – 1750", style: "Baroque",    works: 1128, recs: 4316 },
+  bocc:      { box: "L. Boccherini",       full: "Luigi Boccherini",        sur: "Boccherini", origin: "Earth",  period: "1743 – 1805", style: "Classical",  works: 580,  recs: 906 },
+  mozart:    { box: "W. A. Mozart",        full: "Wolfgang Amadeus Mozart", sur: "Mozart",     origin: "Earth",  period: "1756 – 1791", style: "Classical",  works: 626,  recs: 5208 },
+  beethoven: { box: "L. van Beethoven",    full: "Ludwig van Beethoven",    sur: "Beethoven",  origin: "Earth",  period: "1770 – 1827", style: "Classical",  works: 722,  recs: 4870 },
+  brahms:    { box: "J. Brahms",           full: "Johannes Brahms",         sur: "Brahms",     origin: "Earth",  period: "1833 – 1897", style: "Romantic",   works: 122,  recs: 2264 },
+  ellington: { box: "D. Ellington",        full: "Duke Ellington",          sur: "Ellington",  origin: "Earth",  period: "1899 – 1974", style: "Jazz",       works: 1412, recs: 3120 },
+  vulcan:    { box: "Vulcan Traditional",  full: "Vulcan Traditional",      sur: "Vulcan",     origin: "Vulcan", period: "Time of Surak", style: "Meditative", works: 340, recs: 1210 },
+  klingon:   { box: "Klingon Traditional", full: "Klingon Traditional",     sur: "Klingon",    origin: "Qo'noS", period: "Age of Kahless", style: "Opera",    works: 96,   recs: 640 },
+  ressik:    { box: "Ressikan Folk",       full: "Ressikan Folk Melody",    sur: "Ressikan",   origin: "Kataan", period: "Pre-Nova",    style: "Folk",       works: 1,    recs: 14 },
+};
+const CKEYS = Object.keys(COMPOSERS);
+// recordings: performances made aboard (the archive table), and library recordings from home
+const RECS = [
+  { comp: "ellington", work: "In a Sentimental Mood", mvt: "Ballad  ·  Quintet Arrangement", short: "Sentimental Mood", ws: "Sentimental Mood",
+    perf: "Cmdr. William T. Riker  ·  Quintet", ps: "Cmdr. Riker", inst: "Trombone", venue: "Holodeck 4", sd: "41365.9", len: 286, kind: "jazz", range: 54 },
+  { comp: "bocc", work: "String Quintet in E, Op. 11 No. 5", mvt: "III. Minuetto", short: "Boccherini Minuet", ws: "Quintet in E  ·  Minuetto",
+    perf: "Lt. Cmdr. Data  ·  String Quintet", ps: "Lt. Cmdr. Data", inst: "Violin", venue: "Ten Forward", sd: "43133.3", len: 232, kind: "strings", range: 58 },
+  { comp: "brahms", work: "String Sextet No. 1 in B-flat, Op. 18", mvt: "II. Andante ma moderato", short: "Brahms Sextet", ws: "Sextet No. 1  ·  Andante",
+    perf: "Lt. Cmdr. Data  ·  String Sextet", ps: "Lt. Cmdr. Data", inst: "Violin", venue: "Ten Forward", sd: "43917.4", len: 544, kind: "strings", range: 66 },
+  { comp: "ressik", work: "Ressikan Folk Melody", mvt: "Solo  ·  As Learned at Ressik", short: "Ressikan Melody", ws: "Ressikan Melody  ·  Solo",
+    perf: "Capt. Jean-Luc Picard", ps: "Capt. Picard", inst: "Ressikan Flute", venue: "Captain's Quarters", sd: "45944.1", len: 108, kind: "flute", range: 48 },
+  { comp: "mozart", work: "Eine kleine Nachtmusik, K. 525", mvt: "II. Romanze", short: "Nachtmusik Romanze", ws: "Nachtmusik  ·  Romanze",
+    perf: "Ship's Chamber Ensemble", ps: "Chamber Ensemble", inst: "Strings", venue: "Ten Forward", sd: "46021.7", len: 348, kind: "strings", range: 60 },
+  { comp: "ressik", work: "Ressikan Folk Melody", mvt: "Duet  ·  Flute and Piano", short: "Ressikan Duet", ws: "Ressikan Melody  ·  Duet",
+    perf: "Capt. Picard  ·  Lt. Cmdr. Nella Daren", ps: "Picard  ·  Daren", inst: "Flute  ·  Piano", venue: "Jefferies Tube", sd: "46693.1", len: 156, kind: "flute", range: 52 },
+  { comp: "bach", work: "Partita No. 3 in E, BWV 1006", mvt: "III. Gavotte en Rondeau", short: "Bach Gavotte", ws: "Partita No. 3  ·  Gavotte",
+    perf: "Lt. Cmdr. Data", ps: "Lt. Cmdr. Data", inst: "Violin", venue: "Ten Forward", sd: "47208.3", len: 190, kind: "violin", range: 56 },
+  { comp: "beethoven", work: "Piano Sonata No. 14 in C-sharp Minor", mvt: "I. Adagio sostenuto", short: "Moonlight Sonata", lib: "Library  ·  Earth",
+    perf: "Archive Recording  ·  Solo", inst: "Piano", len: 352, kind: "piano", range: 62 },
+  { comp: "vulcan", work: "Meditation on the Teachings of Surak", mvt: "Lyre Solo", short: "Surak Meditation", lib: "Library  ·  Vulcan",
+    perf: "Vulcan Science Academy", inst: "Vulcan Lyre", len: 400, kind: "lyre", range: 50 },
+  { comp: "klingon", work: "Kahless the Unforgettable", mvt: "Act II  ·  The Battle at Qam-Chee", short: "Kahless Opera", lib: "Library  ·  Qo'noS",
+    perf: "Opera Company of the First City", inst: "Voices  ·  Drums", len: 262, kind: "opera", range: 44 },
+];
+RECS.forEach((r, i) => { r.i = i; r.c = COMPOSERS[r.comp]; r.aboard = !!r.sd; });
+const ABOARD = RECS.filter((r) => r.aboard);                 // already in stardate order
+
+// a waveform for each recording: its loudness, bar by bar, phrase by phrase
+const NBAR = 172;
+const KIND = {        // [centre band, width, phrase length in bars, breath depth]
+  jazz: [11, 6.5, 22, 0.25], strings: [14, 7.5, 34, 0.12], violin: [17, 6, 18, 0.2], flute: [19, 3.8, 14, 0.75],
+  piano: [13, 8, 26, 0.3], lyre: [18, 5, 20, 0.45], opera: [12, 7, 28, 0.2],
+};
+RECS.forEach((r) => {
+  const R = rng(r.i * 7919 + 3), [, , ph, breath] = KIND[r.kind], env = [];
+  const sw = [R() * 6, R() * 6, R() * 6];
+  for (let i = 0; i < NBAR; i++) {
+    const u = i / (NBAR - 1);
+    let v = 0.5 + 0.22 * Math.sin(u * Math.PI * (1.4 + R() * 0.02) + sw[0]) + 0.12 * Math.sin(u * 17 + sw[1]);
+    const p = (i % ph) / ph;                                  // within a phrase: swell, then a breath
+    v *= 1 - breath * Math.pow(Math.max(0, (p - 0.82) / 0.18), 1.5);
+    v *= 0.86 + 0.28 * R();
+    v *= Math.min(1, u / 0.025 + 0.25) * Math.min(1, (1 - u) / 0.04 + 0.1);   // in from silence, out to it
+    env.push(L.clamp(v, 0.05, 1));
+  }
+  r.env = env;
+});
+
+// ---------------- the channels: where the archive is playing now ----------------
+const CH = [
+  { loc: "Ten Forward", who: ["Guinan", "Ens. Lavelle", "Ens. Sito", "Ens. Ro", "Lt. Barclay"] },
+  { loc: "Arboretum", who: ["Keiko O'Brien", "Nurse Ogawa"] },
+  { loc: "Holodeck 3", who: ["Lt. Barclay", "Cmdr. Riker"] },
+  { loc: "Observation Lounge", who: ["Cmdr. Riker", "Lt. Worf", "Lt. Cmdr. Data"] },
+  { loc: "Captain's Quarters", who: ["Capt. Picard"] },
+  { loc: "Counselor's Office", who: ["Counselor Troi"] },
+].map((c, i) => Object.assign(c, { n: i, id: D2(i + 1) }));
+const playing = () => new Set(CH.map((c) => c.rec).filter(Boolean));
+const choose = (ch, who) => {
+  const busy = playing();
+  const free = RECS.filter((r) => r !== ch.rec && !busy.has(r));
+  const fav = { "Capt. Picard": "ressik", "Lt. Worf": "klingon" }[who];
+  const liked = free.filter((r) => r.comp === fav);
+  return L.pick(liked.length && Math.random() < 0.6 ? liked : free);
+};
+const requests = [];                                          // [time, who, recording, location], oldest first
+CH.forEach((c) => { c.whoList = c.who; });
+const begin = (ch, t, elapsed) => {
+  const list = ch.whoList, who = list.length > 1 ? L.pick(list.filter((w) => w !== ch.whoNow)) : list[0];
+  ch.whoNow = who; ch.rec = choose(ch, who); ch.start = t - elapsed;
+  const m = minutes() - elapsed / 60;
+  requests.push([hhmm(m), who, ch.rec.short, ch.loc]);
+};
+// the morning so far: every channel part-way through something, requested in that order
+CH.forEach((c) => begin(c, 0, 0));
+CH.forEach((c) => { c.start = -L.rand(c.n === 0 ? 0.15 : 0.1, c.n === 0 ? 0.45 : 0.85) * c.rec.len; });
+requests.length = 0;
+CH.slice().sort((a, b) => a.start - b.start).forEach((c) => requests.push([hhmm(minutes() + c.start / 60), c.whoNow, c.rec.short, c.loc]));
+const elapsed = (c, t) => t - c.start;
+
+// ---------------- status line ----------------
+const state = cls(L.text({ x: A[0], cap: 150, s: 100, c: "butter", txt: "" }), "sw");
+const stateSub = cls(L.text({ x: 0, base: 222, s: 38, c: "lilac", txt: "" }), "sw");
+const placeSub = () => { stateSub.style.left = A[0] + state.offsetWidth + 48 + "px"; };
+const arch = L.box({ x: B[1] - 400, y: 150, w: 400, h: 72, c: "lilac", label: "Archive Online", r: "lr", fs: 36 });
+arch.style.willChange = "opacity";
+
+// a section header with a status pill at its right end
+const pillHeader = (col, y, label, c1, c2, texts, pc, h = 56) => {
+  const fs = h >= 56 ? 32 : 28;
+  const pw = Math.ceil(Math.max(...texts.map((s) => L.textWidth(s, fs))) / 10) * 10 + 90;
+  L.header({ x: col[0], y, w: col[1] - col[0] - pw - L.GAP, label, c1, c2, h });
+  return cls(L.box({ x: col[1] - pw, y, w: pw, h, c: pc, label: "", fs, r: "r" }), "sw");
+};
+
+// ---------------- now playing: channel 1 ----------------
+const npPill = pillHeader(A, 280, "Now Playing", "violet", "lilac", ["Channel 01  ·  Ten Forward"], "butter");
+L.set(npPill, "Channel 01  ·  Ten Forward");
+L.text({ x: A[0], base: 400, s: 36, c: INK, txt: "Ship's Library  ·  Music Archive  ·  Holographic Audio Capture" });
+const title = cls(L.text({ x: A[0], base: rowBase(1), s: 80, c: "white", txt: "" }), "sw");
+const total = cls(L.text({ x: A[1], base: rowBase(1), s: 52, c: "lilac", txt: "", align: "r" }), "sw");
+const elapsedTxt = cls(L.text({ x: A[1], base: rowBase(1), s: 80, c: "butter", txt: "", align: "r" }), "sw");
+const mvt = cls(L.text({ x: A[0], base: rowBase(2), s: 40, c: "lilac", txt: "" }), "sw");
+const remain = cls(L.text({ x: A[1], base: rowBase(2), s: 40, c: "lilac", txt: "", align: "r" }), "sw");
+const FX = [A[0], A[0] + 250, A[0] + 1100, A[0] + 1350];
+const field = (i, k, label) => {
+  L.text({ x: FX[2 * k], base: rowBase(i), s: 36, c: INK, txt: label });
+  return cls(L.text({ x: FX[2 * k + 1], base: rowBase(i), s: 40, c: "white", txt: "" }), "sw");
+};
+const F = { perf: field(3, 0, "Performers"), inst: field(3, 1, "Instrument"), rec: field(4, 0, "Recorded"), who: field(4, 1, "Requested By") };
+
+// the waveform: bars drawn once per recording; the played part lit as the playhead passes
+const WX = A[0], WW = A[1] - A[0], WY = rowY(5), WH = rowY(7) + RH - rowY(5), WMID = WH / 2, BP = WW / NBAR;
+L.rect({ x: WX, y: WY + WMID - 1, w: WW, h: 2, c: GRID, free: true });
+const wave = cls(L.layer({ x: WX, y: WY, w: WW, h: WH, cls: "boot" }), "wv");
+const wsvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+wsvg.setAttribute("width", WW); wsvg.setAttribute("height", WH); wsvg.setAttribute("viewBox", `0 0 ${WW} ${WH}`);
+wsvg.style.position = "absolute"; wave.appendChild(wsvg);
+const wbars = Array.from({ length: NBAR }, (_, i) => L.svg("rect", { x: (i * BP + 2).toFixed(2), y: 0, width: (BP - 4).toFixed(2), height: 0, rx: 2, fill: DIM }, wsvg));
+const head = fill(WX - 2, WY - 12, 4, WH + 24, "white");
+let lit = -1;
+const drawWave = (r, upto) => {
+  wbars.forEach((b, i) => {
+    const h = Math.max(4, r.env[i] * (WH - 8));
+    b.setAttribute("y", (WMID - h / 2).toFixed(1)); b.setAttribute("height", h.toFixed(1));
+    b.setAttribute("fill", i < upto ? "var(--butter)" : DIM);
+  });
+  lit = upto;
+};
+// minutes under the waveform: round marks only, none cut by the end
+const marks = Array.from({ length: 10 }, () => cls(L.text({ x: 0, base: rowBase(8), s: 32, c: INK, txt: "", legend: true }), "sw"));
+const markTicks = Array.from({ length: 10 }, () => fill(0, WY + WH + 4, 2, 12, DIM));
+const showMarks = (r) => {
+  const step = r.len <= 150 ? 30 : r.len <= 400 ? 60 : 120;
+  marks.forEach((m, k) => {
+    const s = k * step, x = WX + (s / r.len) * WW, txt = mss(s), w = L.textWidth(txt, 32);
+    const ok = s <= r.len && (k === 0 || x + w / 2 <= A[1] - 8);
+    L.set(m, ok ? txt : "");
+    m.style.left = (k === 0 ? WX : x - w / 2).toFixed(1) + "px";
+    tf(markTicks[k], `translate3d(${(x - WX + (k === 0 ? 1 : 0)).toFixed(1)}px,0,0)`);
+    op(markTicks[k], ok ? 1 : 0);
+  });
+};
+
+// ---------------- composer catalog ----------------
+const catPill = pillHeader(B, 280, "Composer Catalog", "lilac", "violet", ["6 Channels On Air"], "butter");
+const CBOX = 330;
+const CATCOLS = [["Origin", CKEYS.map((k) => COMPOSERS[k].origin), "l"], ["Period", CKEYS.map((k) => COMPOSERS[k].period), "l"],
+  ["Style", CKEYS.map((k) => COMPOSERS[k].style), "l"], ["Works", ["1,128"], "r"], ["Recordings", ["5,208"], "r"], ["On Air", ["01  ·  02  ·  03"], "r"]];
+const CATX = spread(B[0] + CBOX + 24, B[1], CATCOLS);
+L.text({ x: B[0], base: 400, s: 36, c: INK, txt: "Composer" });
+CATCOLS.forEach(([txt, , align], k) => L.text({ x: CATX[k], base: 400, s: 36, c: INK, txt, align }));
+const catBand = fill(B[0] + CBOX - 24, rowY(0), B[1] - B[0] - CBOX + 24, RH, BAND);
+catBand.style.borderRadius = `0 ${RH / 2}px ${RH / 2}px 0`;
+catBand.style.transition = "transform 1.2s cubic-bezier(.45,0,.55,1)";
+const cat = CKEYS.map((k, i) => {
+  const c = COMPOSERS[k], base = rowBase(i);
+  const box = cls(L.box({ x: B[0], y: rowY(i), w: CBOX, h: RH, c: "violet", label: c.box, fs: 28, r: "l" }), "rc");
+  const t = [c.origin, c.period, c.style, fmt(c.works), fmt(c.recs)].map((v, j) =>
+    cls(L.text({ x: CATX[j], base, s: 36, c: j >= 3 ? "white" : "lilac", txt: v, align: CATCOLS[j][2] }), "rc"));
+  const air = cls(L.text({ x: CATX[5], base, s: 36, c: "butter", txt: "", align: "r" }), "rc");
+  return { k, box, t, air };
+});
+
+// ---------------- performance archive: recorded aboard ----------------
+const arPill = pillHeader(A, 1000, "Performance Archive", "violet", "lilac", ["Recorded Aboard  ·  7"], "butter");
+L.set(arPill, `Recorded Aboard  ·  ${ABOARD.length}`);
+const ABOX = 214;
+const ARCOLS = [["Performer", ABOARD.map((r) => r.ps), "l"], ["Instrument", ABOARD.map((r) => r.inst), "l"], ["Composer", ABOARD.map((r) => r.c.sur), "l"],
+  ["Work", ABOARD.map((r) => r.ws), "l"], ["Venue", ABOARD.map((r) => r.venue), "l"], ["Length", ["9:04"], "r"]];
+const ARX = spread(A[0] + ABOX + 24, A[1], ARCOLS);
+L.text({ x: A[0], base: 1120, s: 36, c: INK, txt: "Stardate" });
+ARCOLS.forEach(([txt, , align], k) => L.text({ x: ARX[k], base: 1120, s: 36, c: INK, txt, align }));
+const arBand = fill(A[0] + ABOX - 24, lrowY(0), A[1] - A[0] - ABOX + 24, RH, BAND);
+arBand.style.borderRadius = `0 ${RH / 2}px ${RH / 2}px 0`;
+arBand.style.transition = "transform 1.2s cubic-bezier(.45,0,.55,1), opacity .8s ease";
+const archive = ABOARD.map((r, i) => {
+  const base = lrowBase(i);
+  const box = cls(L.box({ x: A[0], y: lrowY(i), w: ABOX, h: RH, c: "lilac", label: r.sd, fs: 28, r: "l" }), "rc");
+  const t = [r.ps, r.inst, r.c.sur, r.ws, r.venue, mss(r.len)].map((v, j) =>
+    cls(L.text({ x: ARX[j], base, s: 36, c: j === 5 ? "white" : j === 0 ? "lilac" : INK, txt: v, align: ARCOLS[j][2] }), "rc"));
+  return { r, box, t };
+});
+
+// ---------------- audio analysis: channel 1's spectrum ----------------
+const spPill = pillHeader(B, 1000, "Audio Analysis", "lilac", "violet", ["Channel 01"], "butter");
+L.set(spPill, "Channel 01");
+L.text({ x: B[0], base: 1120, s: 36, c: INK, txt: "Third-Octave Spectrum  ·  dB" });
+const HOLD = "Peak Hold", HW = L.textWidth(HOLD, 36);
+L.text({ x: B[1], base: 1120, s: 36, c: "lilac", txt: HOLD, align: "r" });
+L.rect({ x: B[1] - HW - 24 - 48, y: 1120 - 16, w: 48, h: 6, c: "butter" });
+const SX0 = B[0] + 100, SX1 = B[1], ST = lrowY(0) + 12, SB = lrowY(4) + RH, SH = SB - ST, NB = 30, SP = (SX1 - SX0) / NB;
+[0, -20, -40, -60].forEach((db, k) => {
+  const y = ST + (-db / 60) * SH;
+  L.rect({ x: SX0, y: y - (k === 3 ? 2 : 1), w: SX1 - SX0, h: 2, c: k === 3 ? DIM : GRID, free: true });
+  L.text({ x: SX0 - 24, base: y + 11, s: 32, c: INK, txt: String(db), align: "r", legend: true });
+});
+// octave centres under their bands
+[["63", 5], ["125", 8], ["250", 11], ["500", 14], ["1K", 17], ["2K", 20], ["4K", 23], ["8K", 26], ["16K", 29]].forEach(([txt, b]) =>
+  L.text({ x: SX0 + (b - 0.5) * SP, base: lrowBase(5), s: 32, c: INK, txt, align: "c", w: 80, legend: true }));
+const bands = Array.from({ length: NB }, (_, b) => ({
+  f: fill(SX0 + b * SP + 4, ST, SP - 8, SH, b % 2 ? "violet" : "#7d68e6", "50% 100%"),
+  cap: fill(SX0 + b * SP + 4, ST - 3, SP - 8, 6, "butter"),
+  v: -60, pk: -60, ph: 0,
+}));
+const RDX = [B[0], B[0] + 470, B[0] + 930];
+const rd = [["Average", 0], ["Peak", 1], ["Range", 2]].map(([label, k]) => {
+  L.text({ x: RDX[k], base: lrowBase(6), s: 36, c: INK, txt: label });
+  return L.text({ x: RDX[k] + L.textWidth(label, 36) + 24, base: lrowBase(6), s: 40, c: "white", txt: "" });
+});
+
+// ---------------- recent requests: the newest at the bottom ----------------
+const rqPill = pillHeader(P1, 1620, "Recent Requests", "violet", "lilac", ["Today  ·  999"], "butter", 48);
+let todayCount = 212 + L.irand(0, 40);
+const RQX = [P1[0], P1[0] + 124, P1[0] + 424, P1[1]];
+const rq = Array.from({ length: 6 }, (_, i) => [
+  L.text({ x: RQX[0], base: STRIP(i), s: 36, c: INK, txt: "" }), L.text({ x: RQX[1], base: STRIP(i), s: 36, c: "white", txt: "" }),
+  L.text({ x: RQX[2], base: STRIP(i), s: 36, c: "lilac", txt: "" }), L.text({ x: RQX[3], base: STRIP(i), s: 36, c: "butter", txt: "", align: "r" }),
+].map((e) => cls(e, "sw")));
+const showRequests = () => {
+  rq.forEach((r, i) => { const e = requests[requests.length - 6 + i]; r.forEach((t, k) => L.set(t, e ? e[k] : "")); });
+  L.set(rqPill, `Today  ·  ${todayCount}`);
+};
+
+// ---------------- playback channels ----------------
+L.header({ x: P2[0], y: 1620, w: P2[1] - P2[0], label: "Playback Channels", c1: "lilac", c2: "violet", h: 48 });
+const CHX = [P2[0], P2[0] + 124, P2[0] + 400];
+const PBX0 = 1832, PBX1 = 1972;                                // progress, then the time left
+const chRows = CH.map((c, i) => {
+  const base = STRIP(i);
+  L.box({ x: CHX[0], y: base - 36, w: 100, h: 42, c: i ? "violet" : "butter", label: c.id, fs: 28, r: "l" });
+  L.text({ x: CHX[1], base, s: 36, c: i ? "lilac" : "white", txt: c.loc });
+  const rec = cls(L.text({ x: CHX[2], base, s: 36, c: i ? "white" : "butter", txt: "" }), "sw");
+  L.rect({ x: PBX0, y: base - 22, w: PBX1 - PBX0, h: 22, c: TRACK });
+  const bar = fill(PBX0, base - 22, PBX1 - PBX0, 22, i ? "lilac" : "butter");
+  const left = L.text({ x: P2[1], base, s: 36, c: i ? "white" : "butter", txt: "", align: "r" });
+  return { c, rec, bar, left };
+});
+
+// ---------------- archive holdings by origin ----------------
+const ORIG = [["Earth", 61284, "violet"], ["Vulcan", 4816, "lilac"], ["Qo'noS", 2930, "violet"], ["Bajor", 1742, "lilac"], ["Kataan", 14, "violet"]];
+const HELD = ORIG.reduce((a, o) => a + o[1], 0);
+L.set(pillHeader(P3, 1620, "Archive Holdings", "lilac", "violet", ["Recordings 70,786"], "butter", 48), `Recordings ${fmt(HELD)}`);
+const HB0 = P3[0] + 250, HB1 = P3[0] + 820, HX = [P3[0] + 1030, P3[1]];
+const LOG = (n) => Math.log10(Math.max(1, n)) / 5;            // 1 to 100,000 across the bar
+L.text({ x: P3[0], base: STRIP(0), s: 36, c: INK, txt: "Origin" });
+L.text({ x: HB0, base: STRIP(0), s: 36, c: INK, txt: "Recordings Held  ·  Log Scale" });
+L.text({ x: HX[0], base: STRIP(0), s: 36, c: INK, txt: "Held", align: "r" });
+L.text({ x: HX[1], base: STRIP(0), s: 36, c: INK, txt: "On Air", align: "r" });
+const hold = ORIG.map(([name, n, c], i) => {
+  const base = STRIP(i + 1);
+  const nm = cls(L.box({ x: P3[0], y: base - 36, w: 220, h: 42, c, label: name, fs: 28, r: "l" }), "rc");
+  L.rect({ x: HB0, y: base - 26, w: HB1 - HB0, h: 26, c: TRACK });
+  for (let d = 1; d < 5; d++) L.rect({ x: HB0 + ((HB1 - HB0) * d) / 5 - 1, y: base - 30, w: 2, h: 4, c: DIM, free: true });
+  const f = fill(HB0, base - 26, HB1 - HB0, 26, c);
+  tf(f, `scaleX(${LOG(n).toFixed(4)})`);
+  L.text({ x: HX[0], base, s: 36, c: "white", txt: fmt(n), align: "r" });
+  const air = cls(L.text({ x: HX[1], base, s: 36, c: "butter", txt: "", align: "r" }), "rc");
+  return { name, nm, air, c };
+});
+
+// ---------------- showing what plays ----------------
+const showOnAir = () => {
+  const ch1 = CH[0].rec;
+  cat.forEach((row, i) => {
+    const on = CH.filter((c) => c.rec.comp === row.k).map((c) => c.id);
+    L.set(row.air, on.length ? on.join("  ·  ") : "—");   // the channels playing it, or a dash
+    fg(row.air, on.length ? "butter" : DIM);
+    const sel = row.k === ch1.comp;
+    bg(row.box, sel ? "butter" : "violet");
+    row.t.forEach((t, j) => fg(t, sel ? "white" : j >= 3 ? "white" : "lilac"));
+    if (sel) tf(catBand, `translate3d(0,${i * P}px,0)`);
+  });
+  hold.forEach((h) => {
+    const n = CH.filter((c) => c.rec.c.origin === h.name).length;
+    L.set(h.air, String(n)); fg(h.air, n ? "butter" : DIM);
+    bg(h.nm, h.name === ch1.c.origin ? "butter" : h.c);
+  });
+  const ai = archive.findIndex((a) => a.r === ch1);
+  archive.forEach((a, i) => {
+    bg(a.box, i === ai ? "butter" : "lilac");
+    a.t.forEach((t, j) => fg(t, i === ai ? "white" : j === 5 ? "white" : j === 0 ? "lilac" : INK));
+  });
+  if (ai >= 0) tf(arBand, `translate3d(0,${ai * P}px,0)`);
+  op(arBand, ai >= 0 ? 1 : 0);
+  L.set(catPill, `${CH.length} Channels On Air`);
+  chRows.forEach((r) => L.set(r.rec, r.c.rec.short));
+};
+const showPlayer = (t) => {
+  const c = CH[0], r = c.rec;
+  L.set(state, r.c.full); placeSub();
+  L.set(stateSub, `${r.short}  ·  Channel 01, Ten Forward  ·  Requested by ${c.whoNow}`);
+  placeSub();
+  L.set(title, r.work); L.set(mvt, r.mvt);
+  L.set(total, "/ " + mss(r.len));
+  elapsedTxt.style.right = L.W - A[1] + L.textWidth("/ " + mss(r.len), 52) + 20 + "px";
+  L.set(F.perf, r.perf); L.set(F.inst, r.inst); L.set(F.who, c.whoNow);
+  L.set(F.rec, r.aboard ? `Stardate ${r.sd}  ·  ${r.venue}` : r.lib);
+  showMarks(r);
+  L.set(rd[2], `${r.range} dB`);
+};
+const showTimes = (t) => {
+  const c = CH[0], r = c.rec, e = Math.min(r.len, elapsed(c, t));
+  L.set(elapsedTxt, mss(e)); L.set(remain, `Remaining  ${mss(r.len - Math.floor(e))}`);
+  chRows.forEach((row) => L.set(row.left, mss(row.c.rec.len - Math.floor(Math.min(row.c.rec.len, elapsed(row.c, t))))));
+};
+
+// ---------------- the first moment ----------------
+drawWave(CH[0].rec, Math.floor((elapsed(CH[0], 0) / CH[0].rec.len) * NBAR));
+showPlayer(0); showOnAir(); showTimes(0); showRequests();
+let swapping = false;
+
+// ---------------- running ----------------
+const spectrumAt = (r, b, env, t) => {
+  const [c, w] = KIND[r.kind], d = (b - c) / (w * 1.5);
+  let v = -9 - 22 * d * d + 7 * Math.exp(-Math.pow((b - c - 7) / 1.6, 2)) + 4 * Math.exp(-Math.pow((b - c - 12) / 1.4, 2));
+  v += 22 * Math.log10(0.18 + 0.82 * env);
+  v += 2.6 * Math.sin(t * 0.83 + b * 0.71 + r.i) + 1.8 * Math.sin(t * 1.37 - b * 1.13);
+  return L.clamp(v, -59, -2);
+};
+let lastT = null, frame = false, spT = null;
+L.tick((t) => {
+  const dt = lastT === null ? 0 : Math.min(0.1, t - lastT); lastT = t;
+  op(arch, 0.82 + 0.18 * Math.sin(t * 1.1));
+  const c = CH[0], r = c.rec, u = L.clamp(elapsed(c, t) / r.len);
+  // the playhead, and the bars it has passed
+  tf(head, `translate3d(${(u * WW).toFixed(2)}px,0,0)`);
+  const upto = Math.floor(u * NBAR);
+  if (!swapping) while (lit < upto && lit < NBAR) { if (lit >= 0) wbars[lit].setAttribute("fill", "var(--butter)"); lit++; }
+  // the spectrum follows the loudness under the playhead, eased
+  const env = r.env[Math.min(NBAR - 1, upto)] * (swapping ? 0.3 : 1);
+  const sdt = spT === null ? 0 : Math.min(0.2, t - spT);
+  if ((frame = !frame) && ((spT = t), true)) for (let b = 0; b < NB; b++) {                  // fifteen times a second is smooth enough
+    const s = bands[b], goal = spectrumAt(r, b, env, t);
+    s.v += (goal - s.v) * 0.17;
+    if (s.v > s.pk) { s.pk = s.v; s.ph = t; } else if (t - s.ph > 0.8) s.pk = Math.max(s.v, s.pk - 9 * sdt);
+    tf(s.f, `scaleY(${L.clamp((s.v + 60) / 60).toFixed(4)})`);
+    tf(s.cap, `translate3d(0,${((-s.pk / 60) * SH).toFixed(2)}px,0)`);
+  }
+  // channel progress
+  chRows.forEach((row) => tf(row.bar, `scaleX(${L.clamp(elapsed(row.c, t) / row.c.rec.len).toFixed(4)})`));
+});
+// the readings, a couple of times a second
+L.every(500, () => {
+  const avg = bands.reduce((a, s) => a + s.v, 0) / NB, pk = Math.max(...bands.map((s) => s.pk));
+  L.set(rd[0], `${avg.toFixed(1)} dB`); L.set(rd[1], `${pk.toFixed(1)} dB`);
+}, 0);
+// the clock: a recording ends, the next request on that channel begins
+L.every(250, (t) => {
+  showTimes(t);
+  const done = CH.filter((c) => elapsed(c, t) >= c.rec.len + (c.n ? 2 : 1.5));
+  if (!done.length) return;
+  done.forEach((c) => { begin(c, t, 0); todayCount++; });
+  showTimes(t);                                                // the new times at once, with the reset bars
+  while (requests.length > 6) requests.shift();
+  swap(rq.flat(), showRequests);
+  if (!done.includes(CH[0])) swap(chRows.filter((r) => done.includes(r.c)).map((r) => r.rec), showOnAir);
+  if (done.includes(CH[0])) {
+    swapping = true;
+    wave.classList.add("wout");
+    swap([state, stateSub, title, mvt, total, elapsedTxt, remain, ...Object.values(F), ...marks, rd[2], ...chRows.filter((r) => done.includes(r.c)).map((r) => r.rec)], () => {
+      showPlayer(L.t); drawWave(CH[0].rec, 0); showOnAir(); showTimes(L.t);
+      wave.classList.remove("wout"); swapping = false;
+    });
+  }
+}, 0);
+});
+</script></body></html>

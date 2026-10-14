@@ -1,0 +1,374 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Battle Bridge</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* colors change slowly; swapped text fades; .boot (the start-up cascade) always wins */
+  .pill { transition: background-color 1.2s ease, color 1.2s ease; }
+  .sw { transition: opacity .6s ease, color 1.2s ease, background-color 1.2s ease; }
+  .out:not(.boot) { opacity: 0; }
+  .dot { border-radius: 50%; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame: a bracket, title centred ----------------
+L.frame({ type: "C", title: "Battle Bridge  •  Stardrive Command", c: "mars", c2: "sand", accent: "tan", foot: "Deck 8",
+  side: [[140, "sand", "BB 08"], [70, "mars", "Conn"], [420, "tan", "Stations"], [70, "sand", "08"],
+         [300, "mars", "Weapons"], [70, "tan", "Sep"], [216, "sand", "Command"]],
+  side2: [[140, "sand", "BB 12"], [70, "mars", "Tac"], [420, "tan", "Monitors"], [70, "sand", "06"],
+          [300, "mars", "Readiness"], [70, "tan", "Drill"], [216, "sand", "Handover"]] });
+
+const TRACK = "#2c1813", PANEL = "#1b0f0c", RING = "#4a2a22";
+const colr = (c) => (c.startsWith("#") ? c : `var(--${c})`);
+const cls = (e, ...c) => (e.classList.add(...c), e);
+const bg = (e, c) => { if (e._bg !== c) { e._bg = c; e.style.background = colr(c); } };
+const fg = (e, c) => { if (e._fg !== c) { e._fg = c; e.style.color = colr(c); } };
+const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+const op = (e, v) => { v = v.toFixed(2); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
+const pad2 = (n) => String(n).padStart(2, "0");
+const mmss = (s) => `${Math.floor(s / 60)} m ${pad2(Math.floor(s % 60))} s`;
+const svgRect = (x, y, w, h, c, rx = 0) => L.svg("rect", { x, y, width: w, height: h, rx, fill: colr(c), class: "boot" });
+
+// A gauge: a dark track and a fill that eases to a level. Vertical gauges grow from the foot.
+const gauges = [];
+function gauge(x, y, w, h, c, { v = 0, vertical = false, track = TRACK, shape = true } = {}) {
+  if (shape) L.rect({ x, y, w, h, c: track }); else svgRect(x, y, w, h, track);
+  const f = L.layer({ x, y, w, h });
+  f.style.background = colr(c); f.style.transformOrigin = vertical ? "50% 100%" : "0 0";
+  cls(f, "sw");
+  const g = { f, v, from: v, to: v, t0: 0, dur: 1, vertical, drawn: false,
+    go(to, dur = 2.5) { g.from = g.v; g.to = to; g.t0 = L.t; g.dur = dur; g.drawn = false; },
+    color(c) { bg(f, c); } };
+  gauges.push(g);
+  return g;
+}
+L.tick((t) => {
+  for (const g of gauges) {
+    if (g.drawn && g.v === g.to) continue;
+    const k = L.ease(L.clamp((t - g.t0) / g.dur));
+    g.v = k >= 1 ? g.to : L.mix(g.from, g.to, k);
+    tf(g.f, `${g.vertical ? "scaleY" : "scaleX"}(${g.v.toFixed(4)})`);
+    g.drawn = true;
+  }
+});
+
+// ---------------- the grid ----------------
+// Three columns, 1096 wide, 56 apart. Two rows of station monitors, then the bottom strip.
+const COLS = [220, 1372, 2524], CW = 1096;
+const ROWS = [280, 950];                       // a monitor: header, display + readings, crew line (584 tall)
+const PW = 520, PH = 388;                      // the display panel
+const RX = PW + 48;                            // readings start here
+
+// ---------------- status line ----------------
+const stateTxt = cls(L.text({ x: 220, cap: 150, s: 100, c: "mars", txt: "Battle Bridge Standby" }), "sw");
+const stateSub = cls(L.text({ x: COLS[1], base: 222, s: 38, c: "sand", txt: "" }), "sw");
+const cond = L.box({ x: 3620 - 400, y: 150, w: 400, h: 72, c: "sand", label: "Condition Green", r: "lr", fs: 36, cls: "pill" });
+
+// ---------------- the stations ----------------
+const STATIONS = [
+  { name: "Helm", c1: "mars", c2: "tan", crew: "Lt. jg Brennan", role: "Flight Control", manned: true,
+    read: [["Course", "214 mark 7"], ["Speed", "Warp 5"], ["Helm Control", "Main Bridge"], ["Inertial Dampers", "Nominal"]] },
+  { name: "Operations", c1: "sand", c2: "mars", crew: "Lt. jg Lavelle", role: "Operations", manned: true,
+    read: [["EPS Load", ""], ["Reserve Power", "94%"], ["Computer Core", "Online"], ["Internal Sensors", "Nominal"]] },
+  { name: "Tactical", c1: "mars", c2: "sand", crew: "Lt. Kerrigan", role: "Tactical", manned: true,
+    read: [["Contacts", "2"], ["Closest", "3.2 ly"], ["Shields", "Standby"], ["Targeting", "Standby"]] },
+  { name: "Engineering", c1: "tan", c2: "mars", crew: "Ens. Okafor", role: "Engineering", manned: false,
+    read: [["Warp Core", "Online"], ["Core Output", "64%"], ["Antimatter", "86%"], ["Impulse", "Ready"]] },
+  { name: "Communications", c1: "sand", c2: "tan", crew: "Ens. Daniels", role: "Communications", manned: false,
+    read: [["Channels Open", ""], ["Link", "Main Bridge"], ["Subspace Band", "7"], ["Encryption", "Active"]] },
+  { name: "Science", c1: "mars", c2: "tan", crew: "Lt. Vargas", role: "Sciences", manned: false,
+    read: [["Sensors", "Short Range"], ["Sweep", "Every 10 s"], ["Anomalies", "None"], ["Lab Feeds", "4"]] },
+];
+const PILL = { Standby: "tan", Checking: "butter", Ready: "mars" };
+const HLW = Math.ceil(Math.max(...STATIONS.map((s) => L.textWidth(s.name, 32)))) + 88;   // one header box width for the wall
+const CHECKW = Math.ceil(Math.max(L.textWidth("Passed", 52), L.textWidth("100%", 52)));
+
+STATIONS.forEach((st, i) => {
+  const x0 = COLS[i % 3], Y = ROWS[Math.floor(i / 3)], py = Y + 88;
+  st.x0 = x0; st.px = x0; st.py = py;
+  L.header({ x: x0, y: Y, w: CW, label: st.name, c1: st.c1, c2: st.c2, lw: HLW });
+  L.rect({ x: x0, y: py, w: PW, h: PH, c: PANEL, panel: true });
+  // four readings, two by two, then the station check
+  st.vals = st.read.map(([label, v], k) => {
+    // the left column reads from the display's side, the right one to the column's edge
+    const right = k % 2, x = right ? x0 + CW : x0 + RX, align = right ? "r" : "l", cap = py + Math.floor(k / 2) * 144;
+    L.text({ x, cap, s: 40, c: "tan", txt: label, align });
+    return cls(L.text({ x, base: cap + 100, s: 52, c: "white", txt: v, align }), "sw");
+  });
+  L.text({ x: x0 + RX, cap: py + 288, s: 40, c: "tan", txt: "Station Check" });
+  const gx = x0 + RX, gw = CW - RX - CHECKW - 32;
+  st.check = gauge(gx, py + PH - 26, gw, 26, "tan", { v: 1 });
+  st.checkVal = L.text({ x: x0 + CW, base: py + PH, s: 52, c: "white", txt: "Passed", align: "r" });
+  // who is at the station
+  const cy = Y + 520;
+  st.crewBox = L.box({ x: x0, y: cy, w: 240, h: 64, c: "sand", label: "Crewed", fs: 32, r: "l", cls: "pill" });
+  st.crewTxt = cls(L.text({ x: x0 + 264, base: cy + 52.5, s: 40, c: "white", txt: "" }), "sw");
+  st.pill = L.box({ x: x0 + CW - 260, y: cy, w: 260, h: 64, c: "tan", label: "Standby", fs: 32, r: "lr", cls: "pill" });
+  st.state = "Standby";
+});
+const showCrew = (st) => {
+  st.crewBox.textContent = st.manned ? "Crewed" : "Vacant";
+  bg(st.crewBox, st.manned ? "sand" : "#3a221c"); fg(st.crewBox, st.manned ? "#000" : "sand");
+  L.set(st.crewTxt, st.manned ? `${st.crew}  ·  ${st.role}` : "Slaved to Main Bridge");
+  fg(st.crewTxt, st.manned ? "white" : "tan");
+};
+const setPill = (st, s) => { st.state = s; L.set(st.pill, s); bg(st.pill, PILL[s]); };
+// swap a reading: fade it out, change it, fade it back
+const swap = (e, txt) => {
+  if (e.textContent === txt) return;
+  e.classList.add("out");
+  setTimeout(() => { L.set(e, txt); e.classList.remove("out"); }, 600);
+};
+STATIONS.forEach(showCrew);
+const [HELM, OPS, TAC, ENG, COM, SCI] = STATIONS;
+
+// ---------------- the displays ----------------
+// Helm: the compass, with the course marked and the heading holding on it
+{
+  const { px, py } = HELM, cx = px + PW / 2, cy = py + PH / 2;
+  L.svg("circle", { cx, cy, r: 160, fill: "none", stroke: colr("tan"), "stroke-width": 4, class: "boot" });
+  L.svg("circle", { cx, cy, r: 96, fill: "none", stroke: RING, "stroke-width": 3, class: "boot" });
+  for (let a = 0; a < 360; a += 10) {
+    const r0 = a % 30 ? 146 : 134, s = Math.sin((a * Math.PI) / 180), c = Math.cos((a * Math.PI) / 180);
+    L.svg("line", { x1: cx + r0 * s, y1: cy - r0 * c, x2: cx + 158 * s, y2: cy - 158 * c, stroke: colr(a % 90 ? "tan" : "sand"), "stroke-width": a % 30 ? 2 : 4, class: "boot" });
+  }
+  [["000", 0, -1], ["090", 1, 0], ["180", 0, 1], ["270", -1, 0]].forEach(([txt, sx, sy]) =>
+    L.text({ x: cx + 112 * sx, base: cy + 112 * sy + 10.8, s: 30, c: "sand", txt, align: "c", w: 80, legend: true }));
+  L.svg("path", { d: `M${cx},${cy - 166} l-14,-22 h28 z`, fill: colr("butter"), transform: `rotate(214 ${cx} ${cy})`, class: "boot" });
+  const needle = L.layer({ x: cx - 4, y: cy - 150, w: 8, h: 150 });
+  needle.style.background = colr("mars"); needle.style.transformOrigin = "50% 100%"; needle.style.borderRadius = "4px";
+  L.svg("circle", { cx, cy, r: 14, fill: colr("mars"), class: "boot" });
+  // warp factor on the left, the mark on the right
+  const warp = gauge(px + 36, py + 44, 16, 300, "peach", { vertical: true, shape: false, v: 5 / 9.6 });
+  L.text({ x: px + 44, base: py + PH - 20, s: 30, c: "sand", txt: "W", align: "c", w: 40, legend: true });
+  svgRect(px + PW - 52, py + 44, 16, 300, TRACK);
+  svgRect(px + PW - 60, py + 194 - 1, 32, 2, "tan");
+  const mark = L.layer({ x: px + PW - 60, y: py + 194 - 7 / 90 * 150 - 5, w: 32, h: 10 });
+  mark.style.background = colr("butter");
+  L.text({ x: px + PW - 44, base: py + PH - 20, s: 30, c: "sand", txt: "M", align: "c", w: 40, legend: true });
+  L.tick((t) => tf(needle, `rotate(${(214 + 1.1 * Math.sin(t * 0.21) + 0.45 * Math.sin(t * 0.57 + 1)).toFixed(2)}deg)`));
+  void warp;
+}
+
+// Operations: EPS taps, each drawing a little more or less
+const EPS = [];
+{
+  const { px, py } = OPS, bw = 40, gap = 18, x0 = px + (PW - (8 * bw + 7 * gap)) / 2;
+  L.text({ x: x0, cap: py + 20, s: 30, c: "sand", txt: "EPS Taps  ·  Stardrive", legend: true });
+  for (let i = 0; i < 8; i++) {
+    const x = x0 + i * (bw + gap);
+    const g = gauge(x, py + 66, bw, 264, i % 3 === 2 ? "sand" : "peach", { vertical: true, shape: false, v: 0.6 });
+    g.base = L.rand(0.45, 0.75); g.ph = L.rand(0, 6); g.w = L.rand(0.05, 0.11);
+    EPS.push(g);
+    L.text({ x: x + bw / 2, base: py + PH - 20, s: 30, c: "sand", txt: String(i + 1), align: "c", w: 40, legend: true });
+  }
+  // the taps drift slowly: their gauges are driven directly
+  L.tick((t) => EPS.forEach((g) => { g.to = g.v = L.clamp(g.base + 0.07 * Math.sin(t * g.w + g.ph)); tf(g.f, `scaleY(${g.v.toFixed(3)})`); }));
+  L.every(2000, () => L.set(OPS.vals[0], Math.round((100 * EPS.reduce((a, g) => a + g.v, 0)) / EPS.length) + "%"), 0);
+}
+
+// Tactical: a short-range scope, swept
+{
+  const { px, py } = TAC, cx = px + PW / 2, cy = py + PH / 2;
+  for (const r of [60, 120, 170]) L.svg("circle", { cx, cy, r, fill: "none", stroke: r === 170 ? colr("tan") : RING, "stroke-width": r === 170 ? 4 : 3, class: "boot" });
+  L.svg("line", { x1: cx - 170, y1: cy, x2: cx + 170, y2: cy, stroke: RING, "stroke-width": 2, class: "boot" });
+  L.svg("line", { x1: cx, y1: cy - 170, x2: cx, y2: cy + 170, stroke: RING, "stroke-width": 2, class: "boot" });
+  const sweep = L.layer({ x: cx - 168, y: cy - 168, w: 336, h: 336 });
+  sweep.style.borderRadius = "50%";
+  sweep.style.background = "conic-gradient(from 0deg, rgba(255,90,60,0) 0deg, rgba(255,90,60,0) 250deg, rgba(255,90,60,.5) 359deg, rgba(255,90,60,0) 360deg)";
+  const blips = [[38, 128, "butter"], [251, 92, "sand"]].map(([a, r, c]) => {
+    const d = L.layer({ x: cx + r * Math.sin((a * Math.PI) / 180) - 8, y: cy - r * Math.cos((a * Math.PI) / 180) - 8, w: 16, h: 16, cls: "dot" });
+    d.style.background = colr(c);
+    return { d, a };
+  });
+  L.svg("circle", { cx, cy, r: 8, fill: colr("mars"), class: "boot" });
+  L.tick((t) => {
+    const a = (t * 40) % 360;                       // nine seconds a turn
+    tf(sweep, `rotate(${a.toFixed(2)}deg)`);
+    for (const b of blips) op(b.d, 0.3 + 0.7 * Math.exp(-(((a - b.a) % 360) + 360) % 360 / 120));
+  });
+}
+
+// Engineering: the stardrive's warp core pulsing to its centre, and the three impulse reactors
+const CORE = [];
+{
+  const { px, py } = ENG, n = 11, top = py + 66, span = 264, pitch = span / n, cx0 = px + 56, cw = 168;
+  L.text({ x: cx0, cap: py + 20, s: 30, c: "sand", txt: "Warp Core", legend: true });
+  for (let i = 0; i < n; i++) {
+    const y = top + i * pitch + 3;
+    svgRect(cx0, y, cw, pitch - 6, "#2a2a3a", 3);
+    const e = L.layer({ x: cx0, y, w: cw, h: pitch - 6 });
+    e.style.background = colr("ice"); e.style.borderRadius = "3px"; e.style.opacity = 0;
+    CORE.push({ e, d: Math.abs(i - (n - 1) / 2) / ((n - 1) / 2) });
+  }
+  L.text({ x: cx0, base: py + PH - 20, s: 30, c: "sand", txt: "Intermix 1 : 1", legend: true });
+  const ix0 = px + 300;
+  L.text({ x: ix0, cap: py + 20, s: 30, c: "sand", txt: "Impulse", legend: true });
+  const IMP = [0, 1, 2].map((k) => {
+    const g = gauge(ix0 + k * 64, py + 66, 44, 264, k === 1 ? "sand" : "peach", { vertical: true, shape: false, v: 0.3 });
+    g.base = [0.32, 0.36, 0.3][k]; g.ph = k * 2;
+    L.text({ x: ix0 + k * 64 + 22, base: py + PH - 20, s: 30, c: "sand", txt: String(k + 1), align: "c", w: 40, legend: true });
+    return g;
+  });
+  L.tick((t) => {
+    const p = (t * 0.55) % 1;                       // a pulse from both ends, meeting in the middle
+    for (const c of CORE) op(c.e, 0.18 + 0.82 * Math.exp(-((c.d - (1 - p)) ** 2) / 0.03));
+    IMP.forEach((g) => { g.to = g.v = g.base + 0.03 * Math.sin(t * 0.13 + g.ph); tf(g.f, `scaleY(${g.v.toFixed(3)})`); });
+  });
+}
+
+// Communications: six channels and their traffic
+const CH = [];
+{
+  const { px, py } = COM, names = ["Bridge", "Saucer", "Engr", "Sickbay", "Shuttle", "Fleet"];
+  names.forEach((name, i) => {
+    const y = py + 34 + i * 56;
+    L.text({ x: px + 24, base: y + 22, s: 30, c: "sand", txt: name, legend: true });
+    const g = gauge(px + 140, y, PW - 140 - 24, 26, i % 2 ? "sand" : "peach", { shape: false, v: 0.4 });
+    g.open = i !== 4; g.ph = L.rand(0, 6); g.w = L.rand(0.08, 0.16);
+    CH.push(g);
+  });
+  L.tick((t) => CH.forEach((g) => {
+    const goal = g.open ? 0.42 + 0.22 * Math.sin(t * g.w + g.ph) + 0.08 * Math.sin(t * g.w * 2.7 + g.ph) : 0.04;
+    g.v += (goal - g.v) * 0.03; g.to = g.v;
+    tf(g.f, `scaleX(${g.v.toFixed(3)})`);
+  }));
+  const showChannels = () => L.set(COM.vals[0], String(CH.filter((g) => g.open).length));
+  showChannels();
+  L.every(23000, (t) => { if (t < 1) return; const g = CH[L.pick([1, 3, 4])]; g.open = !g.open; showChannels(); }, 0.3);
+}
+
+// Science: a sensor grid swept every ten seconds; returns brighten as the sweep passes
+{
+  const { px, py } = SCI, gx = px + 24, gy = py + 24, gw = PW - 48, gh = PH - 48;
+  for (let x = 0; x <= gw; x += gw / 8) L.svg("line", { x1: gx + x, y1: gy, x2: gx + x, y2: gy + gh, stroke: RING, "stroke-width": 2, class: "boot" });
+  for (let y = 0; y <= gh; y += gh / 6) L.svg("line", { x1: gx, y1: gy + y, x2: gx + gw, y2: gy + y, stroke: RING, "stroke-width": 2, class: "boot" });
+  const line = L.layer({ x: gx - 2, y: gy, w: 4, h: gh });
+  line.style.background = colr("sand");
+  const pts = [[0.14, 0.3], [0.31, 0.72], [0.48, 0.18], [0.63, 0.55], [0.79, 0.84], [0.9, 0.36]].map(([u, v], i) => {
+    const d = L.layer({ x: gx + u * gw - 7, y: gy + v * gh - 7, w: 14, h: 14, cls: "dot" });
+    d.style.background = colr(i === 3 ? "butter" : "peach");
+    return { d, u };
+  });
+  L.tick((t) => {
+    const u = (t / 10) % 1;
+    tf(line, `translate3d(${(u * gw).toFixed(1)}px,0,0)`);
+    op(line, Math.min(1, u / 0.04, (1 - u) / 0.04));      // fades at each end of the sweep, never jumps
+    for (const p of pts) op(p.d, 0.25 + 0.75 * Math.exp(-((((u - p.u) % 1) + 1) % 1) * 10 / 3));
+  });
+}
+
+// ---------------- the bottom strip: weapons, separation, command ----------------
+const SY = 1620, R0 = 1700, RP = 64, rowY = (j) => R0 + j * RP;
+const SLW = Math.ceil(Math.max(...["Weapons Readiness", "Saucer Separation", "Command Handover"].map((t) => L.textWidth(t, 28)))) + 88;
+L.header({ x: COLS[0], y: SY, w: CW, label: "Weapons Readiness", c1: "mars", c2: "sand", h: 48, lw: SLW });
+L.header({ x: COLS[1], y: SY, w: CW, label: "Saucer Separation", c1: "sand", c2: "tan", h: 48, lw: SLW });
+L.header({ x: COLS[2], y: SY, w: CW, label: "Command Handover", c1: "tan", c2: "mars", h: 48, lw: SLW });
+
+const WEAPONS = [["Dorsal Phaser Array", 0.2], ["Ventral Phaser Array", 0.2], ["Forward Torpedo Launcher", 0.35],
+                 ["Aft Torpedo Launcher", 0.35], ["Shield Generators", 0.25]];
+const SEP = [["Docking Latches", 48], ["Umbilical Connectors", 22], ["Turbolift Interlocks", 6], ["Bulkhead Seals", 31], ["Impulse Feeds", 4]];
+const LABW = Math.ceil(Math.max(...[...WEAPONS, ...SEP].map(([n]) => L.textWidth(n, 36)))) + 40;
+const VALW = Math.ceil(L.textWidth("48 / 48", 36)), PILLW = 200;
+const row = (x0, j, name, c, v, pillTxt, pillC) => {
+  const y = rowY(j);
+  L.text({ x: x0, base: y + 37, s: 36, c: "tan", txt: name });
+  const g = gauge(x0 + LABW, y + 14, CW - LABW - PILLW - VALW - 48, 20, c, { v });
+  const val = L.text({ x: x0 + CW - PILLW - 24, base: y + 37, s: 36, c: "white", txt: "", align: "r" });
+  const pill = L.box({ x: x0 + CW - PILLW, y, w: PILLW, h: 48, c: pillC, label: pillTxt, fs: 28, r: "lr", cls: "pill" });
+  return { g, val, pill };
+};
+const W = WEAPONS.map(([name, v], j) => Object.assign(row(COLS[0], j, name, "tan", v, "Standby", "tan"), { rest: v }));
+const S = SEP.map(([name, n], j) => Object.assign(row(COLS[1], j, name, "tan", 1, "Secured", "tan"), { n, got: n }));
+L.every(250, () => {
+  W.forEach((w) => L.set(w.val, Math.round(w.g.v * 100) + "%"));
+  S.forEach((s) => L.set(s.val, `${s.run ? Math.floor(s.g.v * s.n) : s.got} / ${s.n}`));   // while verifying, the count follows the bar
+  STATIONS.forEach((st) => { if (st.state === "Checking" && st.check.to === 1) L.set(st.checkVal, Math.round(st.check.v * 100) + "%"); });
+}, 0);
+
+// command handover: a table — what, who or what state, and where
+const HX = COLS[2], HV = HX + 400;
+const HAND = [["Command Authority", "Main Bridge", "Deck 1"], ["Watch Officer", "Lt. Cmdr. Hale", "Deck 8"],
+              ["Stations Crewed", "", ""], ["Readiness Drill", "", ""], ["Last Separation", "44001.4  ·  Borg engagement", "Sector 001"]]
+  .map(([label, v, where], j) => {
+    const y = rowY(j);
+    L.text({ x: HX, base: y + 37, s: 36, c: "tan", txt: label });
+    return { v: cls(L.text({ x: HV, base: y + 37, s: 40, c: "white", txt: v }), "sw"),
+             w: cls(L.text({ x: HX + CW, base: y + 37, s: 36, c: "sand", txt: where, align: "r" }), "sw") };
+  });
+const showCrewed = () => {
+  const n = STATIONS.filter((s) => s.manned).length;
+  L.set(HAND[2].v, `${n} of 6`);
+  L.set(HAND[2].w, n === 6 ? "Full Complement" : "Standby Watch");
+};
+showCrewed();
+
+// ---------------- standby, and the readiness drill ----------------
+let stardate = 47812.3, lastDrill = "2 m 44 s", mode = "standby", drillT0 = 0, nextDrill = 7, actions = [];
+const STANDBY_SUB = () => `Main Bridge has the conn  ·  last drill ${stardate.toFixed(1)}, all stations ready in ${lastDrill}`;
+const at = (u, f) => actions.push([u, f]);
+function startDrill(t) {
+  mode = "drill"; drillT0 = t; actions = [];
+  swap(stateTxt, "Readiness Drill"); fg(stateTxt, "butter");
+  swap(stateSub, "Battle stations drill  ·  all stations report readiness to the battle bridge");
+  L.set(cond, "Drill in Progress"); bg(cond, "butter");
+  // the off-watch stations are crewed first
+  const off = STATIONS.filter((s) => !s.manned);
+  off.forEach((st, k) => at(1.5 + k * 1.6, () => { st.manned = true; showCrew(st); showCrewed(); }));
+  // every station runs its check
+  STATIONS.forEach((st, i) => {
+    at(6 + i * 4.5, () => { setPill(st, "Checking"); st.check.color("butter"); st.check.go(0, 0.6); });
+    at(6.6 + i * 4.5, () => st.check.go(1, 3.4));
+    at(10.2 + i * 4.5, () => { setPill(st, "Ready"); st.check.color("mars"); L.set(st.checkVal, "Passed"); });
+  });
+  if (TAC) { at(9, () => swap(TAC.vals[2], "Ready")); at(11, () => swap(TAC.vals[3], "Active")); }
+  // weapons brought to readiness
+  W.forEach((w, j) => {
+    at(8 + j * 4, () => { L.set(w.pill, j < 4 ? "Charging" : "Raising"); bg(w.pill, "butter"); w.g.color("butter"); w.g.go(1, 3.5); });
+    at(11.8 + j * 4, () => { L.set(w.pill, "Ready"); bg(w.pill, "mars"); w.g.color("mars"); });
+  });
+  // the separation systems verified, one by one
+  S.forEach((s, j) => {
+    at(10 + j * 4.5, () => {
+      L.set(s.pill, "Verifying"); bg(s.pill, "butter"); s.g.color("butter"); s.g.go(0, 0.6); s.run = L.t;
+    });
+    at(10.6 + j * 4.5, () => { s.g.go(1, 3.4); s.run = L.t; s.got = 0; });
+    at(14.2 + j * 4.5, () => { L.set(s.pill, "Verified"); bg(s.pill, "sand"); s.g.color("sand"); s.run = 0; s.got = s.n; });
+  });
+  // the handover rehearsed, then the drill complete
+  at(34, () => { swap(HAND[0].v, "Battle Bridge  ·  Simulated"); swap(HAND[0].w, "Deck 8"); swap(HELM.vals[2], "Battle Bridge"); swap(COM.vals[1], "Battle Bridge"); });
+  at(37, () => {
+    lastDrill = mmss(L.t - drillT0); stardate += 0.4;
+    swap(stateTxt, "Stations Ready"); fg(stateTxt, "mars");
+    swap(stateSub, `Drill complete  ·  all stations ready in ${lastDrill}  ·  stardate ${stardate.toFixed(1)}`);
+    L.set(cond, "Drill Complete"); bg(cond, "mars");
+  });
+  at(43, () => { swap(HAND[0].v, "Main Bridge"); swap(HAND[0].w, "Deck 1"); swap(HELM.vals[2], "Main Bridge"); swap(COM.vals[1], "Main Bridge"); });
+  // stand down
+  at(47, () => {
+    swap(stateTxt, "Battle Bridge Standby"); swap(stateSub, STANDBY_SUB());
+    L.set(cond, "Condition Green"); bg(cond, "sand");
+    swap(TAC.vals[2], "Standby"); swap(TAC.vals[3], "Standby");
+    W.forEach((w) => { L.set(w.pill, "Standby"); bg(w.pill, "tan"); w.g.color("tan"); w.g.go(w.rest, 5); });
+    S.forEach((s) => { L.set(s.pill, "Secured"); bg(s.pill, "tan"); s.g.color("tan"); });
+    STATIONS.forEach((st) => { setPill(st, "Standby"); st.check.color("tan"); });
+  });
+  off.forEach((st, k) => at(50 + k * 1.8, () => { st.manned = false; showCrew(st); showCrewed(); }));
+  at(56, () => { mode = "standby"; nextDrill = L.t + L.rand(150, 240); });
+  actions.sort((a, b) => a[0] - b[0]);
+}
+stateSub.textContent = STANDBY_SUB();
+L.tick((t) => {
+  if (mode === "standby" && t >= nextDrill) startDrill(t);
+  const u = t - drillT0;
+  while (mode === "drill" && actions.length && actions[0][0] <= u) actions.shift()[1]();
+  for (const s of S) if (s.run) s.got = Math.min(s.n, Math.floor(s.n * s.g.v));
+});
+L.every(500, (t) => {
+  L.set(HAND[3].v, mode === "drill" ? `Running  ·  ${mmss(t - drillT0)}` : `Next in ${mmss(Math.max(0, nextDrill - t))}`);
+  L.set(HAND[3].w, mode === "drill" ? "All Stations" : "Stardrive");
+}, 0);
+});
+</script></body></html>

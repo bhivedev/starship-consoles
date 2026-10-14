@@ -1,0 +1,309 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Tactical</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  /* the bright edge leads (at 0deg, turning clockwise); the afterglow trails behind it */
+  .sweep { border-radius: 50%; background: conic-gradient(from 0deg, rgba(143,211,255,0) 0deg, rgba(143,211,255,0) 300deg, rgba(143,211,255,.45) 360deg); }
+  .hostile { width: 0; height: 0; border-left: 19px solid transparent; border-right: 19px solid transparent; border-bottom: 34px solid var(--mars); }
+  .unknown { width: 28px; height: 28px; background: var(--butter); transform-origin: 50% 50%; }
+  .friend { width: 30px; height: 30px; border-radius: 15px; background: var(--ice); }
+  .lock i { position: absolute; display: block; width: 26px; height: 26px; border-color: var(--white); border-style: solid; border-width: 0; }
+  .ripple { border-radius: 50%; border: 6px solid var(--white); }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- the frame, mirrored: sidebar on the right, title at top left ----------------
+const BAR = 64, TS = BAR / (L.BASELINE - L.CAP_TOP);
+L.box({ x: 40, y: 40, w: 92, h: BAR, c: "orange", r: "l" });
+const TITLE = "Tactical  •  Defensive Systems";
+L.text({ x: 132 + L.GAP, cap: 40, s: TS, c: "orange", txt: TITLE });
+const afterTitle = 132 + L.GAP + L.textWidth(TITLE, TS) + L.GAP;
+L.rect({ x: afterTitle, y: 40, w: 320, h: BAR, c: "peach" });
+L.rect({ x: afterTitle + 320 + L.GAP, y: 40, w: 2600 - L.GAP - (afterTitle + 320 + L.GAP), h: BAR, c: "orange" });
+L.elbow({ corner: "tr", x: 2600, y: 40, w: 1216, h: 250, bw: 240, bh: BAR, R: 150, r: 60, c: "orange" });
+[[298, 140, "peach", "Tac 01"], [446, 70, "sunset", "Drill"], [524, 420, "orange", "Shields"], [952, 70, "butter", "7-Alpha"],
+ [1030, 300, "peach", "Weapons"], [1338, 70, "mars", "Lock"], [1416, 216, "orange", "Sensors"]]
+  .forEach(([y, h, c, label]) => L.box({ x: 3576, y, w: 240, h, c, label }));
+L.elbow({ corner: "br", x: 2600, y: 1640, w: 1216, h: 480, bw: 240, bh: BAR, R: 150, r: 60, c: "sunset" });
+L.text({ x: 3794, base: 1712, s: 40, c: "#000", txt: "Tactical", align: "r", on: true });
+L.box({ x: 40, y: 2056, w: 92, h: BAR, c: "sunset", r: "l" });
+[[132 + L.GAP, 700, "peach"], [132 + L.GAP + 700 + L.GAP, 900, "orange"]].forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
+L.rect({ x: 132 + 3 * L.GAP + 1600, y: 2056, w: 2600 - L.GAP - (132 + 3 * L.GAP + 1600), h: BAR, c: "sunset" });
+
+// ---------------- status line ----------------
+L.text({ x: 40, cap: 150, s: 100, c: "ice", txt: "Condition Green" });
+L.text({ x: 1120, base: 222, s: 38, c: "peach", txt: "Tactical drill 7-Alpha  ·  Simulated contacts", align: "r" });
+const drill = L.box({ x: 3120, y: 150, w: 400, h: 72, c: "peach", label: "Drill In Progress", r: "lr", fs: 36 });
+drill.style.willChange = "opacity";
+L.tick((t) => { drill.style.opacity = (0.75 + 0.25 * Math.sin(t * 2.2)).toFixed(3); });
+
+const header = (x, w, label, lw, c1, c2) => {
+  L.box({ x, y: 280, w: lw, h: 56, c: c1, label, fs: 32, r: "l" });
+  L.rect({ x: x + lw + L.GAP, y: 280, w: w - lw - L.GAP, h: 56, c: c2 });
+};
+
+// ---------------- deflector shields ----------------
+header(40, 1080, "Deflector Shields", 380, "orange", "peach");
+const SX = 560, SY = 820, SQ = 0.74;                   // centre; the ellipse is a circle squashed by SQ
+const sectors = [];
+const shieldG = L.svg("g", { transform: `translate(0,${SY}) scale(1,${SQ}) translate(0,${-SY})`, class: "boot" });
+L.svg("circle", { cx: SX, cy: SY, r: 336, fill: "none", stroke: "var(--plum)", "stroke-width": 6 }, shieldG);
+[[-45, "Fore"], [45, "Starboard"], [135, "Aft"], [225, "Port"]].forEach(([a, quad]) => {
+  for (let k = 0; k < 3; k++) {
+    const a0 = a + 2 + k * 30, a1 = a0 + 26;
+    const p = L.svg("path", { d: L.arc(SX, SY, 356, 404, a0, a1), fill: "var(--orange)" }, shieldG);
+    sectors.push({ p, quad, mid: (a0 + a1) / 2, flash: -9 });
+  }
+});
+// the ship: a simple arrowhead, pointing fore
+L.svg("polygon", { points: `${SX},${SY - 92} ${SX + 54},${SY + 62} ${SX},${SY + 32} ${SX - 54},${SY + 62}`, fill: "var(--ice)", class: "boot" });
+const quadText = {};
+[["Fore", SX, SY - 300 - 36, "c"], ["Aft", SX, SY + 300 + 82, "c"], ["Port", SX - 404 - 22, SY + 14, "r"], ["Starboard", SX + 404 + 22, SY + 14, "l"]]
+  .forEach(([q, x, base, align]) => {
+    L.text({ x, base: base - 60, s: 40, c: "peach", txt: q, align, w: 300 });
+    quadText[q] = L.text({ x, base, s: 52, c: "white", txt: "100%", align, w: 300 });
+  });
+// six meters
+const shieldNames = ["Fore", "Aft", "Port", "Starboard", "Dorsal", "Ventral"];
+const meters = shieldNames.map((name, i) => {
+  const base = 1300 + i * 52;
+  L.text({ x: 40, base, s: 40, c: "peach", txt: name });
+  L.rect({ x: 250, y: base - 26, w: 720, h: 26, c: "#2a1a10" });
+  const f = L.layer({ x: 250, y: base - 26, w: 720, h: 26 });
+  f.style.background = "var(--orange)"; f.style.transformOrigin = "0 0";
+  const v = L.text({ x: 1120, base, s: 40, c: "white", txt: "100%", align: "r" });
+  return { name, f, v, s: L.rand(0.94, 1) };
+});
+const ripples = [];
+let shT = null;
+L.every(5200, () => {                                    // a simulated hit on one sector
+  const s = L.pick(sectors);
+  s.flash = L.t;
+  const m = meters.find((m) => m.name === s.quad);
+  if (m) m.s = Math.max(0.62, m.s - L.rand(0.06, 0.14));
+  const r = L.layer({ x: 0, y: 0, w: 120, h: 120, cls: "ripple" });
+  const a = (s.mid * Math.PI) / 180;
+  r.cx = SX + 380 * Math.sin(a); r.cy = SY - 380 * Math.cos(a) * SQ; r.t0 = L.t;
+  ripples.push(r);
+}, 0.4);
+L.tick((t) => {
+  const dt = shT === null ? 0 : Math.min(0.1, t - shT); shT = t;
+  for (const s of sectors) {
+    const k = Math.max(0, 1 - (t - s.flash) / 1.2);
+    s.p.setAttribute("fill", k > 0.02 ? (k > 0.6 ? "var(--white)" : "var(--butter)") : "var(--orange)");
+    s.p.setAttribute("opacity", (0.72 + 0.28 * Math.sin(t * 1.7 + s.mid / 20) * (k > 0 ? 0 : 1) + 0.28 * k).toFixed(3));
+  }
+  for (const m of meters) {
+    m.s = Math.min(1, m.s + dt * 0.012);                 // shields regenerate
+    m.f.style.transform = `scaleX(${m.s.toFixed(4)})`;
+  }
+  for (let i = ripples.length - 1; i >= 0; i--) {
+    const r = ripples[i], u = (t - r.t0) / 1.1;
+    if (u >= 1) { r.remove(); ripples.splice(i, 1); continue; }
+    r.style.opacity = (1 - u).toFixed(3);
+    L.move(r, r.cx - 60, r.cy - 60, 0, 0.3 + u * 1.4);
+  }
+});
+L.every(400, () => {
+  for (const m of meters) m.v.textContent = Math.round(m.s * 100) + "%";
+  for (const q of ["Fore", "Aft", "Port", "Starboard"]) quadText[q].textContent = Math.round(meters.find((m) => m.name === q).s * 100) + "%";
+}, 0);
+
+// ---------------- targeting scanner ----------------
+header(1180, 1220, "Targeting Scanner", 380, "sky", "ice");
+const CX = 1790, CY = 830, CR = 400;
+const scope = L.svg("g", { class: "boot" });
+L.svg("circle", { cx: CX, cy: CY, r: CR, fill: "#06102a" }, scope);
+for (const r of [100, 200, 300, CR]) L.svg("circle", { cx: CX, cy: CY, r, fill: "none", stroke: "#2648e8", "stroke-width": r === CR ? 5 : 3 }, scope);
+L.svg("rect", { x: CX - 1.5, y: CY - CR, width: 3, height: 2 * CR, fill: "#2648e8" }, scope);
+L.svg("rect", { x: CX - CR, y: CY - 1.5, width: 2 * CR, height: 3, fill: "#2648e8" }, scope);
+for (let a = 0; a < 360; a += 10) {
+  const big = a % 30 === 0, r1 = CR + 6, r2 = CR + (big ? 30 : 16), s = Math.sin((a * Math.PI) / 180), c = -Math.cos((a * Math.PI) / 180);
+  L.svg("line", { x1: CX + r1 * s, y1: CY + r1 * c, x2: CX + r2 * s, y2: CY + r2 * c, stroke: "var(--sky)", "stroke-width": big ? 5 : 3 }, scope);
+}
+for (let a = 0; a < 360; a += 30) {
+  const s = Math.sin((a * Math.PI) / 180), c = -Math.cos((a * Math.PI) / 180), rr = CR + 62;
+  L.text({ x: CX + rr * s, base: CY + rr * c + 12, s: 34, c: "sky", txt: String(a).padStart(3, "0"), align: "c", w: 120, legend: true });
+}
+const sweep = L.layer({ x: CX - CR, y: CY - CR, w: 2 * CR, h: 2 * CR, cls: "sweep" });
+const contacts = [
+  { id: "T-01", cls: "hostile", kind: "Hostile", type: "D'deridex class", r: 300, a: 40, w: 1.6 },
+  { id: "T-02", cls: "hostile", kind: "Hostile", type: "Scout vessel", r: 220, a: 150, w: -2.4 },
+  { id: "T-03", cls: "unknown", kind: "Unknown", type: "Unidentified", r: 340, a: 250, w: 1.1 },
+  { id: "T-04", cls: "friend", kind: "Friendly", type: "Shuttlecraft", r: 140, a: 310, w: -3 },
+  { id: "T-05", cls: "unknown", kind: "Unknown", type: "Debris field", r: 260, a: 95, w: 0.7 },
+].map((c) => Object.assign(c, { e: L.layer({ x: 0, y: 0, cls: c.cls }), hit: -9 }));
+const lock = L.layer({ x: 0, y: 0, w: 140, h: 140, cls: "lock" });
+// four corner brackets
+[["0", "0", "6px 0 0 6px"], ["114px", "0", "6px 6px 0 0"], ["0", "114px", "0 0 6px 6px"], ["114px", "114px", "0 6px 6px 0"]]
+  .forEach(([left, top, borderWidth]) => L.el("i", "", lock, { left, top, borderWidth }));
+const lockTag = L.layer({ x: 0, y: 0, w: 160, h: 40 });
+lockTag.className += " t"; lockTag.style.fontSize = "32px"; lockTag.style.color = "var(--white)";
+let target = 0, lockFrom = [CX, CY], lockT0 = 0, lockPos = [CX, CY];
+const pos = (c, t) => { const a = ((c.a + c.w * t) * Math.PI) / 180; return [CX + c.r * Math.sin(a), CY - c.r * Math.cos(a)]; };
+L.every(7000, (t) => { lockFrom = lockPos; lockT0 = t; target = (target + 1 + L.irand(0, 2)) % contacts.length; }, 0.2);
+L.tick((t) => {
+  const sa = (t * 36) % 360;
+  sweep.style.transform = `rotate(${sa.toFixed(2)}deg)`;
+  for (const c of contacts) {
+    const [x, y] = pos(c, t);
+    let bearing = (Math.atan2(x - CX, CY - y) * 180) / Math.PI; if (bearing < 0) bearing += 360;
+    if (Math.abs(((sa - bearing + 540) % 360) - 180) < 4) c.hit = t;
+    c.e.style.opacity = (0.6 + 0.4 * Math.max(0, 1 - (t - c.hit) / 3)).toFixed(3);
+    L.move(c.e, x - 17, y - 17, c.cls === "unknown" ? 45 : 0);
+    c.x = x; c.y = y; c.bearing = bearing;
+  }
+  const c = contacts[target], k = L.ease(L.clamp((t - lockT0) / 1.4));
+  lockPos = [L.mix(lockFrom[0], c.x, k), L.mix(lockFrom[1], c.y, k)];
+  L.move(lock, lockPos[0] - 70, lockPos[1] - 70);
+  L.move(lockTag, lockPos[0] + 82, lockPos[1] - 82);
+  lock.style.opacity = k >= 1 ? (Math.sin(t * 8) > -0.3 ? 1 : 0.4) : 0.8;
+});
+// the locked target's readout
+const readout = [["Target", (c) => c.id], ["Bearing", (c) => c.bearing.toFixed(1).padStart(5, "0")], ["Range", (c) => (c.r * 412).toLocaleString("en") + " km"],
+  ["Class", (c) => c.type], ["Velocity", (c) => "Warp " + (0.4 + Math.abs(c.w) / 3).toFixed(1)], ["Status", (c) => c.kind]];
+const rvals = readout.map(([name], i) => {
+  const x = i < 3 ? 1180 : 1780, base = 1392 + (i % 3) * 84;
+  L.text({ x, base, s: 36, c: "sky", txt: name });
+  return L.text({ x: i < 3 ? 1720 : 2400, base, s: 52, c: "white", txt: "", align: "r" });
+});
+L.every(250, () => { const c = contacts[target]; readout.forEach(([, f], i) => (rvals[i].textContent = f(c))); lockTag.textContent = c.id; }, 0);
+
+// ---------------- phaser arrays ----------------
+header(2460, 1060, "Phaser Arrays", 320, "sunset", "peach");
+const banks = ["Saucer Dorsal Fore", "Saucer Dorsal Aft", "Saucer Ventral Fore", "Saucer Ventral Aft", "Port Flank",
+               "Starboard Flank", "Stardrive Dorsal", "Stardrive Ventral", "Aft Port", "Aft Starboard"];
+const phasers = banks.map((name, i) => {
+  const base = 404 + i * 60;
+  L.text({ x: 2460, base, s: 40, c: "peach", txt: name });
+  L.rect({ x: 2800, y: base - 28, w: 540, h: 28, c: "#2a1a10" });
+  const f = L.layer({ x: 2800, y: base - 28, w: 540, h: 28 });
+  f.style.background = "var(--sunset)"; f.style.transformOrigin = "0 0";
+  const v = L.text({ x: 3520, base, s: 40, c: "white", txt: "Ready", align: "r" });
+  return { f, v, c: L.rand(0.9, 1), state: "Ready" };
+});
+let phT = null;
+L.every(4300, () => { const p = L.pick(phasers.filter((p) => p.state === "Ready")); if (p) { p.state = "Firing"; p.c = 0.08; } }, 0.4);
+L.tick((t) => {
+  const dt = phT === null ? 0 : Math.min(0.1, t - phT); phT = t;
+  for (const p of phasers) {
+    if (p.state === "Firing") p.state = "Charging";
+    if (p.state === "Charging") { p.c += dt * 0.11; if (p.c >= 1) { p.c = 1; p.state = "Ready"; } }
+    p.f.style.transform = `scaleX(${p.c.toFixed(4)})`;
+  }
+});
+L.every(300, () => phasers.forEach((p) => {
+  p.v.textContent = p.state === "Ready" ? "Ready" : Math.round(p.c * 100) + "%";
+  p.v.style.color = p.state === "Ready" ? "var(--white)" : "var(--butter)";
+}), 0);
+
+// ---------------- photon torpedoes ----------------
+const TY = 1030;
+L.box({ x: 2460, y: TY, w: 380, h: 56, c: "orange", label: "Photon Torpedoes", fs: 32, r: "l" });
+L.rect({ x: 2460 + 380 + L.GAP, y: TY, w: 3520 - (2460 + 380 + L.GAP), h: 56, c: "peach" });
+const tubes = [["Tube 1", "Fore"], ["Tube 2", "Fore"], ["Tube 3", "Aft"], ["Tube 4", "Aft"]].map(([n, where], i) => {
+  const x = i % 2 ? 3000 : 2460, y = TY + 84 + Math.floor(i / 2) * 136;
+  L.rect({ x, y, w: 520, h: 116, c: "#2a1a10", panel: true });
+  L.text({ x: x + 24, base: y + 50, s: 36, c: "peach", txt: n });
+  L.text({ x: x + 24, base: y + 90, s: 36, c: "orange", txt: where });
+  const st = L.text({ x: x + 496, base: y + 68, s: 44, c: "white", txt: "", align: "r" });
+  const bar = L.layer({ x, y: y + 108, w: 520, h: 8 });
+  bar.style.background = "var(--butter)"; bar.style.transformOrigin = "0 0";
+  return { st, bar, state: i === 1 ? "Loading" : "Loaded", u: i === 1 ? 0.3 : 1 };
+});
+let inventory = 247, tuT = null;
+L.every(9000, () => { const tb = L.pick(tubes.filter((x) => x.state !== "Loading")); if (tb) { tb.state = "Loading"; tb.u = 0; inventory = inventory > 200 ? inventory - 1 : 250; } }, 0.3);
+L.tick((t) => {
+  const dt = tuT === null ? 0 : Math.min(0.1, t - tuT); tuT = t;
+  for (const tb of tubes) {
+    if (tb.state === "Loading") { tb.u += dt * 0.16; if (tb.u >= 1) { tb.u = 1; tb.state = "Loaded"; } }
+    tb.bar.style.transform = `scaleX(${tb.u.toFixed(4)})`;
+  }
+});
+const inv = L.text({ x: 3520, base: 1560, s: 170, c: "butter", txt: "", align: "r" });
+L.text({ x: 2460, base: 1430, s: 52, c: "peach", txt: "Torpedo Inventory" });
+L.text({ x: 2460, base: 1488, s: 36, c: "orange", txt: "Of 250  ·  Magazines 1 – 4" });
+// four magazines, 62 or 63 torpedoes each, emptying in turn
+const MAGW = (3240 - 2460 - 3 * 16) / 4;
+const mags = [0, 1, 2, 3].map((i) => {
+  const x = 2460 + i * (MAGW + 16);
+  L.rect({ x, y: 1516, w: MAGW, h: 44, c: "#2a1a10" });
+  const f = L.layer({ x, y: 1516, w: MAGW, h: 44 });
+  f.style.background = "var(--orange)"; f.style.transformOrigin = "0 0";
+  return f;
+});
+L.every(300, () => {
+  tubes.forEach((tb) => { tb.st.textContent = tb.state; tb.st.style.color = tb.state === "Loaded" ? "var(--white)" : "var(--butter)"; });
+  inv.textContent = inventory;
+  [62, 62, 63, 63].forEach((cap, i) => {                  // magazine 4 empties first, then 3 …
+    const before = [62, 62, 63, 63].slice(0, i).reduce((a, b) => a + b, 0);
+    mags[i].style.transform = `scaleX(${(L.clamp(inventory - before, 0, cap) / cap).toFixed(4)})`;
+  });
+}, 0);
+
+// ---------------- tactical log ----------------
+L.box({ x: 40, y: 1620, w: 320, h: 48, c: "orange", label: "Tactical Log", fs: 28, r: "l" });
+L.rect({ x: 40 + 320 + L.GAP, y: 1620, w: 840 - (40 + 320 + L.GAP), h: 48, c: "peach" });
+const events = ["Shield harmonics rotated", "Target lock acquired", "Phaser array recharged", "Simulated hit, starboard shields",
+  "Torpedo tube 2 loaded", "Evasive pattern Delta-4 plotted", "Sensor ghost dismissed", "Shield frequency modulated",
+  "Fire control handed to helm", "Drill scenario advanced", "Contact reclassified", "Weapons safed, drill only"];
+const logRows = Array.from({ length: 6 }, (_, i) => {
+  const base = 1734 + i * 54;
+  return { sd: L.text({ x: 40, base, s: 36, c: "sunset", txt: "" }), tx: L.text({ x: 230, base, s: 36, c: "peach", txt: "" }) };
+});
+let sd = 47771.4, logged = [], deck = [];
+const addEvent = () => {
+  if (!deck.length) deck = events.slice().sort(() => Math.random() - 0.5);
+  sd += 0.1; logged.push([sd.toFixed(1), deck.pop()]); if (logged.length > 6) logged.shift();
+  logRows.forEach((r, i) => { const e = logged[i]; r.sd.textContent = e ? e[0] : ""; r.tx.textContent = e ? e[1] : ""; });
+};
+for (let i = 0; i < 6; i++) addEvent();
+L.every(5600, addEvent, 0.2);
+
+// ---------------- shield harmonics ----------------
+const HX = 880, HW = 1720 - HX, BASE = 2004;               // bars stand on the log's last baseline
+L.box({ x: HX, y: 1620, w: 360, h: 48, c: "sunset", label: "Shield Harmonics", fs: 28, r: "l" });
+L.rect({ x: HX + 360 + L.GAP, y: 1620, w: 1720 - (HX + 360 + L.GAP), h: 48, c: "peach" });
+L.text({ x: HX, base: 1734, s: 40, c: "peach", txt: "Modulation" });
+const freq = L.text({ x: 1720, base: 1734, s: 44, c: "white", txt: "", align: "r" });
+const NB = 28, BW = HW / NB, BH = 230;
+const hbars = Array.from({ length: NB }, (_, i) => {
+  const b = L.layer({ x: HX + i * BW + 3, y: BASE - BH, w: BW - 8, h: BH });
+  b.style.background = i % 4 === 3 ? "var(--peach)" : "var(--orange)"; b.style.transformOrigin = "50% 100%";
+  return b;
+});
+let peaks = [0.2, 0.55, 0.8], peaksFrom = peaks.slice(), peaksTo = peaks.slice(), rotT = -99, mhz = 257.4;
+L.every(10000, (t) => {                                    // the harmonics rotate to a new pattern
+  peaksFrom = peaks.slice(); peaksTo = [L.rand(0.05, 0.35), L.rand(0.38, 0.62), L.rand(0.65, 0.95)]; rotT = t;
+  mhz = Math.round(L.rand(180, 340) * 10) / 10;
+}, 0.2);
+L.tick((t) => {
+  const k = L.ease(L.clamp((t - rotT) / 2.5));
+  peaks = peaksFrom.map((p, j) => L.mix(p, peaksTo[j], k));
+  hbars.forEach((b, i) => {
+    const u = (i + 0.5) / NB;
+    let v = 0.12 + 0.03 * Math.sin(t * 2.3 + i * 0.7);
+    peaks.forEach((p, j) => (v += (0.75 - j * 0.12) * Math.exp(-Math.pow((u - p) / 0.06, 2)) * (0.9 + 0.1 * Math.sin(t * 3.1 + j))));
+    b.style.transform = `scaleY(${L.clamp(v, 0.04, 1).toFixed(4)})`;
+  });
+});
+L.every(500, () => (freq.textContent = mhz.toFixed(1) + " MHz"), 0);
+
+// ---------------- sensor contacts ----------------
+L.box({ x: 1780, y: 1620, w: 360, h: 48, c: "sky", label: "Sensor Contacts", fs: 28, r: "l" });
+L.rect({ x: 1780 + 360 + L.GAP, y: 1620, w: 3520 - (1780 + 360 + L.GAP), h: 48, c: "ice" });
+const colsX = [1780, 1960, 2400, 2780, 3200];
+["ID", "Classification", "Bearing", "Range", "Status"].forEach((h, i) => L.text({ x: colsX[i], base: 1730, s: 36, c: "sky", txt: h }));
+const crow = contacts.map((c, i) => {
+  const base = 1790 + i * 54, color = c.cls === "hostile" ? "mars" : c.cls === "friend" ? "ice" : "butter";
+  return [c.id, c.type, "", "", c.kind].map((v, j) => L.text({ x: colsX[j], base, s: 36, c: j === 0 || j === 4 ? color : "white", txt: v }));
+});
+L.every(500, () => contacts.forEach((c, i) => {
+  crow[i][2].textContent = c.bearing.toFixed(1).padStart(5, "0") + "°";
+  crow[i][3].textContent = (c.r * 412).toLocaleString("en") + " km";
+}), 0);
+});
+</script></body></html>

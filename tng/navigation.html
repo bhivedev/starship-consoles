@@ -1,0 +1,319 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Navigation</title>
+<link rel="stylesheet" href="../lcars.css">
+<style>
+  #scan { position: absolute; left: 1060px; top: 1140px; width: 1680px; height: 948px; overflow: hidden;
+          border-top-left-radius: 46px; background: #000614; }
+  .ret { width: 132px; height: 168px; }
+  .ret i { position: absolute; display: block; }
+  .coords { font-size: 40px; color: #fff; line-height: 1.12; }
+  .glabel { position: absolute; font-size: 26px; color: var(--sky); }
+  #sweep { top: 0; height: 948px; width: 260px;
+           background: linear-gradient(to right, rgba(60,110,255,0) 0%, rgba(60,110,255,.10) 70%, rgba(150,200,255,.45) 97%, #cfe6ff 100%); }
+  .blip { width: 18px; height: 18px; border-radius: 9px; background: var(--ice); }
+  .ship { width: 0; height: 0; border-left: 34px solid var(--butter); border-top: 16px solid transparent; border-bottom: 16px solid transparent; }
+</style></head>
+<body><script src="../lcars.js"></script><script>
+"use strict";
+const L = LCARS;
+L.ready(() => {
+
+// ---------------- header ----------------
+L.box({ x: 3726, y: 24, w: 90, h: 72, c: "gold", r: "r" });
+const navLeft = L.title({ x: 3726 - L.GAP, y: 24, h: 72, c: "gold", txt: "Navigation" });
+L.rect({ x: 0, y: 24, w: navLeft - L.GAP, h: 72, c: "gold" });
+
+// ---------------- the readout bracket, top left ----------------
+L.elbow({ corner: "tl", x: 44, y: 130, w: 2416, h: 230, bw: 180, bh: 60, R: 110, r: 40, c: "gold" });
+L.elbow({ corner: "bl", x: 44, y: 368, w: 2696, h: 200, bw: 180, bh: 40, R: 100, r: 36, c: "gold" });
+L.rect({ x: 2480, y: 130, w: 110, h: 60, c: "gold" });
+L.rect({ x: 2610, y: 130, w: 130, h: 60, c: "tan" });
+const readout = L.numbers({ x: 284, y: 206, s: 42, rows: 6, blank: 0.12, c: "sky",
+  cols: [{ w: 110, n: 4 }, { w: 110, n: 4 }, { w: 110, n: 4 }, { w: 330, n: 13 }, { w: 70, n: 1 },
+         { w: 120, n: 4 }, { w: 120, n: 4 }, { w: 120, n: 4 }, { w: 120, n: 4 }, { w: 120, n: 4 }, { w: 120, n: 4 },
+         { w: 120, n: 3 }, { w: 70, n: 1 }, { w: 70, n: 1 }, { w: 600, n: 24, c: "ice" }] });
+L.every(110, () => readout.tick(2));
+
+// ---------------- left column ----------------
+// Subspace field: a framed bar graph, flat colour like the rest of the console
+L.box({ x: 44, y: 606, w: 56, h: 204, c: "sky", r: "l" });
+L.rect({ x: 104, y: 606, w: 412, h: 14, c: "sky" });
+L.rect({ x: 104, y: 796, w: 300, h: 14, c: "sky" });
+L.rect({ x: 410, y: 796, w: 106, h: 14, c: "sunset" });
+L.text({ x: 516, base: 664, s: 36, c: "sky", txt: "Subspace Field 47", align: "r" });
+const fieldBars = Array.from({ length: 15 }, (_, i) => {
+  const b = L.layer({ x: 118 + i * 26, y: 676, w: 18, h: 112 });
+  b.style.background = i % 5 === 4 ? "var(--ice)" : "var(--sky)";
+  b.style.transformOrigin = "50% 100%";
+  b.peak = L.layer({ x: 118 + i * 26, y: 676, w: 18, h: 112 });
+  b.peak.style.background = "var(--sunset)";
+  b.peak.style.transformOrigin = "50% 100%";
+  return b;
+});
+L.tick((t) => fieldBars.forEach((b, i) => {
+  const v = L.clamp(0.5 + 0.28 * Math.sin(t * 1.3 + i * 0.6) + 0.18 * Math.sin(t * 2.9 - i * 1.7), 0.08, 1);
+  b.style.transform = `scaleY(${v.toFixed(3)})`;
+  const over = Math.max(0, v - 0.82);                      // the top of a high bar runs orange
+  b.peak.style.transform = `translateY(${((-v + over) * 112).toFixed(1)}px) scaleY(${over.toFixed(3)})`;
+}));
+
+const rows = [["sky", "16-7854", "blue", "16-85245"], ["sand", "23-854", "ice", "16-85245"], ["navy", "21-8521", "sky", "16-85245"]];
+rows.forEach(([a, la, b, lb], i) => {
+  L.box({ x: 44, y: 840 + i * 75, w: 236, h: 65, c: a, label: la, r: "l" });
+  L.box({ x: 286, y: 840 + i * 75, w: 230, h: 65, c: b, label: lb });
+});
+const list = L.numbers({ x: 50, y: 1094, s: 38, rows: 12, blank: 0.08,
+  rowColors: ["sky", "sky", "sky", "sky", "sky", "sunset", "sunset", "mars", "sand", "sand", "sky", "sky", "sky"],
+  cols: [{ w: 80, n: 3 }, { w: 90, n: 3 }, { w: 40, n: 0 }, { w: 300, n: 14 }] });
+list.querySelectorAll("span:last-child").forEach((s) => (s.style.textAlign = "left"));
+L.every(260, () => list.tick(1));
+const rows2 = [["blue", "16-7854", "sand", "16-7854"], ["slate", "23-854", "sky", "23-854"], ["ice", "21-8521", "sunset", "21-8521"]];
+rows2.forEach(([a, la, b, lb], i) => {
+  L.box({ x: 44, y: 1676 + i * 75, w: 236, h: 65, c: a, label: la, r: "l" });
+  L.box({ x: 286, y: 1676 + i * 75, w: 230, h: 65, c: b, label: lb, r: "r" });
+});
+
+// the ship's chronometer, bottom left: stardate and ship's time from the Mac's own clock
+L.box({ x: 44, y: 1912, w: 96, h: 36, c: "sunset", r: "l" });
+L.box({ x: 146, y: 1912, w: 236, h: 36, c: "peach", label: "Chronometer", fs: 24 });
+L.box({ x: 388, y: 1912, w: 128, h: 36, c: "orange", r: "r" });
+L.text({ x: 44, base: 2022, s: 36, c: "sky", txt: "Stardate" });
+const sd = L.text({ x: 516, base: 2022, s: 72, c: "butter", txt: "", align: "r" });
+L.text({ x: 44, base: 2076, s: 36, c: "sky", txt: "Ship's Time" });
+const clock = L.text({ x: 516, base: 2076, s: 44, c: "ice", txt: "", align: "r" });
+L.every(1000, () => {
+  const d = new Date(), y0 = new Date(d.getFullYear(), 0, 1);
+  const year = (d - y0) / (365.25 * 864e5);                        // fraction of the year gone
+  sd.textContent = (47000 + year * 1000).toFixed(1);
+  clock.textContent = [d.getHours(), d.getMinutes(), d.getSeconds()].map((n) => String(n).padStart(2, "0")).join(":");
+}, 0);
+
+// ---------------- the two button columns ----------------
+const colB = [[580, 240, "blue", "16-85245"], [830, 60, "ice", "16-85245"], [900, 60, "sunset", "16-85245"], [970, 60, "blue", "16-85245"],
+  [1040, 600, "ice", "System"], [1650, 60, "sky", "16-7854"], [1720, 60, "sand", "23-854"], [1790, 60, "slate", "21-8521"],
+  [1860, 60, "navy", "78-105"], [1930, 60, "olive", "5-85458"], [2000, 88, "sky", ""]];
+const btnsB = colB.map(([y, h, c, label]) => L.box({ x: 536, y, w: 228, h, c, label }));
+const colC = [[580, 180, "olive", "LCARS 23-761"], [770, 60, "ice", "13-6589"], [840, 60, "navy", "4-2584"]];
+const btnsC = colC.map(([y, h, c, label]) => L.box({ x: 784, y, w: 232, h, c, label }));
+L.elbow({ corner: "bl", x: 784, y: 910, w: 376, h: 150, bw: 232, bh: 40, R: 100, r: 44, c: "sky" });
+L.text({ x: 994, y: 922, s: 40, c: "#000", txt: "13-761", align: "r", on: true });
+L.elbow({ corner: "tl", x: 784, y: 1070, w: 376, h: 280, bw: 232, bh: 40, R: 100, r: 44, c: "sky" });
+L.text({ x: 994, y: 1300, s: 40, c: "#000", txt: "Status", align: "r", on: true });
+[[1360, "slate", "Trajectory"], [1440, "sky", "Scan"], [1520, "navy", "Distance"], [1600, "ice", "Operations"], [1680, "sunset", "Location"]]
+  .forEach(([y, c, label]) => btnsC.push(L.box({ x: 784, y, w: 232, h: 70, c, label })));
+const init = L.box({ x: 784, y: 1760, w: 232, h: 328, c: "sky", label: "Initiate" });
+init.style.alignItems = "flex-start"; init.style.paddingTop = "10px";
+
+// the bars that run out over the scan
+const seg = (y, list) => list.forEach(([x, w, c, label]) => L.box({ x, y, w, h: 40, c, label, fs: 24 }));
+seg(1020, [[1170, 330, "navy", "16-85245"], [1510, 400, "ice", ""], [1920, 400, "sky", "16-85245"], [2330, 370, "sky", "16-85245"], [2710, 30, "sky", ""]]);
+seg(1070, [[1170, 330, "ice", "16-85245"], [1510, 400, "navy", ""], [1920, 400, "navy", "16-85245"], [2330, 370, "slate", "16-85245"], [2710, 30, "ice", ""]]);
+const prog = L.layer({ x: 1510, y: 1070, w: 400, h: 40 });
+prog.style.background = "var(--ice)"; prog.style.transformOrigin = "0 0";
+
+// ---------------- titles and the small readouts ----------------
+L.text({ x: 2740, y: 590, s: 132, c: "sky", txt: "Long Range Scan 28741", align: "r" });
+const mini = L.numbers({ x: 1180, y: 734, s: 34, rows: 5, blank: 0.3, c: "sky",
+  cols: [{ w: 60, n: 2 }, { w: 70, n: 3 }, { w: 80, n: 4 }, { w: 250, n: 13 }, { w: 60, n: 2 }, { w: 60, n: 2 }, { w: 20, n: 0 },
+         { w: 60, n: 2 }, { w: 90, n: 4 }, { w: 80, n: 4 }, { w: 0, n: 0 }] });
+L.every(170, () => mini.tick(1));
+const pills = [[2040, 730, "slate", "78-105"], [2280, 730, "olive", "7-4656"], [2520, 730, "sky", "16-85245"],
+               [2040, 836, "olive", "7-4205"], [2280, 836, "sunset", "1-701E"], [2520, 836, "ice", "16-85245"]]
+  .map(([x, y, c, label]) => L.box({ x, y, w: 220, h: 92, c, label, r: "lr", fs: 38 }));
+L.text({ x: 2740, y: 936, s: 70, c: "sky", txt: "Scan Parameters 581257-365", align: "r" });
+
+// ---------------- the scan ----------------
+const scan = L.el("div", "boot", L.stage); scan.id = "scan";
+const SW = 1680, SH = 948;
+const starLayer = L.layer({ x: 0, y: 0, w: SW * 2, h: SH }, scan);
+const stars = L.canvas({ x: 0, y: 0, w: SW * 2, h: SH }, starLayer);
+{ // stars in the first half, copied into the second, so the drift wraps without a seam
+  const pts = L.stars(stars, 520, ["#3550d8", "#2a44c0", "#5c7dff", "#8aa4ff"], 3.4);
+  const first = pts.filter((p) => p[0] < SW);
+  pts.length = 0;
+  for (const p of first) pts.push(p, [p[0] + SW, p[1], p[2], p[3]]); }
+const grid = L.svg("svg", { width: SW, height: SH, viewBox: `0 0 ${SW} ${SH}`, style: "position:absolute;left:0;top:0" }, scan);
+const gx = [0.04, 0.27, 0.53, 0.78], gy = [0.14, 0.43, 0.72];
+gx.forEach((u) => L.svg("rect", { x: u * SW, y: 0, width: 4, height: SH, fill: "#2648e8" }, grid));
+gy.forEach((u) => L.svg("rect", { x: 0, y: u * SH, width: SW, height: 4, fill: "#2648e8" }, grid));
+gy.forEach((v) => gx.forEach((u) => {
+  const lb = L.el("div", "glabel", scan); lb.style.left = u * SW + 12 + "px"; lb.style.top = v * SH + 14 + "px"; lb.textContent = L.digits(4);
+}));
+const big = L.el("div", "t", scan, { left: "40px", top: "34px", fontSize: "78px", color: "var(--olive)", lineHeight: "1.05" });
+big.innerHTML = "259584<br>50893.1";
+
+// a plotted course, and the ship travelling it
+const course = [[180, 760], [520, 610], [860, 640], [1180, 400], [1540, 250]];
+grid.appendChild(Object.assign(document.createElementNS("http://www.w3.org/2000/svg", "polyline"), {}));
+const pl = grid.lastChild;
+pl.setAttribute("points", course.map((p) => p.join(",")).join(" "));
+pl.setAttribute("fill", "none"); pl.setAttribute("stroke", "#ffcc66"); pl.setAttribute("stroke-width", "4"); pl.setAttribute("stroke-dasharray", "18 14");
+course.forEach(([x, y], i) => L.svg("circle", { cx: x, cy: y, r: i === course.length - 1 ? 16 : 9, fill: i === course.length - 1 ? "none" : "#ffcc66",
+  stroke: "#ffcc66", "stroke-width": 4 }, grid));
+const dest = L.el("div", "t", scan, { left: "1440px", top: "176px", fontSize: "36px", color: "var(--butter)" });
+dest.textContent = L.pick(["Starbase 74", "Deep Space 9", "Starbase 133", "Bajor Sector", "Deneb IV", "Rigel Colonies"]);
+const ship = L.layer({ x: 0, y: 0, w: 34, h: 32, cls: "ship" }, scan);
+const shipLbl = L.layer({ x: 0, y: 0, w: 400, h: 80 }, scan);
+shipLbl.className += " t"; shipLbl.style.fontSize = "30px"; shipLbl.style.color = "var(--butter)"; shipLbl.style.lineHeight = "1.15";
+const segLen = course.slice(1).map((p, i) => Math.hypot(p[0] - course[i][0], p[1] - course[i][1]));
+const total = segLen.reduce((a, b) => a + b);
+const along = (d) => {
+  for (let i = 0; i < segLen.length; i++) {
+    if (d <= segLen[i]) { const k = d / segLen[i], a = course[i], b = course[i + 1];
+      return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, Math.atan2(b[1] - a[1], b[0] - a[0]) * 180 / Math.PI]; }
+    d -= segLen[i];
+  }
+  const e = course[course.length - 1]; return [e[0], e[1], 0];
+};
+const trip = 150;   // seconds, start to finish
+const tripStart = L.rand(0, 0.5) * trip;
+L.tick((t) => {
+  const d = (((t + tripStart) % trip) / trip) * total, [x, y, a] = along(d);
+  L.move(ship, x - 17, y - 16, a);
+  L.move(shipLbl, x + 30, y + 24);
+});
+L.every(1000, (t) => {
+  const left = trip - ((t + tripStart) % trip);
+  shipLbl.innerHTML = `Warp ${(6 + Math.sin(t / 40)).toFixed(1)}<br>ETA ${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, "0")}`;
+}, 0);
+
+// contacts: blips that answer the sweep
+const blips = Array.from({ length: 9 }, () => {
+  const b = L.layer({ x: 0, y: 0, w: 18, h: 18, cls: "blip" }, scan);
+  b.x = L.rand(60, SW - 60); b.y = L.rand(60, SH - 60); b.hit = -9;
+  L.move(b, b.x - 9, b.y - 9); b.style.opacity = 0.25;
+  return b;
+});
+
+// the sweep
+const sweep = L.layer({ x: 0, y: 0, w: 260, h: SH }, scan); sweep.id = "sweep";
+const SWEEP = 7.5;
+L.tick((t) => {
+  const u = (t % SWEEP) / (SWEEP - 1.5);
+  const x = -260 + u * (SW + 260);
+  L.move(sweep, x, 0);
+  sweep.style.opacity = u > 1 ? 0 : 1;
+  for (const b of blips) {
+    if (u <= 1 && Math.abs(x + 260 - b.x) < 14) b.hit = t;
+    const k = Math.max(0, 1 - (t - b.hit) / 2.6);
+    b.style.opacity = (0.22 + 0.78 * k).toFixed(2);
+  }
+  L.move(starLayer, -((t * 9) % SW), 0);
+  prog.style.transform = `scaleX(${((t % 11) / 11).toFixed(3)})`;
+});
+
+// target reticles: hunt, lock, move on
+const reticle = (withCoords) => {
+  const r = L.layer({ x: 0, y: 0, w: 132, h: 168, cls: "ret" }, scan);
+  const bar = (x, y, w, h, c) => { const i = L.el("i", "", r, { left: x + "px", top: y + "px", width: w + "px", height: h + "px", background: c }); return i; };
+  bar(0, 0, 14, 168, "var(--ice)"); bar(0, 0, 40, 12, "var(--ice)"); bar(0, 156, 40, 12, "var(--ice)");
+  bar(118, 0, 14, 168, "var(--ice)"); bar(92, 0, 40, 12, "var(--ice)"); bar(92, 156, 40, 12, "var(--ice)");
+  ["var(--sky)", "var(--slate)", "var(--sunset)"].forEach((c, i) => { bar(18, 30 + i * 38, 16, 32, c); bar(98, 30 + i * 38, 16, 32, c); });
+  const dot = bar(58, 76, 16, 16, "var(--white)"); dot.style.borderRadius = "8px";
+  r.dot = dot;
+  r.pos = [L.rand(150, SW - 150), L.rand(150, SH - 150)]; r.from = r.pos; r.to = r.pos; r.t0 = 0; r.dur = 1;
+  if (withCoords) {
+    r.c = L.layer({ x: 0, y: 0, w: 360, h: 140, cls: "coords t" }, scan);
+  }
+  return r;
+};
+const rets = [reticle(true), reticle(false), reticle(false)];
+const retarget = (r, t) => { r.from = r.pos; r.to = [L.rand(120, SW - 260), L.rand(110, SH - 180)]; r.t0 = t; r.dur = L.rand(1.6, 3); r.next = t + r.dur + L.rand(3, 7); };
+rets.forEach((r, i) => (r.next = 1.5 + i * 2.2));
+L.tick((t) => {
+  for (const r of rets) {
+    if (t > r.next) retarget(r, t);
+    const k = L.ease(L.clamp((t - r.t0) / r.dur));
+    r.pos = [L.mix(r.from[0], r.to[0], k), L.mix(r.from[1], r.to[1], k)];
+    L.move(r, r.pos[0] - 66, r.pos[1] - 84);
+    const locked = k >= 1;
+    r.dot.style.opacity = locked ? (Math.sin(t * 9) > 0 ? 1 : 0.15) : 0.15;
+    // coordinates above the reticle, or below it near the top, clear of the gold readout
+    if (r.c) L.move(r.c, r.pos[0] - 120, r.pos[1] < 420 ? r.pos[1] + 96 : r.pos[1] - 236);
+  }
+});
+L.every(140, () => {
+  const r = rets[0];
+  r.c.innerHTML = `${L.digits(10)}.${L.digits(2)}<br>${L.digits(6)}.${L.digits(5)}<br>${L.digits(9)}.${L.digits(3)}`;
+}, 0);
+L.every(900, () => { big.innerHTML = `${L.digits(6)}<br>${L.digits(5)}.${L.irand(0, 9)}`; });
+
+// ---------------- the right-hand panel ----------------
+L.elbow({ corner: "tl", x: 2800, y: 130, w: 1016, h: 560, bw: 120, bh: 60, R: 220, r: 90, c: "gold" });
+L.rect({ x: 2800, y: 698, w: 120, h: 640, c: "gold" });
+L.rect({ x: 2800, y: 1346, w: 120, h: 90, c: "tan" });
+L.elbow({ corner: "bl", x: 2800, y: 1444, w: 1016, h: 644, bw: 120, bh: 60, R: 220, r: 90, c: "gold" });
+
+const pal = [["violet", "navy", "orange", "ice"], ["violet", "navy", "", "ice"], ["", "", "navy", "peach"], ["orange", "peach", "orange", "orange"],
+  ["orange", "peach", "orange", "peach"], ["navy", "navy", "", "peach"], ["", "", "orange", "peach"], ["ice", "ice", "peach", "navy"], ["orange", "navy", "peach", "violet"]];
+const bigNums = [];
+pal.forEach(([a, b, c, d], i) => {
+  const y = 246 + i * 88;
+  if (a) L.box({ x: 2984, y, w: 60, h: 70, c: a, r: "l" });
+  if (b) L.box({ x: 3050, y, w: 190, h: 70, c: b, label: "2-256", fs: 26 });
+  const n = L.text({ x: 3390, y: y - 6, s: 92, c: i % 3 === 0 ? "orange" : "peach", txt: String(L.irand(2, 48)), align: "r" });
+  bigNums.push(n);
+  L.box({ x: 3412, y, w: 24, h: 70, c: i % 2 ? "orange" : "navy" });
+  if (c) L.box({ x: 3446, y, w: 190, h: 70, c, label: "2-256", r: "r", fs: 26 });
+  L.box({ x: 3660, y, w: 140, h: 70, c: d, label: "2-256", r: "lr", fs: 26 });
+});
+L.every(1700, () => { const n = L.pick(bigNums); n.textContent = L.irand(2, 48); });
+
+[[2984, 1060, 240, "ice", "Calibrate", ""], [3234, 1060, 110, "orange", "1800", "l"], [3350, 1060, 150, "butter", "Reset", ""],
+ [3506, 1060, 110, "orange", "1802", "r"], [3640, 1060, 160, "peach", "2002", "lr"], [3640, 1146, 160, "peach", "2004", "lr"]]
+  .forEach(([x, y, w, c, label, r]) => L.box({ x, y, w, h: 70, c, label, r, fs: 30 }));
+
+// the navigation dial
+const cx = 3380, cy = 1610;
+const dial = L.svg("g", { class: "boot" });
+const seg2 = (r1, r2, a0, a1, c, label) => {
+  L.svg("path", { d: L.arc(cx, cy, r1, r2, a0, a1), fill: `var(--${c})` }, dial);
+  if (label) {
+    const a = ((a0 + a1) / 2) * Math.PI / 180, rr = (r1 + r2) / 2;
+    const tx = L.svg("text", { x: cx + rr * Math.sin(a), y: cy - rr * Math.cos(a) + 10, "text-anchor": "middle", "font-size": 30, fill: "#000",
+      "font-family": "LCARS" }, dial);
+    tx.textContent = label;
+  }
+};
+[[300, 330, "ice", "105"], [331, 344, "ice", "23"], [345, 358, "ice", "88"]].forEach(([a0, a1, c, l]) => seg2(270, 390, a0, a1, c, l));
+[[0, 14, "orange", "08"], [15, 29, "peach", "17"], [30, 48, "sunset", "4568"]].forEach(([a0, a1, c, l]) => seg2(270, 360, a0, a1, c, l));
+seg2(270, 340, 49, 140, "peach", "365");
+seg2(270, 340, 141, 196, "sunset", "9640");
+seg2(270, 380, 197, 214, "lilac", "26");
+seg2(165, 380, 215, 262, "violet", "Mode Select");
+seg2(165, 260, 263, 283, "peach", "201");
+seg2(262, 330, 263, 283, "peach", "00");
+seg2(165, 260, 284, 299, "orange", "01");
+seg2(165, 260, 0, 60, "peach", "");
+seg2(165, 260, 61, 120, "orange", "101");
+seg2(165, 260, 121, 160, "peach", "11");
+seg2(165, 260, 161, 214, "sunset", "");
+L.svg("circle", { cx, cy, r: 150, fill: "#1f2fd0" }, dial);
+L.svg("rect", { x: cx - 32, y: cy - 150, width: 64, height: 300, fill: "#1424a8" }, dial);
+L.svg("rect", { x: cx - 150, y: cy - 32, width: 300, height: 64, fill: "#1424a8" }, dial);
+const tri = (pts) => L.svg("polygon", { points: pts.map((p) => p.join(",")).join(" "), fill: "#fff" }, dial);
+tri([[cx - 18, cy - 110], [cx + 18, cy - 110], [cx, cy - 132]]); tri([[cx - 18, cy + 110], [cx + 18, cy + 110], [cx, cy + 132]]);
+tri([[cx - 110, cy - 18], [cx - 110, cy + 18], [cx - 132, cy]]); tri([[cx + 110, cy - 18], [cx + 110, cy + 18], [cx + 132, cy]]);
+// the outer bezel turns
+const ring = L.layer({ x: cx - 410, y: cy - 410, w: 820, h: 820 });
+const rs = L.svg("svg", { width: 820, height: 820, viewBox: "0 0 840 840" }, ring);
+for (let a = 0; a < 360; a += 5) L.svg("rect", { x: 418, y: 2, width: a % 30 ? 4 : 8, height: a % 30 ? 16 : 30, fill: "var(--peach)",
+  transform: `rotate(${a} 420 420)`, opacity: a % 30 ? 0.55 : 1 }, rs);
+const sweepArm = L.layer({ x: cx - 150, y: cy - 150, w: 300, h: 300 });
+sweepArm.style.borderRadius = "150px";
+sweepArm.style.background = "conic-gradient(from 0deg, rgba(150,200,255,.55), rgba(150,200,255,0) 70deg, rgba(0,0,0,0) 360deg)";
+L.tick((t) => {
+  ring.style.transform = `rotate(${(t * 4) % 360}deg)`;
+  sweepArm.style.transform = `rotate(${(-t * 50) % 360}deg)`;
+});
+
+// buttons that light now and then, as if someone were working the console
+const all = [...btnsB, ...btnsC, ...pills];
+L.every(600, (t) => {
+  const b = L.pick(all);
+  b.style.filter = "brightness(1.45)";
+  setTimeout(() => (b.style.filter = ""), 260);
+});
+
+});
+</script></body></html>
