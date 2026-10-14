@@ -27,3 +27,13 @@ as plain HTML/JavaScript, for porting to other platforms. MIT licence: see LICEN
 - Text is measured with the "LCARS" font before layout (`L.ready`), so keep the font loading.
 - `sound/ambience.m4a` is the background engine hum: a seamless 3-minute loop (AAC). `shuffle.html` plays
   it from the first click or key press (browsers block sound until then); S turns it on or off.
+
+## Licence and notices
+
+MIT (see LICENSE) for the screens' code and designs. The fonts keep their own terms: Antonio is under the
+SIL Open Font License (`fonts/OFL.txt`); Swiss 911 Ultra Compressed is a commercial Bitstream typeface.
+
+Starship Consoles is an unofficial fan project in the style of the LCARS displays from Star Trek. It
+is not affiliated with, endorsed, sponsored or licensed by Paramount, Paramount Skydance, CBS Studios,
+Skydance, or anyone who owns Star Trek. Star Trek, LCARS, and the names and designs of the franchise
+belong to their owners.

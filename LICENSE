@@ -16,12 +16,3 @@ NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPO
 NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES
 OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-This licence covers the screens' code and designs (the .html, .js and .css files). It does not cover
-the fonts in fonts/, which keep their own terms: Antonio is under the SIL Open Font License
-(fonts/OFL.txt); Swiss 911 Ultra Compressed is a commercial Bitstream typeface.
-
-Starship Consoles is an unofficial fan project in the style of the LCARS displays from Star Trek. It
-is not affiliated with, endorsed, sponsored or licensed by Paramount, Paramount Skydance, CBS Studios,
-Skydance, or anyone who owns Star Trek. Star Trek, LCARS, and the names and designs of the franchise
-belong to their owners.
