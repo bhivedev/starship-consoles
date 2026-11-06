@@ -338,7 +338,7 @@
   // ---------- layout audit (dev only: run by tools/lcars-shot.swift, never by the saver) ----------
   // Every piece of text, measured by its glyphs, against every static shape and every other text.
   // Returns a list of problems in plain words; an empty list is a pass.
-  L.audit = (gap = 14) => {
+  L.audit = (gap = 14, curves = false) => {
     const z = L.zoom, sr = stage.getBoundingClientRect();
     const cv = document.createElement("canvas").getContext("2d");
     cv.font = '100px "LCARS"';
@@ -392,6 +392,31 @@
         }
         if (hit(t, s)) { issues.push(`${name(t)} overlaps a shape at ${Math.round(s.x)},${Math.round(s.y)}`); break; }
         if (hit(t, s, gap)) { issues.push(`${name(t)} is within ${gap}px of a shape at ${Math.round(s.x)},${Math.round(s.y)}`); break; }
+      }
+    }
+    // Filled SVG paths and polygons (rings, arcs, sectors) are not in `shapes`: test the text's box
+    // against their real outline, point by point. Tactical's AFT sat on its shield oval unseen (2026-11-06).
+    // Opt-in (LCARS_AUDIT_CURVES=1) until the other screens it flags are reviewed — some put figures
+    // inside gauges on purpose.
+    const svgFills = !curves ? [] : [...stage.querySelectorAll("svg path, svg polygon")].filter((e) =>
+      !inLayer(e) && getComputedStyle(e).fill !== "none" && getComputedStyle(e).visibility !== "hidden");
+    const svgHit = (e, x0, y0, x1, y1) => {             // design-px box; any sample point inside the fill?
+      const ctm = e.getScreenCTM(); if (!ctm) return false;
+      const inv = ctm.inverse();
+      for (let y = y0; y <= y1 + 0.01; y += Math.min(6, y1 - y0 || 6)) for (let x = x0; x <= x1 + 0.01; x += Math.min(6, x1 - x0 || 6)) {
+        const p = new DOMPoint(sr.left + x * z, sr.top + y * z).matrixTransform(inv);
+        if (e.isPointInFill(p)) return true;
+      }
+      return false;
+    };
+    for (const t of texts) {
+      if (t.on || t.bx) continue;
+      for (const e of svgFills) {
+        const b = e.getBoundingClientRect();
+        const bb = { x: (b.left - sr.left) / z, y: (b.top - sr.top) / z, w: b.width / z, h: b.height / z };
+        if (!hit(t, bb, gap)) continue;
+        if (svgHit(e, t.x, t.y, t.x + t.w, t.y + t.h)) { issues.push(`${name(t)} overlaps a curved shape near ${Math.round(bb.x)},${Math.round(bb.y)}`); break; }
+        if (svgHit(e, t.x - gap, t.y - gap, t.x + t.w + gap, t.y + t.h + gap)) { issues.push(`${name(t)} is within ${gap}px of a curved shape near ${Math.round(bb.x)},${Math.round(bb.y)}`); break; }
       }
     }
     for (let i = 0; i < texts.length; i++) for (let j = i + 1; j < texts.length; j++) {

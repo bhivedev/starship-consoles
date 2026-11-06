@@ -47,7 +47,8 @@ const header = (x, w, label, lw, c1, c2) => {
 
 // ---------------- deflector shields ----------------
 header(40, 1080, "Deflector Shields", 380, "orange", "peach");
-const SX = 560, SY = 820, SQ = 0.74;                   // centre; the ellipse is a circle squashed by SQ
+const SX = 560, SY = 804, SQ = 0.74;                   // centre (midway between the header and the meters);
+                                                       // the ellipse is a circle squashed by SQ
 const sectors = [];
 const shieldG = L.svg("g", { transform: `translate(0,${SY}) scale(1,${SQ}) translate(0,${-SY})`, class: "boot" });
 L.svg("circle", { cx: SX, cy: SY, r: 336, fill: "none", stroke: "var(--plum)", "stroke-width": 6 }, shieldG);
@@ -60,8 +61,10 @@ L.svg("circle", { cx: SX, cy: SY, r: 336, fill: "none", stroke: "var(--plum)", "
 });
 // the ship: a simple arrowhead, pointing fore
 L.svg("polygon", { points: `${SX},${SY - 92} ${SX + 54},${SY + 62} ${SX},${SY + 32} ${SX - 54},${SY + 62}`, fill: "var(--ice)", class: "boot" });
+// Fore's figures end 37px above the oval (its top is SY - 404·SQ ≈ SY - 299); Aft's capitals start
+// 37px below its bottom: label cap top SY + 336, baseline +29, figures 60 lower.
 const quadText = {};
-[["Fore", SX, SY - 300 - 36, "c"], ["Aft", SX, SY + 300 + 82, "c"], ["Port", SX - 404 - 22, SY + 14, "r"], ["Starboard", SX + 404 + 22, SY + 14, "l"]]
+[["Fore", SX, SY - 300 - 36, "c"], ["Aft", SX, SY + 425, "c"], ["Port", SX - 404 - 22, SY + 14, "r"], ["Starboard", SX + 404 + 22, SY + 14, "l"]]
   .forEach(([q, x, base, align]) => {
     L.text({ x, base: base - 60, s: 40, c: "peach", txt: q, align, w: 300 });
     quadText[q] = L.text({ x, base, s: 52, c: "white", txt: "100%", align, w: 300 });
