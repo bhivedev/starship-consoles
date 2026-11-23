@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Structural Integrity</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* swapped text dips and comes back; .boot (the start-up cascade) always wins */
@@ -17,7 +18,7 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: a bracket, title centred ----------------
-L.frame({ type: "C", title: "Structural Integrity  •  Hull Stress", c: "sky", c2: "ice", accent: "blue", foot: "Hull",
+const B = L.frame({ type: "C", title: "Structural Integrity  •  Hull Stress", c: "sky", c2: "ice", accent: "blue", foot: "Hull",
   side: [[140, "ice", "SIF 01"], [70, "blue", "4471"], [420, "sky", "Hull"], [70, "ice", "36"], [300, "blue", "Stress"],
          [70, "ice", "B2"], [216, "sky", "Frame"]],
   side2: [[140, "ice", "Field 02"], [70, "blue", "0835"], [420, "sky", "Emitters"], [70, "ice", "14"], [300, "blue", "Load"],
@@ -36,11 +37,30 @@ const swap = (els, f) => { els.forEach((e) => e.classList.add("out")); setTimeou
 const pct = (v) => Math.round(v * 100) + "%";
 
 // Columns: the map 220–2460, the field 2540–3620. Rows share the grid of the other screens.
-const LX = 220, LR = 2460, RX = 2540, RR = 3620;
+// The data, readings and motion are written once; only positions and sizes differ by shape.
+// wide (3840 × 2160): the map 220–2460 beside the field column 2540–3620; history under the map, the
+//   log under the field column.
+// upright (2160 × 3120): the map across the full width (220–1940, blocks 88 × 123); below it the field
+//   generators (220–940) beside the load monitor (1120–1940) on one row grid, the map key on the
+//   monitor's sixth row; the history across the full width; the log in two columns of three.
+// ultrawide (5040 × 2160): the map where wide has it; a new column 2540–3560 (section peaks over the
+//   load event, on the field column's rows, with stardate and event count on the status row); the
+//   field column moved out to 3740–4820; the history under the map and the new column (150 s).
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const LX = 220, LR = UP ? B.x1 : 2460, RX = UP ? 1120 : UW ? 3740 : 2540, RR = UW || UP ? B.x1 : 3620;
+const NX = 2540, NR = 3560;                                // ultrawide only: the new middle column
+const GX = UP ? LX : RX, GR = UP ? 940 : RR;               // the field generators' column (upright: left half)
+const GY = UP ? 1558 : 280, MYH = UP ? GY : 1000;         // the generators' and the load monitor's header lines
 const BX = 300, BRW = 220;                                 // gauges start 300 in, stop 220 short of the column's edge
-const ROW0 = 428, ROW1 = 1148, PITCH = 88;
+// Side-by-side gauge columns keep 400 between one column's bar and the next column's names (closer, the
+// names read as titles set in a bar), and bars run up to their numbers, stopping 220 short as wide's do:
+// so a gauge column with another to its right ends 180 before it. Upright's gauges start 200 in.
+const BAR0 = UP ? 200 : BX, BAR1 = BRW;
+const ROW0 = UP ? GY + 148 : 428, ROW1 = UP ? ROW0 : 1148, PITCH = 88;
 const base0 = (i) => ROW0 + i * PITCH + 52.5, base1 = (i) => ROW1 + i * PITCH + 52.5;
-const STRIP = (i) => 1734 + i * 54;
+const HY = UP ? 2280 : 1620, LGY = UP ? 2744 : 1620;      // the history's and the log's header lines
+const STRIP = UP ? (i) => 2394 + i * 54 : (i) => 1734 + i * 54;
+const LOGB = UP ? (i) => 2858 + (i % 3) * 54 : STRIP;     // a log row's baseline (upright: two columns of three)
 
 // a block's colour: navy lit towards ice as stress rises (the glow is fully up at 75% of rated load)
 const glowOf = (s) => L.clamp((s - 0.06) / 0.69);
@@ -54,7 +74,7 @@ const SECTIONS = [
   { name: "Saucer", code: "S", cols: 6 }, { name: "Dorsal", code: "D", cols: 2 }, { name: "Stardrive", code: "E", cols: 5 },
   { name: "Port Nacelle", code: "P", cols: 2 }, { name: "Stbd Nacelle", code: "N", cols: 2 },
 ];
-const ROWS = 8, CG = 10, MY0 = 360, MY1 = 1476;
+const ROWS = 8, CG = 10, MY0 = 360, MY1 = UP ? 1414 : 1476;
 const NCOL = SECTIONS.reduce((a, s) => a + s.cols, 0);
 const CW = (LR - LX - (SECTIONS.length - 1) * L.GAP - (NCOL - SECTIONS.length) * CG) / NCOL;
 const RP = (MY1 - MY0 + CG) / ROWS, BH = RP - CG;
@@ -81,7 +101,7 @@ const blocks = [];
 SECTIONS.forEach((sec, i) => {
   const last = i === SECTIONS.length - 1;
   L.box({ x: sec.x, y: 280, w: sec.w, h: 56, c: i % 2 ? "sky" : "ice", label: sec.name, fs: 32, r: i === 0 ? "l" : last ? "r" : null });
-  sec.foot = L.box({ x: sec.x, y: 1500, w: sec.w, h: 64, c: i % 2 ? "ice" : "sky", label: "", fs: 32, r: i === 0 ? "l" : last ? "r" : null });
+  sec.foot = L.box({ x: sec.x, y: UP ? MY1 + 24 : 1500, w: sec.w, h: 64, c: i % 2 ? "ice" : "sky", label: "", fs: 32, r: i === 0 ? "l" : last ? "r" : null });
 });
 // the block under the most stress, ringed
 const peakRing = cls(L.layer({ x: 0, y: 0, w: CW, h: BH }), "peak");
@@ -129,38 +149,82 @@ const stateSub = cls(L.text({ x: SUBX, base: 222, s: 38, c: "sky", txt: "" }), "
 // the map's key, as pills over the field column: the header below takes the first pill's width
 const KW = (RR - RX - 3 * L.GAP) / 4;
 [["Under 25%", 0.125], ["25 – 50%", 0.375], ["50 – 75%", 0.625], ["Over 75%", 0.875]].forEach(([n, s], i) => {
-  const k = glowOf(s), e = L.box({ x: RX + i * (KW + L.GAP), y: 166, w: KW, h: 56, c: mixHex(k), label: n, fs: 28, r: i === 0 ? "l" : i === 3 ? "r" : null });
+  const k = glowOf(s), e = L.box({ x: RX + i * (KW + L.GAP), y: UP ? base1(5) - 44 : 166, w: KW, h: 56, c: mixHex(k), label: n, fs: 28, r: i === 0 ? "l" : i === 3 ? "r" : null });
 });
 
 // ---------------- the field generators ----------------
-const gaugeRow = (x, r, base, name, c) => {
+const gaugeRow = (x, r, base, name, c, BX = BAR0, BRW = BAR1) => {
   L.text({ x, base, s: 40, c: "sky", txt: name });
   L.rect({ x: x + BX, y: base - 26, w: r - BRW - (x + BX), h: 26, c: TRACK });
   return { bar: fill(x + BX, base - 26, r - BRW - (x + BX), 26, c), v: L.text({ x: r, base, s: 52, c: "white", txt: "", align: "r" }), u: -1 };
 };
 const showBar = (g, k) => { k = L.clamp(k); if (Math.abs(k - g.u) > 0.0005) { g.u = k; tf(g.bar, `scaleX(${k.toFixed(4)})`); } };
-L.header({ x: RX, y: 280, w: RR - RX, label: "Field Generators", c1: "ice", c2: "sky", lw: KW });
-L.text({ x: RX, base: 400, s: 36, c: "ice", txt: "Primary SIF  ·  Main Engineering, Deck 36" });
+L.header({ x: GX, y: GY, w: GR - GX, label: "Field Generators", c1: "ice", c2: "sky", lw: KW });
+L.text({ x: GX, base: GY + 120, s: 36, c: "ice", txt: "Primary SIF  ·  Main Engineering, Deck 36" });
 const GEN = [
-  gaugeRow(RX, RR, base0(0), "Generator 1", "ice"), gaugeRow(RX, RR, base0(1), "Generator 2", "ice"),
-  gaugeRow(RX, RR, base0(2), "Generator 3", "sky"), gaugeRow(RX, RR, base0(3), "Backup", "sky"),
+  gaugeRow(GX, GR, base0(0), "Generator 1", "ice"), gaugeRow(GX, GR, base0(1), "Generator 2", "ice"),
+  gaugeRow(GX, GR, base0(2), "Generator 3", "sky"), gaugeRow(GX, GR, base0(3), "Backup", "sky"),
 ];
-const emit = gaugeRow(RX, RR, base0(4), "Emitter Grid", "blue");
-const power = gaugeRow(RX, RR, base0(5), "Power Draw", "blue");
+const emit = gaugeRow(GX, GR, base0(4), "Emitter Grid", "blue");
+const power = gaugeRow(GX, GR, base0(5), "Power Draw", "blue");
 L.set(GEN[3].v, "Standby"); showBar(GEN[3], 0);
 
 // ---------------- the load monitor ----------------
-L.header({ x: RX, y: 1000, w: RR - RX, label: "Load Monitor", c1: "sky", c2: "ice", lw: KW });
-const monT = cls(L.text({ x: RX, base: 1120, s: 36, c: "ice", txt: "" }), "sw");
+L.header({ x: RX, y: MYH, w: RR - RX, label: "Load Monitor", c1: "sky", c2: "ice", lw: KW });
+const monT = cls(L.text({ x: RX, base: MYH + 120, s: 36, c: "ice", txt: "" }), "sw");
 const MON = {
   peak: gaugeRow(RX, RR, base1(0), "Peak Stress", "ice"), mean: gaugeRow(RX, RR, base1(1), "Mean Stress", "sky"),
   reinf: gaugeRow(RX, RR, base1(2), "Reinforcement", "ice"), damp: gaugeRow(RX, RR, base1(3), "Damper Load", "sky"),
   margin: gaugeRow(RX, RR, base1(4), "Safety Margin", "blue"),
 };
 
+// ---------------- ultrawide only: the middle column, on the field column's rows ----------------
+// Section Peaks: each section's most-stressed block and its stress; the hull's own (the ringed block)
+// last. Load Event: what the current manoeuvre asks of the hull and how far the field has taken it up.
+// All read from the live model; nothing new is simulated.
+let uwTick = null, evCount = 212;
+const swapEls = [];
+if (UW) {
+  const NBX = 420;                                         // the bars start 420 in (room for a block's name) and stop 220 short, as wide's do (400 clear of the field column's names)
+  const sdBox = L.box({ x: NX, y: 166, w: 520, h: 56, c: "blue", label: "", fs: 28, r: "l" });
+  const evBox = L.box({ x: NX + 520 + L.GAP, y: 166, w: NR - NX - 520 - L.GAP, h: 56, c: "sky", label: "", fs: 28, r: "r" });
+  L.header({ x: NX, y: 280, w: NR - NX, label: "Section Peaks", c1: "sky", c2: "ice", lw: KW });
+  L.text({ x: NX, base: 400, s: 36, c: "ice", txt: "Most-stressed block in each section, and in the hull" });
+  const PK = SECTIONS.map((sec, i) => gaugeRow(NX, NR, base0(i), sec.name, i % 2 ? "sky" : "ice", NBX, BRW))
+    .concat([gaugeRow(NX, NR, base0(5), "Whole Hull", "blue", NBX, BRW)]);
+  PK.forEach((g, i) => (g.id = L.text({ x: NX + NBX - L.GAP, base: base0(i), s: 40, c: "ice", txt: "", align: "r" })));
+  L.header({ x: NX, y: 1000, w: NR - NX, label: "Load Event", c1: "ice", c2: "sky", lw: KW });
+  const evT = cls(L.text({ x: NX, base: 1120, s: 36, c: "ice", txt: "" }), "sw");
+  swapEls.push(evT);
+  const EV = {
+    load: gaugeRow(NX, NR, base1(0), "Event Load", "ice", NBX, BRW), resp: gaugeRow(NX, NR, base1(1), "Field Response", "sky", NBX, BRW),
+    cols: gaugeRow(NX, NR, base1(2), "Columns Loaded", "ice", NBX, BRW), over: gaugeRow(NX, NR, base1(3), "Blocks Over 50%", "sky", NBX, BRW),
+    peak: gaugeRow(NX, NR, base1(4), "Latest Event Peak", "blue", NBX, BRW),
+  };
+  uwTick = (t, comp, swapped) => {
+    L.set(sdBox, "Stardate " + stardate.toFixed(1)); L.set(evBox, "Load Events  ·  " + evCount);
+    let top = null;                                        // the hull's worst block: the worst of the sections' (agrees with Peak Stress)
+    SECTIONS.forEach((sec, i) => {
+      const hi = sec.blocks.reduce((a, b) => (b.s > a.s ? b : a));
+      if (!top || hi.s > top.s) top = hi;
+      showBar(PK[i], hi.s); L.set(PK[i].v, pct(hi.s)); L.set(PK[i].id, hi.lab.textContent);
+    });
+    showBar(PK[5], top.s); L.set(PK[5].v, pct(top.s)); L.set(PK[5].id, top.lab.textContent);
+    const load = ev ? ev.mag * envNow : 0; showBar(EV.load, load); L.set(EV.load.v, pct(load));
+    showBar(EV.resp, resp); L.set(EV.resp.v, pct(resp));
+    let nc = 0;
+    if (ev) for (let c = 0; c < NCOL; c++) if (envOf(ev, t - ev.t0 - Math.abs(c - ev.origin) * SPREAD) > 0.25) nc++;
+    showBar(EV.cols, nc / NCOL); L.set(EV.cols.v, nc + " / " + NCOL);
+    const no = blocks.filter((b) => b.s > 0.5).length; showBar(EV.over, no / blocks.length); L.set(EV.over.v, no + " / " + blocks.length);
+    showBar(EV.peak, evPeak); L.set(EV.peak.v, evPeak > 0 ? pct(evPeak) : "None");
+  };
+  uwTick.state = (comp) => L.set(evT, comp ? `Strain spreading from the ${ev.at.toLowerCase()}` : "No load event  ·  Hull at rest");
+}
+
 // ---------------- stress history: one lane a section, and the field's own output ----------------
-const TX = 600, TW = LR - TX;
-L.header({ x: LX, y: 1620, w: LR - LX, label: "Stress History  ·  90 s", c1: "ice", c2: "sky", h: 48, lw: TX - L.GAP - LX });
+const HR = UW ? NR : LR;                                    // the history's right edge
+const TX = 600, TW = HR - TX;
+L.header({ x: LX, y: HY, w: HR - LX, label: UW ? "Stress History  ·  150 s" : "Stress History  ·  90 s", c1: "ice", c2: "sky", h: 48, lw: TX - L.GAP - LX });
 const LANES = [...SECTIONS.map((s) => s.name), "SIF Output"];
 const LH = 44, LY0 = STRIP(0) - 38;
 const lanes = LANES.map((n, i) => {
@@ -170,7 +234,7 @@ const lanes = LANES.map((n, i) => {
     ink: i === 5 ? "#c7a0d8" : "#8fd3ff", area: i === 5 ? "#4a3a78" : "#24509e", lo: i === 5 ? 0.4 : 0.05, hi: i === 5 ? 1 : 0.65 };
 });
 // The lanes scroll: two canvas tiles slid as layers, the newest sliver drawn each frame (as Sickbay)
-const STRIP_H = 5 * 54 + LH, SPEED = TW / 90;               // design px per second: 90 s across
+const STRIP_H = 5 * 54 + LH, SPEED = UW ? TW / 150 : TW / 90;               // design px per second: 90 s across
 const strip = L.el("div", "boot", L.stage, { position: "absolute", left: TX + "px", top: LY0 + "px", width: TW + "px", height: STRIP_H + "px", overflow: "hidden" });
 const tiles = [0, 1].map((k) => {
   const c = L.canvas({ x: 0, y: 0, w: TW + 8, h: STRIP_H }, strip);
@@ -197,11 +261,13 @@ const drawTo = (x) => {
 const place = () => tiles.forEach((tile) => tf(tile.cv, `translate3d(${(tile.idx * TW - (written - TW)).toFixed(2)}px,0,0)`));
 
 // ---------------- the load event log ----------------
-L.header({ x: RX, y: 1620, w: RR - RX, label: "Load Event Log", c1: "sky", c2: "ice", h: 48, lw: KW });
+if (UP) L.header({ x: LX, y: LGY, w: LR - LX, label: "Load Event Log", c1: "sky", c2: "ice", h: 48, lw: TX - L.GAP - LX });
+else L.header({ x: RX, y: 1620, w: RR - RX, label: "Load Event Log", c1: "sky", c2: "ice", h: 48, lw: KW });
+const LOGX = UP ? (i) => (i < 3 ? LX : RX) : () => RX, LOGR = UP ? (i) => (i < 3 ? GR : RR) : () => RR;
 const logRows = Array.from({ length: 6 }, (_, i) => ({
-  sd: L.text({ x: RX, base: STRIP(i), s: 36, c: "ice", txt: "" }),
-  tx: L.text({ x: RX + 160, base: STRIP(i), s: 36, c: "sky", txt: "" }),
-  by: L.text({ x: RR, base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }) }));
+  sd: L.text({ x: LOGX(i), base: LOGB(i), s: 36, c: "ice", txt: "" }),
+  tx: L.text({ x: LOGX(i) + 160, base: LOGB(i), s: 36, c: "sky", txt: "" }),
+  by: L.text({ x: LOGR(i), base: LOGB(i), s: 36, c: "white", txt: "", align: "r" }) }));
 let stardate = 47304.2 + L.irand(0, 40) / 10;
 const logged = [];
 const logLine = (txt, by) => {
@@ -224,7 +290,7 @@ const step = (t) => {
   if (!ev && t >= nextAt) {
     const e = nextEvent();
     ev = Object.assign({}, e, { t0: t, hold: (e.hold || 1) * L.rand(4, 8) });
-    evPeak = 0;
+    evPeak = 0; evCount++;
     logLine(ev.name, ev.at);
   }
   envNow = ev ? envOf(ev, t - ev.t0) : 0;
@@ -253,6 +319,7 @@ const step = (t) => {
 let filled = false, lastDraw = 0;
 tiles.forEach((c) => (c.onResize = () => { filled = false; }));   // a resize wipes the canvases: refill them
 const PAST = [[0.1, 0.3, 0.2, 0.14, 0.14, 0.24], [0.22, 0.26, 0.12, 0.3, 0.34, 0.28]].map((a) => a.map((v) => v * L.rand(0.8, 1.2)));
+const PAST3 = [0.16, 0.2, 0.28, 0.12, 0.12, 0.26];         // ultrawide's third manoeuvre (no random draw: wide's order kept)
 const sifOut = () => 0.58 + 0.34 * resp;
 L.tick((t) => {
   step(t);
@@ -269,7 +336,9 @@ L.tick((t) => {
     for (let x = 0; x <= TW; x += 6) {
       // two earlier manoeuvres, already taken up by the field
       const bump = (c, w) => Math.exp(-Math.pow((x - c * TW) / (w * TW), 2));
-      lanes.forEach((ln, i) => { ln.hist = ln.hist ?? ln.val;
+      if (UW) lanes.forEach((ln, i) => { ln.hist = ln.hist ?? ln.val;   // 150 s: three earlier manoeuvres, same widths in time
+        ln.val = ln.hist + PAST[0][i] * bump(0.2, 0.027) + PAST[1][i] * bump(0.47, 0.036) + PAST3[i] * bump(0.79, 0.03) + 0.008 * Math.sin(x * 0.011 + i * 1.7); });
+      else lanes.forEach((ln, i) => { ln.hist = ln.hist ?? ln.val;
         ln.val = ln.hist + PAST[0][i] * bump(0.3, 0.045) + PAST[1][i] * bump(0.68, 0.06) + 0.008 * Math.sin(x * 0.011 + i * 1.7); });
       written = x; drawTo(x);
     }
@@ -286,6 +355,7 @@ const showState = (comp) => {
   L.set(state, WORDS[comp ? 1 : 0]);
   L.set(stateSub, comp ? `${ev.name}  ·  Field reinforcing the ${SECTIONS[peakB.si].name.toLowerCase()}` : "Primary SIF online  ·  Hull stress within tolerance");
   L.set(monT, comp ? `Maneuver  ·  ${ev.name}` : "Maneuver  ·  None  ·  Station keeping");
+  if (uwTick) uwTick.state(comp);
 };
 let comp = null;
 L.every(400, (t) => {
@@ -308,8 +378,9 @@ L.every(400, (t) => {
   const c = !!ev && envNow > 0.04;
   if (c !== comp) {
     const first = comp === null; comp = c;
-    if (first) showState(c); else swap([state, stateSub, monT], () => showState(comp));
+    if (first) showState(c); else swap([state, stateSub, monT].concat(swapEls), () => showState(comp));
   }
+  if (uwTick) uwTick(t);
 }, 0);
 L.every(26000, (t) => { if (t > 3 && !ev) routine(); }, 0.3);
 });

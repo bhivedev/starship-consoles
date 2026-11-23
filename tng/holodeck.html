@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Holodeck</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .room { position: absolute; overflow: hidden; }
@@ -15,22 +16,33 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: sidebar on the left, title at top right ----------------
-const BAR = 64;
-L.title({ x: 3700, y: 40, h: BAR, c: "butter", txt: "Holodeck 3  •  Program Control" });
-// (L.title measures with a canvas, which sets this line ~11px wider than the page draws it; use the page's own width)
-const titleLeft = 3700 - document.querySelector("[data-title]").offsetWidth;
-L.box({ x: 3724, y: 40, w: 92, h: BAR, c: "gold", r: "r" });
-L.elbow({ corner: "tl", x: 40, y: 40, w: 1360, h: 250, bw: 240, bh: BAR, R: 150, r: 60, c: "gold" });
-L.rect({ x: 1400 + L.GAP, y: 40, w: 300, h: BAR, c: "orange" });
-L.rect({ x: 1724 + L.GAP, y: 40, w: titleLeft - L.GAP - (1724 + L.GAP), h: BAR, c: "gold" });
-[[298, 140, "butter", "Holo 03"], [446, 70, "orange", "Deck 11"], [524, 420, "gold", "Grid"], [952, 70, "tan", "1.5 M"],
- [1030, 300, "butter", "Programs"], [1338, 70, "orange", "Arch"], [1416, 216, "gold", "Emitters"]]
-  .forEach(([y, h, c, label]) => L.box({ x: 40, y, w: 240, h, c, label }));
-L.elbow({ corner: "bl", x: 40, y: 1640, w: 1500, h: 480, bw: 240, bh: BAR, R: 150, r: 60, c: "orange" });
-L.text({ x: 258, base: 1712, s: 40, c: "#000", txt: "Holodeck", align: "r", on: true });
-[[1540 + L.GAP, 600, "butter"], [2164 + L.GAP, 900, "gold"], [3088 + L.GAP, 3700 - (3088 + L.GAP), "orange"]]
-  .forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
-L.box({ x: 3724, y: 2056, w: 92, h: BAR, c: "gold", r: "r" });
+// wide keeps its hand-built frame; upright and ultrawide draw the same frame (type A) with L.frame
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const SIDE = [[140, "butter", "Holo 03"], [70, "orange", "Deck 11"], [420, "gold", "Grid"], [70, "tan", "1.5 M"],
+  [300, "butter", "Programs"], [70, "orange", "Arch"], [216, "gold", "Emitters"]];
+let B;
+if (L.shape === "wide") {
+  const BAR = 64;
+  L.title({ x: 3700, y: 40, h: BAR, c: "butter", txt: "Holodeck 3  •  Program Control" });
+  // (L.title measures with a canvas, which sets this line ~11px wider than the page draws it; use the page's own width)
+  const titleLeft = 3700 - document.querySelector("[data-title]").offsetWidth;
+  L.box({ x: 3724, y: 40, w: 92, h: BAR, c: "gold", r: "r" });
+  L.elbow({ corner: "tl", x: 40, y: 40, w: 1360, h: 250, bw: 240, bh: BAR, R: 150, r: 60, c: "gold" });
+  L.rect({ x: 1400 + L.GAP, y: 40, w: 300, h: BAR, c: "orange" });
+  L.rect({ x: 1724 + L.GAP, y: 40, w: titleLeft - L.GAP - (1724 + L.GAP), h: BAR, c: "gold" });
+  [[298, 140, "butter", "Holo 03"], [446, 70, "orange", "Deck 11"], [524, 420, "gold", "Grid"], [952, 70, "tan", "1.5 M"],
+   [1030, 300, "butter", "Programs"], [1338, 70, "orange", "Arch"], [1416, 216, "gold", "Emitters"]]
+    .forEach(([y, h, c, label]) => L.box({ x: 40, y, w: 240, h, c, label }));
+  L.elbow({ corner: "bl", x: 40, y: 1640, w: 1500, h: 480, bw: 240, bh: BAR, R: 150, r: 60, c: "orange" });
+  L.text({ x: 258, base: 1712, s: 40, c: "#000", txt: "Holodeck", align: "r", on: true });
+  [[1540 + L.GAP, 600, "butter"], [2164 + L.GAP, 900, "gold"], [3088 + L.GAP, 3700 - (3088 + L.GAP), "orange"]]
+    .forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
+  L.box({ x: 3724, y: 2056, w: 92, h: BAR, c: "gold", r: "r" });
+  B = { x0: 330, x1: 3816, y0: 140, y1: 2010 };
+} else {
+  B = L.frame({ type: "A", title: "Holodeck 3  •  Program Control", c: "gold", c2: "orange", accent: "butter", foot: "Holodeck", side: SIDE });
+  document.querySelector("[data-title]").style.color = "var(--butter)";   // the title is butter, as in wide
+}
 
 const header = (x, y, w, label, c1, c2, h = 56, fs = 32) => {
   const lw = Math.round((L.textWidth(label, fs) + 64) / 10) * 10;
@@ -46,8 +58,24 @@ const fill = (x, y, w, h, c, parent) => {
 const pad2 = (n) => String(n).padStart(2, "0");
 const hms = (s) => `${pad2(Math.floor(s / 3600))}:${pad2(Math.floor(s / 60) % 60)}:${pad2(Math.floor(s) % 60)}`;
 
-// columns: the room 330–2350, the right-hand column 2410–3816
-const C1 = 330, C1R = 2350, C3 = 2410, C3R = 3816;
+// ---------------- the grid, per shape ----------------
+// The data, readings and motion below are written once; only these positions differ by shape.
+// wide (3840 × 2160): the room 330–2350, the right-hand column 2410–3816 (library over safety), and a bottom
+//   strip from 1620: emitter array 330–1500 | power 1560–2350 | arch control 2410–3816.
+// upright (2160 × 3120): the room across the page (330–2136, 1073 tall); under it two columns, 330–1410 and
+//   1474–2136: the library beside power over safety (last baselines level), then the emitter array beside
+//   arch control, down to the content box's floor.
+// ultrawide (5040 × 2160): wide's layout, plus a fourth column 3876–5016 on the same lines: the holodeck log
+//   (rows on the library's), the program's environment (on the safety grid) and, in the bottom strip, what is
+//   rendered (rows on arch control's).
+const C1 = 330, C1R = UP ? B.x1 : 2350, C3 = 2410, C3R = 3816;
+const C4 = 3876, C4R = B.x1;                                   // ultrawide's added column
+const UL = [330, 1410], UR = [1474, B.x1], R1 = 1497, R2 = 2410;  // upright's columns and rows
+const LIB = UP ? [UL[0], UL[1], R1] : [C3, C3R, 280];          // [left, right, header y]
+const SAF = UP ? [UR[0], UR[1], R1 + 454] : [C3, C3R, 1120];
+const ARC = UP ? [UR[0], UR[1], R2] : [C3, C3R, 1620];
+const POW = UP ? [UR[0], UR[1], R1] : [1560, C1R, 1620];
+const EMI = UP ? [UL[0], UL[1] - UL[0], R2] : [C1, 1170, 1620];   // [left, width, header y]
 
 // ---------------- the programs ----------------
 // geometric primitives, in metres: X across (−10 … 10), Z into the room (0 … 24), Y up
@@ -126,7 +154,7 @@ const PROGRAMS = [
 ];
 
 // ---------------- the room: one-point perspective ----------------
-const PX = C1, PY = 360, PW = C1R - C1, PH = 1200;      // the front of the room fills the panel exactly
+const PX = C1, PY = 360, PW = C1R - C1, PH = UP ? Math.round(PW * RH / 20) : 1200;      // the front of the room fills the panel exactly
 const S0 = PW / 20, DEPTH = 24, KB = 0.36, DD = KB * DEPTH / (1 - KB);   // back wall at 36% of the front
 const VX = PW / 2, VY = 0.42 * PH, EYE = RH - VY / S0;  // the eye a little above the middle of the room
 const kz = (Z) => DD / (Z + DD);
@@ -306,8 +334,9 @@ const markers = Array.from({ length: 4 }, () => {
   ring.style.zIndex = beam.style.zIndex = 60; ring.style.opacity = beam.style.opacity = 0;
   return { ring, beam, X: 0, Z: 10, from: null, to: null, t0: 0 };
 });
+const RS = UP ? PW / 2020 : 1;                         // the rings and beams drawn to the room's scale
 const placeMarker = (m) => {
-  const k = kz(m.Z), [x, y] = P(m.X, 0, m.Z);
+  const k = kz(m.Z) * RS, [x, y] = P(m.X, 0, m.Z);
   const fore = EYE / (m.Z + DD) / (EYE / (13 + DD));      // a circle on the floor flattens with distance
   const sx = k * 0.9, sy = k * 0.9 * 0.27 * fore;
   m.ring.style.transform = `translate3d(${(x - 70 * sx).toFixed(2)}px,${(y - 70 * sy).toFixed(2)}px,0) scale(${sx.toFixed(4)},${sy.toFixed(4)})`;
@@ -333,66 +362,70 @@ const phaseBoxes = PHASES.map(([name], i) => L.box({ x: PHX + i * (PHW + L.GAP),
 // ---------------- status line ----------------
 const stateTxt = L.text({ x: C1, cap: 150, s: 100, c: "butter", txt: "" });
 const stateSub = L.text({ x: 0, base: 222, s: 38, c: "tan", txt: "" });
-const pill = L.box({ x: C3R - 400, y: 150, w: 400, h: 72, c: "gold", label: "", r: "lr", fs: 36 });
+const pill = L.box({ x: B.x1 - 400, y: 150, w: 400, h: 72, c: "gold", label: "", r: "lr", fs: 36 });
 pill.style.willChange = "opacity";
 
 // ---------------- the program library ----------------
-header(C3, 280, C3R - C3, "Program Library", "gold", "orange");
-const LBOX = 140, LX = C3 + LBOX + L.GAP;
+header(LIB[0], LIB[2], LIB[1] - LIB[0], "Program Library", "gold", "orange");
+const LBOX = 140, LX = LIB[0] + LBOX + L.GAP;
 // columns spread evenly across the panel: program, setting, author, saved point, status
 const saved = PROGRAMS.map(() => L.irand(600, 9000));          // where each program was saved, in seconds
 const LCOLS = [["Program", (p) => p.name, 40], ["Setting", (p) => p.setting, 36], ["By", (p) => p.by, 36],
   ["Saved At", (p, i) => hms(saved[i]), 36], ["Status", () => "Materializing", 36]];
 const lw = LCOLS.map(([h, f, fs]) => Math.max(L.textWidth(h, 36), ...PROGRAMS.map((p, i) => L.textWidth(f(p, i), fs))));
-const lgap = (C3R - LX - lw.reduce((a, b) => a + b, 0)) / (LCOLS.length - 1);
+const lgap = (LIB[1] - LX - lw.reduce((a, b) => a + b, 0)) / (LCOLS.length - 1);
 const lx = []; lw.reduce((x, w) => (lx.push(x), x + w + lgap), LX);
-LCOLS.forEach(([h], j) => L.text({ x: j === 4 ? C3R : lx[j], base: 400, s: 36, c: "orange", txt: h, align: j === 4 ? "r" : undefined }));
-const LROW0 = 428, LP = 70;
+LCOLS.forEach(([h], j) => L.text({ x: j === 4 ? LIB[1] : lx[j], base: LIB[2] + 120, s: 36, c: "orange", txt: h, align: j === 4 ? "r" : undefined }));
+const LROW0 = LIB[2] + 148, LP = UP ? 80 : 70;
 const lib = PROGRAMS.map((p, i) => {
   const y = LROW0 + i * LP, base = y + 46;
   return {
-    box: L.box({ x: C3, y, w: LBOX, h: 56, c: "tan", label: p.code, fs: 32, r: "l", cls: "pill" }),
+    box: L.box({ x: LIB[0], y, w: LBOX, h: 56, c: "tan", label: p.code, fs: 32, r: "l", cls: "pill" }),
     name: L.text({ x: lx[0], base, s: 40, c: "butter", txt: p.name }),
     set: L.text({ x: lx[1], base, s: 36, c: "tan", txt: p.setting }),
     by: L.text({ x: lx[2], base, s: 36, c: "tan", txt: p.by }),
     sv: L.text({ x: lx[3], base, s: 36, c: "tan", txt: hms(saved[i]) }),
-    st: L.text({ x: C3R, base, s: 36, c: "tan", txt: "", align: "r" }),
+    st: L.text({ x: LIB[1], base, s: 36, c: "tan", txt: "", align: "r" }),
   };
 });
 
 // ---------------- safety protocols ----------------
-const SY = 1120;
-header(C3, SY, C3R - C3, "Safety Protocols", "orange", "gold");
-const SPW = (C3R - C3 - 2 * 16) / 3;
+const SY = SAF[2];
+header(SAF[0], SY, SAF[1] - SAF[0], "Safety Protocols", "orange", "gold");
+const SPW = (SAF[1] - SAF[0] - 2 * 16) / 3;
 const spills = ["Safeties Engaged", "Autonomy Restricted", "Arch Concealed"].map((label, i) =>
-  L.box({ x: C3 + i * (SPW + 16), y: 1232, w: SPW, h: 64, c: ["butter", "tan", "#3a2c10"][i], label, fs: 32, r: i === 0 ? "l" : i === 2 ? "r" : null, cls: "pill" }));
-const GX = C3 + 280, GW = 3560 - GX;
+  L.box({ x: SAF[0] + i * (SPW + 16), y: UP ? SY + 88 : 1232, w: SPW, h: UP ? 56 : 64, c: ["butter", "tan", "#3a2c10"][i], label, fs: UP ? 28 : 32, r: i === 0 ? "l" : i === 2 ? "r" : null, cls: "pill" }));
+const GX = SAF[0] + (UP ? 240 : 280), GW = (UP ? SAF[1] - 124 : 3560) - GX;
 const gauges = [["Matter Conversion", 0.8, "orange"], ["Force Feedback", 0.75, "gold"], ["Emitter Load", 0.9, "butter"]].map(([name, lim, c], i) => {
-  const base = 1320 + i * 88 + 52.5;
-  L.text({ x: C3, base, s: 40, c: "tan", txt: name });
+  const base = (UP ? R1 + 621.5 : 1320) + i * (UP ? 80 : 88) + 52.5;
+  L.text({ x: SAF[0], base, s: 40, c: "tan", txt: name });
   L.rect({ x: GX, y: base - 26, w: GW, h: 26, c: "#2a2010" });
   const f = fill(GX, base - 26, GW, 26, c);
   L.rect({ x: GX + lim * GW - 3, y: base - 40, w: 6, h: 54, c: "white", free: true });
-  return { f, v: 0, goal: 0, val: L.text({ x: C3R, base, s: 52, c: "white", txt: "", align: "r" }) };
+  return { f, v: 0, goal: 0, val: L.text({ x: SAF[1], base, s: 52, c: "white", txt: "", align: "r" }) };
 });
 
 // ---------------- emitter array: the floor plan ----------------
-const EX = C1, EW = 1170, COLS = 30, ROWS = 6;
-L.box({ x: EX, y: 1620, w: 320, h: 48, c: "gold", label: "Emitter Array", fs: 28, r: "l" });
-L.rect({ x: EX + 320 + L.GAP, y: 1620, w: EW - 320 - L.GAP, h: 48, c: "butter" });
-L.text({ x: EX, base: 1734, s: 40, c: "tan", txt: "Floor Plan  ·  Arch Wall Up" });
+const [EX, EW, EY] = EMI, COLS = 30, ROWS = 6;
+const ET = EY + (UP ? 120 : 114), PT = EY + (UP ? 150 : 144), PB = UP ? B.y1 - 6 : 2004;   // title line; the plan's top and bottom
+if (UP) header(EX, EY, EW, "Emitter Array", "gold", "butter");
+else {
+  L.box({ x: EX, y: 1620, w: 320, h: 48, c: "gold", label: "Emitter Array", fs: 28, r: "l" });
+  L.rect({ x: EX + 320 + L.GAP, y: 1620, w: EW - 320 - L.GAP, h: 48, c: "butter" });
+}
+L.text({ x: EX, base: ET, s: 40, c: "tan", txt: "Floor Plan  ·  Arch Wall Up" });
 // the key, right-aligned to the panel
 {
   let x = EX + EW;
   [["Arch", "orange"], ["Occupant", "white"], ["Matter", "butter"]].forEach(([name, c]) => {
     const w = L.textWidth(name, 36);
-    L.text({ x, base: 1734, s: 36, c: "tan", txt: name, align: "r" });
-    L.rect({ x: x - w - 20 - 28, y: 1734 - 28, w: 28, h: 28, c, free: true });
+    L.text({ x, base: ET, s: 36, c: "tan", txt: name, align: "r" });
+    L.rect({ x: x - w - 20 - 28, y: ET - 28, w: 28, h: 28, c, free: true });
     x -= w + 20 + 28 + 40;
   });
 }
-const CPX = (EW + 6) / COLS, CPY = (2004 - 1764 + 6) / ROWS;
-const cells = [], plan = L.layer({ x: EX, y: 1764, w: EW, h: 240 });   // its own layer: a cell changing repaints only the plan
+const CPX = (EW + 6) / COLS, CPY = (PB - PT + 6) / ROWS;
+const cells = [], plan = L.layer({ x: EX, y: PT, w: EW, h: PB - PT });   // its own layer: a cell changing repaints only the plan
 for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
   const e = L.el("div", "cell boot", plan, { left: c * CPX + "px", top: r * CPY + "px", width: CPX - 6 + "px", height: CPY - 6 + "px" });
   cells.push({ e, r, c, col: "", foot: false, spark: -9 });
@@ -402,14 +435,17 @@ const gridName = (X, Z) => { const [r, c] = cellAt(X, Z); return `Grid ${"ABCDEF
 const ARCH = new Set(); for (let c = 11; c < 19; c++) ARCH.add(c);   // the arch stands over the back row's middle
 
 // ---------------- power distribution ----------------
-const QX = 1560, QR = C1R;
-L.box({ x: QX, y: 1620, w: 360, h: 48, c: "orange", label: "Power Distribution", fs: 28, r: "l" });
-L.rect({ x: QX + 360 + L.GAP, y: 1620, w: QR - QX - 360 - L.GAP, h: 48, c: "gold" });
-L.text({ x: QX, base: 1734, s: 40, c: "tan", txt: "EPS Draw  ·  Holodeck 3" });
-const total = L.text({ x: QR, base: 1734, s: 52, c: "white", txt: "", align: "r" });
-const QBX = QX + 300, QBW = QR - 150 - QBX;
+const [QX, QR, QY] = POW;
+if (UP) header(QX, QY, QR - QX, "Power Distribution", "orange", "gold");
+else {
+  L.box({ x: QX, y: 1620, w: 360, h: 48, c: "orange", label: "Power Distribution", fs: 28, r: "l" });
+  L.rect({ x: QX + 360 + L.GAP, y: 1620, w: QR - QX - 360 - L.GAP, h: 48, c: "gold" });
+}
+L.text({ x: QX, base: QY + (UP ? 120 : 114), s: 40, c: "tan", txt: "EPS Draw  ·  Holodeck 3" });
+const total = L.text({ x: QR, base: QY + (UP ? 120 : 114), s: 52, c: "white", txt: "", align: "r" });
+const QBX = QX + (UP ? 170 : 300), QBW = QR - (UP ? 124 : 150) - QBX;
 const power = ["Imaging", "Matter", "Force Fields", "Environment", "Audio"].map((name, i) => {
-  const base = 1788 + i * 54;
+  const base = QY + (UP ? 174 : 168) + i * 54;
   L.text({ x: QX, base, s: 36, c: "tan", txt: name });
   L.rect({ x: QBX, y: base - 24, w: QBW, h: 22, c: "#2a2010" });
   return { f: fill(QBX, base - 24, QBW, 22, i % 2 ? "gold" : "butter"), v: 0, goal: 0,
@@ -417,26 +453,33 @@ const power = ["Imaging", "Matter", "Force Fields", "Environment", "Audio"].map(
 });
 
 // ---------------- arch control ----------------
-const AX = C3;
-L.box({ x: AX, y: 1620, w: 300, h: 48, c: "butter", label: "Arch Control", fs: 28, r: "l" });
-L.rect({ x: AX + 300 + L.GAP, y: 1620, w: C3R - AX - 300 - L.GAP, h: 48, c: "orange" });
-const OPOS = AX + 380, OLIFE = AX + 620;
-[["Present", AX], ["Position", OPOS], ["Lifesigns", OLIFE]].forEach(([txt, x]) => L.text({ x, base: 1734, s: 36, c: "orange", txt }));
+const [AX, AR, AY] = ARC;
+if (UP) header(AX, AY, AR - AX, "Arch Control", "butter", "orange");
+else {
+  L.box({ x: AX, y: 1620, w: 300, h: 48, c: "butter", label: "Arch Control", fs: 28, r: "l" });
+  L.rect({ x: AX + 300 + L.GAP, y: 1620, w: C3R - AX - 300 - L.GAP, h: 48, c: "orange" });
+}
+// upright: lifesigns right-aligned to the column's edge
+const OPOS = AX + (UP ? 260 : 380), OLIFE = UP ? AR : AX + 620, OAL = UP ? "r" : undefined;
+[["Present", AX], ["Position", OPOS], ["Lifesigns", OLIFE]].forEach(([txt, x], j) => L.text({ x, base: AY + (UP ? 120 : 114), s: 36, c: "orange", txt, align: j === 2 ? OAL : undefined }));
 const occRows = Array.from({ length: 4 }, (_, i) => {
-  const base = 1788 + i * 54;
+  const base = AY + (UP ? 174 : 168) + i * 54;
   return { n: L.text({ x: AX, base, s: 36, c: "white", txt: "" }), p: L.text({ x: OPOS, base, s: 36, c: "butter", txt: "" }),
-           l: L.text({ x: OLIFE, base, s: 36, c: "tan", txt: "" }) };
+           l: L.text({ x: OLIFE, base, s: 36, c: "tan", txt: "", align: OAL }) };
 });
-const timeLabel = L.text({ x: C3R, base: 1734, s: 36, c: "orange", txt: "", align: "r" });
-const timeBig = L.text({ x: C3R, base: 1896, s: 120, c: "butter", txt: "", align: "r" });
+// upright: the clock goes under the four rows, its label on the same baseline, the commands across the foot
+const timeLabel = UP ? L.text({ x: AX, base: AY + 470, s: 36, c: "orange", txt: "" })
+  : L.text({ x: C3R, base: 1734, s: 36, c: "orange", txt: "", align: "r" });
+const timeBig = L.text({ x: AR, base: UP ? AY + 470 : 1896, s: 120, c: "butter", txt: "", align: "r" });
 const CMDS = ["Freeze", "Save", "Resume", "End", "Arch"];
-const CMX = 3300, CBW = (C3R - CMX - 4 * 12) / 5;
-const cmdBoxes = CMDS.map((name, i) => L.box({ x: CMX + i * (CBW + 12), y: 1950, w: CBW, h: 54, c: "#3a2c10", label: name, fs: 28, r: i === 4 ? "r" : null, cls: "pill" }));
+const CMX = UP ? AX : 3300, CBW = (AR - CMX - 4 * 12) / 5;
+const cmdBoxes = CMDS.map((name, i) => L.box({ x: CMX + i * (CBW + 12), y: UP ? B.y1 - 60 : 1950, w: CBW, h: 54, c: "#3a2c10", label: name, fs: 28, r: i === 4 ? "r" : null, cls: "pill" }));
 
 // ---------------- the cycle ----------------
 const START = L.irand(0, PROGRAMS.length - 1), OFFSET = 15;   // begin with a program running
 let cur = -1, curPhase = -1, prog = null, foot = new Set(), runT = 0, lastT = 0;
 const lifeOf = ["Normal", "Normal", "Elevated", "Normal"];
+let onPhase = null, onWalk = null;                     // hooks: ultrawide's log listens here
 
 const loadProgram = (i) => {
   prog = PROGRAMS[i];
@@ -502,6 +545,7 @@ const setPhase = (ph) => {
   timeLabel.textContent = ph <= 1 ? "Resume Point" : "Program Time";
   if (ph === 4) { saved[cur] = Math.floor(runT); lib[cur].sv.textContent = hms(saved[cur]); }
   showOccupants();
+  if (onPhase) onPhase(ph);
 };
 const showOccupants = () => {
   const p = prog, inside = curPhase >= 1 && curPhase <= 4, live = curPhase >= 2 && curPhase <= 4;
@@ -577,6 +621,7 @@ L.every(4500, (t) => {
     if (foot.has(r * COLS + c) || Math.hypot(X - m.X, Z - m.Z) < 1.2) continue;
     if (markers.some((o) => o !== m && o.on && Math.hypot(o.X - X, o.Z - Z) < 2)) continue;
     m.from = [m.X, m.Z]; m.to = [X, Z]; m.t0 = t;
+    if (onWalk) onWalk(m, X, Z, t);
     break;
   }
 }, 0.3);
@@ -617,5 +662,123 @@ L.every(300, () => {
 }, 0);
 // small drift in a running program's draw
 L.every(2500, () => { if (curPhase === 3) power.forEach((q, i) => (q.goal = prog.pw[i] * (1 + L.rand(-0.06, 0.06)))); }, 0.3);
+
+// =====================================================================================
+// ULTRAWIDE: a fourth column, 3876–5016, on wide's lines
+// =====================================================================================
+if (UW) {
+  const W4 = C4R - C4;
+  // ---------------- the holodeck log: newest at the top, on the library's rows ----------------
+  header(C4, 280, W4, "Holodeck Log", "orange", "gold");
+  const GT = C4 + LBOX + L.GAP, GE = GT + 170;               // the time, then the entry; the phase at the right
+  [["Time", GT], ["Entry", GE]].forEach(([txt, x]) => L.text({ x, base: 400, s: 36, c: "orange", txt }));
+  L.text({ x: C4R, base: 400, s: 36, c: "orange", txt: "Phase", align: "r" });
+  const logRows = PROGRAMS.map((_, i) => {
+    const y = LROW0 + i * LP, base = y + 46;
+    return { box: L.box({ x: C4, y, w: LBOX, h: 56, c: "tan", label: "", fs: 32, r: "l", cls: "pill" }),
+      tm: L.text({ x: GT, base, s: 36, c: "tan", txt: "" }), tx: L.text({ x: GE, base, s: 36, c: "tan", txt: "" }),
+      ph: L.text({ x: C4R, base, s: 36, c: "tan", txt: "", align: "r" }) };
+  });
+  const T0 = Date.now(), clock = (t) => { const d = new Date(T0 + t * 1000); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`; };
+  const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  const entryOf = (i, ph, resume) => {
+    const p = PROGRAMS[i];
+    return [`Arch open  ·  Grid standby  ·  Next  ${p.name}`,
+      `${p.name} loaded  ·  Resuming at ${hms(resume)}`,
+      `Materializing ${p.name}  ·  ${plural(p.scene.length, "object")}`,
+      `${p.name} running  ·  ${plural(p.party.length, "participant")}  ·  ${plural(p.cast.length, "character")}`,
+      `${p.name}  ·  State saved at ${hms(saved[i])}`,
+      `Matter reclaimed  ·  Arch opening`][ph];
+  };
+  const log = [];
+  const addLog = (i, t, txt, ph) => {
+    log.unshift({ code: PROGRAMS[i].code, tm: clock(t), txt, ph: PHASES[ph][0] });
+    log.length = Math.min(log.length, logRows.length);
+    logRows.forEach((r, k) => {
+      const e = log[k] || { code: "", tm: "", txt: "", ph: "" };
+      L.set(r.box, e.code); L.set(r.tm, e.tm); L.set(r.tx, e.txt); L.set(r.ph, e.ph);
+      r.box.style.background = !e.code ? "#3a2c10" : k === 0 ? "var(--butter)" : "var(--tan)";
+      r.tx.style.color = k === 0 ? "var(--white)" : "var(--tan)";
+      r.ph.style.color = k === 0 ? "var(--butter)" : "var(--tan)";
+    });
+  };
+  // what came before: the last program through all its phases, then this one up to where it starts running
+  {
+    const pi = (START - 1 + PROGRAMS.length) % PROGRAMS.length, c0 = -OFFSET - CYCLE;
+    PHASES.forEach(([, at], ph) => addLog(pi, c0 + at, entryOf(pi, ph, saved[pi] - (DONE - RUN)), ph));
+    PHASES.slice(0, phaseOf(OFFSET)).forEach(([, at], ph) => addLog(START, -OFFSET + at, entryOf(START, ph, saved[START]), ph));
+  }
+  // stamped with when the phase began (the first one seen began before the screen opened)
+  const phaseStart = (ph) => { const at = PHASES[ph][1]; return Math.round((lastT + OFFSET - at) / CYCLE) * CYCLE + at - OFFSET; };
+  onPhase = (ph) => addLog(cur, phaseStart(ph), entryOf(cur, ph, saved[cur]), ph);
+  onWalk = (m, X, Z, t) => {                                // a walk is logged once per square: no line repeats on screen
+    const txt = `${prog.party[markers.indexOf(m)]} to ${gridName(X, Z)}`;
+    if (!log.some((e) => e.txt === txt)) addLog(cur, t, txt, 3);
+  };
+
+  // ---------------- the program's environment, on the safety grid ----------------
+  // [temperature °C, humidity %, gravity g, inside, light, air]
+  const ENV = [[14, 82, 1.0, "Interior", "Night", "Rain Outside"], [8, 88, 1.0, "Interior", "Night", "Fog Outside"],
+    [41, 9, 1.4, "Exterior", "Day", "Still Air"], [6, 64, 1.2, "Exterior", "Dusk", "High Wind"],
+    [19, 55, 1.0, "Exterior", "Day", "Light Breeze"], [24, 40, 1.0, "Exterior", "Day", "Light Breeze"],
+    [27, 84, 1.0, "Interior", "Night", "Still Air"], [18, 45, 1.0, "Interior", "Day", "Still Air"],
+    [21, 76, 1.0, "Exterior", "Day", "Sea Wind"]];
+  const AMB = [21, 45, 1.0];                                // the empty grid: ship's standard
+  header(C4, SY, W4, "Environment", "gold", "orange");
+  const EPW = (W4 - 2 * 16) / 3;
+  const epills = [0, 1, 2].map((i) => L.box({ x: C4 + i * (EPW + 16), y: 1232, w: EPW, h: 64, c: "#3a2c10", label: "", fs: 32, r: i === 0 ? "l" : i === 2 ? "r" : null, cls: "pill" }));
+  const EGX = C4 + 280, EGW = C4R - 256 - EGX;
+  const env = [["Temperature", 50, "orange", (v) => Math.round(v) + " °C"], ["Humidity", 100, "gold", (v) => Math.round(v) + " %"],
+    ["Gravity", 2, "butter", (v) => v.toFixed(2) + " g"]].map(([name, max, c, fmt], i) => {
+    const base = 1320 + i * 88 + 52.5;
+    L.text({ x: C4, base, s: 40, c: "tan", txt: name });
+    // (tracks 22 tall, centred on safety's 26: the label is then not read as a title between safety's bar and this one)
+    L.rect({ x: EGX, y: base - 24, w: EGW, h: 22, c: "#2a2010" });
+    const f = fill(EGX, base - 24, EGW, 22, c);
+    L.rect({ x: EGX + (AMB[i] / max) * EGW - 3, y: base - 40, w: 6, h: 54, c: "white", free: true });   // ship's standard
+    return { f, max, fmt, v: AMB[i], goal: AMB[i], val: L.text({ x: C4R, base, s: 52, c: "white", txt: "", align: "r" }) };
+  });
+  const envPhase = (ph) => {
+    const e = ENV[cur], on = ph >= 2 && ph <= 4;
+    env.forEach((g, i) => (g.goal = on ? e[i] : AMB[i]));
+    epills.forEach((b, i) => {
+      L.set(b, e[3 + i]);
+      b.style.background = on ? ["var(--butter)", "var(--tan)", "var(--orange)"][i] : "#3a2c10";
+      b.style.color = on ? "#000" : "var(--gold)";
+    });
+  };
+  const logPhase = onPhase;
+  onPhase = (ph) => { logPhase(ph); envPhase(ph); };
+
+  // ---------------- what is rendered: rows on arch control's ----------------
+  header(C4, 1620, W4, "Program Render", "butter", "gold", 48, 28);
+  const rTitle = L.text({ x: C4, base: 1734, s: 40, c: "tan", txt: "" });
+  const rPct = L.text({ x: C4R, base: 1734, s: 52, c: "white", txt: "", align: "r" });
+  const RBX = C4 + 300, RBW = C4R - 150 - RBX;
+  const rend = ["Objects", "Primitives", "Emitters", "Participants", "Characters"].map((name, i) => {
+    const base = 1788 + i * 54;
+    L.text({ x: C4, base, s: 36, c: "tan", txt: name });
+    L.rect({ x: RBX, y: base - 24, w: RBW, h: 22, c: "#2a2010" });
+    return { f: fill(RBX, base - 24, RBW, 22, i % 2 ? "gold" : "butter"), v: 0, goal: 0,
+      val: L.text({ x: C4R, base, s: 36, c: "white", txt: "", align: "r" }) };
+  });
+  L.every(300, () => {
+    if (!prog) return;
+    const on = objects.filter((o) => o.al > 0.5), live = curPhase >= 2 && curPhase <= 4;
+    const prims = objects.reduce((a, o) => a + o.group.length, 0), primsOn = on.reduce((a, o) => a + o.group.length, 0);
+    const matter = cells.filter((c) => c.col === "var(--butter)" || c.col === "#fff0c4").length;
+    const tracked = markers.filter((m) => m.on && m.al > 0.5).length;
+    const counts = [[on.length, objects.length], [primsOn, prims], [matter, foot.size],
+      [tracked, prog.party.length], [live ? prog.cast.length : 0, prog.cast.length]];
+    counts.forEach(([n, of], i) => { rend[i].goal = of ? n / of : 0; L.set(rend[i].val, `${n} / ${of}`); });
+    L.set(rTitle, `Program ${prog.code}  ·  ${prog.name}`);
+    L.set(rPct, Math.round((100 * on.length) / objects.length) + " %");
+    env.forEach((g) => L.set(g.val, g.fmt(g.v)));
+  }, 0);
+  L.tick(() => {
+    for (const q of rend) if (Math.abs(q.goal - q.v) > 0.001 || !q.drawn) { q.v += (q.goal - q.v) * 0.12; q.drawn = true; q.f.style.transform = `scaleX(${q.v.toFixed(4)})`; }
+    for (const g of env) if (Math.abs(g.goal - g.v) > 0.002 || !g.drawn) { g.v += (g.goal - g.v) * 0.03; g.drawn = true; g.f.style.transform = `scaleX(${(g.v / g.max).toFixed(4)})`; }
+  });
+}
 });
 </script></body></html>

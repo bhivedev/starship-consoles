@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Personal Logs</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .clip { position: absolute; overflow: hidden; }
@@ -12,16 +13,28 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame, mirrored: sidebar on the right, title at top left ----------------
-L.frame({ type: "B", title: "Personal Logs  •  Crew Archive", c: "lilac", c2: "pink", accent: "plum", foot: "Archive",
+const B = L.frame({ type: "B", title: "Personal Logs  •  Crew Archive", c: "lilac", c2: "pink", accent: "plum", foot: "Archive",
   side: [[140, "plum", "Logs 02"], [70, "pink", "Crew"], [420, "lilac", "Personal Logs"], [70, "butter", "1014"],
          [300, "plum", "Archive"], [70, "pink", "Sealed"], [216, "lilac", "Private"]] });
 
-// Two columns: the index on the left, the recording on the right. Both sit on one 72px grid of
-// baselines from 480, so the index rows and the recording panel's rows share baselines.
-// The bottom strip splits into three under them, the right one under the recording column.
-const LX = 40, LR = 2140, RX = 2200, RR = 3520;
+// ---------------- the grid, per shape ----------------
+// The data, readings and motion below are written once; only these positions differ by shape.
+// wide (3840 × 2160): two columns, the index on the left (40–2140), the recording on the right
+//   (2200–3520). Both sit on one 72px grid of baselines from 480, so the index rows and the
+//   recording panel's rows share baselines. The bottom strip splits into three under them, the
+//   right one under the recording column.
+// upright (2160 × 3120, content 40–1840): the recording runs the full width at the top on the
+//   same grid (four tiles, a 15 s waveform a row shorter); under it two halves on shared baselines,
+//   gauges and the day's figures (40–940) beside archive storage (1000–1840), ending on 1488; then the index,
+//   ten rows; then retained records beside the access log.
+// ultrawide (5040 × 2160): the index as wide; the recording column takes the extra 1200
+//   (2200–4720): two more tiles, a 24 s waveform, and beside the gauges the index counted by
+//   access level; a fourth strip panel, today's entries by division, under it (3580–4720).
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const LX = 40, LR = UP ? B.x1 : 2140, RX = UP ? B.x0 : 2200, RR = UP || UW ? B.x1 : 3520;
 const ROW = (k) => 480 + 72 * k;
-const BCAP = 1716, BROW = (i) => 1776 + i * 54;
+const IY = UP ? 1600 : 280, IROW = (k) => IY + 200 + 72 * k;   // the index: header, then its rows
+const BY = UP ? 2580 : 1620, BCAP = BY + 96, BROW = (i) => BY + 156 + i * 54;   // the strip
 const TRACK = "#2a1a30", PANEL = "#150c1c", GRID = "#3a2848";
 const col = (c) => (c.startsWith("#") ? c : `var(--${c})`);
 const pad2 = (n) => String(n).padStart(2, "0");
@@ -85,19 +98,21 @@ const setState = (word, c) => {
   stateSub.style.left = LX + stateTxt.offsetWidth + 40 + "px";
 };
 L.box({ x: RR - 400, y: 150, w: 400, h: 72, c: "plum", label: "Privacy Lock Engaged", r: "lr", fs: 36 });
+if (UW) L.box({ x: RR - 840, y: 150, w: 400, h: 72, c: "lilac", label: "Voiceprint Required", r: "lr", fs: 36 });   // the longer status line
 
 // =====================================================================================
 // THE LOG INDEX: the last fifteen entries, newest at the foot. No content: who, when, how long.
 // =====================================================================================
-const IX = { no: 0, crew: 174, dept: 520, at: 780, sd: 1250, len: 1470, kq: 1640, bar: 1680, barR: 1880, pill: 1920 };
+const IX = UP ? { no: 0, crew: 174, dept: 500, at: 680, sd: 1010, len: 1210, kq: 1350, bar: 1390, barR: 1570, pill: 1610 }
+              : { no: 0, crew: 174, dept: 520, at: 780, sd: 1250, len: 1470, kq: 1640, bar: 1680, barR: 1880, pill: 1920 };
 const PW = LR - LX - IX.pill;                               // the access pill runs to the column's edge
-L.header({ x: LX, y: 280, w: LR - LX, label: "Log Index  ·  Last Fifteen Entries", c1: "lilac", c2: "plum" });
+L.header({ x: LX, y: IY, w: LR - LX, label: UP ? "Log Index  ·  Last Ten Entries" : "Log Index  ·  Last Fifteen Entries", c1: "lilac", c2: "plum" });
 [["Entry", IX.no, "l"], ["Crew Member", IX.crew, "l"], ["Department", IX.dept, "l"], ["Recorded At", IX.at, "l"],
  ["Stardate", IX.sd, "l"], ["Length", IX.len, "r"], ["Size", IX.kq, "r"], ["0 – 5 Min", IX.barR, "r"], ["Access", LR - LX, "r"]]
-  .forEach(([txt, x, align]) => L.text({ x: LX + x, base: 400, s: 36, c: "lilac", txt, align }));
+  .forEach(([txt, x, align]) => L.text({ x: LX + x, base: IY + 120, s: 36, c: "lilac", txt, align }));
 
-const N = 15, PITCH = 72;
-const clip = L.el("div", "clip", L.stage, { left: LX + "px", top: ROW(0) - 54 + "px", width: LR - LX + "px", height: N * PITCH + "px" });
+const N = UP ? 10 : 15, PITCH = 72;
+const clip = L.el("div", "clip", L.stage, { left: LX + "px", top: IROW(0) - 54 + "px", width: LR - LX + "px", height: N * PITCH + "px" });
 const rows = Array.from({ length: N }, (_, i) => {
   const e = L.layer({ x: 0, y: 0, w: LR - LX, h: PITCH }, clip);
   const box = L.box({ x: IX.no, y: 54 - 44.56, w: 150, h: 56, c: "lilac", label: "", fs: 32, r: "l", cls: "sw" }, e);
@@ -159,21 +174,28 @@ L.text({ x: RR - 196, base: 400, s: 36, c: "lilac", txt: "Stardate", align: "r" 
 const sdVal = L.text({ x: RR, base: 400, s: 36, c: "white", txt: "", align: "r" });
 
 // three tiles on rows 0–2: who, where, how long
-const TILE = [[RX, 560, "Crew Member", "pink"], [RX + 608, 380, "Location", "lilac"], [RX + 1036, RR - RX - 1036, "Elapsed", "butter"]];
+// (upright: four across the page, the access level the fourth; ultrawide: the wide three, then the
+// access level and the stardate it was opened over the extra width)
+const TILE = UP ? [[RX, 432, "Crew Member", "pink"], [RX + 480, 432, "Location", "lilac"], [RX + 960, 372, "Elapsed", "butter"], [RX + 1380, RR - RX - 1380, "Access", "plum"]]
+           : UW ? [[RX, 560, "Crew Member", "pink"], [RX + 608, 380, "Location", "lilac"], [RX + 1036, 284, "Elapsed", "butter"],
+                   [3580, 560, "Access", "plum"], [4188, RR - 4188, "Opened", "peach"]]
+           : [[RX, 560, "Crew Member", "pink"], [RX + 608, 380, "Location", "lilac"], [RX + 1036, RR - RX - 1036, "Elapsed", "butter"]];
 const tiles = TILE.map(([x, w, label, c]) => {
   L.rect({ x, y: ROW(0) - 29, w: 12, h: ROW(2) - ROW(0) + 29, c });
   L.text({ x: x + 36, base: ROW(0), s: 40, c: "lilac", txt: label });
-  return { w: w - 36, v: L.text({ x: x + 36, base: ROW(1), s: 52, c: "white", txt: "" }), d: L.text({ x: x + 36, base: ROW(2), s: 36, c: "peach", txt: "" }) };
+  return { label, w: w - 36, v: L.text({ x: x + 36, base: ROW(1), s: 52, c: "white", txt: "" }), d: L.text({ x: x + 36, base: ROW(2), s: 36, c: "peach", txt: "" }) };
 });
+const tAcc = tiles.find((tl) => tl.label === "Access"), tOpen = tiles.find((tl) => tl.label === "Opened");
+const ACC_NOTE = { Recording: "Audio Pickup Open", Encrypting: "Owner Key", Private: "Owner Only", Sealed: "Sealed by Owner", Family: "Next of Kin" };
 
 // the waveform: 12 seconds, the newest at the right edge
-const WX = RX, WY = 692, WW = RR - RX, WH = 308, SECS = 12, SPEED = WW / SECS, BP = 10, BW = 6;
+const WX = RX, WY = 692, WW = RR - RX, WH = UP ? 236 : 308, SECS = UP ? 15 : UW ? 24 : 12, SPEED = WW / SECS, BP = 10, BW = 6;
 L.rect({ x: WX, y: WY, w: WW, h: WH, c: PANEL });
 for (let s = 3; s < SECS; s += 3) L.rect({ x: Math.round(WX + WW - s * SPEED) - 1, y: WY, w: 2, h: WH, c: GRID, free: true });
 L.rect({ x: WX, y: WY + WH / 2 - 1, w: WW, h: 2, c: GRID, free: true });
 for (let s = 0; s <= SECS; s += 3) {
   const x = WX + WW - s * SPEED;
-  L.text({ x, base: ROW(8) - 12, s: 30, c: "lilac", txt: s ? `−${s} s` : "Now", align: s === SECS ? "l" : s === 0 ? "r" : "c", w: 120, legend: true });
+  L.text({ x, base: (UP ? ROW(7) : ROW(8)) - 12, s: 30, c: "lilac", txt: s ? `−${s} s` : "Now", align: s === SECS ? "l" : s === 0 ? "r" : "c", w: 120, legend: true });
 }
 // syllables of speech, in screen time: [centre, width, loudness]
 const syl = [];
@@ -227,11 +249,12 @@ L.tick((t) => {
   while (syl.length && syl[0][0] < t - SECS - 2) syl.shift();
 });
 
-// gauges on rows 9–12
+// gauges on rows 9–12 (upright: the left half; ultrawide: under the wide three tiles)
+const GR = UP ? 940 : UW ? 3520 : RR;                       // the gauges' right edge
 const gauge = (base, name, c) => {
   L.text({ x: RX, base, s: 40, c: "lilac", txt: name });
-  L.rect({ x: RX + 300, y: base - 26, w: RR - 200 - (RX + 300), h: 26, c: TRACK });
-  return { bar: fill(RX + 300, base - 26, RR - 200 - (RX + 300), 26, c), v: L.text({ x: RR, base, s: 52, c: "white", txt: "", align: "r" }), u: -1 };
+  L.rect({ x: RX + 300, y: base - 26, w: GR - 200 - (RX + 300), h: 26, c: TRACK });
+  return { bar: fill(RX + 300, base - 26, GR - 200 - (RX + 300), 26, c), v: L.text({ x: GR, base, s: 52, c: "white", txt: "", align: "r" }), u: -1 };
 };
 const G = { voice: gauge(ROW(9), "Voiceprint", "pink"), level: gauge(ROW(10), "Signal Level", "lilac"),
             size: gauge(ROW(11), "Recorded", "plum"), enc: gauge(ROW(12), "Encryption", "butter") };
@@ -241,26 +264,36 @@ const pair = (x, base, label) => {
   L.text({ x, base, s: 40, c: "lilac", txt: label });
   return L.text({ x: x + Math.ceil(L.textWidth(label, 40)) + 24, base, s: 52, c: "white", txt: "" });
 };
-// three columns, under the three tiles
-const stat = { today: pair(TILE[0][0], ROW(13), "Entries Today"), crewToday: pair(TILE[1][0], ROW(13), "Crew Today"),
-               avg: pair(TILE[2][0], ROW(13), "Average"), used: pair(TILE[0][0], ROW(14), "Archive Used"),
-               free: pair(TILE[1][0], ROW(14), "Free"), held: pair(TILE[2][0], ROW(14), "Retained") };
+// three columns, under the three tiles (upright: under the gauges, the third ending its label
+// where the bars end)
+const SCX = UP ? [RX, RX + 300, GR - 200 - Math.ceil(L.textWidth("Average", 40))] : [TILE[0][0], TILE[1][0], TILE[2][0]];
+const stat = { today: pair(SCX[0], ROW(13), "Entries Today"), crewToday: pair(SCX[1], ROW(13), "Crew Today"),
+               avg: pair(SCX[2], ROW(13), "Average"), used: pair(SCX[0], ROW(14), "Archive Used"),
+               free: pair(SCX[1], ROW(14), "Free"), held: pair(SCX[2], ROW(14), "Retained") };
 
 // =====================================================================================
 // THE BOTTOM STRIP: storage, retained records, the access log
 // =====================================================================================
-const AX0 = LX, AX1 = 1060, BX0 = 1120, BX1 = LR, CX0 = RX, CX1 = RR;
+// (upright: storage is the right half beside the gauges; retained records and the access log
+// share the strip under the index. Ultrawide: as wide, with a fourth panel at 3580–4720.)
+const AX0 = UP ? 1000 : LX, AX1 = UP ? RR : 1060, BX0 = UP ? LX : 1120, BX1 = UP ? 940 : LR, CX0 = UP ? 1000 : RX, CX1 = UP ? RR : 3520;
+// storage: header, captions, rows (upright: on the 72px grid beside the gauges, its captions on the
+// Voiceprint row and its rows on the gauge and day rows, so the halves share every baseline)
+const SY = UP ? 1032 : BY, SCAP = SY + 96, SROW = (i) => (UP ? ROW(10 + i) : SY + 156 + i * 54);
 
 // ---------------- archive storage by division ----------------
-L.header({ x: AX0, y: 1620, w: AX1 - AX0, label: "Archive Storage", c1: "pink", c2: "lilac", h: 48 });
-const SC = { n: AX0 + 470, bar: AX0 + 500, barR: AX1 - 210 };
+L.header({ x: AX0, y: SY, w: AX1 - AX0, label: "Archive Storage", c1: "pink", c2: "lilac", h: 48 });
+// (upright: storage bars 20 high, a step thinner than the gauges' 26 on the same rows, so a row reads
+// as two panels' rows and not as one bar broken by a title)
+const SBH = UP ? 20 : 24;
+const SC = UP ? { n: AX0 + 330, bar: AX0 + 360, barR: AX1 - 200 } : { n: AX0 + 470, bar: AX0 + 500, barR: AX1 - 210 };
 [["Division", AX0, "l"], ["Entries", SC.n, "r"], ["Allocation", SC.bar, "l"], ["Kiloquads", AX1, "r"]]
-  .forEach(([txt, x, align]) => L.text({ x, base: BCAP, s: 36, c: "lilac", txt, align }));
+  .forEach(([txt, x, align]) => L.text({ x, base: SCAP, s: 36, c: "lilac", txt, align }));
 const storeRow = (i, name, c, nc) => {
-  const base = BROW(i);
+  const base = SROW(i);
   L.text({ x: AX0, base, s: 36, c: nc, txt: name });
-  L.rect({ x: SC.bar, y: base - 24, w: SC.barR - SC.bar, h: 24, c: TRACK });
-  return { bar: fill(SC.bar, base - 24, SC.barR - SC.bar, 24, c), n: L.text({ x: SC.n, base, s: 36, c: "white", txt: "", align: "r" }),
+  L.rect({ x: SC.bar, y: base - SBH, w: SC.barR - SC.bar, h: SBH, c: TRACK });
+  return { bar: fill(SC.bar, base - SBH, SC.barR - SC.bar, SBH, c), n: L.text({ x: SC.n, base, s: 36, c: "white", txt: "", align: "r" }),
            kq: L.text({ x: AX1, base, s: 36, c: "white", txt: "", align: "r" }), u: -1 };
 };
 DIVS.forEach((d, i) => Object.assign(d, { row: storeRow(i, d.name, d.c, "peach") }));
@@ -273,8 +306,8 @@ const showStore = () => {
 };
 
 // ---------------- records under retention: held beyond the owner's control ----------------
-L.header({ x: BX0, y: 1620, w: BX1 - BX0, label: "Retained Records", c1: "plum", c2: "pink", h: 48 });
-const RC = { sd: BX0, rec: BX0 + 150, by: BX0 + 600 };
+L.header({ x: BX0, y: BY, w: BX1 - BX0, label: "Retained Records", c1: "plum", c2: "pink", h: 48 });
+const RC = UP ? { sd: BX0, rec: BX0 + 124, by: BX0 + 494 } : { sd: BX0, rec: BX0 + 150, by: BX0 + 600 };
 [["Stardate", RC.sd, "l"], ["Record", RC.rec, "l"], ["Held By", RC.by, "l"], ["Status", BX1, "r"]]
   .forEach(([txt, x, align]) => L.text({ x, base: BCAP, s: 36, c: "lilac", txt, align }));
 const HELD = [
@@ -293,7 +326,7 @@ HELD.forEach(([sd, rec, by, st, c], i) => {
 });
 
 // ---------------- the access log: newest at the foot, always in time order ----------------
-L.header({ x: CX0, y: 1620, w: CX1 - CX0, label: "Access Log", c1: "lilac", c2: "plum", h: 48 });
+L.header({ x: CX0, y: BY, w: CX1 - CX0, label: "Access Log", c1: "lilac", c2: "plum", h: 48 });
 const AC = { sd: CX0, tx: CX0 + 150 };
 [["Stardate", AC.sd, "l"], ["Event", AC.tx, "l"], ["Source", CX1, "r"]]
   .forEach(([txt, x, align]) => L.text({ x, base: BCAP, s: 36, c: "lilac", txt, align }));
@@ -340,9 +373,17 @@ hist.forEach((d, i) => rows[i].fill(d));
 
 let entriesToday = 23, lenSum = 23 * 131, crewToday = new Set(CREW.slice(0, 12).map((c) => c.name));
 hist.slice(-5).forEach((d) => crewToday.add(d.who.name));
+// ultrawide: today's entries by division — the filed entries in the index, and the day's earlier ones
+const todayDiv = UW ? Object.fromEntries(DIVS.map((d) => [d.name, 0])) : null;
+if (todayDiv) {
+  hist.forEach((d) => todayDiv[d.who.div]++);
+  [2, 3, 3, 1].forEach((k, i) => (todayDiv[DIVS[i].name] += k));   // 14 in the index + 9 earlier = 23
+}
+let showTodayDiv = null;
 const showToday = () => {
   L.set(stat.today, String(entriesToday)); L.set(stat.crewToday, String(crewToday.size));
   L.set(stat.avg, mss(lenSum / entriesToday));
+  if (showTodayDiv) showTodayDiv();
 };
 
 // one recording: [start, end] in screen time; then encryption, filing and a pause before the next
@@ -356,6 +397,7 @@ const begin = (t0, dur, t) => {
   L.set(tiles[0].v, who.short); L.set(tiles[0].d, `${who.dept}  ·  ${who.div}`);
   L.set(tiles[1].v, `Deck ${who.deck}`); L.set(tiles[1].d, who.where);
   L.set(tiles[2].d, `Entry ${rec.no}`);
+  if (tOpen) { L.set(tOpen.v, rec.sd.toFixed(1)); L.set(tOpen.d, `${who.div} Division`); }
   showBar(G.enc, 0); L.set(G.enc.v, "0%");
   phase = "rec";
 };
@@ -385,6 +427,7 @@ L.tick((t) => {
       phase = "idle"; d.access = rec.access;
       const dv = DIV[rec.who.div]; dv.n++; dv.kq += (rec.t1 - rec.t0) * KQ_PER_S;
       entriesToday++; lenSum += rec.t1 - rec.t0; crewToday.add(rec.who.name);
+      if (todayDiv) todayDiv[rec.who.div]++;
       showStore(); showToday();
       logLine(stardate(t), `Entry ${rec.no} filed  ·  ${mss(rec.t1 - rec.t0)}  ·  ${rec.access}`, rec.who.short);
       nextStart = t + L.rand(7, 11);
@@ -402,6 +445,8 @@ L.every(250, (t) => {
   const d = rec.d, el = d.len;
   const n = rows.find((r) => r.d === d); if (n) n.show();
   L.set(tiles[2].v, mss(el));
+  if (tAcc) { L.set(tAcc.v, d.access); L.set(tAcc.d, ACC_NOTE[d.access]); }
+  if (showAccess) showAccess();
   // voiceprint: analysed over the first three seconds, then held
   const vk = L.clamp((t - rec.t0) / 3);
   showBar(G.voice, L.ease(vk) * rec.voice / 100);
@@ -428,6 +473,49 @@ const ROUTINE = [
 ];
 later(23000, (t) => { if (phase !== "idle") return; logLine(stardate(t), ...L.pick(ROUTINE)()); }, 0.3);
 
+// =====================================================================================
+// ULTRAWIDE ONLY: the index counted by access level, and today's entries by division
+// =====================================================================================
+let showAccess = null;
+if (UW) {
+  const X0 = 3580, X1 = RR, K = { n: X0 + 470, bar: X0 + 500, barR: X1 - 190 };   // tracks run up toward the percents
+  const pcts = (ns, all) => {                              // whole percents that add up to 100
+    const raw = ns.map((n) => (100 * n) / all), p = raw.map(Math.floor);
+    raw.map((r, i) => [r - p[i], i]).sort((a, b) => b[0] - a[0]).slice(0, 100 - p.reduce((a, b) => a + b, 0)).forEach(([, i]) => p[i]++);
+    return p;
+  };
+  const tableRow = (base, name, nc, c, s) => {
+    L.text({ x: X0, base, s, c: nc, txt: name });
+    L.rect({ x: K.bar, y: base - 24, w: K.barR - K.bar, h: 24, c: TRACK });
+    return { bar: fill(K.bar, base - 24, K.barR - K.bar, 24, c), n: L.text({ x: K.n, base, s, c: "white", txt: "", align: "r" }),
+             p: L.text({ x: X1, base, s, c: "white", txt: "", align: "r" }), u: -1 };
+  };
+  // beside the gauges: the fifteen entries in the index, by access level (the live one "In Progress")
+  L.header({ x: X0, y: 1080, w: X1 - X0, label: "Index by Access", c1: "plum", c2: "lilac" });
+  [["Access", X0, "l"], ["Entries", K.n, "r"], ["Share of Index", K.bar, "l"], ["Percent", X1, "r"]]
+    .forEach(([txt, x, align]) => L.text({ x, base: ROW(10), s: 36, c: "lilac", txt, align }));
+  const KINDS = [["Private", "lilac"], ["Sealed", "plum"], ["Family", "peach"], ["In Progress", "butter"]];
+  const kindOf = (a) => (a === "Recording" || a === "Encrypting" ? "In Progress" : a);
+  const accRows = KINDS.map(([name, c], i) => tableRow(ROW(11 + i), name, c, c, 40));
+  showAccess = () => {
+    const n = KINDS.map(([name]) => rows.filter((r) => r.d && kindOf(r.d.access) === name).length);
+    const p = pcts(n, N);
+    accRows.forEach((r, i) => { showBar(r, n[i] / N); L.set(r.n, String(n[i])); L.set(r.p, p[i] + "%"); });
+  };
+  // the strip's fourth panel: today's entries by division
+  L.header({ x: X0, y: BY, w: X1 - X0, label: "Entries Today", c1: "pink", c2: "plum", h: 48 });
+  [["Division", X0, "l"], ["Entries", K.n, "r"], ["Share of Today", K.bar, "l"], ["Percent", X1, "r"]]
+    .forEach(([txt, x, align]) => L.text({ x, base: BCAP, s: 36, c: "lilac", txt, align }));
+  const divRows = DIVS.map((d, i) => tableRow(BROW(i), d.name, "peach", d.c, 36));
+  const allRow = tableRow(BROW(4), "All Divisions", "butter", "butter", 36);
+  showTodayDiv = () => {
+    const p = pcts(DIVS.map((d) => todayDiv[d.name]), entriesToday);
+    DIVS.forEach((d, i) => { showBar(divRows[i], todayDiv[d.name] / entriesToday); L.set(divRows[i].n, String(todayDiv[d.name])); L.set(divRows[i].p, p[i] + "%"); });
+    showBar(allRow, 1); L.set(allRow.n, String(entriesToday)); L.set(allRow.p, "100%");
+  };
+  showAccess();
+}
+
 // ---------------- a guard: every line of words fits its place ----------------
 CREW.forEach((c) => {
   fits(c.name, 40, IX.dept - IX.crew - 30, "crew"); fits(c.dept, 36, IX.at - IX.dept - 30, "dept"); fits(c.place, 36, IX.sd - IX.at - 30, "place");
@@ -436,6 +524,8 @@ CREW.forEach((c) => {
   fits(`Entry 99999  ·  ${c.name}  ·  ${c.where}, Deck ${c.deck}`, 38, RR - 400 - 40 - (LX + L.textWidth("Encrypting", 100) + 40), "subtitle");
 });
 Object.keys(ACCESS).forEach((k) => fits(k, 28, PW - 60, "pill"));
+if (tAcc) Object.keys(ACCESS).forEach((k) => { fits(k, 52, tAcc.w, "access tile"); fits(ACC_NOTE[k], 36, tAcc.w, "access note"); });
+if (tOpen) DIVS.forEach((d) => fits(`${d.name} Division`, 36, tOpen.w, "opened note"));
 if (bad.length) setTimeout(() => { throw new Error("personal-logs: " + bad.join(" | ")); });
 
 L.set(stat.held, String(HELD.length));

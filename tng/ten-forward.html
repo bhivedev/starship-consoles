@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Ten Forward</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* the floor plan: tables, seats and stools are plain blocks whose color changes slowly */
@@ -17,7 +18,7 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: a bracket, title centred ----------------
-L.frame({ type: "C", title: "Ten Forward  •  Lounge", c: "peach", c2: "gold", accent: "tan", foot: "Crew",
+const B = L.frame({ type: "C", title: "Ten Forward  •  Lounge", c: "peach", c2: "gold", accent: "tan", foot: "Crew",
   side: [[140, "gold", "10-Fwd"], [70, "tan", "4710"], [420, "peach", "Lounge"], [70, "gold", "D10"],
          [300, "tan", "Service"], [70, "peach", "64"], [216, "gold", "Guests"]],
   side2: [[140, "peach", "Bar 01"], [70, "gold", "0317"], [420, "tan", "Viewports"], [70, "peach", "07"],
@@ -42,11 +43,24 @@ const blk = (x, y, w, h, c, rad = 0, cls = "") => {
   return e;
 };
 
-// ---------------- the grid ----------------
-// Columns: orders and bar systems 220–1060, the lounge floor 1120–2720, seating and the hours 2780–3620.
-// Upper rows of 64 on an 88 pitch from 428; lower rows from 1148; the bottom strip on 54 from 1734.
-const AX = 220, AR = 1060, BX = 1120, BR = 2720, CX = 2780, CR = 3620, BM = 1890, BN = 1950;
-const ROW = (i) => 428 + i * 88, RB = (i) => ROW(i) + 52.5;
+// ---------------- the grid, per shape ----------------
+// The data, readings and motion are written once; only positions differ by shape.
+// wide (3840 × 2160): orders and bar systems 220–1060, the lounge floor 1120–2720, seating and the hours
+//   2780–3620. Upper rows of 64 on an 88 pitch from 428; lower rows from 1148; the bottom strip on 54 from 1734.
+// upright (2160 × 3120): the lounge floor across the full width (the plan at its wide size, centred: OX −840,
+//   viewports 160 tall, so the plan sits 56 higher: OY −56); below it two columns, 220–1050 | 1110–1940, in
+//   three bands: orders beside seating (rows on a 76 pitch), staff beside the hours, events beside the log
+//   (five rows each). Bar systems and the served tally are left out: there is no room at the type scale.
+// ultrawide (5040 × 2160): wide's columns, the floor moved out 600 (centred), seating, hours and the log out
+//   1200; two new 536 columns between: Tables over Party Sizes (1120–1656), Bar Counter and Deliveries over
+//   Drinks by Kind (3384–3920).
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const AX = 220, AR = UP ? 1050 : 1060, BX = UP ? 220 : UW ? 1720 : 1120, BR = UP ? 1940 : UW ? 3320 : 2720,
+  CX = UP ? 1110 : UW ? 3980 : 2780, CR = UP ? 1940 : UW ? 4820 : 3620, BM = UW ? 2490 : 1890, BN = UW ? 2550 : 1950;
+const OX = UP ? -840 : UW ? 600 : 0, OY = UP ? -56 : 0;     // the floor plan's offset from its wide place
+const FLX = 1120, FLR = 1656, FRX = 3384, FRR = 3920;     // ultrawide's new columns
+const ROW = (i) => (UP ? 1712 : 428) + i * (UP ? 76 : 88), RB = (i) => ROW(i) + 52.5;
+const Y1 = UP ? 1564 : 280;                                // orders and seating headers
 const ROW2 = (i) => 1148 + i * 88, RB2 = (i) => ROW2(i) + 52.5;
 const STRIP = (i) => 1734 + i * 54;
 
@@ -84,12 +98,15 @@ const SUBX = AX + Math.ceil(Math.max(...WORDS.map((w) => L.textWidth(w, 100))) /
 const state = L.text({ x: AX, cap: 150, s: 100, c: "peach", txt: "" });
 const stateSub = L.text({ x: SUBX, base: 222, s: 38, c: "gold", txt: "" });
 state.classList.add("sw");
+if (UP) L.box({ x: CR - 400, y: 158, w: 400, h: 64, c: "gold", label: "Synthehol Service", fs: 32, r: "lr" });
+else {
 L.box({ x: CX, y: 158, w: 380, h: 64, c: "peach", label: "Deck 10  ·  Forward", fs: 32, r: "l" });
 L.box({ x: CX + 380 + L.GAP, y: 158, w: CR - (CX + 380 + L.GAP), h: 64, c: "gold", label: "Synthehol Service", fs: 32, r: "r" });
+}
 
 // ---------------- the viewports: the stars streaming past, as seen from the lounge at warp ----------------
 L.header({ x: BX, y: 280, w: BR - BX, label: "Lounge Floor  ·  Deck 10 Forward", c1: "gold", c2: "peach" });
-const WY = 360, WH = 216, WW = BR - BX, PANES = 7;
+const WY = 360, WH = UP ? 160 : 216, WW = BR - BX, PANES = 7;
 const win = L.layer({ x: BX, y: WY, w: WW, h: WH, cls: "boot" });
 win.style.overflow = "hidden"; win.style.background = "#02040d";
 { // the distant stars, drawn once, none of them cut by a frame
@@ -103,7 +120,7 @@ win.style.overflow = "hidden"; win.style.background = "#02040d";
 }
 // streaks: each a short gradient bar on its own layer, sent outward from straight ahead; the strip is wide and
 // shallow, so the field is squashed top to bottom, and every streak fades out before it reaches a frame
-const VX = WW / 2, VY = WH / 2, SQ = 0.3, SPEED = 0.42, TRAIL = 0.5;
+const VX = WW / 2, VY = WH / 2, SQ = UP ? 0.22 : 0.3, SPEED = 0.42, TRAIL = 0.5;
 const STREAK_C = ["255,255,255", "220,236,255", "201,230,255", "255,226,196"];
 const spawn = (s, any) => {
   const a = Math.random() * 2 * Math.PI, dx = Math.cos(a), dy = Math.sin(a) * SQ, dl = Math.hypot(dx, dy);
@@ -121,12 +138,12 @@ const streaks = Array.from({ length: 44 }, () => {
 for (let k = 1; k < PANES; k++) L.el("div", "", win, { position: "absolute", left: (k * WW) / PANES - 8 + "px", top: "0px", width: "16px", height: WH + "px", background: "#3d2e1c" });
 
 // ---------------- the lounge floor ----------------
-const FY = 600, FB = 1564;
+const FY = 600 + OY, FB = 1564 + OY;
 L.rect({ x: BX, y: FY, w: BR - BX, h: FB - FY, c: "#120d08", panel: true, noalign: true });
 L.rect({ x: BX, y: FY, w: BR - BX, h: 196, c: "#1d160d", free: true });       // the raised tier along the windows
-L.rect({ x: BX, y: 796, w: BR - BX, h: 6, c: "#4d3c25", free: true });         // its step
-L.rect({ x: BX, y: 1240, w: 12, h: 100, c: "orange", free: true });            // the doors, port and starboard
-L.rect({ x: BR - 12, y: 1240, w: 12, h: 100, c: "orange", free: true });
+L.rect({ x: BX, y: 796 + OY, w: BR - BX, h: 6, c: "#4d3c25", free: true });    // its step
+L.rect({ x: BX, y: 1240 + OY, w: 12, h: 100, c: "orange", free: true });       // the doors, port and starboard
+L.rect({ x: BR - 12, y: 1240 + OY, w: 12, h: 100, c: "orange", free: true });
 
 const places = [];
 const seat = (x, y, round) => ({ e: blk(x, y, 36, 36, SEAT0, round ? 18 : 7), st: "off", party: null });
@@ -144,14 +161,14 @@ const refreshTable = (t) => {
   bg(t.e, t.party.waiting ? "butter" : "tan"); ink(t.e, "#000");
 };
 // six tables for two along the windows, ten for four on the floor
-const WIN_X = [1280, 1536, 1792, 2048, 2304, 2560], WIN_Y = 690;
+const WIN_X = [1280, 1536, 1792, 2048, 2304, 2560].map((x) => x + OX), WIN_Y = 690 + OY;
 WIN_X.forEach((cx, i) => table(i + 1, "window", cx, WIN_Y, 120, 56, [[cx - 106, WIN_Y - 18], [cx + 70, WIN_Y - 18]]));
-const COL_X = [1280, 1600, 1920, 2240, 2560], ROW_Y = [920, 1150];
+const COL_X = [1280, 1600, 1920, 2240, 2560].map((x) => x + OX), ROW_Y = [920, 1150].map((y) => y + OY);
 ROW_Y.forEach((cy, r) => COL_X.forEach((cx, i) => table(7 + r * 5 + i, "floor", cx, cy, 150, 64,
   [[cx - 58, cy - 78], [cx + 22, cy - 78], [cx - 58, cy + 42], [cx + 22, cy + 42]])));
 // the bar: twelve stools, the counter, and the back bar with a dispenser for each drink
-const BAR_L = 1360, BAR_R = 2480, STOOL_Y = 1352, COUNTER_Y = 1400, GUIN_Y = 1476, BACK_Y = 1500;
-const stools = Array.from({ length: 12 }, (_, i) => Object.assign(seat(1436 + i * 88 - 18, STOOL_Y, true), { i, cx: 1436 + i * 88 }));
+const BAR_L = 1360 + OX, BAR_R = 2480 + OX, STOOL_Y = 1352 + OY, COUNTER_Y = 1400 + OY, GUIN_Y = 1476 + OY, BACK_Y = 1500 + OY;
+const stools = Array.from({ length: 12 }, (_, i) => Object.assign(seat(1436 + OX + i * 88 - 18, STOOL_Y, true), { i, cx: 1436 + OX + i * 88 }));
 const counter = blk(BAR_L, COUNTER_Y, BAR_R - BAR_L, 52, "gold", 26, "tbl");
 counter.textContent = "Bar";
 const BKW = (BAR_R - BAR_L - 6 * 12) / 7;
@@ -162,17 +179,17 @@ const BKW = (BAR_R - BAR_L - 6 * 12) / 7;
 
 // ---------------- the people who move: Guinan behind the bar, two servers on the floor ----------------
 const dot = (c) => { const e = L.layer({ x: 0, y: 0, w: 28, h: 28, cls: "dot boot" }); e.style.background = colr(c); return e; };
-const guinan = { e: dot("lilac"), x: 1920, x0: 1920, x1: 1920, t0: -9, dur: 1, task: "" };
+const guinan = { e: dot("lilac"), x: 1920 + OX, x0: 1920 + OX, x1: 1920 + OX, t0: -9, dur: 1, task: "" };
 const moveGuinan = (x, t) => {
   guinan.x0 = guinan.x; guinan.x1 = x; guinan.t0 = t; guinan.dur = L.clamp(Math.abs(x - guinan.x) / 420, 0.8, 2.4);
   return guinan.dur;
 };
 const SERVERS = [
-  { name: "Ben", c: "white", home: [1320, 1426], hand: BAR_L + 22 },
-  { name: "M. Ashby", c: "butter", home: [2520, 1426], hand: BAR_R - 22 },
+  { name: "Ben", c: "white", home: [1320 + OX, 1426 + OY], hand: BAR_L + 22 },
+  { name: "M. Ashby", c: "butter", home: [2520 + OX, 1426 + OY], hand: BAR_R - 22 },
 ].map((s) => Object.assign(s, { e: dot(s.c), x: s.home[0], y: s.home[1], state: "home", order: null }));
 // a server's way to a table: down the bar aisle, up the aisle beside it, to its side (or under it, by the windows)
-const AISLE = [1440, 1760, 2080, 2400], AY = 1290, WSTAND = 760;
+const AISLE = [1440, 1760, 2080, 2400].map((x) => x + OX), AY = 1290 + OY, WSTAND = 760 + OY;
 const mkPath = (pts) => {
   const P = pts.filter((p, i) => !i || p[0] !== pts[i - 1][0] || p[1] !== pts[i - 1][1]), segs = [];
   let tot = 0;
@@ -258,8 +275,8 @@ const leave = (t) => {
 };
 
 // ---------------- bar orders: a queue that advances as Guinan pours ----------------
-L.header({ x: AX, y: 280, w: AR - AX, label: "Bar Orders", c1: "peach", c2: "gold" });
-const qCap = L.text({ x: AX, base: 400, s: 36, c: "tan", txt: "" });
+L.header({ x: AX, y: Y1, w: AR - AX, label: "Bar Orders", c1: "peach", c2: "gold" });
+const qCap = L.text({ x: AX, base: UP ? 1684 : 400, s: 36, c: "tan", txt: "" });
 const QN = 6, QBOX = 140, TRX = AX + QBOX + L.GAP;
 for (let i = 0; i < QN; i++) L.rect({ x: TRX, y: ROW(i), w: AR - TRX, h: 64, c: "#140c06", panel: true });   // empty slots, faint
 const rows = Array.from({ length: QN }, () => {
@@ -273,14 +290,14 @@ const rows = Array.from({ length: QN }, () => {
 });
 // pouring: a bar along the foot of the head row, over the row (which carries its own track)
 const pourFill = fill(TRX, ROW(0) + 56, AR - TRX, 8, "gold");
-tf(pourFill, "scaleX(0)");
+tf(pourFill, "scaleX(0)"); if (L.shape !== "wide") pourFill.dataset.gap = "free";   // its words are on its own row
 const tween = (r, k, to, t, dur) => { r[k + "a"] = r[k]; r[k + "b"] = to; r[k + "t"] = t; r[k + "d"] = dur; };
 const settled = (r, t) => t >= r.yt + r.yd && t >= r.ot + r.od;
 let orderNo = 1180 + L.irand(0, 90);
 const queue = [];
 const head = { phase: "idle", t0: 0, dur: 1 };
 const addOrder = (p, t, delay = 0) => {
-  const d = pickDrink(), o = { no: orderNo++, p, d, n: p.size };
+  const d = pickDrink(), o = { no: orderNo++, p, d, n: p.size, t0: t };
   p.waiting = true; p.lastOrder = t; showParty(p);
   const r = rows.find((r) => !r.order);
   o.row = r; r.order = o;
@@ -292,8 +309,8 @@ const addOrder = (p, t, delay = 0) => {
 };
 
 // ---------------- seating ----------------
-L.header({ x: CX, y: 280, w: CR - CX, label: "Seating", c1: "tan", c2: "gold" });
-L.text({ x: CX, base: 400, s: 36, c: "tan", txt: "16 tables  ·  12 stools  ·  64 seats" });
+L.header({ x: CX, y: Y1, w: CR - CX, label: "Seating", c1: "tan", c2: "gold", lw: UP || UW ? 300 : undefined });   // new shapes: the pill as wide as the labels below
+L.text({ x: CX, base: UP ? 1684 : 400, s: 36, c: "tan", txt: "16 tables  ·  12 stools  ·  64 seats" });
 const SBX = CX + 300 + L.GAP, SBR = CR - 200;
 const seatRow = (i, label, c, bar, txt) => {
   L.box({ x: CX, y: ROW(i), w: 300, h: 64, c, label, fs: 32, r: "l" });
@@ -307,8 +324,10 @@ const SEAT_ROWS = [seatRow(0, "Window Tier", "peach", true), seatRow(1, "Main Fl
   seatRow(5, "Awaiting", "butter", false, "Not yet served")];
 
 // ---------------- bar systems ----------------
+if (!UP) {
 L.header({ x: AX, y: 1000, w: AR - AX, label: "Bar Systems", c1: "gold", c2: "tan" });
 L.text({ x: AX, base: 1120, s: 36, c: "tan", txt: "Synthehol service  ·  Replicator 10-F  ·  Host Guinan" });
+}
 const GBX = AX + 330, GBR = AR - 220;
 const gauge = (i, name, c) => {
   L.text({ x: AX, base: RB2(i), s: 40, c: "peach", txt: name });
@@ -317,22 +336,23 @@ const gauge = (i, name, c) => {
   tf(f, "scaleX(0)");
   return { f, v: L.text({ x: AR, base: RB2(i), s: 52, c: "white", txt: "", align: "r" }) };
 };
-const SYS = { syn: gauge(0, "Synthehol Base", "peach"), rep: gauge(1, "Replicator Load", "gold"), rec: gauge(2, "Glass Recycler", "tan"),
+const SYS = UP ? null : { syn: gauge(0, "Synthehol Base", "peach"), rep: gauge(1, "Replicator Load", "gold"), rec: gauge(2, "Glass Recycler", "tan"),
   light: gauge(3, "Ambient Lighting", "butter"), stock: gauge(4, "Private Stock", "lilac") };
 const showGauge = (g, k, txt) => { tf(g.f, `scaleX(${L.clamp(k).toFixed(4)})`); L.set(g.v, txt); };
 
 // ---------------- guests by the hour ----------------
-L.header({ x: CX, y: 1000, w: CR - CX, label: "Guests by the Hour", c1: "peach", c2: "tan" });
-const hCap = L.text({ x: CX, base: 1120, s: 36, c: "tan", txt: "" });
-L.text({ x: CR, base: 1120, s: 36, c: "gold", txt: "Lines every 16 guests", align: "r" });
-const HT = 1160, HBOT = 1500, HP = (CR - CX + 6) / 24, HWID = HP - 6, PXG = (HBOT - HT) / SEATS;
+const HY = UP ? 2200 : 1000;                               // the hours' header
+L.header({ x: CX, y: HY, w: CR - CX, label: "Guests by the Hour", c1: "peach", c2: "tan" });
+const hCap = L.text({ x: CX, base: UP ? 2320 : 1120, s: 36, c: "tan", txt: "" });
+L.text({ x: CR, base: UP ? 2320 : 1120, s: 36, c: "gold", txt: "Lines every 16 guests", align: "r" });
+const HT = UP ? 2340 : 1160, HBOT = UP ? 2532 : 1500, HP = (CR - CX + 6) / 24, HWID = HP - 6, PXG = (HBOT - HT) / SEATS;
 for (const v of [16, 32, 48, 64]) L.rect({ x: CX, y: HBOT - v * PXG - 1, w: CR - CX, h: 2, c: "#33281a", free: true });
 const hourBars = Array.from({ length: 24 }, (_, h) => L.rect({ x: CX + h * HP, y: HBOT - 1, w: HWID, h: 1, c: "tan", noalign: true }));
 const live = fill(CX, HT, HWID, HBOT - HT, "white", "tw");
 live.style.transformOrigin = "0 100%";
 for (const h of [0, 6, 12, 18, 24]) {
   const x = h === 0 ? CX : h === 24 ? CR : CX + h * HP - 3;
-  L.text({ x, base: 1552.5, s: 34, c: "gold", txt: pad2(h) + "00", align: h === 0 ? "l" : h === 24 ? "r" : "c", w: 120, legend: true });
+  L.text({ x, base: UP ? 2584 : 1552.5, s: 34, c: "gold", txt: pad2(h) + "00", align: h === 0 ? "l" : h === 24 ? "r" : "c", w: 120, legend: true });
 }
 let shownHour = -1;
 const showHours = (h) => {
@@ -348,16 +368,20 @@ const showHours = (h) => {
 };
 
 // ---------------- bottom strip: events, what was served, the staff, the log ----------------
-L.header({ x: AX, y: 1620, w: AR - AX, label: "Events", c1: "tan", c2: "gold", h: 48 });
+// upright: staff (band 2, first row on the hours caption, last on the hour labels) and the events and the log
+// (band 3, five rows) have their own strips
+const SB2 = (i) => 2320 + i * 52.8, SB3 = (i) => 2748 + i * 54, NROW = UP ? 5 : 6;
+const EVB = UP ? SB3 : STRIP;
+L.header({ x: AX, y: UP ? 2634 : 1620, w: AR - AX, label: "Events", c1: "tan", c2: "gold", h: 48 });
 const EVENTS = [[2, "Stargazing", "Viewports dimmed"], [4, "Quiet Hours", "Gamma shift"], [6, "Morning Service", "Guinan"],
   [8, "Art Exhibit", "Paintings by Lal"], [10, "Tri-D Chess Ladder", "Lt. Cmdr. La Forge"], [12, "Midday Service", "Ben"], [14, "Botany Talk", "Keiko O'Brien"],
   [16, "Watch Change", "Alpha shift off duty"], [17, "Wine Tasting", "Chateau Picard"], [18, "Poetry Reading", "Lt. Cmdr. Data"],
   [19, "Jazz Set", "Cmdr. Riker, trombone"], [20, "Chamber Recital", "Capt. Picard, flute"], [21, "Junior Officers' Poker", "Hosted by Ben"],
   [22, "Storytelling", "Guinan"], [23, "Late Service", "Ben"]];
-const evRows = Array.from({ length: 6 }, (_, i) => ({
-  tm: L.text({ x: AX, base: STRIP(i), s: 36, c: "orange", txt: "" }),
-  nm: L.text({ x: AX + 130, base: STRIP(i), s: 36, c: "peach", txt: "" }),
-  by: L.text({ x: AR, base: STRIP(i), s: 36, c: "tan", txt: "", align: "r" }) }));
+const evRows = Array.from({ length: NROW }, (_, i) => ({
+  tm: L.text({ x: AX, base: EVB(i), s: 36, c: "orange", txt: "" }),
+  nm: L.text({ x: AX + 130, base: EVB(i), s: 36, c: "peach", txt: "" }),
+  by: L.text({ x: AR, base: EVB(i), s: 36, c: "tan", txt: "", align: "r" }) }));
 let evNow = -1;
 const showEvents = (h) => {
   let i = EVENTS.length - 1;
@@ -372,9 +396,10 @@ const showEvents = (h) => {
   });
 };
 
-L.header({ x: BX, y: 1620, w: BM - BX, label: "Served This Shift", c1: "gold", c2: "peach", h: 48 });
+if (!UP) L.header({ x: BX, y: 1620, w: BM - BX, label: "Served This Shift", c1: "gold", c2: "peach", h: 48 });
 const TBX = BX + 270, TBR = BM - 140;
 const tally = DRINKS.map((d, i) => {
+  if (UP) return { d, f: null, v: null, n: 0 };            // upright keeps the count but has no room to draw it
   L.text({ x: BX, base: STRIP(i), s: 36, c: "peach", txt: d.name });
   L.rect({ x: TBX, y: STRIP(i) - 22, w: TBR - TBX, h: 22, c: TRACK });
   const f = fill(TBX, STRIP(i) - 22, TBR - TBX, 22, d.c, "tw");
@@ -389,27 +414,112 @@ const seedTally = (h) => {                                  // what the shift ha
   tally.forEach((r) => (r.n = Math.round(total * r.d.w * L.rand(0.85, 1.15))));
 };
 
-L.header({ x: BN, y: 1620, w: BR - BN, label: "Lounge Staff", c1: "peach", c2: "tan", h: 48 });
+const SFX = UP ? AX : BN, SFR = UP ? AR : BR, SFB = UP ? SB2 : STRIP;
+L.header({ x: SFX, y: UP ? 2200 : 1620, w: SFR - SFX, label: "Lounge Staff", c1: "peach", c2: "tan", h: UP ? 56 : 48 });   // upright: beside the hours, same height
 const STAFF = [["Guinan", "lilac", "Host"], ["Ben", "white", "Server"], ["M. Ashby", "butter", "Server"],
   ["J. Okonjo", "peach", "Steward"], ["K. Tellan", "tan", "Server"], ["D. Ferris", "tan", "Server"]];
 const staff = STAFF.map(([name, c, post], i) => {
-  L.text({ x: BN, base: STRIP(i), s: 36, c, txt: name });
-  L.text({ x: BN + 240, base: STRIP(i), s: 36, c: "tan", txt: post });
-  return L.text({ x: BR, base: STRIP(i), s: 36, c: i < 4 ? "white" : "tan", txt: "", align: "r" });
+  L.text({ x: SFX, base: SFB(i), s: 36, c, txt: name });
+  L.text({ x: SFX + 240, base: SFB(i), s: 36, c: "tan", txt: post });
+  return L.text({ x: SFR, base: SFB(i), s: 36, c: i < 4 ? "white" : "tan", txt: "", align: "r" });
 });
 L.set(staff[4], "Off Watch");
 L.set(staff[5], "On at 1600");
 
-L.header({ x: CX, y: 1620, w: CR - CX, label: "Lounge Log", c1: "tan", c2: "peach", h: 48 });
-const logRows = Array.from({ length: 6 }, (_, i) => ({
-  tm: L.text({ x: CX, base: STRIP(i), s: 36, c: "orange", txt: "" }),
-  tx: L.text({ x: CX + 130, base: STRIP(i), s: 36, c: "peach", txt: "" }) }));
+L.header({ x: CX, y: UP ? 2634 : 1620, w: CR - CX, label: "Lounge Log", c1: "tan", c2: "peach", h: 48 });
+const logRows = Array.from({ length: NROW }, (_, i) => ({
+  tm: L.text({ x: CX, base: EVB(i), s: 36, c: "orange", txt: "" }),
+  tx: L.text({ x: CX + 130, base: EVB(i), s: 36, c: "peach", txt: "" }) }));
 const logged = [];
 let logReady = false;
 function log(txt, when) {                                   // newest at the foot; always in time order
   logged.push([when || hhmm(), txt]);
   if (logged.length > logRows.length) logged.shift();
   if (logReady) logRows.forEach((r, i) => { const e = logged[i] || ["", ""]; L.set(r.tm, e[0]); L.set(r.tx, e[1]); });
+}
+
+// ---------------- ultrawide only: the two new columns, read from the same state ----------------
+// Left (1120–1656): every table, from the orders' first baseline to the hours' label baseline, then party sizes in the strip.
+// Right (3384–3920): the bar counter's stools, deliveries by who carried them, then drinks by kind in the strip.
+const delivered = { Guinan: 0, Ben: 0, "M. Ashby": 0 };   // drinks carried this shift (sums to the tally)
+let pours = 0, pourSum = 0;                               // pour times, for the average
+const UWP = {};
+if (UW) {
+  const DIM = "#7a6444";
+  const TR = (i) => RB(0) + i * ((1552.5 - RB(0)) / 15), SR = (i) => RB(0) + i * 66;   // first rows on the orders' and seating's baseline
+  const stat = (p) => !p ? ["Free", DIM] : p.leaving ? ["Leaving", "tan"] : p.waiting ? ["Awaiting", "butter"]
+    : p.lastOrder > -1e8 ? ["Served", "white"] : ["Seated", "peach"];
+  L.header({ x: FLX, y: 280, w: FLR - FLX, label: "Tables", c1: "peach", c2: "tan" });
+  L.text({ x: FLX, base: 400, s: 36, c: "tan", txt: "Window tier 1–6  ·  Main floor 7–16" });
+  UWP.tables = places.map((p, i) => ({ p,
+    nm: L.text({ x: FLX, base: TR(i), s: 36, c: p.kind === "window" ? "peach" : "tan", txt: p.label }),
+    n: L.text({ x: FLX + 160, base: TR(i), s: 36, c: "white", txt: "" }),
+    since: L.text({ x: FLX + 270, base: TR(i), s: 36, c: "tan", txt: "" }),
+    st: L.text({ x: FLR, base: TR(i), s: 36, c: DIM, txt: "", align: "r" }) }));
+  L.header({ x: FLX, y: 1620, w: FLR - FLX, label: "Party Sizes", c1: "tan", c2: "gold", h: 48 });
+  const PBX = FLX + 220, PBR = FLR - Math.ceil(L.textWidth("00", 36)) - L.GAP;   // the bars run up to their counts
+  UWP.sizes = ["Singles", "Pairs", "Parties of 3", "Parties of 4"].map((name, i) => {
+    L.text({ x: FLX, base: STRIP(i), s: 36, c: "peach", txt: name });
+    L.rect({ x: PBX, y: STRIP(i) - 22, w: PBR - PBX, h: 22, c: TRACK, free: true, noalign: true });   // free: else the tally names read as titles between bars
+    const f = fill(PBX, STRIP(i) - 22, PBR - PBX, 22, ["sand", "peach", "tan", "gold"][i], "tw");
+    tf(f, "scaleX(0)");
+    return { f, v: L.text({ x: FLR, base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }) };
+  });
+  UWP.avg = ["Average Party", "Longest Stay"].map((name, k) => {
+    L.text({ x: FLX, base: STRIP(4 + k), s: 36, c: "peach", txt: name });
+    return L.text({ x: FLR, base: STRIP(4 + k), s: 36, c: "white", txt: "", align: "r" });
+  });
+
+  L.header({ x: FRX, y: 280, w: FRR - FRX, label: "Bar Counter", c1: "gold", c2: "peach" });
+  L.text({ x: FRX, base: 400, s: 36, c: "tan", txt: "12 stools  ·  Host Guinan" });
+  UWP.stools = stools.map((s, i) => ({ s,
+    nm: L.text({ x: FRX, base: SR(i), s: 36, c: "gold", txt: `Stool ${i + 1}` }),
+    since: L.text({ x: FRX + 160, base: SR(i), s: 36, c: "tan", txt: "" }),
+    st: L.text({ x: FRR, base: SR(i), s: 36, c: DIM, txt: "", align: "r" }) }));
+  L.header({ x: FRX, y: 1288, w: FRR - FRX, label: "Deliveries This Shift", c1: "peach", c2: "tan" });
+  const DBX = FRX + 220, DBR = FRR - Math.ceil(L.textWidth("000", 36)) - L.GAP;
+  UWP.carry = [["Guinan", "lilac"], ["Ben", "white"], ["M. Ashby", "butter"]].map(([name, c], k) => {
+    L.text({ x: FRX, base: TR(13 + k), s: 36, c, txt: name });
+    L.rect({ x: DBX, y: TR(13 + k) - 22, w: DBR - DBX, h: 22, c: TRACK, noalign: true });
+    const f = fill(DBX, TR(13 + k) - 22, DBR - DBX, 22, c, "tw");
+    tf(f, "scaleX(0)");
+    return { name, f, v: L.text({ x: FRR, base: TR(13 + k), s: 36, c: "white", txt: "", align: "r" }) };
+  });
+  L.header({ x: FRX, y: 1620, w: FRR - FRX, label: "Drinks by Kind", c1: "gold", c2: "tan", h: 48 });
+  UWP.kind = ["Synthehol", "Non-Alcoholic", "Most Ordered", "Last Order", "Average Pour", "Longest Wait"].map((name, i) => {
+    L.text({ x: FRX, base: STRIP(i), s: 36, c: "peach", txt: name });
+    return L.text({ x: FRR, base: STRIP(i), s: 36, c: "white", txt: "", align: "r" });
+  });
+  const mins = (sec) => Math.max(0, Math.floor(sec / 60)) + " min";
+  UWP.show = (t) => {
+    for (const r of UWP.tables) {
+      const p = r.p.party, [w, c] = stat(p);
+      L.set(r.n, p ? `${p.size} / ${r.p.cap}` : `0 / ${r.p.cap}`); ink(r.n, p ? "white" : DIM);
+      L.set(r.since, p ? mins(t - p.since) : "");
+      L.set(r.st, w); ink(r.st, c);
+    }
+    for (const r of UWP.stools) {
+      const p = r.s.party, [w, c] = stat(p);
+      if (p) r.free = null; else if (r.free == null) r.free = r.was ? t : Math.min(t, -60 * (3 + 7 * r.s.i % 11));   // how long it has stood empty
+      r.was = !!p;
+      L.set(r.since, p ? mins(t - p.since) : "empty " + mins(t - r.free)); ink(r.since, p ? "tan" : DIM);
+      L.set(r.st, w); ink(r.st, c);
+    }
+    const here = parties.filter((p) => !p.leaving);
+    const n = [1, 2, 3, 4].map((k) => here.filter((p) => p.size === k).length);
+    UWP.sizes.forEach((r, i) => { tf(r.f, `scaleX(${(n[i] / Math.max(1, here.length)).toFixed(4)})`); L.set(r.v, String(n[i])); });
+    L.set(UWP.avg[0], here.length ? (here.reduce((a, p) => a + p.size, 0) / here.length).toFixed(1) + " guests" : "—");
+    L.set(UWP.avg[1], here.length ? mins(Math.max(...here.map((p) => t - p.since))) : "—");
+    const total = Math.max(1, tally.reduce((a, r) => a + r.n, 0));
+    UWP.carry.forEach((r) => { tf(r.f, `scaleX(${(delivered[r.name] / total).toFixed(4)})`); L.set(r.v, String(delivered[r.name])); });
+    const syn = tally.filter((r) => r.d.syn).reduce((a, r) => a + r.n, 0);
+    L.set(UWP.kind[0], String(syn));
+    L.set(UWP.kind[1], String(tally.reduce((a, r) => a + r.n, 0) - syn));
+    L.set(UWP.kind[2], tally.reduce((a, r) => (r.n > a.n ? r : a)).d.name);
+    L.set(UWP.kind[3], `No. ${orderNo - 1}`);
+    L.set(UWP.kind[4], (pourSum / Math.max(1, pours)).toFixed(1) + " s");
+    L.set(UWP.kind[5], queue.length ? Math.round(Math.max(...queue.map((o) => t - o.t0))) + " s" : "—");
+  };
 }
 
 // ---------------- the lounge as it stands when the screen comes up ----------------
@@ -425,6 +535,13 @@ let shiftNow = shiftOf(h0);
 }
 logRows.forEach((r, i) => { const e = logged[i] || ["", ""]; L.set(r.tm, e[0]); L.set(r.tx, e[1]); });
 seedTally(h0);
+const seedCarry = () => {                                  // who carried what has been poured so far this shift
+  const total = tally.reduce((a, r) => a + r.n, 0);
+  delivered.Guinan = Math.round(total * 0.3); delivered.Ben = Math.round(total * 0.35);
+  delivered["M. Ashby"] = total - delivered.Guinan - delivered.Ben;
+};
+seedCarry();
+pours = 1; pourSum = 7.75;                                 // the mean of a pour, until the first is timed
 let syn = L.rand(0.62, 0.86), refilling = false, rep = 0.2;
 for (let k = 0; k < 5; k++) {
   const c = parties.filter((p) => !p.waiting);
@@ -435,7 +552,7 @@ showHours(h0); showEvents(h0);
 // ---------------- serving ----------------
 const serve = (o, by) => {
   o.p.waiting = false; showParty(o.p);
-  const r = tally.find((r) => r.d === o.d); r.n += o.n;
+  const r = tally.find((r) => r.d === o.d); r.n += o.n; delivered[by] += o.n;
   if (o.d.syn) syn -= 0.004 * o.n;
   log(`${o.p.label}  ·  ${o.n} ${o.d.name}  ·  ${by}`);
 };
@@ -481,7 +598,7 @@ L.tick((t) => {
   // the order at the head: poured, handed out, and the rest move up
   const o = queue[0];
   if (head.phase === "idle" && o && settled(o.row, t)) {
-    head.phase = "pour"; head.t0 = t; head.dur = L.rand(6, 9.5);
+    head.phase = "pour"; head.t0 = t; head.dur = L.rand(6, 9.5); pours++; pourSum += head.dur;
     tf(pourFill, "scaleX(0)"); op(pourFill, 1);
     moveGuinan(o.d.bx, t); guinan.task = "Pouring";
   } else if (head.phase === "pour") {
@@ -577,25 +694,28 @@ L.every(250, (t) => {
   rep += ((head.phase === "pour" ? 0.64 : 0.21) - rep) * 0.12;
   recycle += (0.16 - recycle) * 0.012;
   const light = 0.42 + 0.3 * (0.5 - 0.5 * Math.cos((2 * Math.PI * (h - 3)) / 24));
+  if (SYS) {
   showGauge(SYS.syn, syn, Math.round(syn * 100) + "%");
   showGauge(SYS.rep, rep, Math.round(rep * 100) + "%");
   showGauge(SYS.rec, recycle, Math.round(recycle * 100) + "%");
   showGauge(SYS.light, light, Math.round(light * 100) + "%");
   showGauge(SYS.stock, 9 / 24, "9 / 24");
+  }
   // what has been served; the scale steps up in round fifties when the leader nears the end
   const top = Math.max(...tally.map((r) => r.n));
   if (top > 0.92 * tallyScale || tallyScale > 2 * Math.max(top, 40)) tallyScale = Math.max(50, Math.ceil((top * 1.25) / 50) * 50);
-  tally.forEach((r) => { tf(r.f, `scaleX(${(r.n / tallyScale).toFixed(4)})`); L.set(r.v, String(r.n)); });
+  if (!UP) tally.forEach((r) => { tf(r.f, `scaleX(${(r.n / tallyScale).toFixed(4)})`); L.set(r.v, String(r.n)); });
   // the staff
   L.set(staff[0], guinan.task || "Behind the Bar");
   SERVERS.forEach((s, i) => L.set(staff[1 + i], SV_TXT[s.state](s)));
   L.set(staff[3], clearing && t < clearing.until ? `Clearing ${clearing.label}` : "Glass Recycler");
   // the hours
+  if (UWP.show) UWP.show(t);
   tf(live, `translate3d(${(Math.floor(h) * HP).toFixed(2)}px,0,0) scaleY(${(all / SEATS).toFixed(4)})`);
 }, 0);
 L.every(1000, () => {
   const h = hours(), s = shiftOf(h);
-  if (s !== shiftNow) { shiftNow = s; tally.forEach((r) => (r.n = 0)); log(`${s} shift has the watch`); }
+  if (s !== shiftNow) { shiftNow = s; tally.forEach((r) => (r.n = 0)); seedCarry(); log(`${s} shift has the watch`); }
   showHours(h); showEvents(h);
   L.set(hCap, `Ship's time ${hhmm()}  ·  ${s} shift on watch`);
 }, 0);

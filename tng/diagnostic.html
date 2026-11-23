@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Level 1 Diagnostic</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .pill { transition: background-color 1.2s ease; }
@@ -11,10 +12,21 @@
 const L = LCARS;
 L.ready(() => {
 
+// Three layouts. Wide (3840×2160) is the original, hand-placed. Upright (2160×3120): the test matrix
+// across the top at its wide size; below it the sequence (narrower columns, 72 apart) beside the
+// computer core and diagnostic time, then the current test beside the anomalies on one baseline
+// grid, and the log full width (its newest five entries). Ultrawide (5040×2160): the wide sequence
+// and log unchanged at the left, a new column beside them (the diagnostic schedule: each subsystem's
+// window on a 3 h 40 m timeline, on the sequence's rows, and the matrix's test response counted
+// below it), then the matrix and its four panels at their wide sizes.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+
 // ---------------- the frame, mirrored: sidebar on the right, title at top left ----------------
+const TITLE = "Main Computer  •  Level 1 Diagnostic";
+let b;
+if (L.shape === "wide") {
 const BAR = 64, TS = BAR / (L.BASELINE - L.CAP_TOP);
 L.box({ x: 40, y: 40, w: 92, h: BAR, c: "peach", r: "l" });
-const TITLE = "Main Computer  •  Level 1 Diagnostic";
 const titleEl = L.text({ x: 132 + L.GAP, cap: 40, s: TS, c: "sky", txt: TITLE });
 const afterTitle = 132 + L.GAP + titleEl.offsetWidth + L.GAP;          // the page's own width, not the canvas's
 L.rect({ x: afterTitle, y: 40, w: 320, h: BAR, c: "peach" });
@@ -29,6 +41,13 @@ L.box({ x: 40, y: 2056, w: 92, h: BAR, c: "blue", r: "l" });
 // the bottom bar breaks in the middle of the content's gutters (1660 | 1720, 2560 | 2620)
 [[132 + L.GAP, 856, "peach"], [856 + L.GAP, 1678, "sky"], [1678 + L.GAP, 2600 - L.GAP, "blue"]]
   .forEach(([x0, x1, c]) => L.rect({ x: x0, y: 2056, w: x1 - x0, h: BAR, c }));
+b = { x0: 40, x1: 3520, y0: 140, y1: 2010 };
+} else {
+  // the same frame, drawn by the kit for this shape: type B, the same colours and sidebar labels
+  b = L.frame({ type: "B", title: TITLE, c: "sky", c2: "blue", accent: "peach", foot: "Main Computer",
+    side: [[140, "ice", "Diag 01"], [70, "peach", "Level 1"], [420, "sky", "Sequence"], [70, "blue", "Matrix"],
+           [300, "ice", "Cores"], [70, "peach", "Log"], [216, "sky", "Results"]] });
+}
 
 const header = (x, y, w, label, c1, c2, h = 56, fs = 32) => {
   const lw = Math.round((L.textWidth(label, fs) + 64) / 10) * 10;
@@ -56,6 +75,12 @@ const TRACK = "#14223a";
 // The grid: the sequence on the left, 40–1660; the matrix on the right, 1720–3520, and below it
 // two panels split at 2560 | 2620. The bottom strip uses the same three edges.
 const AR = 1660, BX = 1720, CR = 2560, DX = 2620, RR = 3520;
+// Per shape: the matrix (MX0–MX1), the current test (CX), the core (KX), the anomalies (NX), the
+// time (TX), the sequence's right edge (SR) and the log's (LR). Wide: exactly the values above.
+const SH = UW ? 1200 : 0;                                       // ultrawide: the matrix block moves out 1200
+const MX0 = UP ? 40 : BX + SH, MX1 = UP ? b.x1 : RR + SH;
+const CX = UP ? [40, 1120] : [BX + SH, CR + SH], KX = UP ? [1180, b.x1] : [DX + SH, RR + SH];
+const NX = UP ? [1180, b.x1] : CX, TX = KX, SR = UP ? 1120 : AR, LR = UP ? b.x1 : AR;
 
 // ---------------- the diagnostic: twelve subsystems, run in order ----------------
 // [name, minutes, tests a second, unit, its plural, first unit number, where, procedures, fault]
@@ -130,8 +155,8 @@ const RESC = { Pass: "sky", Complete: "ice", Begun: "peach", Flagged: "mars", Re
 function logEvent(at, txt, sys, res) {
   logged.push([hms(at), txt, sys, res]);
   if (logged.length > 6) logged.shift();
-  if (logRows) logRows.forEach((r, i) => {
-    const e = logged[i] || ["", "", "", ""];
+  if (logRows) logRows.forEach((r, i) => {                  // fewer rows than entries: the newest, in order
+    const e = logged[i + Math.max(0, logged.length - logRows.length)] || ["", "", "", ""];
     put(r.at, e[0]); put(r.tx, e[1]); put(r.sys, e[2]); put(r.res, e[3]); if (e[3]) tint(r.res, RESC[e[3]]);
   });
 }
@@ -142,24 +167,26 @@ const begunMsg = (s) => `Begun  ·  ${fmt(s.tests)} tests scheduled`, doneMsg = 
 const stateTxt = L.text({ x: 40, cap: 150, s: 100, c: "sky", txt: "Diagnostic Running", cls: "tint" });
 const SUBX = 40 + L.textWidth("Diagnostic Complete", 100) + 40;
 const stateSub = L.text({ x: SUBX, base: 222, s: 38, c: "peach", txt: "" });
-L.box({ x: RR - 400, y: 150, w: 400, h: 72, c: "sky", label: "Cores 1 – 3 On-Line", r: "lr", fs: 36 });
+L.box({ x: MX1 - 400, y: 150, w: 400, h: 72, c: "sky", label: "Cores 1 – 3 On-Line", r: "lr", fs: 36 });
 
 // ---------------- the sequence: every subsystem, its tests, its state ----------------
-header(40, 280, AR - 40, "Diagnostic Sequence", "sky", "blue");
-const TC = { run: 880, sched: 1100, bar: 1140, barR: 1400, pill: 1430 };
-const ROW0 = 428, PITCH = 96, rowBase = (i) => ROW0 + i * PITCH + 52.5;
-[["Subsystem", 40, "l"], ["Tests Run", TC.run, "r"], ["Scheduled", TC.sched, "r"], ["Progress", TC.bar, "l"], ["Status", TC.pill, "l"]]
-  .forEach(([txt, x, align]) => L.text({ x, base: 400, s: 36, c: "sky", txt, align }));
+const BH = UP ? 20 : 26;                                        // upright: thinner bars, so the core's labels read as text
+const SY = UP ? 1000 : 280;                                     // its header (upright: under the matrix)
+header(40, SY, SR - 40, "Diagnostic Sequence", "sky", "blue");
+const TC = UP ? { run: 590, sched: 750, bar: 790, barR: 920, pill: 950 } : { run: 880, sched: 1100, bar: 1140, barR: 1400, pill: 1430 };
+const ROW0 = UP ? 1148 : 428, PITCH = UP ? 72 : 96, rowBase = (i) => ROW0 + i * PITCH + 52.5;
+[["Subsystem", 40, "l"], ["Tests Run", TC.run, "r"], ["Scheduled", TC.sched, "r"], ["Progress", TC.bar, "l"], (UP ? ["Status", SR, "r"] : ["Status", TC.pill, "l"])]
+  .forEach(([txt, x, align]) => L.text({ x, base: UP ? 1120 : 400, s: 36, c: "sky", txt, align }));
 const PILLC = { Complete: "sky", Running: "peach", Queued: "slate" };
 const tree = SUBS.map((s, i) => {
   const y = ROW0 + i * PITCH, base = rowBase(i);
-  L.box({ x: 40, y, w: 560, h: 64, c: i % 2 ? "ice" : "sky", label: s.name, fs: 32, r: "l" });
-  L.rect({ x: TC.bar, y: base - 26, w: TC.barR - TC.bar, h: 26, c: TRACK });
+  L.box({ x: 40, y, w: UP ? 340 : 560, h: 64, c: i % 2 ? "ice" : "sky", label: s.name, fs: 32, r: "l" });
+  L.rect({ x: TC.bar, y: base - BH, w: TC.barR - TC.bar, h: BH, c: TRACK });
   L.text({ x: TC.sched, base, s: 40, c: "sky", txt: fmt(s.tests), align: "r" });
   return {
     run: L.text({ x: TC.run, base, s: 52, c: "white", txt: "", align: "r", cls: "tint" }),
-    bar: fill(TC.bar, base - 26, TC.barR - TC.bar, 26, "sky"),
-    pill: L.box({ x: TC.pill, y, w: AR - TC.pill, h: 64, c: "slate", label: "Queued", fs: 32, r: "lr", cls: "pill" }),
+    bar: fill(TC.bar, base - BH, TC.barR - TC.bar, BH, "sky"),
+    pill: L.box({ x: TC.pill, y, w: SR - TC.pill, h: 64, c: "slate", label: "Queued", fs: 32, r: "lr", cls: "pill" }),
     state: "", shown: -1,
   };
 });
@@ -169,15 +196,16 @@ const setRow = (i, st) => {
   r.state = st;
   r.pill.textContent = st; r.pill.style.background = `var(--${PILLC[st]})`;
   r.bar.style.background = `var(--${st === "Running" ? "peach" : "sky"})`;
+  if (r.tl) r.tl.style.background = r.bar.style.background;
   tint(r.run, st === "Queued" ? "slate" : st === "Running" ? "white" : "ice");
 };
 
 // ---------------- the test matrix: the block being tested, cell by cell ----------------
-header(BX, 280, RR - BX, "Test Matrix", "peach", "navy");
-const matrixL = L.text({ x: BX, base: 400, s: 36, c: "peach", txt: "" });
-const matrixR = L.text({ x: RR, base: 400, s: 36, c: "sky", txt: "", align: "r" });
-const GX = BX, GY = 428, PX = (RR - BX) / NC, PY = 26, CW = PX - 6, CH = PY - 6;
-const GW = RR - BX, GH = (NR - 1) * PY + CH;
+header(MX0, 280, MX1 - MX0, "Test Matrix", "peach", "navy");
+const matrixL = L.text({ x: MX0, base: 400, s: 36, c: "peach", txt: "" });
+const matrixR = L.text({ x: MX1, base: 400, s: 36, c: "sky", txt: "", align: "r" });
+const GX = MX0, GY = 428, PX = (MX1 - MX0) / NC, PY = 26, CW = PX - 6, CH = PY - 6;
+const GW = MX1 - MX0, GH = (NR - 1) * PY + CH;
 L.rect({ x: GX, y: GY, w: GW, h: GH, c: "#000", noalign: true });       // (the audit's outline of the grid)
 const DARK = ["#121c40", "#15214a", "#18264f", "#131e44"];
 for (let c = 0; c < NC; c++) for (let r = 0; r < NR; r++)
@@ -230,12 +258,15 @@ const showMatrix = (col, row, op, live) => {
 };
 
 // ---------------- the current test ----------------
-header(BX, 1000, CR - BX, "Current Test", "sky", "blue");
+// upright: under the sequence, on one baseline grid with the anomalies beside it
+header(CX[0], UP ? 2080 : 1000, CX[1] - CX[0], "Current Test", "sky", "blue");
 const CT = [1112, 1197, 1282, 1366, 1451, 1536.5];   // the last row shares the sequence's last baseline
-const procTxt = L.text({ x: BX, base: CT[0], s: 52, c: "butter", txt: "" });
+const B3 = [2192, 2264, 2336, 2408, 2480, 2552];     // upright: the current test's and anomalies' baselines
+const CTB = UP ? B3 : CT;
+const procTxt = L.text({ x: CX[0], base: CTB[0], s: 52, c: "butter", txt: "" });
 const ctVals = ["Test", "Location", "Expected", "Measured", "Result"].map((name, i) => {
-  L.text({ x: BX, base: CT[i + 1], s: 40, c: "sky", txt: name });
-  return L.text({ x: CR, base: CT[i + 1], s: 52, c: "white", txt: "", align: "r", cls: "tint" });
+  L.text({ x: CX[0], base: CTB[i + 1], s: 40, c: "sky", txt: name });
+  return L.text({ x: CX[1], base: CTB[i + 1], s: 52, c: "white", txt: "", align: "r", cls: "tint" });
 });
 const [ctNo, ctAt, ctExp, ctMeas, ctRes] = ctVals;
 const judge = (spec, bad) => {                                 // what was expected, what was read, as text
@@ -260,56 +291,106 @@ const showTest = (w, s, id, bad) => {
 };
 
 // ---------------- computer core ----------------
-header(DX, 1000, RR - DX, "Computer Core", "ice", "navy");
-const KC = { bar: 2780, barR: 3160, load: 3340 };
-[["Core", DX, "l"], ["Processing Load", KC.bar, "l"], ["Temp", RR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: 1112, s: 36, c: "ice", txt, align }));
+// upright: beside the sequence, its rows on the sequence's first five baselines
+header(KX[0], 1000, KX[1] - KX[0], "Computer Core", "ice", "navy");
+const KC = UP ? { bar: 1340, barR: 1500, load: 1650 } : { bar: 2780 + SH, barR: 3160 + SH, load: 3340 + SH };
+const KB = UP ? [1120, ...[0, 1, 2, 3, 4].map(rowBase)] : CT;
+[["Core", KX[0], "l"], ["Processing Load", KC.bar, "l"], ["Temp", KX[1], "r"]].forEach(([txt, x, align]) => L.text({ x, base: KB[0], s: 36, c: "ice", txt, align }));
 const CORES = [["Core 1", 0.44], ["Core 2", 0.39], ["Core 3", 0.21]].map(([name, base], i) => {
-  const b = CT[i + 1];
-  L.text({ x: DX, base: b, s: 40, c: "ice", txt: name });
-  L.rect({ x: KC.bar, y: b - 26, w: KC.barR - KC.bar, h: 26, c: TRACK });
-  return { base, u: base, goal: base, f: fill(KC.bar, b - 26, KC.barR - KC.bar, 26, i === 2 ? "ice" : "sky"),
-           v: L.text({ x: KC.load, base: b, s: 52, c: "white", txt: "", align: "r" }), tp: L.text({ x: RR, base: b, s: 52, c: "white", txt: "", align: "r" }) };
+  const b = KB[i + 1];
+  L.text({ x: KX[0], base: b, s: 40, c: "ice", txt: name });
+  L.rect({ x: KC.bar, y: b - BH, w: KC.barR - KC.bar, h: BH, c: TRACK });
+  return { base, u: base, goal: base, f: fill(KC.bar, b - BH, KC.barR - KC.bar, BH, i === 2 ? "ice" : "sky"),
+           v: L.text({ x: KC.load, base: b, s: 52, c: "white", txt: "", align: "r" }), tp: L.text({ x: KX[1], base: b, s: 52, c: "white", txt: "", align: "r" }) };
 });
-L.text({ x: DX, base: CT[4], s: 40, c: "ice", txt: "Subspace Field" });
-const fieldTxt = L.text({ x: RR, base: CT[4], s: 52, c: "white", txt: "", align: "r" });
-L.text({ x: DX, base: CT[5], s: 40, c: "ice", txt: "Test Rate" });
-const rateTxt = L.text({ x: RR, base: CT[5], s: 52, c: "white", txt: "", align: "r" });
+L.text({ x: KX[0], base: KB[4], s: 40, c: "ice", txt: "Subspace Field" });
+const fieldTxt = L.text({ x: KX[1], base: KB[4], s: 52, c: "white", txt: "", align: "r" });
+L.text({ x: KX[0], base: KB[5], s: 40, c: "ice", txt: "Test Rate" });
+const rateTxt = L.text({ x: KX[1], base: KB[5], s: 52, c: "white", txt: "", align: "r" });
 
 // ---------------- diagnostic log ----------------
-header(40, 1620, AR - 40, "Diagnostic Log", "sky", "navy", 48, 28);
-const LC = { tx: 230, sys: 1100 };
-logRows = Array.from({ length: 6 }, (_, i) => {
-  const base = 1734 + i * 54;
+// upright: full width at the foot, its newest five entries; the system column on the core's edge
+const LY = UP ? 2634 : 1620;
+header(40, LY, LR - 40, "Diagnostic Log", "sky", "navy", 48, 28);
+const LC = { tx: 230, sys: UP ? 1180 : 1100 };
+logRows = Array.from({ length: UP ? 5 : 6 }, (_, i) => {
+  const base = LY + 114 + i * 54;
   return { at: L.text({ x: 40, base, s: 36, c: "sky", txt: "" }), tx: L.text({ x: LC.tx, base, s: 36, c: "ice", txt: "" }),
            sys: L.text({ x: LC.sys, base, s: 36, c: "peach", txt: "" }),
-           res: L.text({ x: AR, base, s: 36, c: "sky", txt: "", align: "r", cls: "tint" }) };
+           res: L.text({ x: LR, base, s: 36, c: "sky", txt: "", align: "r", cls: "tint" }) };
 });
 
 // ---------------- anomalies ----------------
-header(BX, 1620, CR - BX, "Anomalies", "peach", "sky", 48, 28);
+// upright: beside the current test, the same header height and the same baselines
+const NB = UP ? B3 : [1734, 1788, 1842, 1896, 1950, 2004];
+if (UP) header(NX[0], 2080, NX[1] - NX[0], "Anomalies", "peach", "sky");
+else header(NX[0], 1620, NX[1] - NX[0], "Anomalies", "peach", "sky", 48, 28);
 const AN = [0, 1, 2].map((i) => {
-  const base = 1734 + i * 54;
-  L.text({ x: BX, base, s: 36, c: "peach", txt: ["Found This Run", "Repaired", "Outstanding"][i] });
-  return L.text({ x: CR, base, s: 36, c: "white", txt: "", align: "r", cls: "tint" });
+  const base = NB[i];
+  L.text({ x: NX[0], base, s: 36, c: "peach", txt: ["Found This Run", "Repaired", "Outstanding"][i] });
+  return L.text({ x: NX[1], base, s: 36, c: "white", txt: "", align: "r", cls: "tint" });
 });
-const anWhat = L.text({ x: BX, base: 1896, s: 36, c: "white", txt: "" });
-const anState = L.text({ x: CR, base: 1896, s: 36, c: "ice", txt: "", align: "r", cls: "tint" });
-const anFault = L.text({ x: BX, base: 1950, s: 36, c: "sky", txt: "" });
-const anAt = L.text({ x: CR, base: 1950, s: 36, c: "sky", txt: "", align: "r" });
-const anFix = L.text({ x: BX, base: 2004, s: 36, c: "sky", txt: "" });
-const anDone = L.text({ x: CR, base: 2004, s: 36, c: "sky", txt: "", align: "r" });
+const anWhat = L.text({ x: NX[0], base: NB[3], s: 36, c: "white", txt: "" });
+const anState = L.text({ x: NX[1], base: NB[3], s: 36, c: "ice", txt: "", align: "r", cls: "tint" });
+const anFault = L.text({ x: NX[0], base: NB[4], s: 36, c: "sky", txt: "" });
+const anAt = L.text({ x: NX[1], base: NB[4], s: 36, c: "sky", txt: "", align: "r" });
+const anFix = L.text({ x: NX[0], base: NB[5], s: 36, c: "sky", txt: "" });
+const anDone = L.text({ x: NX[1], base: NB[5], s: 36, c: "sky", txt: "", align: "r" });
 
 // ---------------- diagnostic time ----------------
-header(DX, 1620, RR - DX, "Diagnostic Time", "ice", "blue", 48, 28);
+// upright: under the core, on the sequence's rows 8–11, the total bar on the last row by itself
+const TY = UP ? 1580 : 1620, TMB = UP ? [7, 8, 9, 10].map(rowBase) : [0, 1, 2, 3].map((i) => 1734 + i * 90);
+header(TX[0], TY, TX[1] - TX[0], "Diagnostic Time", "ice", "blue", 48, 28);
 const TM = ["Elapsed", "Remaining", "Estimated Total", "Complete"].map((name, i) => {
-  const base = 1734 + i * 90;
-  L.text({ x: DX, base, s: 40, c: "ice", txt: name });
-  return L.text({ x: RR, base, s: 52, c: "white", txt: "", align: "r" });
+  const base = TMB[i];
+  L.text({ x: TX[0], base, s: 40, c: "ice", txt: name });
+  return L.text({ x: TX[1], base, s: 52, c: "white", txt: "", align: "r" });
 });
-const TB = { x: 2900, r: 3300 };
-L.rect({ x: TB.x, y: 2004 - 26, w: TB.r - TB.x, h: 26, c: TRACK });
-const totalBar = fill(TB.x, 2004 - 26, TB.r - TB.x, 26, "peach");
+const TB = UP ? { x: TX[0], r: TX[1], base: rowBase(11) } : { x: 2900 + SH, r: 3300 + SH, base: 2004 };
+L.rect({ x: TB.x, y: TB.base - BH, w: TB.r - TB.x, h: BH, c: TRACK });
+const totalBar = fill(TB.x, TB.base - BH, TB.r - TB.x, BH, "peach");
 put(TM[2], hms(TOTAL));
+
+// ---------------- ultrawide: the diagnostic schedule and the test response ----------------
+// The new column between the sequence and the matrix (1720–2860). Above: each subsystem's window
+// of the 3 h 40 m run on the sequence's own rows, filled as it runs, a cursor at the run's time.
+// Below: the block on the matrix counted by shade, so the bars agree with the cells shown.
+const SC = { x0: 1720, x1: 2860 }, scX = (u) => SC.x0 + (u / TOTAL) * (SC.x1 - SC.x0);
+let schedCursor = null, response = null;
+if (UW) {
+  header(SC.x0, 280, SC.x1 - SC.x0, "Diagnostic Schedule", "ice", "blue");
+  [0, 1, 2, 3].forEach((h) => {                                  // the hours, and where the run ends
+    L.text({ x: scX(h * 3600), base: 400, s: 36, c: "ice", txt: hms(h * 3600).slice(0, 5), align: h ? "c" : "l", legend: true });
+    if (h) L.rect({ x: scX(h * 3600) - 1, y: ROW0, w: 2, h: 11 * PITCH + 64, c: "#1c2a48", free: true });
+  });
+  L.text({ x: SC.x1, base: 400, s: 36, c: "ice", txt: hms(TOTAL).slice(0, 5), align: "r", legend: true });
+  SUBS.forEach((s, i) => {
+    const base = rowBase(i), x0 = scX(s.start), x1 = scX(s.start + s.dur);
+    L.rect({ x: SC.x0, y: base - 26, w: SC.x1 - SC.x0, h: 26, c: TRACK });
+    L.rect({ x: x0, y: base - 26, w: x1 - x0, h: 26, c: "#24386c" });
+    tree[i].tl = fill(x0, base - 26, x1 - x0, 26, "sky");
+  });
+  schedCursor = fill(SC.x0 - 2, ROW0 - 8, 4, 11 * PITCH + 64 + 16, "butter");
+
+  header(SC.x0, 1620, SC.x1 - SC.x0, `Test Response  ·  Block of ${fmt(NCELL)} Cells`, "peach", "navy", 48, 28);
+  const RB = { x: SC.x0 + 300, r: SC.x1 - 150 };   // the bars run up to their counts (the block's size is in the header)
+  response = [["Quick", "blue"], ["Slower", "sky"], ["Slowest", "ice"], ["Cells Tested", "peach"]].map(([name, c], i) => {
+    const base = 1734 + i * 90;
+    L.text({ x: SC.x0, base, s: 40, c: i < 3 ? c : "ice", txt: name });
+    L.rect({ x: RB.x, y: base - 26, w: RB.r - RB.x, h: 26, c: TRACK });
+    return { f: fill(RB.x, base - 26, RB.r - RB.x, 26, c), v: L.text({ x: SC.x1, base, s: 52, c: "white", txt: "", align: "r" }), shown: -1 };
+  });
+}
+// how many of the block's cells are tested, by shade (the matrix fills column by column)
+const showResponse = (w) => {
+  const n = w.done ? NCELL : Math.min(NCELL, w.cell), k = [0, 0, 0];
+  for (let i = 0; i < n; i++) { const t = tones[Math.floor(i / NR)][i % NR]; k[t === "var(--blue)" ? 0 : t === "var(--sky)" ? 1 : 2]++; }
+  [...k, n].forEach((x, i) => {
+    const r = response[i];
+    put(r.v, fmt(x));
+    if (r.shown !== x) { r.shown = x; r.f.style.transform = `scaleX(${(x / NCELL).toFixed(4)})`; }
+  });
+};
 
 // ---------------- anomalies: found, flagged on the matrix, repaired ----------------
 // One was found earlier in this run; up to two more turn up while the screen is watched.
@@ -349,13 +430,13 @@ showCounts();
   for (const s of SUBS) {
     const id = cellId(s, s.blocks - 1, NC - 1, NR - 1);
     for (const [p, spec] of s.procs) {
-      if (L.textWidth(p.replace("{id}", id), 52) > CR - BX) bad.push(`procedure "${p}"`);
+      if (L.textWidth(p.replace("{id}", id), 52) > CX[1] - CX[0]) bad.push(`procedure "${p}"`);
       const [e] = judge(spec, false);
-      if (L.textWidth(e, 52) + L.textWidth("Expected", 40) + 60 > CR - BX) bad.push(`expected "${e}"`);
+      if (L.textWidth(e, 52) + L.textWidth("Expected", 40) + 60 > CX[1] - CX[0]) bad.push(`expected "${e}"`);
     }
-    if (L.textWidth(`${s.where}  ·  ${s.unit} ${id}`, 52) + L.textWidth("Location", 40) + 60 > CR - BX) bad.push(`location of ${s.name}`);
-    if (L.textWidth(`${s.unit} ${id}  ·  ${s.name}`, 36) + L.textWidth("Repaired", 36) + 60 > CR - BX) bad.push(`anomaly of ${s.name}`);
-    if (L.textWidth(s.fault[1], 36) > CR - BX) bad.push(`fix of ${s.name}`);
+    if (L.textWidth(`${s.where}  ·  ${s.unit} ${id}`, 52) + L.textWidth("Location", 40) + 60 > CX[1] - CX[0]) bad.push(`location of ${s.name}`);
+    if (L.textWidth(`${s.unit} ${id}  ·  ${s.name}`, 36) + L.textWidth("Repaired", 36) + 60 > NX[1] - NX[0]) bad.push(`anomaly of ${s.name}`);
+    if (L.textWidth(s.fault[1], 36) + (UP ? L.textWidth("Repaired 00:00:00", 36) + 60 : 0) > NX[1] - NX[0]) bad.push(`fix of ${s.name}`);
   }
   if (bad.length) setTimeout(() => { throw new Error("diagnostic: too wide: " + bad.join(" | ")); });
 }
@@ -386,6 +467,7 @@ L.tick((t) => {
     const p = w.done || i < w.k ? 1 : i === w.k ? w.p : 0;
     if (Math.abs(p - r.shown) < 0.0004) return;
     r.shown = p; r.bar.style.transform = `scaleX(${p.toFixed(4)})`;
+    if (r.tl) r.tl.style.transform = r.bar.style.transform;
   });
   // the matrix
   if (w.done) showMatrix(NC, 0, 1, false);
@@ -449,6 +531,7 @@ L.every(250, (t) => {
     put(matrixR, `${s.units} ${pad(unitNo(s, w.b, 0), 4)} – ${pad(unitNo(s, w.b, NC - 1), 4)}  ·  Rows A – T`);
     put(ctNo, `No. ${fmt(Math.floor(w.p * s.tests) + 1)}`);
   }
+  if (response) showResponse(w);
   const anomaly = active && active.phase < 2;
   put(stateTxt, w.done ? "Diagnostic Complete" : anomaly ? "Anomaly Flagged" : "Diagnostic Running");
   tint(stateTxt, w.done ? "ice" : anomaly ? "peach" : "sky");
@@ -460,6 +543,7 @@ L.every(1000, (t) => {
   const el = Math.min(w.u, TOTAL);
   put(TM[0], hms(el)); put(TM[1], hms(TOTAL - el)); put(TM[3], ((el / TOTAL) * 100).toFixed(1) + "%");
   totalBar.style.transform = `scaleX(${(el / TOTAL).toFixed(4)})`;
+  if (schedCursor) css(schedCursor, "transform", `translate3d(${(scX(el) - SC.x0).toFixed(1)}px,0,0)`);
   CORES.forEach((c, i) => {
     const busy = !w.done && w.k === i ? 0.3 : 0;
     c.goal = L.clamp(c.base + (w.done ? 0 : 0.06) + busy + wave(t, 0.02, 0.11, i * 2), 0.1, 0.95);

@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Archaeology</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .band { position: absolute; }
@@ -13,12 +14,26 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame, mirrored: sidebar on the right, title at top left ----------------
-L.frame({ type: "B", title: "Archaeology  •  Excavation Site", c: "gold", c2: "peach", accent: "tan", foot: "Archaeology",
+const B = L.frame({ type: "B", title: "Archaeology  •  Excavation Site", c: "gold", c2: "peach", accent: "tan", foot: "Archaeology",
   side: [[140, "gold", "Sci 04"], [70, "peach", "Grid"], [420, "gold", "Excavation"], [70, "butter", "Finds"],
          [300, "peach", "Strata"], [70, "tan", "Lab"], [216, "gold", "Survey"]] });
 
-// the grid and the section 40–2240, the right-hand column 2300–3520
-const M0 = 40, M1 = 2240, R0 = 2300, R1 = 3520;
+// ---------------- the layout, per shape ----------------
+// The data, readings and motion below are written once; only these positions differ by shape.
+// wide (3840 × 2160): the grid and the section 40–2240, the right-hand column 2300–3520 (catalog,
+//   stratigraphy, totals, lab).
+// upright (2160 × 3120): the grid full width (squares 128 on a 144 pitch), teams under it, the
+//   section under the grid's columns; then the catalog (40–960) beside the stratigraphy (1020–1840)
+//   on one 72 px row grid, the totals on the catalog's last row; the lab full width at the foot.
+// ultrawide (5040 × 2160): wide's layout unchanged, plus a fourth column 3580–4720: a field log on
+//   the catalog's rows, finds by stratum on the stratigraphy's rows, the lab's sample counts on the
+//   totals line, and finds by material on the lab's rows.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const M0 = 40, M1 = UP ? B.x1 : 2240, R0 = 2300, R1 = 3520;
+const CX0 = UP ? M0 : R0, CX1 = UP ? 960 : R1;            // the catalog
+const SX0 = UP ? 1020 : R0, SX1 = UP ? B.x1 : R1;         // the stratigraphy
+const LX0 = UP ? M0 : R0, LX1 = UP ? B.x1 : R1;           // the lab
+const CATY = UP ? 1848 : 280, STY = UP ? 1848 : 1000, LBY = UP ? 2540 : 1620, SECY = UP ? 1380 : 1620;
 const TRACK = "#2a2016", EARTH = "#3a2c1d";
 const fmt = (n) => n.toLocaleString("en");
 const pad = (n, k) => String(n).padStart(k, "0");
@@ -56,7 +71,7 @@ const METHOD = { Charcoal: "Radiocarbon", Organic: "Radiocarbon", Bone: "Radioca
 const SWEIGHT = [0, 2, 3, 7, 2];
 
 // ---------------- the grid: 11 squares a row, a window of six rows onto the trench ----------------
-const GX = 232, P = 184, SQ = 168, NC = 11, NR = 6, GY = 428, WORK = 3;   // rows above WORK are finished
+const GX = UP ? 272 : 232, P = UP ? 144 : 184, SQ = UP ? 128 : 168, NC = 11, NR = 6, GY = 428, WORK = 3;   // rows above WORK are finished
 const DK = SQ / MAXD;
 const LET = "ABCDEFGHIJK";
 const sqX = (c) => GX + c * P;
@@ -82,8 +97,8 @@ const makeFinds = (bs, target) => {
 const rows = [];
 const makeRow = (lay) => {
   const e = L.layer({ x: M0, y: GY, w: M1 - M0, h: SQ });
-  const label = L.text({ x: GX - 24 - M0, base: 74, s: 40, c: "tan", txt: "", align: "r", rightIn: true }, e);
-  const state = L.text({ x: GX - 24 - M0, base: 128, s: 36, c: "gold", txt: "", align: "r", rightIn: true }, e);
+  const label = L.text({ x: GX - 24 - M0, base: UP ? 62 : 74, s: 40, c: "tan", txt: "", align: "r", rightIn: true }, e);
+  const state = L.text({ x: GX - 24 - M0, base: UP ? 110 : 128, s: 36, c: "gold", txt: "", align: "r", rightIn: true }, e);
   const row = { e, label, state, lay, y: lay * P, squares: [] };
   for (let c = 0; c < NC; c++) {
     const x = sqX(c) - M0;
@@ -172,13 +187,14 @@ teams.forEach((tm, i) => {
 const entry = ([sq, f]) => ({ no: ++catNo, obj: f.obj, mat: f.mat, sq: name(sq), d: Math.round(f.d), s: f.s });
 finds0.slice(-7).forEach((x) => catalog.push(entry(x)));
 
-L.header({ x: R0, y: 280, w: R1 - R0, label: "Artifact Catalog", c1: "peach", c2: "gold" });
-const CC = { obj: 164, mat: 560, sq: 790, d: 1010, s: R1 - R0 };
+const PILLW = 300;                                        // upright: the finds pill ends the catalog's header
+L.header({ x: CX0, y: CATY, w: UP ? CX1 - CX0 - L.GAP - PILLW : R1 - R0, label: "Artifact Catalog", c1: "peach", c2: "gold" });
+const CC = UP ? { obj: 164, mat: 400, sq: 580, d: 760, s: CX1 - CX0 } : { obj: 164, mat: 560, sq: 790, d: 1010, s: R1 - R0 };
 [["Cat No", 0, "l"], ["Object", CC.obj, "l"], ["Material", CC.mat, "l"], ["Square", CC.sq, "l"], ["Depth", CC.d, "r"], ["Stratum", CC.s, "r"]]
-  .forEach(([txt, x, align]) => L.text({ x: R0 + x, base: 404, s: 36, c: "gold", txt, align }));
-const CN = 7, CP = 72, CH = 56, CY = 428, CB = 45.2;
+  .forEach(([txt, x, align]) => L.text({ x: CX0 + x, base: CATY + 124, s: 36, c: "gold", txt, align }));
+const CN = 7, CP = 72, CH = 56, CY = CATY + 148, CB = 45.2;
 const crow = Array.from({ length: CN }, (_, i) => {
-  const e = L.layer({ x: R0, y: CY, w: R1 - R0, h: CH });
+  const e = L.layer({ x: CX0, y: CY, w: CX1 - CX0, h: CH });
   const r = {
     e, slot: i,
     box: L.box({ x: 0, y: 0, w: 140, h: CH, c: "tan", label: "", fs: 28, r: "l" }, e),
@@ -204,22 +220,22 @@ styleCat();
 let shownNo = catNo;
 
 // ---------------- the strata and their dates ----------------
-L.header({ x: R0, y: 1000, w: R1 - R0, label: "Stratigraphy  ·  Dating", c1: "gold", c2: "tan" });
-const SC = { name: 124, depth: 560, age: 1010, n: R1 - R0 };
+L.header({ x: SX0, y: STY, w: SX1 - SX0, label: "Stratigraphy  ·  Dating", c1: "gold", c2: "tan" });
+const SC = UP ? { name: 124, depth: 365, age: 696, n: SX1 - SX0 } : { name: 124, depth: 560, age: 1010, n: R1 - R0 };
 [["Stratum", 0, "l"], ["Description", SC.name, "l"], ["Depth", SC.depth, "l"], ["Age  ·  Years", SC.age, "r"], ["Dated", SC.n, "r"]]
-  .forEach(([txt, x, align]) => L.text({ x: R0 + x, base: 1124, s: 36, c: "gold", txt, align }));
-const SY0 = 1148, SP = 64, SH = 52, SB = 41.2;
+  .forEach(([txt, x, align]) => L.text({ x: SX0 + x, base: STY + 124, s: 36, c: "gold", txt, align }));
+const SY0 = STY + 148, SP = UP ? CP : 64, SH = UP ? CH : 52, SB = UP ? CB : 41.2;   // upright: on the catalog's rows
 const errOf = (st) => Math.max(20, Math.round((1.4 * st.sd) / Math.sqrt(st.cnt) / 5) * 5);
 STRATA.forEach((st, i) => {
   st.mean = st.age ? st.age + gauss() * st.sd * 0.3 : 0;
   const y = SY0 + i * SP, base = y + SB;
-  const b = L.box({ x: R0, y, w: Math.round(L.textWidth("Stratum", 36)), h: SH, c: st.c, label: st.n, fs: 28, r: "l" });
+  const b = L.box({ x: SX0, y, w: Math.round(L.textWidth("Stratum", 36)), h: SH, c: st.c, label: st.n, fs: 28, r: "l" });
   if (st.c === "slate") b.style.color = "var(--white)";
-  L.text({ x: R0 + SC.name, base, s: 36, c: "peach", txt: st.name });
+  L.text({ x: SX0 + SC.name, base, s: 36, c: "peach", txt: st.name });
   const top = i ? BASE[i - 1] : 0, bot = i < 5 ? BASE[i] : null;
-  L.text({ x: R0 + SC.depth, base, s: 36, c: "tan", txt: bot === null ? `Below ${top} cm` : `${top} – ${bot} cm` });
-  st.ageT = L.text({ x: R0 + SC.age, base, s: 36, c: "white", txt: st.age ? "" : i === 0 ? "Recent" : "2.4 million", align: "r" });
-  st.nT = L.text({ x: R1, base, s: 36, c: "white", txt: st.age ? "" : i === 0 ? "—" : "K–Ar", align: "r" });
+  L.text({ x: SX0 + SC.depth, base, s: 36, c: "tan", txt: bot === null ? `Below ${top} cm` : `${top} – ${bot} cm` });
+  st.ageT = L.text({ x: SX0 + SC.age, base, s: 36, c: "white", txt: st.age ? "" : i === 0 ? "Recent" : "2.4 million", align: "r" });
+  st.nT = L.text({ x: SX1, base, s: 36, c: "white", txt: st.age ? "" : i === 0 ? "—" : "K–Ar", align: "r" });
 });
 const showStrata = () => STRATA.forEach((st) => {
   if (!st.age) return;
@@ -229,13 +245,13 @@ const showStrata = () => STRATA.forEach((st) => {
 showStrata();
 
 // ---------------- the section: the working row's south face, under the grid's own columns ----------------
-const SXL = GX, SW = sqX(NC - 1) + SQ - GX, SYT = 1704, SHT = 299, SK = SHT / MAXD;
-const secHdr = L.box({ x: M0, y: 1620, w: sqX(4) - L.GAP - M0, h: 48, c: "peach", label: "", fs: 28, r: "l" });
-L.rect({ x: M0 + parseFloat(secHdr.style.width) + L.GAP, y: 1620, w: M1 - M0 - parseFloat(secHdr.style.width) - L.GAP, h: 48, c: "gold" });
+const SXL = GX, SW = sqX(NC - 1) + SQ - GX, SYT = UP ? SECY + 84 : 1704, SHT = 299, SK = SHT / MAXD;
+const secHdr = L.box({ x: M0, y: SECY, w: sqX(4) - L.GAP - M0, h: 48, c: "peach", label: "", fs: 28, r: "l" });
+L.rect({ x: M0 + parseFloat(secHdr.style.width) + L.GAP, y: SECY, w: M1 - M0 - parseFloat(secHdr.style.width) - L.GAP, h: 48, c: "gold" });
 for (const d of [0, 100, 200]) {
   const y = SYT + d * SK;
-  L.text({ x: 200, base: y + 11, s: 30, c: "tan", txt: d + " cm", align: "r", legend: true });
-  L.rect({ x: 210, y: y - 1, w: 14, h: 2, c: "tan", free: true });
+  L.text({ x: UP ? GX - 32 : 200, base: y + 11, s: 30, c: "tan", txt: d + " cm", align: "r", legend: true });
+  L.rect({ x: UP ? GX - 22 : 210, y: y - 1, w: 14, h: 2, c: "tan", free: true });
 }
 const sec = L.layer({ x: SXL, y: SYT, w: SW, h: SHT });
 const secSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -283,17 +299,17 @@ const drawSection = (row) => {
 drawSection(work);
 
 // ---------------- the lab ----------------
-L.header({ x: R0, y: 1620, w: R1 - R0, label: "Lab Analysis  ·  Science Lab 4", c1: "tan", c2: "peach", h: 48 });
-const LC = { src: 150, method: 480, bar: 760, barW: 220 };
+L.header({ x: LX0, y: LBY, w: LX1 - LX0, label: "Lab Analysis  ·  Science Lab 4", c1: "tan", c2: "peach", h: 48 });
+const LC = UP ? { src: 170, method: 480, bar: 760, barW: 836 } : { src: 150, method: 480, bar: 760, barW: 220 };
 const labRows = Array.from({ length: 6 }, (_, i) => {
-  const base = 1734 + i * 54;
-  L.rect({ x: R0 + LC.bar, y: base - 26, w: LC.barW, h: 26, c: TRACK });
+  const base = LBY + 114 + i * 54;
+  L.rect({ x: LX0 + LC.bar, y: base - 26, w: LC.barW, h: 26, c: TRACK });
   return {
-    no: L.text({ x: R0, base, s: 36, c: "orange", txt: "" }),
-    src: L.text({ x: R0 + LC.src, base, s: 36, c: "peach", txt: "" }),
-    m: L.text({ x: R0 + LC.method, base, s: 36, c: "tan", txt: "" }),
-    bar: fill(R0 + LC.bar, base - 26, LC.barW, 26, "butter"),
-    res: L.text({ x: R1, base, s: 36, c: "white", txt: "", align: "r", cls: "lab" }),
+    no: L.text({ x: LX0, base, s: 36, c: "orange", txt: "" }),
+    src: L.text({ x: LX0 + LC.src, base, s: 36, c: "peach", txt: "" }),
+    m: L.text({ x: LX0 + LC.method, base, s: 36, c: "tan", txt: "" }),
+    bar: fill(LX0 + LC.bar, base - 26, LC.barW, 26, "butter"),
+    res: L.text({ x: LX1, base, s: 36, c: "white", txt: "", align: "r", cls: "lab" }),
     smp: null,
   };
 });
@@ -330,22 +346,149 @@ showLab();
 // ---------------- status line, teams, totals ----------------
 const BIG = 100, stateTxt = L.text({ x: M0, cap: 150, s: BIG, c: "peach", txt: "" });
 const sub = L.text({ x: M0, base: 222, s: 38, c: "tan", txt: "Galen Memorial Expedition  ·  Federation Archaeology Council  ·  Capt. J.-L. Picard, visiting" });
-const pill = L.box({ x: R1 - 480, y: 150, w: 480, h: 72, c: "gold", label: "", r: "lr", fs: 36 });
+const pill = UP ? L.box({ x: CX1 - PILLW, y: CATY, w: PILLW, h: 56, c: "gold", label: "", r: "lr", fs: 32 })
+  : L.box({ x: (UW ? B.x1 : R1) - 480, y: 150, w: 480, h: 72, c: "gold", label: "", r: "lr", fs: 36 });
 
-const LINE = 1580;
+const LINE = UP ? GY + (NR - 1) * P + SQ + 64 : 1580;
 L.text({ x: M0, base: LINE, s: 40, c: "tan", txt: "Teams" });
 teams.forEach((tm, i) => {
-  const x = sqX(4 * i);
+  const x = UP ? GX + 520 * i : sqX(4 * i);
   L.rect({ x, y: LINE - 36, w: 36, h: 36, c: tm.c, free: true });
   L.text({ x: x + 60, base: LINE, s: 40, c: "tan", txt: tm.who });
   tm.val = L.text({ x: x + 60 + L.textWidth(tm.who, 40) + 28, base: LINE, s: 40, c: "white", txt: "" });
 });
 let squaresDone = 143, soil = 1984.6;                         // tonnes sieved this season
-L.text({ x: R0, base: LINE, s: 40, c: "tan", txt: "Squares Complete" });
-const doneT = L.text({ x: R0 + L.textWidth("Squares Complete", 40) + 28, base: LINE, s: 52, c: "white", txt: "" });
+const TX0 = UP ? SX0 : R0, TX1 = UP ? SX1 : R1, TLINE = UP ? CY + (CN - 1) * CP + CB : LINE;   // upright: on the catalog's last row
+L.text({ x: TX0, base: TLINE, s: 40, c: "tan", txt: "Squares Complete" });
+const doneT = L.text({ x: TX0 + L.textWidth("Squares Complete", 40) + 28, base: TLINE, s: 52, c: "white", txt: "" });
 const soilW = L.textWidth("9,999.9 t", 52);
-L.text({ x: R1 - soilW - 28, base: LINE, s: 40, c: "tan", txt: "Soil Sieved", align: "r" });
-const soilT = L.text({ x: R1, base: LINE, s: 52, c: "white", txt: "", align: "r" });
+L.text({ x: TX1 - soilW - 28, base: TLINE, s: 40, c: "tan", txt: "Soil Sieved", align: "r" });
+const soilT = L.text({ x: TX1, base: TLINE, s: 52, c: "white", txt: "", align: "r" });
+
+// ---------------- ultrawide: the fourth column ----------------
+// Hooks the shared code calls when something happens; only ultrawide listens. No random numbers.
+const hook = {};
+if (UW) {
+  const NX0 = R1 + 60, NX1 = B.x1, NW = NX1 - NX0;          // 3580–4720
+  const teamOf = (sq) => (sq.team ? sq.team.who : TEAMS[sq.c % 3][0]);
+
+  // the field log: squares finished, samples dated, rows opened (the finds have the catalog), on the
+  // catalog's rows, sliding up as the catalog does
+  L.header({ x: NX0, y: 280, w: NW, label: "Field Log  ·  Site 4", c1: "tan", c2: "peach" });
+  const GC = { ev: 164, sq: 520, team: 680, det: NW };
+  [["Entry", 0, "l"], ["Event", GC.ev, "l"], ["Square", GC.sq, "l"], ["Team", GC.team, "l"], ["Detail", GC.det, "r"]]
+    .forEach(([txt, x, align]) => L.text({ x: NX0 + x, base: 404, s: 36, c: "gold", txt, align }));
+  const KIND = { Square: "peach", Lab: "tan", Grid: "gold" };
+  const grow = Array.from({ length: CN }, (_, i) => {
+    const e = L.layer({ x: NX0, y: CY, w: NW, h: CH });
+    const r = {
+      e, slot: i,
+      box: L.box({ x: 0, y: 0, w: 140, h: CH, c: "tan", label: "", fs: 28, r: "l" }, e),
+      ev: L.text({ x: GC.ev, base: CB, s: 36, c: "peach", txt: "" }, e),
+      sq: L.text({ x: GC.sq, base: CB, s: 36, c: "butter", txt: "" }, e),
+      team: L.text({ x: GC.team, base: CB, s: 36, c: "tan", txt: "" }, e),
+      det: L.text({ x: GC.det, base: CB, s: 36, c: "white", txt: "", align: "r", rightIn: true }, e),
+    };
+    L.move(e, 0, i * CP);
+    return r;
+  });
+  const showLog = (r, x) => { L.set(r.box, x.kind); bg(r.box, KIND[x.kind]); L.set(r.ev, x.ev); L.set(r.sq, x.sq); L.set(r.team, x.team); L.set(r.det, x.det); };
+  const styleLog = () => grow.forEach((r) => fg(r.ev, r.slot === CN - 1 ? "white" : "peach"));
+  const sqEv = (sq) => ({ kind: "Square", ev: "Square complete", sq: name(sq), team: teamOf(sq), det: `${Math.round(sq.target)} cm` });
+  const labEv = (x) => ({ kind: "Lab", ev: `Sample S-${pad(x.no, 4)} dated`, sq: x.src.split("·").pop().trim(), team: "Science Lab 4", det: `${fmt(Math.round(x.age / 10) * 10)}  ± ${x.err}` });
+  const sqs = order.slice(0, nDone).slice(-3).map((c) => sqEv(work.squares[c]));
+  const labs = samples.filter((x) => x.state === "Complete").slice(-4).map(labEv);
+  const seed = [labs[0], sqs[0], labs[1], sqs[1], labs[2], sqs[2], labs[3]];   // as they happened, interleaved
+  grow.forEach((r, i) => showLog(r, seed[i]));
+  styleLog();
+  const pendingLog = [];
+  hook.done = (sq) => pendingLog.push(sqEv(sq));
+  hook.dated = (x) => pendingLog.push(labEv(x));
+  hook.row = (num) => pendingLog.push({ kind: "Grid", ev: `Row ${num} opened`, sq: `A${num} – K${num}`, team: "Survey", det: `${NC} squares` });
+  let lg = null;
+  const stepLog = (t) => {
+    if (!lg) { if (!pendingLog.length) return; lg = { phase: "fade", t0: t, row: grow.find((r) => r.slot === 0) }; }
+    const u = t - lg.t0, topRow = lg.row;
+    if (lg.phase === "fade") {
+      op(topRow.e, 1 - L.clamp(u / 0.7));
+      if (u >= 0.7) lg = { phase: "slide", t0: t, row: topRow };
+    } else if (lg.phase === "slide") {
+      const k = L.ease(L.clamp(u / 1.0));
+      grow.forEach((r) => { if (r.slot > 0) L.move(r.e, 0, (r.slot - k) * CP); });
+      if (k >= 1) {
+        grow.forEach((r) => (r.slot = r === topRow ? CN - 1 : r.slot - 1));
+        showLog(topRow, pendingLog.shift()); L.move(topRow.e, 0, (CN - 1) * CP);
+        styleLog();
+        lg = { phase: "in", t0: t, row: topRow };
+      }
+    } else {
+      op(topRow.e, L.clamp(u / 0.8));
+      if (u >= 0.8) lg = null;
+    }
+  };
+
+  // the season's finds, by stratum and by material: seeded in proportion to what each stratum
+  // yields, so both always add up to the catalog's count; each new record adds one
+  const share = (total, ps) => {                            // largest remainder: whole numbers summing to total
+    const raw = ps.map((p) => p * total), n = raw.map(Math.floor);
+    let left = total - n.reduce((a, b) => a + b, 0);
+    raw.map((v, i) => [v - n[i], i]).sort((a, b) => b[0] - a[0]).forEach(([, i]) => { if (left > 0) { n[i]++; left--; } });
+    return n;
+  };
+  const wsum = SWEIGHT.reduce((a, b) => a + b, 0);
+  const pS = STRATA.map((_, s) => (SWEIGHT[s] || 0) / wsum);
+  const MATS = [["Ceramic", ["Ceramic"]], ["Fired clay  ·  Clay", ["Fired clay", "Clay"]], ["Stone", ["Basalt", "Obsidian", "Glazed stone"]],
+    ["Bone", ["Bone"]], ["Charcoal  ·  Organic", ["Charcoal", "Organic"]], ["Copper alloy", ["Copper alloy"]]];
+  const matOf = (m) => MATS.findIndex(([, ms]) => ms.includes(m));
+  const pM = MATS.map(() => 0);
+  for (let s = 1; s <= 4; s++) FINDS[s].forEach(([, m]) => (pM[matOf(m)] += pS[s] / FINDS[s].length));
+  const byS = share(shownNo, pS), byM = share(shownNo, pM);
+  hook.cat = (x) => { byS[x.s]++; byM[matOf(x.mat)]++; };
+
+  L.header({ x: NX0, y: 1000, w: NW, label: "Finds by Stratum  ·  Season", c1: "peach", c2: "gold" });
+  const FC = { n: 420, bar: 480, barW: 536, pc: NW };
+  [["Stratum", 0, "l"], ["Finds", FC.n, "r"], ["Share", FC.pc, "r"]].forEach(([txt, x, align]) => L.text({ x: NX0 + x, base: 1124, s: 36, c: "gold", txt, align }));
+  const sRows = STRATA.map((st, i) => {
+    const y = SY0 + i * SP, base = y + SB;
+    const b = L.box({ x: NX0, y, w: 290, h: SH, c: st.c, label: `${st.n}  ·  ${st.name}`, fs: 28, r: "l" });   // as wide as the material boxes below
+    if (st.c === "slate") b.style.color = "var(--white)";
+    L.rect({ x: NX0 + FC.bar, y: base - 26, w: FC.barW, h: 26, c: TRACK });
+    return { n: L.text({ x: NX0 + FC.n, base, s: 36, c: "white", txt: "", align: "r" }), bar: fill(NX0 + FC.bar, base - 26, FC.barW, 26, st.c),
+             pc: L.text({ x: NX0 + FC.pc, base, s: 36, c: "white", txt: "", align: "r" }) };
+  });
+  // the lab's counts, on the totals line: dated (the stratigraphy's Dated column, summed) and waiting
+  L.text({ x: NX0, base: LINE, s: 40, c: "tan", txt: "Samples Dated" });
+  const datedT = L.text({ x: NX0 + FC.n, base: LINE, s: 52, c: "white", txt: "", align: "r" });   // under the Finds column
+  L.text({ x: NX0 + 480, base: LINE, s: 40, c: "tan", txt: "Awaiting Analysis" });
+  const waitT = L.text({ x: NX0 + 480 + L.textWidth("Awaiting Analysis", 40) + 28, base: LINE, s: 52, c: "white", txt: "" });
+
+  L.header({ x: NX0, y: 1620, w: NW, label: "Finds by Material  ·  Season", c1: "gold", c2: "tan", h: 48 });
+  const MC = { n: 420, bar: 480, barW: 536, pc: NW };
+  const mRows = MATS.map(([lab], i) => {
+    const base = 1734 + i * 54;
+    L.box({ x: NX0, y: base - 40, w: 290, h: 44, c: ["peach", "sand", "slate", "tan", "sunset", "gold"][i], label: lab, fs: 28, r: "l" }).style.color = i === 2 ? "var(--white)" : "";
+    L.rect({ x: NX0 + MC.bar, y: base - 26, w: MC.barW, h: 26, c: TRACK });
+    return { n: L.text({ x: NX0 + MC.n, base, s: 36, c: "white", txt: "", align: "r" }), bar: fill(NX0 + MC.bar, base - 26, MC.barW, 26, "butter"),
+             pc: L.text({ x: NX0 + MC.pc, base, s: 36, c: "white", txt: "", align: "r" }) };
+  });
+  const tfx = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
+  const showCounts = (rs, counts) => {
+    const tot = counts.reduce((a, b) => a + b, 0), most = Math.max(...counts);
+    rs.forEach((r, i) => {
+      L.set(r.n, counts[i] ? fmt(counts[i]) : "None");
+      fg(r.n, counts[i] ? "white" : "tan");
+      L.set(r.pc, counts[i] ? (100 * counts[i] / tot).toFixed(1) + "%" : "—");
+      tfx(r.bar, `scaleX(${(counts[i] / most).toFixed(4)})`);     // against the largest
+    });
+  };
+  hook.show = () => {
+    showCounts(sRows, byS); showCounts(mRows, byM);
+    L.set(datedT, fmt(STRATA.reduce((a, st) => a + (st.cnt || 0), 0)));
+    L.set(waitT, samples.filter((x) => x.state !== "Complete").length);
+  };
+  hook.tick = stepLog;
+  hook.show();
+}
 
 // ---------------- digging ----------------
 const candidates = (tm) => rows.filter((r) => r.lay >= WORK).flatMap((r) => r.squares.filter((q) => q.state === "open" && !q.team))
@@ -357,6 +500,7 @@ const next = (tm, t) => {
   sq.state = "active"; showRowState(sq.row);
 };
 const complete = (sq) => {
+  if (hook.done) hook.done(sq);
   sq.state = "done"; sq.team = null; squaresDone++;
   showRowState(sq.row);
   if (sq.row === secRow) secCover(sq);
@@ -386,6 +530,7 @@ const stepAdvance = (t) => {
       const num = Math.max(...rows.map((r) => r.num)) + 1;
       rows.forEach((r) => { r.lay = r === top ? NR - 1 : r.lay - 1; r.y = r.lay * P; L.move(r.e, 0, r.y); });
       fillRow(top, num);
+      if (hook.row) hook.row(num);
       drawSection(rows.find((r) => r.lay === WORK));
       adv = { phase: "in", t0: t, top };
     }
@@ -415,6 +560,7 @@ const stepCatalog = (t) => {
       crow.forEach((r) => (r.slot = r === topRow ? CN - 1 : r.slot - 1));
       const x = pendingFinds.shift();
       catalog.push(x); if (catalog.length > 60) catalog.shift();
+      if (hook.cat) hook.cat(x);
       showCat(topRow, x); L.move(topRow.e, 0, (CN - 1) * CP);
       styleCat(); shownNo = x.no;
       cat = { phase: "in", t0: t, row: topRow };
@@ -455,6 +601,7 @@ L.tick((t) => {
   if (!adv && rows.find((r) => r.lay === WORK).squares.every((q) => q.state === "done")) startAdvance(t);
   if (adv) stepAdvance(t);
   stepCatalog(t);
+  if (hook.tick) hook.tick(t);
   // markers that have finished fading in are painted flat into their row
   for (let i = fading.length - 1; i >= 0; i--) {
     const m = fading[i], k = L.clamp((t - m.born) / 1.2);
@@ -463,7 +610,7 @@ L.tick((t) => {
   }
   // the lab: two instruments, first in first out
   let busy = samples.filter((x) => x.state === "Analyzing");
-  for (const x of busy) { x.p = Math.min(1, x.p + dt / x.dur); if (x.p >= 1) { x.state = "Complete"; result(x); const st = STRATA[x.s]; st.mean = (st.mean * st.cnt + x.age) / (st.cnt + 1); st.cnt++; showStrata(); } }
+  for (const x of busy) { x.p = Math.min(1, x.p + dt / x.dur); if (x.p >= 1) { x.state = "Complete"; result(x); const st = STRATA[x.s]; st.mean = (st.mean * st.cnt + x.age) / (st.cnt + 1); st.cnt++; showStrata(); if (hook.dated) hook.dated(x); } }
   busy = samples.filter((x) => x.state === "Analyzing");
   if (busy.length < 2) { const q = samples.find((x) => x.state === "Queued"); if (q) { q.state = "Analyzing"; q.p = 0; } }
   for (const r of labRows) if (r.smp) r.bar.style.transform = `scaleX(${r.smp.p.toFixed(4)})`;
@@ -485,6 +632,7 @@ L.every(250, (t) => {
   L.set(pill, `Finds Cataloged  ${fmt(shownNo)}`);
   L.set(doneT, squaresDone);
   L.set(soilT, soil.toFixed(1) + " t");
+  if (hook.show) hook.show();
   if (queued() < 1) backlog();
   showLab();
 }, 0);

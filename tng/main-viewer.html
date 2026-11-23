@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Main Viewer</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .sw { transition: background-color .9s ease, color .9s ease; }
@@ -14,8 +15,16 @@ L.ready(() => {
 L.frame({ type: "D", title: "Main Viewer  •  Telemetry", c: "sky", c2: "ice", accent: "blue" });
 
 const G = L.GAP;
-const LX = 40, LR = 760, MX = 824, MR = 3032, RX = 3096, RR = 3816;      // three columns, 64 apart
-const ROW0 = 428, ROW1 = 1128, PITCH = 88;                               // rows of 64 on an 88 grid
+// wide: three columns, 64 apart. upright: three columns of 656 in two bands, the viewer full width between
+// them. ultrawide: the wide columns with a 536 flank either side of the viewer (built at the end).
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const LX = 40, LR = UP ? 696 : 760, MX = UP ? 40 : UW ? 1424 : 824, MR = UP ? 2136 : UW ? 3632 : 3032,
+      RX = UP ? 760 : UW ? 4296 : 3096, RR = UP ? 1416 : UW ? 5016 : 3816;
+const ROW0 = 428, ROW1 = UP ? 2504 : 1128, PITCH = 88;                    // rows of 64 on an 88 grid
+const TW = UP ? 656 : 720, GBW = UP ? 252 : 316;                         // table width; gauge bar
+const C3X = 1480, C3R = 2136;                                            // upright: the third column
+const PH = UP ? 2040 : 1620;                                             // propulsion header
+const TOPR = UP ? C3R : RR;                                              // the status line's right edge
 const rowBase = (y0, i) => y0 + i * PITCH + 52.5;
 const TRACK = "#0c1a36";
 const fill = (x, y, w, h, c, parent) => {
@@ -30,6 +39,15 @@ const pad = (n, k = 2) => String(n).padStart(k, "0");
 // ---------------- the voyage ----------------
 const DEST = { name: "Starbase 74", where: "Tarsas III", sector: "Sector 21503", heading: "047 mark 012" };
 let destLy = 1.8642;                                     // light-years still to go
+// on arrival the next course is laid in (about three days a leg), so range and arrival never run below zero
+const ONWARD = [
+  { name: "Starbase 74", where: "Tarsas III", sector: "Sector 21503", heading: "047 mark 012", ly: 1.8642 },
+  { name: "Starbase 157", where: "Ventax II", sector: "Sector 21506", heading: "102 mark 006", ly: 2.0417 },
+  { name: "Starbase 133", where: "Arkaria Base", sector: "Sector 21512", heading: "318 mark 351", ly: 1.7385 },
+  { name: "Starbase 112", where: "Archer IV", sector: "Sector 21505", heading: "221 mark 009", ly: 2.2264 },
+];
+let legN = 0;
+const arrived = [];                                      // others that repaint on arrival (ultrawide, upright)
 const WARP_C = [0, 1, 10, 39, 102, 214, 392, 656, 1024, 1516];   // the TNG scale: warp factor → times light
 const cOf = (w) => { const i = Math.min(8, Math.floor(w)); return L.mix(WARP_C[i], WARP_C[i + 1], w - i); };
 const QIMP = 18737;                                      // one-quarter impulse, km/s
@@ -53,10 +71,11 @@ const setState = (word, sub) => {
   stateSub.style.left = LX + L.textWidth(word, 100) + 40 + "px";
   L.set(stateSub, sub);
 };
-L.box({ x: RR - 400, y: 150, w: 400, h: 72, c: "sky", label: "Condition Green", r: "lr", fs: 36 });
+L.box({ x: TOPR - (UP ? 340 : 400), y: 150, w: UP ? 340 : 400, h: 72, c: "sky", label: "Condition Green", r: "lr", fs: 36 });
 const stardate0 = 47634.4 + Math.random() * 0.05;
-L.text({ x: RX, base: 222, s: 40, c: "sky", txt: "Stardate" });               // on the right column's edge
-const sdVal = L.text({ x: RX + L.textWidth("Stardate", 40) + 24, base: 222, s: 52, c: "white", txt: "" });
+const SDX = UP ? C3X : RX;                                // upright: on the third column's edge
+L.text({ x: SDX, base: 222, s: 40, c: "sky", txt: "Stardate" });               // on the right column's edge
+const sdVal = L.text({ x: SDX + L.textWidth("Stardate", 40) + 24, base: 222, s: 52, c: "white", txt: "" });
 const stardate = (t = L.t) => (stardate0 + t / 3600 / 8.766).toFixed(1);   // a thousand a year
 
 // ---------------- helm control (top left) ----------------
@@ -67,7 +86,7 @@ const table = (x, y0, rows, colors) => rows.map(([label, cap], i) => {
   const base = rowBase(y0, i);
   L.box({ x, y: y0 + i * PITCH, w: 220, h: 64, c: colors[i % colors.length], label, fs: 32, r: "l" });
   return { v: L.text({ x: x + 244, base, s: 52, c: "white", txt: "" }),
-           c: cap === null ? null : L.text({ x: x + 720, base, s: 36, c: "sky", txt: cap, align: "r" }) };
+           c: cap === null ? null : L.text({ x: x + TW, base, s: 36, c: "sky", txt: cap, align: "r" }) };
 });
 const helm = table(LX, ROW0, [["Heading", "Galactic"], ["Destination", DEST.where], ["Sector", "Federation"], ["Distance", "Light-years"],
   ["Arrival", ""], ["Conn", "Helm Officer"]], ["sky", "ice", "blue", "sky", "ice", "blue"]);
@@ -82,21 +101,21 @@ const tgt = table(RX, ROW0, [["Contact", "Target 01"], ["Class", "Planet"], ["Ra
 
 // ---------------- gauges (lower left and right) ----------------
 const gauges = (x, rows, colors, heads) => {
-  heads.forEach(([txt, dx, align]) => L.text({ x: x + dx, base: 1100, s: 36, c: "ice", txt, align }));
+  heads.forEach(([txt, dx, align]) => L.text({ x: x + dx, base: ROW1 - 28, s: 36, c: "ice", txt, align }));
   return rows.map(([label, v], i) => {
     const base = rowBase(ROW1, i);
     L.box({ x, y: ROW1 + i * PITCH, w: 220, h: 64, c: colors[i % colors.length], label, fs: 32, r: "l" });
-    L.rect({ x: x + 244, y: base - 26, w: 316, h: 26, c: TRACK });
-    return { f: fill(x + 244, base - 26, 316, 26, colors[i % colors.length]), e: L.text({ x: x + 720, base, s: 52, c: "white", txt: "", align: "r" }),
+    L.rect({ x: x + 244, y: base - 26, w: GBW, h: 26, c: TRACK });
+    return { f: fill(x + 244, base - 26, GBW, 26, colors[i % colors.length]), e: L.text({ x: x + TW, base, s: 52, c: "white", txt: "", align: "r" }),
              v, goal: v, drawn: false };
   });
 };
-L.header({ x: LX, y: 1000, w: LR - LX, label: "Warp Field", c1: "ice", c2: "sky" });
+L.header({ x: LX, y: ROW1 - 128, w: LR - LX, label: "Warp Field", c1: "ice", c2: "sky" });
 const field = gauges(LX, [["Port Nacelle", 0.62], ["Stbd Nacelle", 0.62], ["Symmetry", 0.994], ["Plasma Flow", 0.6], ["Antimatter", 0.58]],
-  ["sky", "sky", "ice", "blue", "ice"], [["Subsystem", 0], ["Output", 244], ["Level", 720, "r"]]);
-L.header({ x: RX, y: 1000, w: RR - RX, label: "Forward Sensors", c1: "sky", c2: "blue" });
+  ["sky", "sky", "ice", "blue", "ice"], [["Subsystem", 0], ["Output", 244], ["Level", TW, "r"]]);
+L.header({ x: RX, y: ROW1 - 128, w: RR - RX, label: "Forward Sensors", c1: "sky", c2: "blue" });
 const sens = gauges(RX, [["Particles", 0.31], ["Gravimetric", 0.12], ["EM Field", 0.22], ["Subspace", 0.44], ["Deflector", 0.68]],
-  ["ice", "sky", "blue", "ice", "sky"], [["Sensor", 0], ["Reading", 244], ["Level", 720, "r"]]);
+  ["ice", "sky", "blue", "ice", "sky"], [["Sensor", 0], ["Reading", 244], ["Level", TW, "r"]]);
 L.tick(() => [...field, ...sens].forEach((g) => {
   const d = g.goal - g.v;
   if (Math.abs(d) < 0.0004 && g.drawn) return;
@@ -106,18 +125,19 @@ L.tick(() => [...field, ...sens].forEach((g) => {
 L.every(300, () => [...field, ...sens].forEach((g) => L.set(g.e, (L.clamp(g.v) * 100).toFixed(1) + "%")), 0);
 
 // ---------------- the viewer ----------------
-L.header({ x: MX, y: 280, w: MR - MX, label: "Main Viewer  ·  Forward", c1: "sky", c2: "ice" });
-const SX = MX, SY = ROW0, SW = MR - MX, SH = 1544 - ROW0, CX = SW / 2, CY = SH / 2;
+const SX = MX, SY = UP ? 1148 : ROW0, SW = MR - MX, SH = UP ? PH - 76 - SY : 1544 - ROW0, CX = SW / 2, CY = SH / 2;
+const PSC = UP ? 0.67 : 1;                                // upright's viewer is shallower: the planet is drawn smaller
+L.header({ x: MX, y: SY - 148, w: MR - MX, label: "Main Viewer  ·  Forward", c1: "sky", c2: "ice" });
 const PXRAD = SW / (Math.PI / 3);                         // 60° across the viewer at magnification 1
 L.rect({ x: SX, y: SY, w: SW, h: SH, c: "#050f29", panel: true });
 // the bearing scale above it: ticks every 5°, figures every 10°
 for (let k = -6; k <= 6; k++) {
   const x = SX + CX + k * (SW / 12), major = k % 2 === 0;
-  L.rect({ x: x - 2 - (k === -6 ? -2 : k === 6 ? 2 : 0), y: major ? 406 : 412, w: 4, h: major ? 16 : 10, c: "ice", free: true });
+  L.rect({ x: x - 2 - (k === -6 ? -2 : k === 6 ? 2 : 0), y: major ? SY - 22 : SY - 16, w: 4, h: major ? 16 : 10, c: "ice", free: true });
 }
 const bearLab = [-3, -2, -1, 0, 1, 2, 3].map((k) => {
   const x = SX + CX + k * (SW / 6), align = k === -3 ? "l" : k === 3 ? "r" : "c";
-  return L.text({ x, base: 396, s: 34, c: "ice", txt: "", align, w: 160, legend: true });
+  return L.text({ x, base: SY - 32, s: 34, c: "ice", txt: "", align, w: 160, legend: true });
 });
 const showBearings = (centre, mag) => bearLab.forEach((e, i) => {
   let b = centre + (i - 3) * 10 / mag; b = ((b % 360) + 360) % 360;
@@ -219,24 +239,25 @@ const cRange = corner(SX + 64, "l", false, "Range");
 const cBear = corner(SX + SW - 64, "r", false, "Bearing");
 
 // ---------------- propulsion (bottom middle) ----------------
-L.header({ x: MX, y: 1620, w: MR - MX, label: "Propulsion", c1: "ice", c2: "sky", h: 48 });
+L.header({ x: MX, y: PH, w: MR - MX, label: "Propulsion", c1: "ice", c2: "sky", h: 48 });
 const SEGS = ["1/4 Impulse", "1/2 Impulse", "3/4 Impulse", "Full Impulse", ...Array.from({ length: 9 }, (_, i) => `Warp ${i + 1}`)];
 const SP = (SW + 8) / SEGS.length;
 const segs = SEGS.map((label, i) => {
   const x = Math.round(MX + i * SP), x2 = Math.round(MX + (i + 1) * SP) - 8;
-  return L.box({ x, y: 1772, w: (i === SEGS.length - 1 ? MR : x2) - x, h: 80, c: TRACK, label, fs: 28, cls: "sw",
+  return L.box({ x, y: PH + 152, w: (i === SEGS.length - 1 ? MR : x2) - x, h: 80, c: TRACK, label, fs: 28, cls: "sw",
     r: i === 0 ? "l" : i === SEGS.length - 1 ? "r" : null });
 });
 const segX = (i) => Math.round(MX + i * SP);
 // readings sit on the segment grid: the label over one segment, the value from the next
-const cell = (i, j, label, base = 1734) => {
+const cell = (i, j, label, base = PH + 114) => {
   L.text({ x: segX(i), base, s: 40, c: "sky", txt: label });
   return L.text({ x: segX(j), base, s: 52, c: "white", txt: "" });
 };
-const pSpeed = cell(0, 1, "Speed"), pVel = cell(4, 5, "Velocity"), pDamp = cell(9, 11, "Inertial Dampers");
-L.rect({ x: MX, y: 1876, w: segX(4) - 8 - MX, h: 16, c: "sky" });
-L.rect({ x: segX(4), y: 1876, w: MR - segX(4), h: 16, c: "ice" });
-const impDrive = cell(0, 1, "Impulse Drive", 1950), warpDrive = cell(4, 5, "Warp Drive", 1950);
+const pSpeed = cell(0, 1, "Speed"), pVel = cell(4, 5, "Velocity"), pDamp = UP ? cell(8, 10, "Inertial Dampers") : cell(9, 11, "Inertial Dampers");
+L.rect({ x: MX, y: PH + 256, w: segX(4) - 8 - MX, h: 16, c: "sky" });
+L.rect({ x: segX(4), y: PH + 256, w: MR - segX(4), h: 16, c: "ice" });
+// upright gives this row to the viewer: the lit segments already say which drive is engaged
+const impDrive = UP ? null : cell(0, 1, "Impulse Drive", PH + 330), warpDrive = UP ? null : cell(4, 5, "Warp Drive", PH + 330);
 let segShown = "";
 const showSegs = (lit, cur) => {
   const key = lit + "/" + cur; if (key === segShown) return; segShown = key;
@@ -248,10 +269,15 @@ const showSegs = (lit, cur) => {
 };
 
 // ---------------- helm log (bottom left) ----------------
-L.header({ x: LX, y: 1620, w: LR - LX, label: "Helm Log", c1: "sky", c2: "ice", h: 48 });
+// upright: the log fills the third column of the lower band, on the gauges' rows
+const LGX = UP ? C3X : LX, LGR = UP ? C3R : LR;
+if (UP) {
+  L.header({ x: LGX, y: ROW1 - 128, w: LGR - LGX, label: "Helm Log", c1: "sky", c2: "ice" });
+  L.text({ x: LGX, base: ROW1 - 28, s: 36, c: "ice", txt: "Stardate" }); L.text({ x: LGX + 164, base: ROW1 - 28, s: 36, c: "ice", txt: "Entry" });
+} else L.header({ x: LX, y: 1620, w: LR - LX, label: "Helm Log", c1: "sky", c2: "ice", h: 48 });
 const logRows = Array.from({ length: 5 }, (_, i) => {
-  const base = 1734 + i * 54;
-  return { sd: L.text({ x: LX, base, s: 36, c: "sky", txt: "" }), tx: L.text({ x: LX + 164, base, s: 36, c: "ice", txt: "" }) };
+  const base = UP ? rowBase(ROW1, i) : 1734 + i * 54;
+  return { sd: L.text({ x: LGX, base, s: 36, c: "sky", txt: "" }), tx: L.text({ x: LGX + 164, base, s: 36, c: "ice", txt: "" }) };
 });
 const logged = [];
 const log = (txt) => {
@@ -260,17 +286,23 @@ const log = (txt) => {
 };
 
 // ---------------- course plot (bottom right) ----------------
-L.header({ x: RX, y: 1620, w: RR - RX, label: "Course Plot", c1: "blue", c2: "sky", h: 48 });
-const plotRows = Array.from({ length: 5 }, (_, i) => {
-  const base = 1734 + i * 54;
-  return { n: L.text({ x: RX, base, s: 36, c: "ice", txt: "" }), k: L.text({ x: RX + 300, base, s: 36, c: "sky", txt: "" }),
-           s: L.text({ x: RR, base, s: 36, c: "ice", txt: "", align: "r" }) };
+// upright: the plot fills the third column of the upper band, on the tables' rows, one survey longer
+const PLX = UP ? C3X : RX, PLR = UP ? C3R : RR, PLOTN = UP ? 6 : 5;
+if (UP) {
+  L.header({ x: PLX, y: 280, w: PLR - PLX, label: "Course Plot", c1: "blue", c2: "sky" });
+  L.text({ x: PLX, base: 400, s: 36, c: "ice", txt: "Route" }); const plotSector = L.text({ x: PLR, base: 400, s: 36, c: "ice", txt: DEST.sector, align: "r" });
+  arrived.push(() => L.set(plotSector, DEST.sector));
+} else L.header({ x: RX, y: 1620, w: RR - RX, label: "Course Plot", c1: "blue", c2: "sky", h: 48 });
+const plotRows = Array.from({ length: PLOTN }, (_, i) => {
+  const base = UP ? rowBase(ROW0, i) : 1734 + i * 54;
+  return { n: L.text({ x: PLX, base, s: 36, c: "ice", txt: "" }), k: L.text({ x: PLX + (UP ? 250 : 300), base, s: 36, c: "sky", txt: "" }),
+           s: L.text({ x: PLR, base, s: 36, c: "ice", txt: "", align: "r" }) };
 });
 let surveyed = null, surveying = false;
 const showPlot = () => {
   const rows = [];
   if (surveyed) rows.push([surveyed.name, `Class M  ·  ${fmt(surveyed.D)} km`, "Complete", "sky"]);
-  for (let k = 0; rows.length < 4; k++) rows.push([nextTarget(k).name, `Class M  ·  ${fmt(nextTarget(k).D)} km`, k === 0 ? (surveying ? "In Progress" : "Next") : "Scheduled", k === 0 ? "white" : "ice"]);
+  for (let k = 0; rows.length < PLOTN - 1; k++) rows.push([nextTarget(k).name, `Class M  ·  ${fmt(nextTarget(k).D)} km`, k === 0 ? (surveying ? "In Progress" : "Next") : "Scheduled", k === 0 ? "white" : "ice"]);
   rows.push([DEST.name, "Destination", destLy.toFixed(2) + " ly", "ice"]);
   rows.forEach(([n, k, s, c], i) => {
     const r = plotRows[i]; L.set(r.n, n); L.set(r.k, k); L.set(r.s, s);
@@ -349,13 +381,21 @@ L.tick((t) => {
     const px = R > 0 ? (T.D / R) * PXRAD * Meff : 10;
     let x = CX + off[0] * (1 - zoomK), y = CY + off[1] * (1 - zoomK);
     if (phase === "accel") { const g = 1 + 2.5 * L.clamp((t - p0) / 1.4) ** 2; x = CX + off[0] * g; y = CY + off[1] * g; }
-    place(x, y, px);
+    place(x, y, px * PSC);
   }
   const po = planetOp.toFixed(3), lo = lockOp.toFixed(3);
   if (planet._o !== po) { planet._o = po; planet.style.opacity = po; }
   if (box._o !== lo) { box._o = lo; box.style.opacity = lo; }
   // distance only falls at warp, at the ship's real speed
   if (phase === "warp" || phase === "accel" || phase === "drop") destLy -= (cOf(wf) / 31557600) * dtv;
+  if (destLy <= 0) {                                     // arrived: lay in the next course, carrying the overshoot
+    const was = DEST.name, next = ONWARD[++legN % ONWARD.length];
+    Object.assign(DEST, next); destLy += next.ly;
+    L.set(helm[0].v, DEST.heading); L.set(helm[1].v, DEST.name); L.set(helm[2].v, DEST.sector); L.set(helm[1].c, DEST.where);
+    log(`Arrived at ${was}`); log(`Course laid in, ${DEST.name}`);
+    arrived.forEach((f) => f(next)); showPlot();
+    if (phase !== "drop") setState(warpWord(), warpSub());   // (dropping: the survey's own line stands until warp resumes)
+  }
 });
 
 // ---------------- readings, a few times a second ----------------
@@ -368,7 +408,7 @@ L.every(250, (t) => {
   L.set(sdVal, stardate(t));
   L.set(cSpeed.v, speedTxt()); L.set(pSpeed, speedTxt()); L.set(pVel, velTxt());
   L.set(pDamp, phase === "drop" || phase === "accel" ? "Compensating" : "Nominal");
-  L.set(impDrive, atWarp ? "Standby" : "Engaged"); L.set(warpDrive, atWarp ? "Engaged" : "Standby");
+  if (impDrive) { L.set(impDrive, atWarp ? "Standby" : "Engaged"); L.set(warpDrive, atWarp ? "Engaged" : "Standby"); }
   const magShown = Math.round(Meff);
   L.set(cMag.v, `Factor ${magShown}`);
   if (inSurvey && magShown !== shownMag && (zoomK > 0.5) !== (shownMag > 1)) { shownMag = zoomK > 0.5 ? M : 1; showBearings(zoomK > 0.5 ? bear[0] : 0, shownMag); }
@@ -426,6 +466,99 @@ later(13000, () => {
   if (!rdeck.length) rdeck = ROUTINE.slice().sort(() => Math.random() - 0.5);
   log(rdeck.pop());
 }, 0.3);
+
+// ---------------- ultrawide: a 536 flank either side of the viewer ----------------
+// left, the ship's position (navigation, deflector, comms); right, the survey (planet, atmosphere, orbit).
+// Built from the voyage above; no timers of their own beyond readings, and no random numbers.
+if (UW) {
+  const FW = 536, NL = 824, NR = 3696;
+  // per-target facts: [atmosphere, gravity, temp, day, hydrosphere, lifeforms, [N2, O2, Ar, humidity, cloud %], primary, orbit, year, eccentricity, moons]
+  const FACTS = {
+    "Bre'el IV": ["Nitrogen-oxygen", "0.94 g", "291 K", "27.3 h", "64%", "Humanoid", [76.4, 21.6, 0.9, 62, 48], "Bre'el", "1.04 AU", "388 days", "0.021", "1, decaying"],
+    "Narendra III": ["Nitrogen-oxygen", "1.08 g", "284 K", "31.1 h", "58%", "Klingon colony", [77.9, 20.2, 1.1, 54, 37], "Narendra", "1.21 AU", "461 days", "0.034", "2"],
+    "Deneb IV": ["Nitrogen-oxygen", "1.02 g", "296 K", "23.8 h", "52%", "Bandi", [78.2, 20.4, 0.8, 47, 29], "Deneb", "3.12 AU", "612 days", "0.018", "None"],
+    "El-Adrel IV": ["Nitrogen-oxygen", "0.97 g", "301 K", "25.6 h", "38%", "Animal only", [75.1, 22.4, 1.3, 31, 18], "El-Adrel", "0.92 AU", "322 days", "0.047", "3"],
+    "Minos Korva": ["Nitrogen-oxygen", "1.00 g", "288 K", "24.9 h", "69%", "Human colony", [78.0, 20.9, 0.8, 66, 52], "Korva", "1.00 AU", "365 days", "0.017", "2"],
+    "Mintaka III": ["Nitrogen-oxygen", "0.91 g", "305 K", "22.4 h", "41%", "Mintakan", [76.8, 21.0, 1.0, 38, 24], "Mintaka", "0.88 AU", "301 days", "0.029", "1"],
+  };
+  const list = (x, rows, colors) => rows.map((label, i) => {
+    L.box({ x, y: ROW0 + i * PITCH, w: 220, h: 64, c: colors[i % colors.length], label, fs: 32, r: "l" });
+    return L.text({ x: x + 244, base: rowBase(ROW0, i), s: 52, c: "white", txt: "" });
+  });
+  const meters = (x, rows, colors, heads) => {
+    heads.forEach(([txt, dx, align]) => L.text({ x: x + dx, base: 1100, s: 36, c: "ice", txt, align }));
+    return rows.map((label, i) => {
+      const base = rowBase(1128, i), c = colors[i % colors.length];
+      L.box({ x, y: 1128 + i * PITCH, w: 220, h: 64, c, label, fs: 32, r: "l" });
+      L.rect({ x: x + 244, y: base - 26, w: 150, h: 26, c: TRACK });
+      return { f: fill(x + 244, base - 26, 150, 26, c), e: L.text({ x: x + FW, base, s: 52, c: "white", txt: "", align: "r" }), v: 0, goal: 0, drawn: false };
+    });
+  };
+  const lines = (x, n) => Array.from({ length: n }, (_, i) => ({
+    l: L.text({ x, base: 1734 + i * 54, s: 36, c: "sky", txt: "" }), r: L.text({ x: x + FW, base: 1734 + i * 54, s: 36, c: "ice", txt: "", align: "r" }) }));
+
+  // left: navigation fix
+  L.header({ x: NL, y: 280, w: FW, label: "Navigation", c1: "blue", c2: "sky" });
+  L.text({ x: NL, base: 400, s: 36, c: "ice", txt: "Position" });
+  L.text({ x: NL + FW, base: 400, s: 36, c: "ice", txt: "Galactic, ly", align: "r" });
+  const nav = list(NL, ["Galactic X", "Galactic Y", "Galactic Z", "Covered", "Quadrant", "Nav Beacon"], ["blue", "sky", "ice", "blue", "sky", "ice"]);
+  let LY0 = destLy, P0 = [4212.3807, -1186.0442, 31.2765], DIR = [0.7071, 0.6984, 0.1109];   // course 047 mark 012
+  L.set(nav[4], "Alpha"); L.set(nav[5], "Starbase 74");
+  arrived.push((next) => {                               // the fix moves on to where the ship arrived, along the new heading
+    P0 = P0.map((p, k) => p + DIR[k] * LY0);
+    const [h, m] = next.heading.split(" mark ").map((v) => (+v * Math.PI) / 180);
+    DIR = [Math.cos(m) * Math.sin(h), Math.cos(m) * Math.cos(h), Math.sin(m)];
+    LY0 = next.ly; L.set(nav[5], next.name); L.set(comms[0].l, next.name);
+  });
+  // left: navigational deflector
+  L.header({ x: NL, y: 1000, w: FW, label: "Nav Deflector", c1: "sky", c2: "blue" });
+  const defl = meters(NL, ["Dish Power", "Graviton", "Sweep Field", "Shield Grid", "Particles"], ["sky", "blue", "ice", "sky", "blue"], [["Field", 0], ["Level", FW, "r"]]);
+  // left: subspace comms
+  L.header({ x: NL, y: 1620, w: FW, label: "Subspace Comms", c1: "ice", c2: "blue", h: 48 });
+  const comms = lines(NL, 5);
+  [["Starbase 74", "Carrier lock"], ["Relay Station 47", "Carrier lock"], ["Starfleet Command", "Standing by"],
+   ["Earth Station McKinley", "Scheduled"], ["U.S.S. Hood", "In range"]].forEach(([a, b], i) => { L.set(comms[i].l, a); L.set(comms[i].r, b); });
+
+  // right: survey data
+  L.header({ x: NR, y: 280, w: FW, label: "Survey Data", c1: "sky", c2: "ice" });
+  L.text({ x: NR, base: 400, s: 36, c: "ice", txt: "Planet" });
+  const survNote = L.text({ x: NR + FW, base: 400, s: 36, c: "ice", txt: "", align: "r" });
+  const surv = list(NR, ["Atmosphere", "Gravity", "Mean Temp", "Day", "Hydrosphere", "Lifeforms"], ["sky", "ice", "blue", "sky", "ice", "blue"]);
+  // right: atmosphere
+  L.header({ x: NR, y: 1000, w: FW, label: "Atmosphere", c1: "blue", c2: "sky" });
+  const atmo = meters(NR, ["Nitrogen", "Oxygen", "Argon", "Humidity", "Cloud Cover"], ["ice", "sky", "blue", "ice", "sky"], [["Reading", 0], ["Level", FW, "r"]]);
+  // right: orbit
+  L.header({ x: NR, y: 1620, w: FW, label: "Orbital Data", c1: "sky", c2: "ice", h: 48 });
+  const orbit = lines(NR, 5);
+  ["Primary", "Orbit", "Year", "Eccentricity", "Satellites"].forEach((t, i) => L.set(orbit[i].l, t));
+
+  const meterAll = [...defl, ...atmo];
+  L.tick(() => meterAll.forEach((g) => {
+    const d = g.goal - g.v;
+    if (Math.abs(d) < 0.0004 && g.drawn) return;
+    g.v += d * 0.035; g.drawn = true;
+    g.f.style.transform = `scaleX(${L.clamp(g.v).toFixed(4)})`;
+  }));
+  L.every(250, (t) => {
+    const covered = LY0 - destLy;
+    [0, 1, 2].forEach((k) => { const v = P0[k] + DIR[k] * covered; const [w, f] = Math.abs(v).toFixed(4).split("."); L.set(nav[k], (v < 0 ? "−" : "+") + fmt(+w) + "." + f); });
+    L.set(nav[3], covered.toFixed(4) + " ly");
+    const near = phase === "survey" || phase === "drop" || (phase === "accel" && t - p0 < 1.4);
+    const X = near && T ? T : nextTarget(), F = FACTS[X.name];
+    L.set(survNote, X.name);
+    F.slice(0, 5).forEach((v, i) => L.set(surv[i], v));
+    L.set(surv[5], phase === "survey" && sweep > 0 && sweep < 1 ? "Scanning" : F[5]);
+    F[6].forEach((v, i) => { atmo[i].goal = v / 100; });
+    F.slice(7).forEach((v, i) => L.set(orbit[i].r, v));
+    meterAll.forEach((g) => L.set(g.e, (L.clamp(g.v) * 100).toFixed(1) + "%"));
+  }, 0);
+  L.every(700, () => {
+    const k = wf / 9.6, imp = wf < 1 && phase !== "warp";
+    defl[0].goal = imp ? 0.22 : 0.28 + 0.6 * k; defl[1].goal = imp ? 0.12 : 0.18 + 0.55 * k;
+    defl[2].goal = (imp ? 0.3 : 0.4 + 0.45 * k) * (1 + 0.01 * Math.sin(L.t * 0.21));
+    defl[3].goal = phase === "drop" || phase === "accel" ? 0.95 : 0.98; defl[4].goal = sens[0].goal;
+  }, 0);
+}
 
 log(`Course laid in, ${DEST.name}`); log("Ensign Ro has the conn"); log(`Survey of ${nextTarget().name} scheduled`);
 log("Navigational deflector nominal"); log(`Warp ${W}, engaged`);

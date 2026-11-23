@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Tractor Beam</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* swapped text dips and comes back; colors change slowly; .boot (the start-up cascade) always wins */
@@ -14,7 +15,7 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: mirrored, sidebar on the right ----------------
-L.frame({ type: "B", title: "Tractor Beam  •  Emitter Control", c: "sky", c2: "butter", accent: "ice", foot: "Tractor",
+const FB = L.frame({ type: "B", title: "Tractor Beam  •  Emitter Control", c: "sky", c2: "butter", accent: "ice", foot: "Tractor",
   side: [[140, "ice", "Trac 01"], [70, "butter", "2240"], [420, "sky", "Emitter"], [70, "ice", "07"], [300, "butter", "Graviton"],
          [70, "sky", "V3"], [216, "ice", "Tow"]] });
 
@@ -33,10 +34,24 @@ const D2 = (n) => String(n).padStart(2, "0");
 const fmt = (n) => Math.round(n).toLocaleString("en");
 const swap = (els, f) => { els.forEach((e) => e.classList.add("out")); setTimeout(() => { f(); els.forEach((e) => e.classList.remove("out")); }, 460); };
 
-// Two equal halves: the tow (left) and the emitter (right), 48 apart.
-const A = [40, 1756], B = [1804, 3520];
-const ROW0 = 428, PITCH = 88, rowBase = (i) => ROW0 + i * PITCH + 52.5;
+// ---------------- the grid, per shape ----------------
+// The data, readings and motion below are written once; only these positions differ by shape.
+// wide (3840 × 2160): two equal halves 48 apart, the tow (40–1756) and the emitter (1804–3520);
+//   target lock under the tow, the tow log under the emitter.
+// upright (2160 × 3120): the tow plot across the full width (40–1840), then the emitter gauges and
+//   the generator array side by side (40–916 | 964–1840) on one row grid, then target lock in two
+//   columns of three, then the tow log across the width.
+// ultrawide (5040 × 2160): the wide halves unchanged, a third column (3568–4720) for the tow log,
+//   which runs the full height; the emitter half's foot holds the tow queue in its place.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const A = UP ? [40, FB.x1] : [40, 1756], B = [1804, 3520];
+const H1 = [40, 916], H2 = [964, FB.x1], C3 = [3568, FB.x1];          // upright halves; ultrawide's third column
+const GA = UP ? H1 : B, AR = UP ? H2 : B;                               // the gauges' and the array's columns
+const LG = UP ? A : UW ? C3 : B;                                        // the tow log's column
+const ROW0 = UP ? 1688 : 428, PITCH = 88, rowBase = (i) => ROW0 + i * PITCH + 52.5;
 const STRIP = (i) => 1734 + i * 54;
+const lockCol = (i) => (UP ? (i < 3 ? H1 : H2) : A), lockBase = (i) => (UP ? 2386 + (i % 3) * 54 : STRIP(i));
+const NLOG = UW ? 29 : 6, logBase = (i) => (UP ? 2688 + i * 54 : UW ? 492 + i * 54 : STRIP(i));
 
 // ---------------- the cycle: acquire, lock, engage, tow, hold, release, clear ----------------
 const CYCLE = 96;
@@ -78,7 +93,7 @@ const forceAt = (c, u) => engagedAt(u) * c.T.mass * 1000 * (Math.abs(accAt(c, u)
 const state = cls(L.text({ x: A[0], cap: 150, s: 100, c: "sky", txt: "" }), "sw");
 const stateSub = cls(L.text({ x: 0, base: 222, s: 38, c: "butter", txt: "" }), "sw");
 const placeSub = () => { stateSub.style.left = A[0] + state.offsetWidth + 48 + "px"; };
-const pill = cls(L.box({ x: B[1] - 400, y: 150, w: 400, h: 72, c: "ice", label: "Emitter Standby", r: "lr", fs: 36 }), "sw");
+const pill = cls(L.box({ x: FB.x1 - 400, y: 150, w: 400, h: 72, c: "ice", label: "Emitter Standby", r: "lr", fs: 36 }), "sw");
 
 // a section header with a status pill at its right end
 const pillHeader = (col, y, label, c1, c2, texts, pc, h = 56) => {
@@ -91,14 +106,16 @@ const pillHeader = (col, y, label, c1, c2, texts, pc, h = 56) => {
 // ---------------- the tow vector: plan view along the emitter axis ----------------
 const lockPill = pillHeader(A, 280, "Tow Vector", "sky", "ice", ["No Lock", "Locking", "Locked", "Breaking Lock"], "ice");
 L.text({ x: A[0], base: 400, s: 36, c: "sky", txt: "Plan View  ·  Ventral Tractor Emitter  ·  Range and Offset in Meters" });
-const P0 = 428, P1 = 1472, AX = 950;                    // the panel, and the beam axis through its middle
-const EX = 130, SCL = 0.77;                             // the emitter face; pixels per metre
+// upright: the plot is the full width, so a metre is a little larger; the grid runs ±400 m across
+const P0 = 428, P1 = UP ? 1372 : 1472, AX = UP ? 900 : 950;   // the panel, and the beam axis through its middle
+const EX = 130, SCL = UP ? (A[1] - 86 - EX) / 2000 : 0.77;    // the emitter face; pixels per metre
+const GM = UP ? 400 : 500;                                    // the grid's reach across the axis, metres
 const px = (m) => EX + m * SCL, py = (m) => AX + m * SCL;
 L.rect({ x: A[0], y: P0, w: A[1] - A[0], h: P1 - P0, c: WIN, panel: true });
 // the grid: a line every 250 m along the axis, every 100 m across it
-const G0 = py(-500), G1 = py(500);                     // the grid's top and foot: ±500 m across the axis
+const G0 = py(-GM), G1 = py(GM);                       // the grid's top and foot: ±500 m across the axis
 for (let m = 250; m <= 2000; m += 250) L.rect({ x: px(m) - 1, y: G0, w: 2, h: G1 - G0, c: m % 500 ? GRID : "#1c3564", free: true });
-for (let m = -500; m <= 500; m += 100) if (m) L.rect({ x: EX, y: py(m) - 1, w: px(2000) - EX, h: 2, c: m % 200 ? GRID : "#1c3564", free: true });
+for (let m = -GM; m <= GM; m += 100) if (m) L.rect({ x: EX, y: py(m) - 1, w: px(2000) - EX, h: 2, c: m % 200 ? GRID : "#1c3564", free: true });
 L.rect({ x: EX, y: AX - 1.5, w: px(2000) - EX, h: 3, c: "#2a4d8c", free: true });
 // the range scale along the foot, labelled every 500 m
 for (let m = 0; m <= 2000; m += 100) L.rect({ x: px(m) - 1.5, y: G1 + 16, w: 3, h: m % 500 ? 12 : 22, c: m % 500 ? "#2a4d8c" : "sky", free: true });
@@ -111,7 +128,7 @@ L.text({ x: px(HOLD), base: G0 - 34, s: 36, c: "butter", txt: "Tow Station  400 
 // the emitter: a half disc at the panel's edge, two arcs round it, a glow that follows the output
 L.svg("path", { d: `M40,${AX - 90} A90,90 0 0 1 40,${AX + 90} Z`, fill: "var(--sky)", class: "boot" });
 for (const [r, w] of [[112, 6], [134, 4]]) L.svg("path", { d: `M40,${AX - r} A${r},${r} 0 0 1 40,${AX + r}`, fill: "none", stroke: "var(--sky)", "stroke-width": w, opacity: 0.55, class: "boot" });
-L.text({ x: 60, cap: AX + 160, s: 36, c: "sky", txt: "Emitter" });
+L.text({ x: 60, cap: UP ? AX + 190 : AX + 160, s: 36, c: "sky", txt: "Emitter" });   // upright: between the 200 and 300 m lines, clear of both
 const glow = L.layer({ x: -50, y: AX - 90, w: 180, h: 180, cls: "boot" });
 glow.style.cssText += "border-radius:50%;clip-path:inset(0 0 0 50%);background:radial-gradient(circle, #e8f6ff 0%, var(--ice) 45%, rgba(143,211,255,0) 72%);";
 
@@ -149,7 +166,7 @@ const tMass = L.text({ x: 0, base: -66, s: 36, c: "ice", txt: "", align: "c", w:
 tName.classList.remove("boot"); tMass.classList.remove("boot");
 
 // the cycle as a band under the plot, flush with its ends; a cursor runs along it
-const BY = 1496, BW = A[1] - A[0], BG = 6, PPS = (BW - BG * (PHASES.length - 1)) / CYCLE;
+const BY = UP ? 1396 : 1496, BW = A[1] - A[0], BG = 6, PPS = (BW - BG * (PHASES.length - 1)) / CYCLE;
 let bx = A[0];
 const bands = PHASES.map(([name, a, b], i) => {
   const w = i === PHASES.length - 1 ? A[1] - bx : Math.round((b - a) * PPS);
@@ -161,55 +178,65 @@ const cursor = L.layer({ x: -2, y: BY - 12, w: 4, h: 88, cls: "boot" });
 cursor.style.background = "var(--white)";
 
 // ---------------- the graviton emitter ----------------
-L.header({ x: B[0], y: 280, w: B[1] - B[0], label: "Graviton Emitter", c1: "butter", c2: "sky" });
-L.text({ x: B[0], base: 400, s: 36, c: "sky", txt: "Main Tractor Emitter  ·  Ventral Saucer  ·  Variable-Phase Graviton Polarity Source" });
+const SEC2 = UP ? 1540 : 280;                          // upright: the emitter and the array share one header line
+L.header({ x: GA[0], y: SEC2, w: GA[1] - GA[0], label: "Graviton Emitter", c1: "butter", c2: "sky" });
+L.text({ x: GA[0], base: SEC2 + 120, s: 36, c: "sky", txt: UP ? "Main Tractor Emitter  ·  Ventral Saucer"
+  : "Main Tractor Emitter  ·  Ventral Saucer  ·  Variable-Phase Graviton Polarity Source" });   // upright: half the width
 const BOXW = 290;
 const VALW = Math.ceil(Math.max(...["1,000 MW", "100.0%", "88.8 m", "888 K", "88.8 kg/s"].map((s) => L.textWidth(s, 52))) / 10) * 10 + 40;
-const GX = B[0] + BOXW + L.GAP, GW = B[1] - VALW - GX;
+const GX = GA[0] + BOXW + L.GAP, GW = GA[1] - VALW - GX;
 const gauge = (i, label, c) => {
   const base = rowBase(i);
-  L.box({ x: B[0], y: ROW0 + i * PITCH, w: BOXW, h: 64, c: i % 2 ? "ice" : c, label, fs: 32, r: "l" });
+  L.box({ x: GA[0], y: ROW0 + i * PITCH, w: BOXW, h: 64, c: i % 2 ? "ice" : c, label, fs: 32, r: "l" });
   L.rect({ x: GX, y: base - 26, w: GW, h: 26, c: TRACK });
-  return { bar: fill(GX, base - 26, GW, 26, i % 2 ? "ice" : c), v: L.text({ x: B[1], base, s: 52, c: "white", txt: "", align: "r" }), u: -1 };
+  return { bar: fill(GX, base - 26, GW, 26, i % 2 ? "ice" : c), v: L.text({ x: GA[1], base, s: 52, c: "white", txt: "", align: "r" }), u: -1 };
 };
 const showBar = (g, k) => { k = L.clamp(k); if (Math.abs(k - g.u) > 0.0005) { g.u = k; tf(g.bar, `scaleX(${k.toFixed(4)})`); } };
 const gOut = gauge(0, "Emitter Output", "sky"), gCoh = gauge(1, "Beam Coherence", "sky"), gSpot = gauge(2, "Spot Diameter", "butter");
 const gTemp = gauge(3, "Emitter Temperature", "sky"), gCool = gauge(4, "Coolant Flow", "sky"), gEps = gauge(5, "EPS Draw", "butter");
 
 // ---------------- the polarity source array: twelve generators, phase-locked one by one ----------------
-const arrPill = pillHeader(B, 1000, "Polarity Source Array", "sky", "butter", ["12 of 12 Phase-Locked"], "ice");
-L.text({ x: B[0], base: 1120, s: 36, c: "sky", txt: "Twelve Generators  ·  Output Shared Across the Array  ·  Rated 90 MW Each" });
-const NG = 12, GG = 12, GCW = (B[1] - B[0] - GG * (NG - 1)) / NG, GT = 1148, GB = 1472;
+const SEC3 = UP ? SEC2 : 1000;
+const arrPill = pillHeader(AR, SEC3, "Polarity Source Array", "sky", "butter", ["12 of 12 Phase-Locked"], "ice");
+L.text({ x: AR[0], base: SEC3 + 120, s: 36, c: "sky", txt: "Twelve Generators  ·  Output Shared Across the Array  ·  Rated 90 MW Each" });
+// the generator labels sit on the cycle band's line (wide) or on the last gauge's (upright)
+const GBOX = UP ? ROW0 + 5 * PITCH : BY;
+const NG = 12, GG = 12, GCW = (AR[1] - AR[0] - GG * (NG - 1)) / NG, GT = SEC3 + 148, GB = UP ? GBOX - 24 : 1472;
 const gens = Array.from({ length: NG }, (_, i) => {
-  const x = B[0] + i * (GCW + GG);
+  const x = AR[0] + i * (GCW + GG);
   L.rect({ x, y: GT, w: GCW, h: GB - GT, c: TRACK });
   const lvl = fill(x, GT, GCW, GB - GT, i % 2 ? "ice" : "sky", "50% 100%");
   const wave = fill(x, GT, GCW, GB - GT, "#e8f6ff", "50% 100%");
   wave.style.opacity = 0;
-  const box = cls(L.box({ x, y: BY, w: GCW, h: 64, c: DIM, label: "G" + D2(i + 1), fs: 32, r: i === 0 ? "l" : i === NG - 1 ? "r" : null }), "sw");
+  // upright: the narrow buttons are square-ended, their labels centred
+  const box = cls(L.box({ x, y: GBOX, w: GCW, h: 64, c: DIM, label: "G" + D2(i + 1), fs: 32, r: UP ? null : i === 0 ? "l" : i === NG - 1 ? "r" : null, cls: UP ? "c" : undefined }), "sw");
   return { lvl, wave, box, lit: null, u: -1 };
 });
 
 // ---------------- target lock ----------------
-const tgtPill = pillHeader(A, 1620, "Target Lock", "butter", "sky", TARGETS.map((T) => T.short), "ice", 48);
+const tgtPill = pillHeader(A, UP ? 2272 : 1620, "Target Lock", "butter", "sky", TARGETS.map((T) => T.short), "ice", 48);
+const LBH = UP ? 18 : 22;                               // upright: a slimmer bar, two columns of them side by side
 const lockRow = (i, name, c) => {
-  const base = STRIP(i);
-  L.text({ x: A[0], base, s: 36, c: "sky", txt: name });
-  L.rect({ x: A[0] + 300, y: base - 22, w: A[1] - 220 - (A[0] + 300), h: 22, c: TRACK });
-  return { bar: fill(A[0] + 300, base - 22, A[1] - 220 - (A[0] + 300), 22, c), v: L.text({ x: A[1], base, s: 36, c: "white", txt: "", align: "r" }), u: -1 };
+  const base = lockBase(i), K = lockCol(i);
+  L.text({ x: K[0], base, s: 36, c: "sky", txt: name });
+  L.rect({ x: K[0] + 300, y: base - LBH, w: K[1] - 220 - (K[0] + 300), h: LBH, c: TRACK });
+  return { bar: fill(K[0] + 300, base - LBH, K[1] - 220 - (K[0] + 300), LBH, c), v: L.text({ x: K[1], base, s: 36, c: "white", txt: "", align: "r" }), u: -1 };
 };
 const lLock = lockRow(0, "Lock Strength", "butter"), lMass = lockRow(1, "Target Mass", "sky"), lRange = lockRow(2, "Range", "ice");
 const lRate = lockRow(3, "Closing Rate", "sky"), lForce = lockRow(4, "Applied Force", "butter"), lLoad = lockRow(5, "Structural Load", "ice");
 
 // ---------------- tow log ----------------
-L.header({ x: B[0], y: 1620, w: B[1] - B[0], label: "Tow Log", c1: "sky", c2: "butter", h: 48 });
-const LOGT = B[0] + 150, LOGN = B[0] + 900, LOGR = B[0] + 1340;
-const logRows = Array.from({ length: 6 }, (_, i) => ({
-  tm: L.text({ x: B[0], base: STRIP(i), s: 36, c: "sky", txt: "" }),
-  tx: L.text({ x: LOGT, base: STRIP(i), s: 36, c: "butter", txt: "" }),
-  tg: L.text({ x: LOGN, base: STRIP(i), s: 36, c: "ice", txt: "" }),
-  rg: L.text({ x: LOGR, base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }),
-  v: L.text({ x: B[1], base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }) }));
+// ultrawide: the log runs down its own column, its rows on the foot strip's grid, column heads on the captions' line
+L.header({ x: LG[0], y: UP ? 2574 : UW ? 280 : 1620, w: LG[1] - LG[0], label: "Tow Log", c1: "sky", c2: "butter", h: UW ? 56 : 48 });
+const LOGT = LG[0] + 150, LOGN = LG[0] + (UW ? 620 : 900), LOGR = LG[0] + (UW ? 940 : 1340);
+if (UW) [[LG[0], "Time"], [LOGT, "Event"], [LOGN, "Target"], [LOGR, "Range", "r"], [LG[1], "Output", "r"]]
+  .forEach(([x, txt, al]) => L.text({ x, base: 400, s: 36, c: "sky", txt, ...(al ? { align: al } : {}) }));
+const logRows = Array.from({ length: NLOG }, (_, i) => ({
+  tm: L.text({ x: LG[0], base: logBase(i), s: 36, c: "sky", txt: "" }),
+  tx: L.text({ x: LOGT, base: logBase(i), s: 36, c: "butter", txt: "" }),
+  tg: L.text({ x: LOGN, base: logBase(i), s: 36, c: "ice", txt: "" }),
+  rg: L.text({ x: LOGR, base: logBase(i), s: 36, c: "white", txt: "", align: "r" }),
+  v: L.text({ x: LG[1], base: logBase(i), s: 36, c: "white", txt: "", align: "r" }) }));
 const logged = [];
 const clockAt = (ago = 0) => { const d = new Date(Date.now() - ago * 1000); return `${D2(d.getHours())}:${D2(d.getMinutes())}:${D2(d.getSeconds())}`; };
 const logLine = (row, ago = 0) => {
@@ -229,13 +256,40 @@ const logRow = (c, at, txt) => [txt, c.T.short, fmt(rangeAt(c, at)) + " m", fmt(
 const OFFSET = 10 * CYCLE + 10;                        // open as the lock closes on the first target
 const now = (t) => { const k = t + OFFSET; return { n: Math.floor(k / CYCLE), u: k % CYCLE }; };
 // the log, as the watch found it: the last tow, then this one so far
+let T0 = 0;                                            // when cycle 0 began (ms): the tow queue's clock
 {
   const { n, u } = now(0), prev = tow(n - 1), cur = tow(n);
+  T0 = Date.now() - (n * CYCLE + u) * 1000;
   const hist = [];
+  for (let j = UW ? 5 : 1; j > 1; j--) { const c = tow(n - j); EVENTS.forEach(([at, txt]) => hist.push([at - j * CYCLE - u, logRow(c, at, txt)])); }   // ultrawide's longer log
   EVENTS.forEach(([at, txt]) => hist.push([at - CYCLE - u, logRow(prev, at, txt)]));
   EVENTS.forEach(([at, txt]) => { if (at <= u) hist.push([at - u, logRow(cur, at, txt)]); });
-  hist.slice(-6).forEach(([dt, row]) => logLine(row, -dt));
+  hist.slice(-NLOG).forEach(([dt, row]) => logLine(row, -dt));
 }
+// ---------------- ultrawide: the tow queue, two tows back to three ahead, under the emitter ----------------
+const queue = [];
+if (UW) {
+  L.header({ x: B[0], y: 1620, w: B[1] - B[0], label: "Tow Queue", c1: "butter", c2: "sky", h: 48 });
+  for (let i = 0; i < 6; i++) queue.push({
+    tm: L.text({ x: B[0], base: STRIP(i), s: 36, c: "sky", txt: "" }),
+    nm: L.text({ x: B[0] + 150, base: STRIP(i), s: 36, c: "butter", txt: "" }),
+    kd: L.text({ x: B[0] + 620, base: STRIP(i), s: 36, c: "ice", txt: "" }),
+    st: L.text({ x: B[0] + 1340, base: STRIP(i), s: 36, c: "sky", txt: "", align: "r" }),
+    ms: L.text({ x: B[1], base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }) });   // a value beside the log's times, as wide's lock values are
+}
+// row k is tow n + k − 2: released ones show when they let go, the rest when they are acquired.
+// Times already in the log are read from it, so the two always agree to the second; the rest are projected.
+const syncQueue = () => queue.forEach((q, i) => {
+  if (i > 2) return;
+  const want = i < 2 ? "Tractor beam released" : "Target acquired", T = tow(cycleN + i - 2).T;
+  for (let j = logged.length - 1; j >= 0; j--) if (logged[j][1] === want && logged[j][2] === T.short) { L.set(q.tm, logged[j][0]); break; }
+});
+const fillQueue = (n, u) => queue.forEach((q, i) => {
+  const k = i - 2, T = tow(n + k).T;
+  L.set(q.tm, clockAt((Date.now() - T0) / 1000 - ((n + k) * CYCLE + (k < 0 ? 76 : 0.5)))); L.set(q.nm, T.name); L.set(q.kd, T.kind); L.set(q.ms, massTxt(T.mass));
+  L.set(q.st, k < 0 ? "Released" : k > 0 ? "Queued" : PHASES[Math.max(0, phaseAt(u))][0]);
+  fg(q.st, k === 0 ? "butter" : "sky"); fg(q.tm, k === 0 ? "butter" : "sky");
+});
 let lastWord = null, cycleN = -1, lastPh = -1, lastU = -1, temp = null, tPrev = null, pulsePh = 0, wavePh = 0, nextDot = 0, dotI = 0;
 const model = { c: null, u: 0, P: 0 };
 L.tick((t) => {
@@ -248,9 +302,10 @@ L.tick((t) => {
     trail.forEach((d) => (d.t = -99));
     if (lastU >= 0) swap([stateSub, tgtPill], () => { L.set(stateSub, `${T.kind}  ·  ${massTxt(T.mass)}  ·  Main Tractor Emitter`); placeSub(); L.set(tgtPill, T.short); });
     else { L.set(stateSub, `${T.kind}  ·  ${massTxt(T.mass)}  ·  Main Tractor Emitter`); L.set(tgtPill, T.short); }
+    if (UW) { fillQueue(n, u); syncQueue(); }
   }
   const c = model.c;
-  if (lastU >= 0) for (const [at, txt] of EVENTS) if (lastU < at && u >= at) logLine(logRow(c, at, txt));
+  if (lastU >= 0) for (const [at, txt] of EVENTS) if (lastU < at && u >= at) { logLine(logRow(c, at, txt)); if (UW) syncQueue(); }
   lastU = u;
   model.u = u;
   const P = outputAt(c, u), e = engagedAt(u);
@@ -313,6 +368,7 @@ L.every(250, (t) => {
   if (ph !== lastPh) {
     lastPh = ph;
     bands.forEach((b, i) => { bg(b.e, i === ph ? "butter" : i < ph ? "sky" : DIM); fg(b.e, i <= ph ? "#000" : "sky"); });
+    if (UW) L.set(queue[2].st, PHASES[Math.max(0, ph)][0]);
   }
   const lkNow = lockAt(u), lkTxt = lkNow >= 0.995 ? "Locked" : lkNow <= 0.005 ? "No Lock" : u < 48 ? "Locking" : "Breaking Lock";
   L.set(lockPill, lkTxt); bg(lockPill, lkTxt === "Locked" ? "butter" : lkTxt === "No Lock" ? "ice" : "sky");

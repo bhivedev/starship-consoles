@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Inertial Dampers</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* swapped text dips and comes back; colors change slowly; .boot (the start-up cascade) always wins */
@@ -13,14 +14,30 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: sidebar left, title top right ----------------
-L.frame({ type: "A", title: "Inertial Dampers  •  Compensation", c: "lilac", c2: "peach", accent: "plum", foot: "IDF",
+const B = L.frame({ type: "A", title: "Inertial Dampers  •  Compensation", c: "lilac", c2: "peach", accent: "plum", foot: "IDF",
   side: [[140, "peach", "Deck 11"], [70, "plum", "02"], [420, "lilac", "Dampers"], [70, "butter", "2205"],
          [300, "peach", "Fields"], [70, "plum", "G4"], [216, "lilac", "Helm Link"]] });
 
-// Six columns, 531 wide and 60 apart (330–3816): the readings under the timeline sit one to a
-// column, and the two panels below split on column four (330–2043 | 2103–3816).
-const X0 = 330, X1 = 3816, CP = 591, CW = 531, COL = (i) => X0 + i * CP;
-const MID = COL(3), LEFT_R = MID - 60;                     // 2103; 2043
+// ---------------- the grid, per shape ----------------
+// The data, readings and motion below are written once; only these positions differ by shape.
+// wide (3840 × 2160): six columns, 531 wide and 60 apart (330–3816); the readings under the
+//   timeline sit one to a column, and the four panels below split on column four, two over two
+//   (330–2043 | 2103–3816).
+// upright (2160 × 3120): six narrower columns (266 wide, 42 apart, 330–2136) carry the readings;
+//   the four panels stack down the page at full width, each re-cut on the same columns.
+// ultrawide (5040 × 2160): eight columns of the wide size (535 wide, 58 apart, 330–5016): two more
+//   readings, the same two-over-two panels on columns 1–6, and a watch log down columns 7–8.
+const UP = L.shape === "upright", ULTRA = L.shape === "ultrawide";
+const X0 = B.x0, X1 = B.x1;
+const CP = UP ? 308 : ULTRA ? 593 : 591, CW = UP ? 266 : ULTRA ? 535 : 531, COL = (i) => X0 + i * CP;
+const MID = COL(3), LEFT_R = MID - 60;                     // wide: 2103; 2043
+// the lower panels' left and right edges: response lag over per-deck (PL), generators over incidents (PR)
+const PL = UP ? [X0, X1] : [X0, LEFT_R];
+const PR = UP ? [X0, X1] : [MID, ULTRA ? COL(6) - 60 : X1];
+// their header lines: response lag | generators | per-deck | incidents (wide: 1080, 1080, 1620, 1620).
+// Upright stacks them 74 apart (last baseline to next header), ending on the content box's floor.
+const MY = UP ? 1096 : 1080, GY = UP ? 1606 : MY, DY = UP ? 2116 : 1620, IY = UP ? 2574 : 1620;
+const ROW = (y, k) => y + 132 + 76 * k;                    // table rows under a header at y
 const LANE = "#1c1224", GRID = "#3a2848", TRACK = "#2c1c34";
 const FILL_A = "#4b3658", FILL_R = "#55304c";
 const INK = { peach: "#ffb070", lilac: "#c7a0d8", pink: "#f4b6e6", butter: "#ffcc66" };
@@ -100,12 +117,14 @@ const profile = (m, u) => {
 };
 let simT = 0, acc = 5, res = 0.012, prevAcc = 5, ev = null, nextAt = 4, lastM = -1, events = 17;
 const markers = [];                                         // where each event began on the strip, and its label
+const watch = {};                                           // hooks: the ultrawide watch log listens here
 const sim = (h, x) => {
   simT += h;
   if (!ev && simT >= nextAt) {
     let i; do i = L.irand(0, MANEUVERS.length - 1); while (i === lastM);
     lastM = i; ev = { m: MANEUVERS[i], t0: simT, peak: 0 }; events++;
     markers.push({ x, name: ev.m.name, drawn: false });
+    if (watch.begin) watch.begin(ev);
   }
   // thrusters holding station: a few g, always
   let a = 5 + 2.5 * Math.sin(simT * 0.37) + 1.5 * Math.sin(simT * 1.13 + 1);
@@ -119,7 +138,7 @@ const sim = (h, x) => {
   // what gets through the field: a trace at rest; more while the acceleration is changing
   const goal = 0.012 + 0.004 * Math.sin(simT * 0.6) + 0.00013 * Math.abs(da);
   res += (goal - res) * (1 - Math.exp(-h / 0.12));
-  if (ev) ev.peak = Math.max(ev.peak, res);
+  if (ev) { ev.peak = Math.max(ev.peak, res); ev.amax = Math.max(ev.amax || 0, acc); }
 };
 
 let written = SW, prevA = null, prevR = null, filled = false, lastT = null;
@@ -182,7 +201,8 @@ const showLabels = (dt) => {
 };
 
 // ---------------- the readings under the timeline: six, one to a column ----------------
-const TILE_L = 944, TILE_V = 1014;
+// (upright: 16 lower, so the last label is not a near miss under the strip's right edge)
+const TILE_L = UP ? 960 : 944, TILE_V = TILE_L + 70;
 const tile = (i, label, c) => {
   const x = COL(i);
   L.rect({ x, y: TILE_L - 29, w: 12, h: TILE_V - TILE_L + 29, c });
@@ -196,17 +216,21 @@ const vRes = tile(2, "Residual Aboard", "pink");
 const vLag = tile(3, "Response Lag", "butter");
 const vCoh = tile(4, "Field Coherence", "plum");
 const vEvt = tile(5, "Events This Watch", "lilac");
+// ultrawide: two more columns, two more readings
+const vGen = ULTRA ? tile(6, "Generator Load", "peach") : null;
+const vHigh = ULTRA ? tile(7, "Highest Residual", "pink") : null;
 
 // =====================================================================================
 // THE LAST EVENT: how the field caught it, in milliseconds
 // =====================================================================================
-const MY = 1080, MROW = (k) => 1212 + 76 * k;              // rows shared with the generators table
-L.header({ x: X0, y: MY, w: LEFT_R - X0, label: "Response Lag  ·  Last Event", c1: "peach", c2: "lilac" });
-const CX0 = X0, CX1 = COL(2) - 60, CY0 = 1160, CY1 = 1468;  // the chart: 330 → 1452
+const MROW = (k) => ROW(MY, k);                            // wide: rows shared with the generators table
+L.header({ x: PL[0], y: MY, w: PL[1] - PL[0], label: "Response Lag  ·  Last Event", c1: "peach", c2: "lilac" });
+const RCOL = UP ? 4 : 2;                                    // the readings' column: the chart fills those before it
+const CX0 = PL[0], CX1 = COL(RCOL) - 60, CY0 = MY + 80, CY1 = MY + 388;  // the chart: wide 330 → 1452
 L.rect({ x: CX0, y: CY0, w: CX1 - CX0, h: CY1 - CY0, c: LANE, panel: true });
 const PX0 = CX0 + 40, PX1 = CX1 - 40, TMAX = 400;           // 0–400 ms
 const px = (ms) => PX0 + ((PX1 - PX0) * ms) / TMAX;
-const py = (v) => 1436 - v * 190;                           // 0 → 1436, 1 (full compensation) → 1246
+const py = (v) => MY + 356 - v * 190;                       // wide: 0 → 1436, 1 (full compensation) → 1246
 const NS = "http://www.w3.org/2000/svg";
 // the curves sit in their own layer (they fade); a cover the colour of the chart slides off to draw them
 const CHW = CX1 - CX0, CHH = CY1 - CY0;                    // layers sized to the chart, never the whole screen
@@ -229,18 +253,18 @@ Object.assign(grid.style, { position: "absolute", left: CX0 + "px", top: CY0 + "
 grid.classList.add("boot");
 L.stage.appendChild(grid);
 [0, 0.5, 1].forEach((v) => L.svg("rect", { x: PX0, y: py(v) - 1, width: PX1 - PX0, height: 2, fill: v === 1 ? "#6a4c7a" : GRID }, grid));
-[0, 100, 200, 300, 400].forEach((ms) => L.svg("rect", { x: px(ms) - 1, y: 1230, width: 2, height: py(0) - 1230 + 12, fill: GRID }, grid));
-[0, 100, 200, 300, 400].forEach((ms) => L.text({ x: px(ms), base: 1516, s: 36, c: "lilac", txt: String(ms), align: "c", w: 160, legend: true }));
+[0, 100, 200, 300, 400].forEach((ms) => L.svg("rect", { x: px(ms) - 1, y: MY + 150, width: 2, height: py(0) - (MY + 150) + 12, fill: GRID }, grid));
+[0, 100, 200, 300, 400].forEach((ms) => L.text({ x: px(ms), base: MY + 436, s: 36, c: "lilac", txt: String(ms), align: "c", w: 160, legend: true }));
 // the key, inside the chart's top edge
 {
   let x = PX1;
   for (const [txt, c] of [["Residual", "pink"], ["Damping Field", "lilac"], ["Helm Command", "peach"]]) {
-    L.text({ x, base: 1206, s: 36, c, txt, align: "r" });
+    L.text({ x, base: MY + 126, s: 36, c, txt, align: "r" });
     x -= L.textWidth(txt, 36) + 44;
   }
 }
 // the readings beside it
-const RX0 = COL(2), RX1 = LEFT_R;
+const RX0 = COL(RCOL), RX1 = PL[1];
 const evName = cls(L.text({ x: RX0, base: MROW(0), s: 40, c: "butter", txt: "" }), "sw");
 const lagRow = (k, label) => {
   L.text({ x: RX0, base: MROW(k), s: 40, c: "lilac", txt: label });
@@ -280,6 +304,7 @@ function endEvent(e) {
   last = { name: e.m.name, lag: Math.round(L.rand(33, 39) + 6 * sev), os: L.rand(0.6, 1.4) + sev, peak: e.peak };
   last.settle = last.lag + Math.round(L.rand(150, 190) + 40 * sev);
   if (filled) showLast(last, true); else last.quiet = true;
+  if (watch.end) watch.end(e);
 }
 // a new event: the old curves fade, the cover comes back, then slides off as the field responds
 L.tick((t) => {
@@ -295,21 +320,22 @@ L.tick((t) => {
 // =====================================================================================
 // FIELD GENERATORS
 // =====================================================================================
-L.header({ x: MID, y: MY, w: X1 - MID, label: "Field Generators", c1: "lilac", c2: "peach" });
-const G = { name: MID, loc: MID + 340, bar: MID + 700, barR: X1 - 520, val: X1 - 300, pill: X1 - 260 };
-[["Generator", G.name], ["Location", G.loc], ["Field Output", G.bar]].forEach(([txt, x]) => L.text({ x, base: MROW(0), s: 36, c: "lilac", txt }));
-L.text({ x: G.pill, base: MROW(0), s: 36, c: "lilac", txt: "Status" });
+const GROW = (k) => ROW(GY, k);
+L.header({ x: PR[0], y: GY, w: PR[1] - PR[0], label: "Field Generators", c1: "lilac", c2: "peach" });
+const G = { name: PR[0], loc: PR[0] + 340, bar: PR[0] + 700, barR: PR[1] - 520, val: PR[1] - 300, pill: PR[1] - 260 };
+[["Generator", G.name], ["Location", G.loc], ["Field Output", G.bar]].forEach(([txt, x]) => L.text({ x, base: GROW(0), s: 36, c: "lilac", txt }));
+L.text({ x: G.pill, base: GROW(0), s: 36, c: "lilac", txt: "Status" });
 const GENS = [["IDF Generator 1", "Saucer  ·  Deck 11", 11, 1.0], ["IDF Generator 2", "Saucer  ·  Deck 14", 14, 0.96],
               ["IDF Generator 3", "Stardrive  ·  Deck 24", 24, 1.04], ["IDF Generator 4", "Stardrive  ·  Deck 33", 33, 0]];
 const gens = GENS.map(([name, loc, deck, share], k) => {
-  const base = MROW(k + 1), standby = share === 0;
+  const base = GROW(k + 1), standby = share === 0;
   L.text({ x: G.name, base, s: 40, c: standby ? "plum" : "white", txt: name });
   L.text({ x: G.loc, base, s: 36, c: "peach", txt: loc });
   L.rect({ x: G.bar, y: base - 26, w: G.barR - G.bar, h: 26, c: TRACK });
   const bar = L.layer({ x: G.bar, y: base - 26, w: G.barR - G.bar, h: 26 });
   bar.style.background = `var(--${standby ? "plum" : "lilac"})`; bar.style.transformOrigin = "0 0";
   const v = L.text({ x: G.val + 0, base, s: 52, c: "white", txt: "", align: "r" });
-  L.box({ x: G.pill, y: base - 44.56, w: X1 - G.pill, h: 56, c: standby ? "plum" : "lilac", label: standby ? "Standby" : "Online", fs: 28, r: "lr" });
+  L.box({ x: G.pill, y: base - 44.56, w: PR[1] - G.pill, h: 56, c: standby ? "plum" : "lilac", label: standby ? "Standby" : "Online", fs: 28, r: "lr" });
   fits(name, 40, G.loc - G.name - 40, "generator"); fits(loc, 36, G.bar - G.loc - 40, "location");
   return { deck, share, bar, v, phase: k * 1.9, shown: standby ? 0.08 : 0.31 };
 });
@@ -318,27 +344,27 @@ const ACTIVE = gens.filter((g) => g.share > 0).map((g) => g.deck);
 // =====================================================================================
 // PER-DECK COMPENSATION: 42 decks, loaded by their distance from the nearest active generator
 // =====================================================================================
-L.header({ x: X0, y: 1620, w: LEFT_R - X0, label: "Per-Deck Compensation", c1: "plum", c2: "lilac", h: 48 });
-const DB = (k) => 1734 + 54 * k;
-const NDECK = 42, DP = (LEFT_R - X0 + 9) / NDECK, DW = DP - 9;   // 41 pitch, 32 wide
-const BT = 1766, BB = 1956, TOL = 0.9;
-const okTxt = L.text({ x: X0, base: DB(0), s: 36, c: "lilac", txt: "" });
-const peakTxt = L.text({ x: LEFT_R, base: DB(0), s: 36, c: "peach", txt: "", align: "r" });
+L.header({ x: PL[0], y: DY, w: PL[1] - PL[0], label: "Per-Deck Compensation", c1: "plum", c2: "lilac", h: 48 });
+const DB = (k) => DY + 114 + 54 * k;                       // wide: 1734
+const NDECK = 42, DP = (PL[1] - PL[0] + 9) / NDECK, DW = DP - 9;   // wide: 41 pitch, 32 wide
+const BT = DY + 146, BB = DY + 336, TOL = 0.9;             // wide: 1766, 1956
+const okTxt = L.text({ x: PL[0], base: DB(0), s: 36, c: "lilac", txt: "" });
+const peakTxt = L.text({ x: PL[1], base: DB(0), s: 36, c: "peach", txt: "", align: "r" });
 const decks = Array.from({ length: NDECK }, (_, i) => {
-  const d = i + 1, x = X0 + i * DP;
+  const d = i + 1, x = PL[0] + i * DP;
   L.rect({ x, y: BT, w: DW, h: BB - BT, c: TRACK, free: true });
   const f = L.layer({ x, y: BT, w: DW, h: BB - BT });
   f.style.background = "var(--lilac)"; f.style.transformOrigin = "50% 100%";
   const far = Math.min(...ACTIVE.map((g) => Math.abs(d - g))) / 18;   // 0 at a generator, 1 at deck 42
   return { d, f, far, phase: i * 0.61, u: 0.15 };
 });
-L.rect({ x: X0, y: BB - (BB - BT) * TOL - 1.5, w: LEFT_R - X0, h: 3, c: "butter", free: true });   // tolerance, over the tracks
-[1, 10, 20, 30, 40].forEach((d) => L.text({ x: X0 + (d - 1) * DP + DW / 2, base: 2004, s: 30, c: "lilac", txt: pad2(d), align: "c", w: 80, legend: true }));
+L.rect({ x: PL[0], y: BB - (BB - BT) * TOL - 1.5, w: PL[1] - PL[0], h: 3, c: "butter", free: true });   // tolerance, over the tracks
+[1, 10, 20, 30, 40].forEach((d) => L.text({ x: PL[0] + (d - 1) * DP + DW / 2, base: DY + 384, s: 30, c: "lilac", txt: pad2(d), align: "c", w: 80, legend: true }));
 
 // =====================================================================================
 // INCIDENT HISTORY: the records, recalled six at a time
 // =====================================================================================
-L.header({ x: MID, y: 1620, w: X1 - MID, label: "Incident History", c1: "lilac", c2: "plum", h: 48 });
+L.header({ x: PR[0], y: IY, w: PR[1] - PR[0], label: "Incident History", c1: "lilac", c2: "plum", h: 48 });
 const INC = [
   ["42761.3", "Borg tractor beam  ·  System J-25", 1820, "Held"],
   ["43539.1", "Tractor beam load  ·  moon of Bre'el IV", 960, "Held"],
@@ -351,11 +377,12 @@ const INC = [
   ["47215.5", "Saucer separation drill  ·  Stardrive section", 720, "Held"],
   ["47622.1", "Subspace shock wave  ·  hull stress, Deck 36", 1110, "Held"],
 ];
-const IC = { sd: 0, what: 186, bar: 1000, peak: X1 - MID - 280, out: X1 - MID };
+const IC = { sd: 0, what: 186, bar: 1000, peak: PR[1] - PR[0] - 280, out: PR[1] - PR[0] };
 INC.forEach(([, what]) => fits(what, 36, IC.bar - IC.what - 40, "incident"));
-const strip6 = (x, w, build) => {
-  const c = L.el("div", "clip", L.stage, { left: x + "px", top: DB(0) - 40 + "px", width: w + "px", height: 6 * 54 + 8 + "px" });
-  const rows = Array.from({ length: 6 }, (_, i) => {
+// n rows of 54 in a clipped strip whose first baseline is at `base`; a new record slides in at the bottom
+const stripRows = (x, base, w, n, build) => {
+  const c = L.el("div", "clip", L.stage, { left: x + "px", top: base - 40 + "px", width: w + "px", height: n * 54 + 8 + "px" });
+  const rows = Array.from({ length: n }, (_, i) => {
     const e = L.layer({ x: 0, y: 0, w, h: 54 }, c);
     const r = build(e); r.e = e; r.slot = i; L.move(e, 0, i * 54);
     return r;
@@ -370,8 +397,8 @@ const strip6 = (x, w, build) => {
       rows.forEach((r) => L.move(r.e, 0, (r.slot - k) * 54));
       top.e.style.opacity = (1 - L.clamp(u / 0.7)).toFixed(3);
       if (k < 1) return;
-      rows.forEach((r) => (r.slot = r.slot === 0 ? 5 : r.slot - 1));   // it becomes the new bottom row
-      top.fill(st.pending); L.move(top.e, 0, 5 * 54); top.e.style.opacity = 0; st.landed = top; st.t1 = t;
+      rows.forEach((r) => (r.slot = r.slot === 0 ? n - 1 : r.slot - 1));   // it becomes the new bottom row
+      top.fill(st.pending); L.move(top.e, 0, (n - 1) * 54); top.e.style.opacity = 0; st.landed = top; st.t1 = t;
     } else {
       const a = L.clamp((t - st.t1) / 0.8);
       st.landed.e.style.opacity = a.toFixed(3);
@@ -380,7 +407,7 @@ const strip6 = (x, w, build) => {
   });
   return st;
 };
-const hist = strip6(MID, X1 - MID, (e) => {
+const hist = stripRows(PR[0], IY + 114, PR[1] - PR[0], 6, (e) => {
   const sd = L.text({ x: IC.sd, base: 40, s: 36, c: "orange", txt: "" }, e);
   const what = L.text({ x: IC.what, base: 40, s: 36, c: "white", txt: "" }, e);
   const peak = L.text({ x: IC.peak, base: 40, s: 36, c: "peach", txt: "", align: "r", rightIn: true }, e);
@@ -402,6 +429,82 @@ hi += 6;
 L.every(26000, (t) => { if (t > 2 && hi < INC.length) hist.push(INC[hi++], t); }, 0.15);
 
 // =====================================================================================
+// ULTRAWIDE ONLY: THE WATCH LOG — every event this watch, oldest at the top, the newest sliding in
+// =====================================================================================
+if (ULTRA) {
+  const WX0 = COL(6), WW = X1 - WX0, NW = 14, WB = DB(0) - 8 * 54;   // fourteen rows, on the incident rows' baselines
+  L.header({ x: WX0, y: MY, w: WW, label: "Watch Log  ·  Acceleration Events", c1: "peach", c2: "plum" });
+  const WC = { n: 0, name: 124, bar: 420, peak: WW - 300, res: WW };   // the peak also as a bar, 0–2,000 g
+  WC.barR = WC.peak - 160;
+  [["Event", WC.n, "l"], ["Maneuver", WC.name, "l"], ["Peak", WC.peak, "r"], ["Residual", WC.res, "r"]]
+    .forEach(([txt, x, a]) => L.text({ x: WX0 + x, base: MROW(0), s: 36, c: "lilac", txt, align: a === "r" ? "r" : undefined }));
+  MANEUVERS.forEach((m) => fits(m.name, 36, WC.bar - 40 - WC.name, "watch log"));
+  // what a maneuver alone puts through the field: the sim's own profile and filter, run quietly once
+  const quiet = (m) => {
+    if (m.est) return m.est;
+    let r = 0.012, pa = 0, amax = 0, rmax = 0;
+    for (let u = 0, h = 1 / 120; u <= m.D; u += h) {
+      const a = profile(m, u), goal = 0.012 + 0.00013 * Math.abs((a - pa) / h);
+      pa = a; r += (goal - r) * (1 - Math.exp(-h / 0.12));
+      amax = Math.max(amax, a); rmax = Math.max(rmax, r);
+    }
+    return (m.est = { a: amax + 5, r: rmax });
+  };
+  // the seventeen events before this screen came on (the count starts at 17)
+  const log = [];
+  for (let n = 1, prev = -1; n <= events; n++) {
+    let i; do i = L.irand(0, MANEUVERS.length - 1); while (i === prev);
+    prev = i;
+    const q = quiet(MANEUVERS[i]);
+    log.push({ n, name: MANEUVERS[i].name, a: q.a * L.rand(0.98, 1.01), r: q.r * L.rand(0.92, 1.04), done: true });
+  }
+  // the highest residual of every event, kept as a running figure: the log itself holds only what the watch log shows
+  let high = log.reduce((a, d) => (d.done ? Math.max(a, d.r) : a), 0);
+  const showHigh = () => L.set(vHigh, high.toFixed(2) + " g");
+  const wl = stripRows(WX0, WB, WW, NW, (e) => {
+    const n = L.text({ x: WC.n, base: 40, s: 36, c: "orange", txt: "" }, e);
+    const name = L.text({ x: WC.name, base: 40, s: 36, c: "white", txt: "" }, e);
+    const peak = L.text({ x: WC.peak, base: 40, s: 36, c: "peach", txt: "", align: "r", rightIn: true }, e);
+    const rs = L.text({ x: WC.res, base: 40, s: 36, c: "pink", txt: "", align: "r", rightIn: true }, e);
+    const track = L.el("div", "", e, { position: "absolute", left: WC.bar + "px", top: "14px", width: WC.barR - WC.bar + "px", height: "26px", background: TRACK });
+    const bar = L.el("div", "", track, { position: "absolute", left: "0px", top: "0px", width: "100%", height: "100%", transformOrigin: "0 0", background: "var(--lilac)", transform: "scaleX(0)" });
+    const row = { els: [peak, rs], fill: (d) => {
+      // a new record lands at its value; the same record finishing grows its bar, eased
+      bar.style.transition = row.d === d ? "transform .8s ease" : "none";
+      row.d = d;
+      bar.style.transform = `scaleX(${d.done ? L.clamp(d.a / 2000).toFixed(3) : 0})`;
+      L.set(n, pad2(d.n)); L.set(name, d.name);
+      L.set(peak, d.done ? fmt(Math.round(d.a), 0) + " g" : "");
+      L.set(rs, d.done ? d.r.toFixed(2) + " g" : "Underway");
+      fg(rs, d.done ? "pink" : "butter");
+    } };
+    [peak, rs].forEach((t) => cls(t, "sw"));
+    return row;
+  });
+  // quiet while the timeline is filled in at the start (that runs with `filled` already set), live after
+  let live = false;
+  watch.begin = (e) => {
+    e.entry = { n: events, name: e.m.name, done: false };
+    log.push(e.entry); while (log.length > NW) log.shift();     // the rows hold their own entries; only the newest NW are read
+    if (live) wl.push(e.entry, L.t);
+  };
+  watch.end = (e) => {
+    const d = e.entry;
+    Object.assign(d, { a: e.amax, r: e.peak, done: true });
+    high = Math.max(high, d.r);
+    if (!live) return;
+    const row = wl.rows.find((r) => r.d === d);
+    if (row) swap(row.els, () => row.fill(d));
+    showHigh();
+  };
+  watch.filled = () => {                                     // the timeline is full: show the newest fourteen
+    live = true;
+    wl.rows.forEach((r) => r.fill(log[log.length - NW + r.slot]));
+    showHigh();
+  };
+}
+
+// =====================================================================================
 // RUNNING IT
 // =====================================================================================
 let compensating = false, dShown = 0;
@@ -415,6 +518,7 @@ L.tick((t) => {
     for (let i = 0; i < Math.ceil((SW / SPEED) * 30) + 2; i++) step(1 / 30);
     lastT = t; place(); showLabels(1);
     if (last) showLast(last, false);
+    if (watch.filled) watch.filled();
     return;
   }
   const dt = Math.min(0.1, t - lastT); lastT = t;
@@ -442,6 +546,7 @@ L.every(250, () => {
   L.set(vComp, fmt(Math.max(0, acc - res), 1) + " g");
   L.set(vRes, res.toFixed(2) + " g");
   L.set(vEvt, String(events));
+  if (vGen) L.set(vGen, (gens.reduce((a, g) => a + (g.share ? g.shown : 0), 0) / ACTIVE.length * 100).toFixed(1) + "%");
   gens.forEach((g) => L.set(g.v, (g.shown * 100).toFixed(1) + "%"));
 }, 0);
 L.every(500, (t) => {

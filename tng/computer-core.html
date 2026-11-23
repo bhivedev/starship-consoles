@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Computer Core</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* text that is swapped fades out and back in; .boot (the start-up cascade) always wins */
@@ -15,10 +16,20 @@
 const L = LCARS;
 L.ready(() => {
 
+// Three layouts. Wide (3840×2160) is the original, hand-placed. Upright (2160×3120): the network
+// across the top, re-cut for 1800 (five subprocessors to a row, three down each side, narrower cores),
+// the traffic key on its header; below it two columns, 40–1160 (memory, processes, event log) and
+// 1220–1840 (processing load and history, throughput, subspace field). Ultrawide (5040×2160): the
+// network and the right column as in wide, a new column 3580–4720 listing every subprocessor's load,
+// and along the bottom the throughput under the right column and the subspace field under the new one.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+
 // ---------------- the frame, mirrored: sidebar on the right, title at top left ----------------
+const TITLE = "Main Computer Core  •  Optical Data Network";
+let b;
+if (L.shape === "wide") {
 const BAR = 64, TS = BAR / (L.BASELINE - L.CAP_TOP);
 L.box({ x: 40, y: 40, w: 92, h: BAR, c: "sky", r: "l" });
-const TITLE = "Main Computer Core  •  Optical Data Network";
 const titleEl = L.text({ x: 132 + L.GAP, cap: 40, s: TS, c: "sky", txt: TITLE });
 // (the canvas measures this line wider than the page draws it; use the page's own width)
 const afterTitle = 132 + L.GAP + titleEl.offsetWidth + L.GAP;
@@ -33,6 +44,16 @@ L.text({ x: 3794, base: 1712, s: 40, c: "#000", txt: "Computer", align: "r", on:
 L.box({ x: 40, y: 2056, w: 92, h: BAR, c: "blue", r: "l" });
 [[132 + L.GAP, 700, "lilac"], [132 + L.GAP + 700 + L.GAP, 900, "sky"]].forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
 L.rect({ x: 132 + 3 * L.GAP + 1600, y: 2056, w: 2600 - L.GAP - (132 + 3 * L.GAP + 1600), h: BAR, c: "blue" });
+b = { x0: 40, x1: 3520, y0: 140, y1: 2010 };
+} else {
+  // the same frame, drawn by the kit for this shape: type B, the same colours and sidebar labels
+  b = L.frame({ type: "B", title: TITLE, c: "sky", c2: "blue", accent: "butter", foot: "Computer",
+    side: [[140, "ice", "Core 01"], [70, "butter", "ODN"], [420, "sky", "Subprocessors"], [70, "lilac", "FTL"],
+           [300, "ice", "Memory"], [70, "butter", "Trunks"], [216, "sky", "Cores"]] });
+  // the kit gives the first bottom piece the accent (butter); the wide hand-built frame has lilac there
+  const foot = [...document.querySelectorAll("#frame rect")].find((r) => +r.getAttribute("x") === 132 + L.GAP && +r.getAttribute("y") === L.H - 104);
+  if (foot) foot.setAttribute("fill", "var(--lilac)");
+}
 
 const header = (x, y, w, label, c1, c2, h = 56, fs = 32) => {
   const lw = Math.round((L.textWidth(label, fs) + 64) / 10) * 10;
@@ -55,7 +76,14 @@ const later = (ms, f, jitter) => L.every(ms, (t) => { if (t > 1) f(t); }, jitter
 
 // Columns: the network spans 40–2340; the right column 2400–3520. The bottom strip: 40–1160, 1220–2340,
 // and 2400–2930 | 2990–3520.
-const AX = 40, AR = 1160, BX = 1220, BR = 2340, CX = 2400, CR = 3520, DX = 2990;
+const AX = 40, AR = 1160, BX = UP ? 40 : 1220, BR = UP ? 1160 : 2340, CX = UP ? 1220 : 2400, CR = UP ? b.x1 : 3520, DX = 2990;
+// Upright: the network ends at the frame's edge; memory moves to the left column; the panels below the
+// network sit on three header lines (H2, H3, H4), the last ending on the content box's floor.
+// Ultrawide: throughput widens to the right column; the subspace field moves under the new column.
+const NR = UP ? b.x1 : BR, MX0 = UP ? AX : CX, MX1 = UP ? AR : CR;
+const H2 = 1444, H3 = 2136, H4 = 2580, PY3 = UP ? H3 : 1620, PY4 = UP ? H4 : 1620;
+const TX0 = CX, TPR = UP || UW ? CR : DX - 60;
+const FX0 = UP ? CX : UW ? 3580 : DX, FX1 = UW ? b.x1 : CR;
 const TRACK = "#14223a", LINE = "#1d3461", PANEL = "#0b1630";
 const HEX = { sky: "#5c9dff", ice: "#8fd3ff", lilac: "#c7a0d8", butter: "#ffcc66" };
 const dim = (c, k = 0.32) => "#" + [1, 3, 5].map((i) => Math.round(parseInt(HEX[c].slice(i, i + 2), 16) * k).toString(16).padStart(2, "0")).join("");
@@ -80,9 +108,9 @@ const coreLoad = (k, t, busy) => L.clamp(k.base + 0.3 * (busy - 0.5) + 0.09 * Ma
 
 // ---------------- the network's geometry ----------------
 const NW = 300, NH = 64;                                        // a subprocessor's pill
-const TOPY = 428, BOTY = 1480, TA = 610, TB = 1362;            // node rows and the two trunks
-const RL = 190, RRX = 2190;                                     // the ring's sides
-const COREW = 440, CT = 730, CB = 1242, CORE_X = [690, 1190, 1690];
+const TOPY = 428, BOTY = UP ? 1290 : 1480, TA = UP ? 600 : 610, TB = UP ? 1180 : 1362;   // node rows and the two trunks
+const RL = 190, RRX = UP ? 1690 : 2190;                         // the ring's sides
+const COREW = UP ? 300 : 440, CT = UP ? 689 : 730, CB = UP ? 1091 : 1242, CORE_X = UP ? [565, 940, 1315] : [690, 1190, 1690];
 const LW = 16;                                                  // a trunk's width
 // [name, x centre, y centre, kind(s) of traffic]
 const NODES = [
@@ -95,6 +123,14 @@ const NODES = [
   ["Holodecks", 990, BOTY + 32, ["pat", "pat", "pat", "lib"]], ["Replicators", 1390, BOTY + 32, ["pat", "pat", "cmd"]],
   ["Transporters", 1790, BOTY + 32, ["pat", "pat", "sen"]], ["Shuttlebays", 2190, BOTY + 32, ["cmd", "sen"]],
 ].map(([name, x, y, kinds]) => ({ name, x, y, kinds, c: TYPE[kinds[0]].c, load: L.rand(0.3, 0.7) }));
+// upright: five to a row, three down each side, in the same order round the ring
+if (UP) {
+  const at = { "Main Bridge": [190, 0], "Navigation": [565, 0], "Tactical": [940, 0], "Communications": [1315, 0], "Long Range Sensors": [1690, 0],
+    "Science Labs": [RRX, 721], "Stellar Cartography": [RRX, 890], "Security": [RRX, 1059],
+    "Shuttlebays": [1690, 1], "Transporters": [1315, 1], "Replicators": [940, 1], "Holodecks": [565, 1], "Sickbay": [190, 1],
+    "Main Engineering": [RL, 1059], "Life Support": [RL, 890], "Deflector Control": [RL, 721] };
+  NODES.forEach((n) => { const [x, y] = at[n.name]; n.x = x; n.y = y === 0 ? TOPY + 32 : y === 1 ? BOTY + 32 : y; });
+}
 // which trunk a node joins: the upper row and upper side nodes Trunk A, the rest Trunk B
 NODES.forEach((n) => (n.trunk = n.y < (TA + TB) / 2 ? TA : TB));
 
@@ -105,15 +141,18 @@ const stateSub = L.text({ x: 40 + L.textWidth(STATE, 100) + 40, base: 222, s: 38
 // the traffic key, ending where the network ends
 {
   const KW = 180;
-  let kx = BR - TYPES.length * KW - (TYPES.length - 1) * 16;
-  TYPES.forEach((ty, i) => { L.box({ x: kx, y: 166, w: KW, h: 56, c: ty.c, label: ty.name, fs: 28, r: i === 0 ? "l" : null }); kx += KW + 16; });
+  let kx = NR - TYPES.length * KW - (TYPES.length - 1) * 16;
+  TYPES.forEach((ty, i) => { L.box({ x: kx, y: UP ? 280 : 166, w: KW, h: 56, c: ty.c, label: ty.name, fs: 28, r: i === 0 ? "l" : null }); kx += KW + 16; });
 }
-L.box({ x: CR - 400, y: 150, w: 400, h: 72, c: "lilac", label: "Subspace Field Stable", r: "lr", fs: 36 });
+L.box({ x: (UP || UW ? b.x1 : CR) - 400, y: 150, w: 400, h: 72, c: "lilac", label: "Subspace Field Stable", r: "lr", fs: 36 });
+// ultrawide: a second state over the right column, where wide's sits, so the long status line has no gap
+if (UW) L.box({ x: CR - 400, y: 150, w: 400, h: 72, c: "ice", label: "Isolinear Arrays Online", r: "lr", fs: 36 });
 
 // ---------------- optical data network: the diagram ----------------
-header(AX, 280, BR - AX, "Optical Data Network", "sky", "ice");
+// (upright: the traffic key sits at the end of this header's bar)
+header(AX, 280, (UP ? NR - 4 * 180 - 3 * 16 - L.GAP : BR) - AX, "Optical Data Network", "sky", "ice");
 L.text({ x: AX, base: 400, s: 36, c: "ice", txt: "Bimodal ODN  ·  3 cores  ·  16 subprocessors  ·  2 trunks" });
-const netInfo = L.text({ x: BR, base: 400, s: 36, c: "sky", txt: "", align: "r" });
+const netInfo = L.text({ x: NR, base: 400, s: 36, c: "sky", txt: "", align: "r" });
 // the trunks, drawn once: a ring through the two trunks, drops to every node, links to every core
 const net = L.svg("g", { class: "boot" });
 const hline = (x0, x1, y) => L.svg("rect", { x: Math.min(x0, x1) - LW / 2, y: y - LW / 2, width: Math.abs(x1 - x0) + LW, height: LW, fill: LINE }, net);
@@ -124,8 +163,9 @@ for (const x of CORE_X) { vline(x, TA, CT); vline(x, CB, TB); }
 const junction = (x, y) => L.svg("rect", { x: x - 14, y: y - 14, width: 28, height: 28, rx: 6, fill: "var(--sky)" }, net);
 for (const n of NODES) junction(n.x, n.trunk);
 for (const x of CORE_X) { junction(x, TA); junction(x, TB); }
-L.text({ x: (RL + 590) / 2, base: TA - 30, s: 36, c: "sky", txt: "Trunk A", align: "c", w: 300 });
-L.text({ x: (RL + 590) / 2, cap: TB + 38, s: 36, c: "sky", txt: "Trunk B", align: "c", w: 300 });
+const TLX = UP ? (RL + 565) / 2 : (RL + 590) / 2;
+L.text({ x: TLX, base: TA - 30, s: 36, c: "sky", txt: "Trunk A", align: "c", w: 300 });
+L.text({ x: TLX, cap: TB + 38, s: 36, c: "sky", txt: "Trunk B", align: "c", w: 300 });
 
 // the packets: made before the nodes and cores, so they pass beneath them
 const NP = 32, PS = 18, SPEED = 230;
@@ -148,21 +188,22 @@ const glowNodes = () => NODES.forEach((n) => css(n.glow, "opacity", (0.38 + 0.62
 glowNodes();
 
 // the three cores: a named bar, a body with its readings and its processing cells, a bar for its role
-const CELLR = 6, CELLC = 4;
+const CELLR = UP ? 3 : 6, CELLC = 4;
+const LDB = UP ? CT + 144 : 878, RTB = UP ? CT + 204 : 942, CLY = UP ? CT + 232 : 974;   // Load, Rate baselines; cells' top
 CORES.forEach((k, i) => {
   const cx = CORE_X[i], x = cx - COREW / 2;
   k.cx = cx; k.top = CT + NH / 2; k.bot = CB - NH / 2;
   L.box({ x, y: CT, w: COREW, h: NH, c: k.c, label: `Computer Core ${k.n}`, fs: 32, r: "lr" });
   L.rect({ x, y: CT + NH + 16, w: COREW, h: CB - CT - 2 * NH - 32, c: PANEL, panel: true });
   const ix = x + 24, ir = x + COREW - 24;
-  L.text({ x: ix, base: 878, s: 40, c: k.c, txt: "Load" });
-  k.loadTxt = L.text({ x: ir, base: 878, s: 52, c: "white", txt: "", align: "r" });
-  L.text({ x: ix, base: 942, s: 40, c: k.c, txt: "Rate" });
-  k.rateTxt = L.text({ x: ir, base: 942, s: 52, c: "white", txt: "", align: "r" });
+  L.text({ x: ix, base: LDB, s: 40, c: k.c, txt: "Load" });
+  k.loadTxt = L.text({ x: ir, base: LDB, s: 52, c: "white", txt: "", align: "r" });
+  L.text({ x: ix, base: RTB, s: 40, c: k.c, txt: "Rate" });
+  k.rateTxt = L.text({ x: ir, base: RTB, s: 52, c: "white", txt: "", align: "r" });
   const cw = (ir - ix - (CELLC - 1) * 10) / CELLC, ch = 18;
   k.cells = [];
   for (let r = 0; r < CELLR; r++) for (let c = 0; c < CELLC; c++) {
-    const cx0 = ix + c * (cw + 10), cy0 = 974 + r * (ch + 10);
+    const cx0 = ix + c * (cw + 10), cy0 = CLY + r * (ch + 10);
     L.rect({ x: cx0, y: cy0, w: cw, h: ch, rx: 4, c: "#17284a", free: true });
     const e = fill(cx0, cy0, cw, ch, k.c, "0 0", "cell");
     e.style.opacity = 0;
@@ -216,20 +257,20 @@ const place = (p, s) => {
 };
 
 // ---------------- processing load ----------------
-header(CX, 280, CR - CX, "Processing Load", "ice", "sky");
-const PBX = CX + 200 + L.GAP, PBR = 3300;
-[["Core", CX, "l"], ["Load", PBX, "l"], ["Of Capacity", CR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: 400, s: 36, c: "ice", txt, align }));
+header(CX, UP ? H2 : 280, CR - CX, "Processing Load", "ice", "sky");
+const PCW = UP ? 160 : 200, PBX = CX + PCW + L.GAP, PBR = UP ? CR - 170 : 3300;
+[["Core", CX, "l"], ["Load", PBX, "l"], ["Of Capacity", CR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: UP ? H2 + 120 : 400, s: 36, c: "ice", txt, align }));
 CORES.forEach((k, i) => {
-  const y = TOPY + i * 88, base = y + 52.5;
-  L.box({ x: CX, y, w: 200, h: 64, c: k.c, label: `Core ${k.n}`, fs: 32, r: "l" });
+  const y = UP ? H2 + 148 + i * 80 : TOPY + i * 88, base = y + 52.5;
+  L.box({ x: CX, y, w: PCW, h: 64, c: k.c, label: `Core ${k.n}`, fs: 32, r: "l" });
   L.rect({ x: PBX, y: base - 26, w: PBR - PBX, h: 26, c: TRACK });
   k.bar = fill(PBX, base - 26, PBR - PBX, 26, k.c);
   k.pct = L.text({ x: CR, base, s: 52, c: "white", txt: "", align: "r" });
 });
 // the last five minutes, a sample every five seconds
-const HN = 60, HY = 764, HH = 176;
-L.text({ x: CX, base: 740, s: 36, c: "ice", txt: "Load History  ·  Last 5 Minutes" });
-const peakTxt = L.text({ x: CR, base: 740, s: 36, c: "white", txt: "", align: "r" });
+const HN = 60, HY = UP ? H2 + 456 : 764, HH = 176, HLB = UP ? H2 + 432 : 740;
+L.text({ x: CX, base: HLB, s: 36, c: "ice", txt: "Load History  ·  Last 5 Minutes" });
+const peakTxt = L.text({ x: CR, base: HLB, s: 36, c: "white", txt: "", align: "r" });
 const hist = L.canvas({ x: CX, y: HY, w: CR - CX, h: HH });
 // one strip per core, 0–100%, its area filled
 const SH = 52, SG = 10;
@@ -251,14 +292,15 @@ const drawHist = () => {
 hist.onResize = drawHist;
 
 // ---------------- memory allocation ----------------
-header(CX, 1000, CR - CX, "Memory Allocation", "lilac", "sky");
-const NSEG = 32, SEGQ = 65536, CAPQ = NSEG * SEGQ, SEGG = 6, SEGW = (CR - CX - (NSEG - 1) * SEGG) / NSEG;
+header(MX0, UP ? H2 : 1000, MX1 - MX0, "Memory Allocation", "lilac", "sky");
+const NSEG = 32, SEGQ = 65536, CAPQ = NSEG * SEGQ, SEGG = 6, SEGW = (MX1 - MX0 - (NSEG - 1) * SEGG) / NSEG;
 CORES.forEach((k, i) => {
-  const base = 1112 + i * 176;
-  L.text({ x: CX, base, s: 40, c: k.c, txt: `Core ${k.n}  ·  ${k.role.split("  ·  ")[0]}` });
-  k.memTxt = L.text({ x: CR, base, s: 40, c: "white", txt: "", align: "r" });
+  // (upright: the first label on the processing column's heading line, the last row ending level with its history)
+  const base = UP ? H2 + 120 + i * 204 : 1112 + i * 176, SEGH = UP ? 80 : 56;
+  L.text({ x: MX0, base, s: 40, c: k.c, txt: `Core ${k.n}  ·  ${k.role.split("  ·  ")[0]}` });
+  k.memTxt = L.text({ x: MX1, base, s: 40, c: "white", txt: "", align: "r" });
   k.segs = Array.from({ length: NSEG }, (_, j) => {
-    const e = L.layer({ x: CX + j * (SEGW + SEGG), y: base + 24, w: SEGW, h: 56, cls: "seg" });
+    const e = L.layer({ x: MX0 + j * (SEGW + SEGG), y: base + 24, w: SEGW, h: SEGH, cls: "seg" });
     e.style.background = TRACK;
     return { e, c: "" };
   });
@@ -281,9 +323,9 @@ const showMem = (k) => {
 CORES.forEach(showMem);
 
 // ---------------- network event log ----------------
-small(BX, 1620, BR - BX, "Network Event Log", "sky", "ice");
+small(BX, PY4, BR - BX, "Network Event Log", "sky", "ice");
 const logRows = Array.from({ length: 6 }, (_, i) => {
-  const base = 1734 + i * 54;
+  const base = PY4 + 114 + i * 54;
   return { sd: L.text({ x: BX, base, s: 36, c: "sky", txt: "" }), tx: L.text({ x: BX + 190, base, s: 36, c: "ice", txt: "" }),
            at: L.text({ x: BR, base, s: 36, c: "butter", txt: "", align: "r" }) };
 });
@@ -295,10 +337,10 @@ const logEvent = (txt, where) => {
 };
 
 // ---------------- active processes ----------------
-small(AX, 1620, AR - AX, "Active Processes", "butter", "sky");
+small(AX, PY3, AR - AX, "Active Processes", "butter", "sky");
 const PC = { origin: 470, core: 750, pri: 880 };
 [["Process", AX, "l"], ["Origin", PC.origin, "l"], ["Core", PC.core, "l"], ["Priority", PC.pri, "l"], ["CPU Share", AR, "r"]]
-  .forEach(([txt, x, align]) => L.text({ x, base: 1734, s: 36, c: "butter", txt, align }));
+  .forEach(([txt, x, align]) => L.text({ x, base: PY3 + 114, s: 36, c: "butter", txt, align }));
 const PROCS = [
   ["Warp field modeling", "Main Engineering", 1, 9.6], ["Long range sensor processing", "Long Range Sensors", 2, 11.8],
   ["Holodeck 3 simulation", "Holodecks", 3, 14.2], ["Universal translator matrices", "Communications", 2, 6.4],
@@ -312,7 +354,7 @@ const PROCS = [
   ["Bridge operations display", "Main Bridge", 2, 2.4], ["Library index maintenance", "Computer Core", 4, 3.7],
 ];
 const procRows = Array.from({ length: 5 }, (_, i) => {
-  const base = 1788 + i * 54;
+  const base = PY3 + 168 + i * 54;
   return {
     name: cls(L.text({ x: AX, base, s: 36, c: "white", txt: "" }), "fade"),
     origin: cls(L.text({ x: PC.origin, base, s: 36, c: "sky", txt: "" }), "fade"),
@@ -338,39 +380,61 @@ const showProc = (r) => {
 procRows.forEach((r) => { r.p = nextProc(); showProc(r); });
 
 // ---------------- data throughput ----------------
-small(CX, 1620, DX - 60 - CX, "Data Throughput", "ice", "sky");
-const TPR = DX - 60, TBX = CX + 200, TBR = TPR - 110;
-L.text({ x: CX, base: 1734, s: 36, c: "ice", txt: "Gigaquads per second" });
-const totalTxt = L.text({ x: TPR, base: 1734, s: 36, c: "white", txt: "", align: "r" });
+small(TX0, PY3, TPR - TX0, "Data Throughput", "ice", "sky");
+const TBX = TX0 + 200, TBR = TPR - 110;
+L.text({ x: TX0, base: PY3 + 114, s: 36, c: "ice", txt: "Gigaquads per second" });
+const totalTxt = L.text({ x: TPR, base: PY3 + 114, s: 36, c: "white", txt: "", align: "r" });
 TYPES.forEach((ty, i) => {
-  const base = 1788 + i * 54;
-  L.rect({ x: CX, y: base - 26, w: 26, h: 26, rx: 4, c: ty.c });
-  L.text({ x: CX + 50, base, s: 36, c: ty.c, txt: ty.name });
+  const base = PY3 + 168 + i * 54;
+  L.rect({ x: TX0, y: base - 26, w: 26, h: 26, rx: 4, c: ty.c });
+  L.text({ x: TX0 + 50, base, s: 36, c: ty.c, txt: ty.name });
   L.rect({ x: TBX, y: base - 18, w: TBR - TBX, h: 18, c: TRACK });
   ty.bar = fill(TBX, base - 18, TBR - TBX, 18, ty.c);
   ty.val = L.text({ x: TPR, base, s: 36, c: "white", txt: "", align: "r" });
   ty.u = 0.5; ty.rate = 0;
 });
-L.text({ x: CX, base: 2004, s: 36, c: "ice", txt: "Peak  ·  This Watch" });
-const peakRate = L.text({ x: TPR, base: 2004, s: 36, c: "white", txt: "", align: "r" });
+L.text({ x: TX0, base: PY3 + 384, s: 36, c: "ice", txt: "Peak  ·  This Watch" });
+const peakRate = L.text({ x: TPR, base: PY3 + 384, s: 36, c: "white", txt: "", align: "r" });
 
 // ---------------- subspace field: the cores' FTL processing ----------------
-small(DX, 1620, CR - DX, "Subspace Field", "lilac", "sky");
-const SBX = DX + 130, SBR = CR - 120;
-L.text({ x: DX, base: 1734, s: 36, c: "lilac", txt: "Field Status" });
-const fieldTxt = L.text({ x: CR, base: 1734, s: 36, c: "white", txt: "", align: "r" });
+small(FX0, PY4, FX1 - FX0, "Subspace Field", "lilac", "sky");
+const SBX = FX0 + 130, SBR = FX1 - 120;
+L.text({ x: FX0, base: PY4 + 114, s: 36, c: "lilac", txt: "Field Status" });
+const fieldTxt = L.text({ x: FX1, base: PY4 + 114, s: 36, c: "white", txt: "", align: "r" });
 CORES.forEach((k, i) => {
-  const base = 1788 + i * 54;
-  L.text({ x: DX, base, s: 36, c: k.c, txt: `Core ${k.n}` });
+  const base = PY4 + 168 + i * 54;
+  L.text({ x: FX0, base, s: 36, c: k.c, txt: `Core ${k.n}` });
   L.rect({ x: SBX, y: base - 18, w: SBR - SBX, h: 18, c: TRACK });
   k.fbar = fill(SBX, base - 18, SBR - SBX, 18, "lilac");
-  k.fval = L.text({ x: CR, base, s: 36, c: "white", txt: "", align: "r" });
+  k.fval = L.text({ x: FX1, base, s: 36, c: "white", txt: "", align: "r" });
   k.field = L.rand(98.4, 99.6); k.fshown = k.field; k.fseed = L.rand(0, 6);
 });
-L.text({ x: DX, base: 1950, s: 36, c: "lilac", txt: "Signal Velocity" });
-const velTxt = L.text({ x: CR, base: 1950, s: 36, c: "white", txt: "", align: "r" });
-L.text({ x: DX, base: 2004, s: 36, c: "lilac", txt: "Phase Variance" });
-const phaseTxt = L.text({ x: CR, base: 2004, s: 36, c: "white", txt: "", align: "r" });
+L.text({ x: FX0, base: PY4 + 330, s: 36, c: "lilac", txt: "Signal Velocity" });
+const velTxt = L.text({ x: FX1, base: PY4 + 330, s: 36, c: "white", txt: "", align: "r" });
+L.text({ x: FX0, base: PY4 + 384, s: 36, c: "lilac", txt: "Phase Variance" });
+const phaseTxt = L.text({ x: FX1, base: PY4 + 384, s: 36, c: "white", txt: "", align: "r" });
+
+// ---------------- ultrawide: every subprocessor's load, down the new column ----------------
+let showSub = () => {};
+if (UW) {
+  const SX0 = 3580, SX1 = b.x1, STX = SX0 + 400, SBX0 = SX0 + 720, SBX1 = SX1 - 150;
+  header(SX0, 280, SX1 - SX0, "Subprocessor Load", "butter", "sky");
+  [["Subprocessor", SX0, "l"], ["Traffic", STX, "l"], ["Load", SBX0, "l"], ["Of Capacity", SX1, "r"]]
+    .forEach(([txt, x, align]) => L.text({ x, base: 400, s: 36, c: "ice", txt, align }));
+  const rows = NODES.map((n, i) => {
+    // the first row level with Core 1's load bar, the last bar ending level with the memory segments and the node pills
+    const base = Math.round(TOPY + 52.5 + i * (BOTY + NH - (TOPY + 52.5)) / 15);
+    L.rect({ x: SX0, y: base - 26, w: 26, h: 26, rx: 4, c: n.c });
+    L.text({ x: SX0 + 50, base, s: 36, c: n.c, txt: n.name });
+    L.text({ x: STX, base, s: 36, c: "sky", txt: [...new Set(n.kinds)].map((kd) => TYPE[kd].name).join("  ·  ") });
+    L.rect({ x: SBX0, y: base - 18, w: SBX1 - SBX0, h: 18, c: TRACK });
+    const bar = fill(SBX0, base - 18, SBX1 - SBX0, 18, n.c);
+    bar.style.transition = "transform 2.4s ease-in-out";
+    return { n, bar, val: L.text({ x: SX1, base, s: 36, c: "white", txt: "", align: "r" }) };
+  });
+  showSub = () => rows.forEach((r) => { css(r.bar, "transform", `scaleX(${r.n.load.toFixed(3)})`); put(r.val, Math.round(r.n.load * 100) + "%"); });
+  showSub();
+}
 
 // ---------------- a guard: every name fits its place ----------------
 {
@@ -378,6 +442,7 @@ const phaseTxt = L.text({ x: CR, base: 2004, s: 36, c: "white", txt: "", align: 
   const fits = (txt, s, w, where) => { if (L.textWidth(txt, s) > w) bad.push(`${where}: "${txt}" ${Math.round(L.textWidth(txt, s))}>${Math.round(w)}`); };
   for (const [name, origin] of PROCS) { fits(name, 36, PC.origin - AX - 40, "process"); fits(origin, 36, PC.core - PC.origin - 40, "origin"); }
   for (const n of NODES) fits(n.name, 28, NW - 27 - 30, "node");
+  if (UP) fits("19.99 gq/s", 52, COREW - 48 - L.textWidth("Rate", 40) - 30, "core rate");   // the narrower cores
   if (bad.length) setTimeout(() => { throw new Error("computer-core: " + bad.join(" | ")); });
 }
 
@@ -428,7 +493,7 @@ const rates = () => {
 };
 L.every(3600, (t) => {
   NODES.forEach((n) => (n.load = L.clamp(n.load + (0.5 - n.load) * 0.12 + L.rand(-0.12, 0.12), 0.18, 1)));   // wandering, drawn back to the middle
-  glowNodes(); rates();
+  glowNodes(); rates(); showSub();
   const busy = NODES.reduce((s, n) => s + n.load, 0) / NODES.length;
   CORES.forEach((k) => (k.goal = coreLoad(k, t, busy) + L.rand(-0.015, 0.015)));
 }, 0.15);

@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Course Plotting</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* swapped text dips and comes back; colors change slowly; .boot (the start-up cascade) always wins */
@@ -23,7 +24,7 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: mirrored, sidebar on the right ----------------
-L.frame({ type: "B", title: "Course Plotting  •  Multi-Waypoint Route", c: "gold", c2: "sky", accent: "butter", foot: "Navigation",
+const B = L.frame({ type: "B", title: "Course Plotting  •  Multi-Waypoint Route", c: "gold", c2: "sky", accent: "butter", foot: "Navigation",
   side: [[140, "butter", "Nav 04"], [70, "sky", "2291"], [420, "gold", "Course"], [70, "butter", "Plot"], [300, "sky", "Waypoints"],
          [70, "butter", "06"], [216, "gold", "Helm"]] });
 
@@ -46,12 +47,25 @@ const rng = (seed) => () => { seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(
 const clock = () => { const d = new Date(); return `${D2(d.getHours())}:${D2(d.getMinutes())}`; };
 const clockAgo = (min) => { const d = new Date(Date.now() - min * 60000); return `${D2(d.getHours())}:${D2(d.getMinutes())}`; };
 
-// columns: the plot 40–2200, the projection 2260–3520; legs full width; strip 40–1100, 1160–2200, 2260–3520
-const MX = 40, MY = 360, MW = 2160, MH = 596, RX0 = 2260, RX1 = 3520;
-const ROW0 = 428, P = 60, RH = 48, rowY = (i) => ROW0 + i * P, rowBase = (i) => rowY(i) + 37;
-const LROW0 = 1148, lrowY = (i) => LROW0 + i * P, lrowBase = (i) => lrowY(i) + 37;
-const STRIP = (i) => 1734 + i * 54;
-const P1 = [40, 1100], P2 = [1160, 2200], P3 = [2260, 3520];
+// ---------------- the grid, per shape ----------------
+// The data, readouts and motion below are written once; only these positions differ by shape.
+// wide (3840 × 2160): the plot 40–2200, the projection 2260–3520; legs full width; strip 40–1100, 1160–2200, 2260–3520.
+// upright (2160 × 3120): the plot full width (1800), drawn at 5/6 with its names kept at full size; the
+//   projection (40–1000) beside the warp profile (1060–1840) on one 64 px row grid; the legs full width;
+//   course log beside hazards avoided at the foot.
+// ultrawide (5040 × 2160): wide's plot and projection where they are, plus a Waypoints column (3580–4720)
+//   on the projection's rows; the legs table gains Departs and Arrives; the warp profile runs 2260–4720.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const CX1 = B.x1;                                                  // the content's right edge: 3520 | 1840 | 4720
+const K = UP ? 5 / 6 : 1;                                          // the plot as drawn (chart coordinates stay true)
+const MX = 40, MY = UP ? 460 : 360, MW = 2160, MH = 596, RX0 = UP ? 40 : 2260, RX1 = UP ? 1000 : 3520;
+// the plot's panel on screen; upright's has bands above (40) and below (30) the chart for its names
+const MWD = UP ? 1800 : MW, MHD = UP ? 567 : MH, PNY = UP ? MY - 40 : MY;
+const ROW0 = UP ? 1178 : 428, P = UP ? 64 : 60, RH = 48, rowY = (i) => ROW0 + i * P, rowBase = (i) => rowY(i) + 37;
+const LROW0 = UP ? 1968 : 1148, lrowY = (i) => LROW0 + i * P, lrowBase = (i) => lrowY(i) + 37;
+const STRIP = UP ? (i) => 2614 + i * 64 : (i) => 1734 + i * 54;
+const P1 = UP ? [40, 910] : [40, 1100], P2 = UP ? [970, 1840] : [1160, 2200], P3 = UP ? [1060, 1840] : UW ? [2260, 4720] : [2260, 3520];
+const MAPH = UP ? 340 : 280, PRH = UP ? 1030 : 280, LGH = UP ? 1820 : 1000, SH = UP ? 2500 : 1620, WPH = UP ? 1030 : 1620;
 
 // columns as wide as what they hold, the space left shared equally between them; returns each column's anchor
 const spread = (x0, x1, cols, s = 36) => {
@@ -143,9 +157,9 @@ const measure = (c) => {
 // ---------------- status line ----------------
 const state = cls(L.text({ x: MX, cap: 150, s: 100, c: "butter", txt: "Plotting Course" }), "sw");
 const STATES = ["Plotting Course", "Course Plotted", "Projecting Course", "Hazard Reported", "Re-Plotting", "Course Revised", "Course Laid In"];
-const subX = MX + Math.max(...STATES.map((s) => L.textWidth(s, 100))) + 48;
-const stateSub = cls(L.text({ x: subX, base: 222, s: 38, c: "sky", txt: "" }), "sw");
-const pill = L.box({ x: RX1 - 440, y: 150, w: 440, h: 72, c: "sky", label: "Nav Computer Online", r: "lr", fs: 36 });
+const subX = UP ? MX : MX + Math.max(...STATES.map((s) => L.textWidth(s, 100))) + 48;
+const stateSub = cls(L.text({ x: subX, base: UP ? 290 : 222, s: 38, c: "sky", txt: "" }), "sw");
+const pill = L.box({ x: CX1 - 440, y: 150, w: 440, h: 72, c: "sky", label: "Nav Computer Online", r: "lr", fs: 36 });
 pill.style.willChange = "opacity";
 
 // a section header with a status pill at its right end
@@ -157,9 +171,9 @@ const pillHeader = (col, y, label, c1, c2, texts, pc, h = 56) => {
 };
 
 // ---------------- the navigational plot: drawn once ----------------
-const mapPill = pillHeader([MX, MX + MW], 280, "Navigational Plot  ·  Sectors 21 to 26", "gold", "sky", ["Southern Track"], "butter");
-L.rect({ x: MX, y: MY, w: MW, h: MH, c: "#000206", panel: true });
-const map = L.svg("g", { class: "boot", transform: `translate(${MX},${MY})` });
+const mapPill = pillHeader([MX, MX + MWD], MAPH, "Navigational Plot  ·  Sectors 21 to 26", "gold", "sky", ["Southern Track"], "butter");
+L.rect({ x: MX, y: PNY, w: MWD, h: MHD, c: "#000206", panel: true });
+const map = L.svg("g", { class: "boot", transform: UP ? `translate(${MX},${MY}) scale(${K})` : `translate(${MX},${MY})` });
 const defs = L.svg("defs", {}, map);
 L.svg("clipPath", { id: "cpClip" }, defs).appendChild(L.svg("rect", { x: 0, y: 0, width: MW, height: MH }, defs));
 const inner = L.svg("g", { "clip-path": "url(#cpClip)" }, map);
@@ -200,29 +214,31 @@ const inner = L.svg("g", { "clip-path": "url(#cpClip)" }, map);
 const placeLab = {};
 Object.values(PLACES).forEach((p) => {
   const [dx, dy, al] = p.lab;
-  placeLab[p.k] = cls(L.text({ x: MX + p.x + dx, base: MY + p.y + dy, s: 36, c: INK, txt: p.name, align: al, w: 400 }), "rc");
+  placeLab[p.k] = cls(L.text({ x: MX + K * p.x + dx, base: MY + K * p.y + dy, s: 36, c: INK, txt: p.name, align: al, w: 400 }), "rc");
 });
 // a label's box in chart coordinates (x given in chart coordinates too)
-const labBox = (x, base, al, txt) => { const w = L.textWidth(txt, 36), x0 = al === "c" ? x - w / 2 : al === "r" ? x - w : x;
-  return { x0, x1: x0 + w, y0: base - 28, y1: base + 2 }; };
+// (on screen the names keep their full size, so in chart units they are 1/K as large)
+const labBox = (x, base, al, txt) => { const w = L.textWidth(txt, 36) / K, x0 = al === "c" ? x - w / 2 : al === "r" ? x - w : x;
+  return { x0, x1: x0 + w, y0: base - 28 / K, y1: base + 2 / K }; };
 const hazLabBoxes = [];
 // hazard names: Typhon inside its own region, the others clear of their margin rings
 HAZ.forEach((h) => {
   const m = h.r + h.margin * PXLY;
-  const [x, base, al] = { "Typhon Expanse": [h.x, h.y + 13, "c"], "Black Cluster": [h.x + m + 16, h.y + 13, "l"],
-    "Tyken's Rift": [h.x, h.y + m + 36, "c"], "Quantum Filaments": [h.x, h.y - m - 14, "c"] }[h.name];
-  L.text({ x: MX + x, base: MY + base, s: 36, c: h.c, txt: h.name, align: al, w: 400 });
-  hazLabBoxes.push(labBox(x, base, al, h.name));
+  // [chart x, chart y, screen offsets kept at full size, align]
+  const [cx, cy, ox, oy, al] = { "Typhon Expanse": [h.x, h.y, 0, 13, "c"], "Black Cluster": [h.x + m, h.y, 16, 13, "l"],
+    "Tyken's Rift": [h.x, h.y + m, 0, 36, "c"], "Quantum Filaments": [h.x, h.y - m, UP ? -10 : 0, -14, "c"] }[h.name];   // upright: clear of the Sector 22 line
+  L.text({ x: MX + K * cx + ox, base: MY + K * cy + oy, s: 36, c: h.c, txt: h.name, align: al, w: 400 });
+  hazLabBoxes.push(labBox(cx + ox / K, cy + oy / K, al, h.name));
 });
-for (let k = 0; k < 6; k++) L.text({ x: MX + k * 360 + 16, base: MY + 40, s: 32, c: DIM, txt: `Sector ${SECTOR0 + k}`, legend: true });
-L.text({ x: MX + 24, base: MY + MH - 18, s: 32, c: "sky", txt: "2 Light-Years", legend: true });
+for (let k = 0; k < 6; k++) L.text({ x: MX + K * (k * 360) + 16, base: PNY + 40, s: 32, c: DIM, txt: `Sector ${SECTOR0 + k}`, legend: true });
+L.text({ x: MX + K * 24, base: MY + K * MH - 18, s: 32, c: "sky", txt: "2 Light-Years", legend: true });
 
 // ---------------- the course projection ----------------
-const prPill = pillHeader([RX0, RX1], 280, "Course Projection", "sky", "gold", ["Leg 06 of 06", "Plotting"], "butter");
-const PRX = [RX0, RX0 + 340, RX0 + 700];
-L.text({ x: PRX[0], base: 400, s: 36, c: INK, txt: "Reading" });
-L.text({ x: PRX[1], base: 400, s: 36, c: INK, txt: "Projected" });
-L.text({ x: PRX[2], base: 400, s: 36, c: INK, txt: "Course" });
+const prPill = pillHeader([RX0, RX1], PRH, "Course Projection", "sky", "gold", ["Leg 06 of 06", "Plotting"], "butter");
+const PRX = UP ? [RX0, RX0 + 300, RX0 + 620] : [RX0, RX0 + 340, RX0 + 700], PRB = UP ? PRH + 120 : 400;
+L.text({ x: PRX[0], base: PRB, s: 36, c: INK, txt: "Reading" });
+L.text({ x: PRX[1], base: PRB, s: 36, c: INK, txt: "Projected" });
+L.text({ x: PRX[2], base: PRB, s: 36, c: INK, txt: "Course" });
 const PRL = ["Projected Time", "Distance Run", "Current Leg", "Heading", "Velocity", "To Waypoint", "Nearest Hazard", "Re-Plots", "Arrival"];
 const pr = PRL.map((label, i) => {
   L.text({ x: PRX[0], base: rowBase(i), s: 36, c: "sky", txt: label });
@@ -231,15 +247,21 @@ const pr = PRL.map((label, i) => {
 });
 
 // ---------------- the legs ----------------
-const lgPill = pillHeader([MX, RX1], 1000, "Course Legs", "gold", "sky", ["6 Legs  ·  99.99 Light-Years"], "butter");
-const LBOX = 170, BX0 = RX1 - 300, BX1 = RX1;
+const lgPill = pillHeader([MX, CX1], LGH, "Course Legs", "gold", "sky", ["6 Legs  ·  99.99 Light-Years"], "butter");
+const LBOX = 170, BX0 = CX1 - (UP ? 220 : UW ? 600 : 300), BX1 = CX1, LGB = UP ? LGH + 120 : 1120;
 const LGCOLS = [["From", ["Starbase 133"], "l"], ["To", ["Starbase 133"], "l"], ["Heading", ["000 Mark 00"], "l"], ["Distance", ["0.00 LY"], "r"],
   ["Warp", ["Warp 8"], "r"], ["Duration", ["000.0 H"], "r"], ["Nearest Hazard", ["Quantum Filaments"], "l"], ["Clearance", ["0.00 LY"], "r"],
   ["Status", ["Re-Plotting"], "l"]];
-const LGX = spread(MX + LBOX + 48, BX0 - 72, LGCOLS);
-L.text({ x: MX, base: 1120, s: 36, c: INK, txt: "Leg" });
-LGCOLS.forEach(([txt, , align], k) => L.text({ x: LGX[k], base: 1120, s: 36, c: INK, txt, align }));
-L.text({ x: BX0, base: 1120, s: 36, c: INK, txt: "Projected" });
+// ultrawide: two more columns, when each leg departs and arrives, before the status
+const LGXTRA = [["Departs", ["T+ 000.0 H"], "r"], ["Arrives", ["Stardate 00000.0"], "r"]];
+// the new shapes also measure the route row's "Mean 6.7" in the warp column
+const LGCOLSX = UP || UW ? LGCOLS.map((c) => (c[0] === "Warp" ? ["Warp", ["Warp 8", "Mean 6.7"], "r"] : c)) : LGCOLS;
+const LGALL = UW ? [...LGCOLSX.slice(0, 8), ...LGXTRA, LGCOLSX[8]] : LGCOLSX;
+const LGXA = spread(MX + LBOX + 48, BX0 - 72, LGALL);
+const LGX = UW ? [...LGXA.slice(0, 8), LGXA[10]] : LGXA, LGXE = UW ? LGXA.slice(8, 10) : [];
+L.text({ x: MX, base: LGB, s: 36, c: INK, txt: "Leg" });
+LGALL.forEach(([txt, , align], k) => L.text({ x: LGXA[k], base: LGB, s: 36, c: INK, txt, align }));
+L.text({ x: BX0, base: LGB, s: 36, c: INK, txt: "Projected" });
 const lgBand = fill(MX + LBOX - 24, lrowY(0), BX0 - 48 - (MX + LBOX - 24), RH, BAND);
 lgBand.style.borderRadius = `0 ${RH / 2}px ${RH / 2}px 0`;
 lgBand.style.transition = "transform 1.2s cubic-bezier(.45,0,.55,1), opacity .8s ease";
@@ -247,14 +269,75 @@ const legRows = Array.from({ length: 7 }, (_, i) => {
   const base = lrowBase(i), tot = i === 6;
   const box = cls(L.box({ x: MX, y: lrowY(i), w: LBOX, h: RH, c: tot ? "sky" : "gold", label: tot ? "Route" : `Leg ${D2(i + 1)}`, fs: 28, r: "l" }), "rc");
   const t = LGCOLS.map(([, , align], j) => cls(L.text({ x: LGX[j], base, s: 36, c: "white", txt: "", align }), "sw", "rc"));
+  const xt = LGXE.map((x) => cls(L.text({ x, base, s: 36, c: "white", txt: "", align: "r" }), "sw", "rc"));
   L.rect({ x: BX0, y: base - 24, w: BX1 - BX0, h: 24, c: TRACK });
   const bar = fill(BX0, base - 24, BX1 - BX0, 24, tot ? "sky" : "butter");
   tf(bar, "scaleX(0)");
-  return { box, t, bar, tot };
+  return { box, t, bar, tot, xt };
 });
 
+// ---------------- ultrawide: the waypoints, on the projection's rows ----------------
+const KIND = { base: "Station", world: "Planet", beacon: "Nav Beacon" };
+let showWaypoints = () => {};
+if (UW) {
+  const WX = [3580, CX1], WBOX = 170;
+  const wPill = pillHeader(WX, 280, "Waypoints", "sky", "gold", ["Next  ·  Starbase 133", "Destination Reached", "Plotting"], "butter");
+  const WCOLS = [["Waypoint", ["Course Correction"], "l"], ["Kind", ["Nav Beacon"], "l"], ["Arrival", ["T+ 000.0 H"], "r"],
+    ["Stardate", ["00000.0"], "r"], ["Status", ["Destination"], "r"]];
+  const WXS = spread(WX[0] + WBOX + 48, WX[1], WCOLS);
+  WCOLS.forEach(([txt, , align], k) => L.text({ x: WXS[k], base: 400, s: 36, c: INK, txt, align }));
+  const WLAB = ["Origin", "WP 01", "WP 02", "WP 03", "WP 04", "WP 05", "Arrive", "Detour", "Route"];
+  const wRows = WLAB.map((lab, i) => ({
+    box: cls(L.box({ x: WX[0], y: rowY(i), w: WBOX, h: RH, c: i === 8 ? "sky" : i === 7 ? DIM : i === 0 || i === 6 ? "butter" : "gold", label: lab, fs: 28, r: "l" }), "rc"),
+    t: WCOLS.map(([, , align], j) => cls(L.text({ x: WXS[j], base: rowBase(i), s: 36, c: j === 0 ? "white" : j === 4 ? INK : "sky", txt: "", align }), "sw", "rc")),
+  }));
+  const at = (h) => phase !== "plot" && phase !== "plotted" && tau >= h - 1e-6;
+  // the rows stay in time order: once a leg is bent, its course correction takes the row after that leg's start,
+  // and the waypoints after it move down one (the rows dip while they change over)
+  let wKey = null, wBusy = false;
+  const wEls = wRows.slice(0, 8).flatMap((r) => [r.box, ...r.t]);
+  wEls.forEach((e) => e.classList.add("sw"));
+  showWaypoints = () => {
+    const plotting = phase === "plot", nLeg = Math.max(0, Math.floor((pt - T_DRAW) / T_LEG));
+    const arr = C.R.pts.map((k, i) => (i === 0 ? 0 : C.legs[i - 1].h0 + C.legs[i - 1].hours));
+    const next = arr.findIndex((h) => !at(h));
+    // the course correction, once a leg is bent round a reported hazard: next when it comes before the next waypoint
+    const g = C.legs[replotLeg], s1 = g.via ? dist(g.a, g.via) : 0;
+    const corrH = g.via ? g.h0 + (g.hours * s1) / (s1 + dist(g.via, g.b)) : null;
+    const corrNext = corrH !== null && !at(corrH) && (next < 0 || corrH < arr[next]);
+    const key = g.via ? `c${replotLeg}` : "n";
+    if (wKey === null) wKey = key;
+    if (key !== wKey && !wBusy) { wBusy = true; swap(wEls, () => { wKey = key; wBusy = false; showWaypoints(); }); }
+    const bent = wKey !== "n" && !!g.via, cRow = bent ? replotLeg + 1 : 7;
+    C.R.pts.forEach((k, i) => {
+      const p = PLACES[k], r = wRows[bent && i > replotLeg ? i + 1 : i], shown = !plotting || i <= nLeg;
+      const st = plotting ? (shown ? "Plotted" : "Waiting") : phase === "plotted" ? (i === 0 ? "Departure" : "Plotted")
+        : at(arr[i]) ? (i === 0 ? "Departed" : i === 6 ? "Arrived" : "Reached") : i === next && !corrNext ? "Next" : "Ahead";
+      L.set(r.box, WLAB[i]); bg(r.box, i === 0 || i === 6 ? "butter" : "gold");
+      [p.name, KIND[p.kind], shown ? `T+ ${arr[i].toFixed(1)} H` : "—", shown ? (C.depart + arr[i] / HPSD).toFixed(1) : "—", st].forEach((v, j) => L.set(r.t[j], v));
+      fg(r.t[4], st === "Next" ? "butter" : st === "Reached" || st === "Departed" || st === "Arrived" ? "ice" : INK);
+    });
+    const d = wRows[cRow];
+    L.set(d.box, "Detour");
+    if (bent) {
+      const h = corrH, st = at(h) ? "Reached" : corrNext ? "Next" : "Ahead";
+      ["Course Correction", `Leg ${D2(replotLeg + 1)}`, `T+ ${h.toFixed(1)} H`, (C.depart + h / HPSD).toFixed(1), st].forEach((v, j) => L.set(d.t[j], v));
+      fg(d.t[4], st === "Next" ? "butter" : st === "Reached" ? "ice" : INK); bg(d.box, "butter");
+    } else {
+      const pend = phase === "hazard" || phase === "replot";
+      [pend ? "Course Correction" : "None Required", pend ? `Leg ${D2(replotLeg + 1)}` : "—", "—", "—", pend ? "Plotting" : "—"].forEach((v, j) => L.set(d.t[j], v));
+      fg(d.t[4], pend ? "mars" : INK); bg(d.box, pend ? "mars" : DIM);
+    }
+    const rt = wRows[8], laid = phase === "laid";
+    [`${C.R.pts.length} Waypoints`, `${C.legs.length} Legs`, plotting ? "—" : `T+ ${C.hours.toFixed(1)} H`, plotting ? "—" : (C.depart + C.hours / HPSD).toFixed(1),
+      plotting ? "Plotting" : laid ? "Laid In" : phase === "plotted" ? "Plotted" : "Projecting"].forEach((v, j) => L.set(rt.t[j], v));
+    fg(rt.t[4], laid ? "ice" : "butter");
+    L.set(wPill, plotting ? "Plotting" : laid || next < 0 ? "Destination Reached" : corrNext ? "Next  ·  Correction" : `Next  ·  ${PLACES[C.R.pts[next]].name}`);
+  };
+}
+
 // ---------------- the strip: course log, hazards, warp profile ----------------
-const logPill = pillHeader(P1, 1620, "Course Log", "gold", "sky", ["Today  ·  99"], "butter", 48);
+const logPill = pillHeader(P1, SH, "Course Log", "gold", "sky", ["Today  ·  99"], "butter", 48);
 const LGLX = [P1[0], P1[0] + 124, P1[1]];
 const logRows = Array.from({ length: 6 }, (_, i) => [
   L.text({ x: LGLX[0], base: STRIP(i), s: 36, c: INK, txt: "" }), L.text({ x: LGLX[1], base: STRIP(i), s: 36, c: "white", txt: "" }),
@@ -268,8 +351,8 @@ const showLog = () => {
 };
 const addLog = (what, detail) => { log.push([clock(), what, detail]); while (log.length > 6) log.shift(); logCount++; swap(logRows.flat(), showLog); };
 
-L.header({ x: P2[0], y: 1620, w: P2[1] - P2[0], label: "Hazards Avoided", c1: "sky", c2: "gold", h: 48 });
-const HZBOX = 290, HZX = [P2[0], P2[0] + HZBOX + 24, P2[0] + 820, P2[1]];
+L.header({ x: P2[0], y: SH, w: P2[1] - P2[0], label: "Hazards Avoided", c1: "sky", c2: "gold", h: 48 });
+const HZBOX = 290, HZX = [P2[0], P2[0] + HZBOX + 24, P2[0] + (UP ? 660 : 820), P2[1]];
 L.text({ x: HZX[0], base: STRIP(0), s: 36, c: INK, txt: "Hazard" });
 L.text({ x: HZX[1], base: STRIP(0), s: 36, c: INK, txt: "Nature" });
 L.text({ x: HZX[2], base: STRIP(0), s: 36, c: INK, txt: "Margin", align: "r" });
@@ -282,8 +365,9 @@ const hzRows = Array.from({ length: 5 }, (_, i) => {
   return { box, t };
 });
 
-const wpPill = pillHeader(P3, 1620, "Warp Profile", "gold", "sky", ["Warp 8  ·  1,024 c"], "butter", 48);
-const WX0 = P3[0] + 96, WX1 = P3[1], WT = 1700, WB = 1950, WWID = WX1 - WX0, WHT = WB - WT;
+const wpPill = pillHeader(P3, WPH, "Warp Profile", "gold", "sky", ["Warp 8  ·  1,024 c"], "butter", UP ? 56 : 48);
+const WMB = UP ? rowBase(8) : STRIP(5);                            // the hour marks' baseline
+const WX0 = P3[0] + 96, WX1 = P3[1], WT = UP ? 1130 : 1700, WB = UP ? WMB - 54 : 1950, WWID = WX1 - WX0, WHT = WB - WT;
 const wy = (w) => WB - ((w - 5) / 4) * WHT;
 [5, 6, 7, 8, 9].forEach((w) => {
   L.rect({ x: WX0, y: wy(w) - 1, w: WWID, h: 2, c: w === 5 ? DIM : "#1a2648", free: true });
@@ -292,8 +376,9 @@ const wy = (w) => WB - ((w - 5) / 4) * WHT;
 const prof = L.svg("g", { class: "boot" });
 const profFill = L.svg("path", { d: "", fill: "#d6a032", opacity: 0.16 }, prof);
 const profLine = L.svg("path", { d: "", fill: "none", stroke: "var(--gold)", "stroke-width": 4, "stroke-linejoin": "round" }, prof);
-const profMarks = Array.from({ length: 8 }, () => cls(L.text({ x: 0, base: STRIP(5), s: 32, c: INK, txt: "", legend: true }), "sw"));
-const profTicks = Array.from({ length: 8 }, () => fill(0, WB + 4, 2, 12, DIM));
+const profMarks = Array.from({ length: UW ? 16 : 8 }, () => cls(L.text({ x: 0, base: WMB, s: 32, c: INK, txt: "", legend: true }), "sw"));
+// (wide's ticks start from x 0, so they sit under the course log: kept as it is; the new shapes start them at the axis)
+const profTicks = Array.from({ length: UW ? 16 : 8 }, () => fill(UP || UW ? WX0 : 0, WB + 4, 2, 12, DIM));
 const profCur = fill(WX0 - 1, WT - 8, 3, WHT + 8, "white");
 const profDot = fill(WX0 - 9, 0, 18, 18, "butter");
 profDot.style.borderRadius = "50%";
@@ -303,7 +388,7 @@ const drawProfile = (c) => {
   c.legs.forEach((g, i) => { d += `${i ? "L" : "M"}${hx(g.h0).toFixed(1)},${wy(g.warp).toFixed(1)}L${hx(g.h0 + g.hours).toFixed(1)},${wy(g.warp).toFixed(1)}`; });
   profLine.setAttribute("d", d);
   profFill.setAttribute("d", `${d}L${WX1},${WB}L${WX0},${WB}Z`);
-  const step = c.hours > 260 ? 50 : 40;
+  const step = UP ? 100 : UW ? (c.hours > 260 ? 25 : 20) : c.hours > 260 ? 50 : 40;
   profMarks.forEach((m, k) => {
     const h = k * step, x = hx(h), txt = `${h} H`, w = L.textWidth(txt, 32);
     const ok = h <= c.hours && (k === 0 || x + w / 2 <= WX1 - 4);
@@ -317,17 +402,18 @@ const drawProfile = (c) => {
 // ---------------- route layers on the plot (made per course, removed after) ----------------
 const ROUTE_LAYERS = [];
 const legLayer = (a, b, kind) => {
-  const len = dist(a, b), ang = Math.atan2(b.y - a.y, b.x - a.x);
+  const len = K * dist(a, b), ang = Math.atan2(b.y - a.y, b.x - a.x);
   const e = L.layer({ x: 0, y: 0, w: len, h: 6, cls: kind });
   e.style.transformOrigin = "0 50%";
-  e._base = `translate3d(${(MX + a.x).toFixed(1)}px,${(MY + a.y - 3).toFixed(1)}px,0) rotate(${ang.toFixed(4)}rad)`;
+  e._base = `translate3d(${(MX + K * a.x).toFixed(1)}px,${(MY + K * a.y - 3).toFixed(1)}px,0) rotate(${ang.toFixed(4)}rad)`;
   tf(e, e._base + " scaleX(0)");
   ROUTE_LAYERS.push(e);
   return e;
 };
 const setLen = (e, k) => tf(e, `${e._base} scaleX(${L.clamp(k).toFixed(4)})`);
 const ringLayer = (p, r, c) => {
-  const e = cls(L.layer({ x: MX + p.x - r, y: MY + p.y - r, w: 2 * r, h: 2 * r }), "ring");
+  r = K * r;
+  const e = cls(L.layer({ x: MX + K * p.x - r, y: MY + K * p.y - r, w: 2 * r, h: 2 * r }), "ring");
   bc(e, c); op(e, 0); ROUTE_LAYERS.push(e);
   return e;
 };
@@ -338,8 +424,8 @@ const chev = L.layer({ x: 0, y: 0, w: 64, h: 64 });
 chev.innerHTML = '<svg width="64" height="64" viewBox="0 0 64 64"><path d="M58,32 L12,8 L24,32 L12,56 Z" fill="var(--white)" stroke="#000" stroke-width="3" stroke-linejoin="round"/></svg>';
 op(halo, 0); op(chev, 0);
 const putMarker = (x, y, ang) => {
-  tf(chev, `translate3d(${(MX + x - 34).toFixed(1)}px,${(MY + y - 32).toFixed(1)}px,0) rotate(${ang.toFixed(3)}rad)`);
-  tf(halo, `translate3d(${(MX + x - 60).toFixed(1)}px,${(MY + y - 60).toFixed(1)}px,0)`);
+  tf(chev, `translate3d(${(MX + K * x - 34).toFixed(1)}px,${(MY + K * y - 32).toFixed(1)}px,0) rotate(${ang.toFixed(3)}rad)`);
+  tf(halo, `translate3d(${(MX + K * x - 60).toFixed(1)}px,${(MY + K * y - 60).toFixed(1)}px,0)`);
 };
 
 // the reported hazard: a layer with its label
@@ -375,6 +461,7 @@ const legStatus = (g) => {
 };
 const legAt = () => { for (const g of C.legs) if (tau < g.h0 + g.hours - 1e-6) return g.i; return 5; };
 const fmtH = (h) => `${h.toFixed(1)} H`;
+const legTimes = (g) => [`T+ ${g.h0.toFixed(1)} H`, `Stardate ${(C.depart + (g.h0 + g.hours) / HPSD).toFixed(1)}`];
 const fmtLY = (l) => `${l.toFixed(2)} LY`;
 const hdgTxt = (g) => `${D3(g.hdg)} Mark ${D2(g.mark)}`;
 
@@ -384,12 +471,14 @@ const showLegs = (plotting) => {
     const row = legRows[i], shown = !plotting;
     const vals = [g.a.name, g.b.name, hdgTxt(g), fmtLY(g.ly), `Warp ${g.warp}`, fmtH(g.hours), g.near.name, fmtLY(g.clear), ""];
     row.t.forEach((t, j) => { if (j < 8) L.set(t, shown || legStatus(g) === "Plotted" ? vals[j] : "—"); });
+    if (UW) legTimes(g).forEach((v, j) => L.set(row.xt[j], shown || legStatus(g) === "Plotted" ? v : "—"));
   });
   const tot = legRows[6];
   const minG = C.legs.slice().sort((p, q) => p.clear - q.clear)[0];
   const meanW = C.ly / C.legs.reduce((s, g) => s + g.ly / g.warp, 0);
   [C.legs[0].a.name, C.legs[5].b.name, (n => n ? `${n} Re-Plot${n > 1 ? "s" : ""}` : "No Re-Plots")(C.legs.filter((g) => g.replot).length), fmtLY(C.ly), `Mean ${meanW.toFixed(1)}`, fmtH(C.hours), minG.near.name, fmtLY(minG.clear)]
     .forEach((v, j) => L.set(tot.t[j], plotting && j > 1 ? "—" : v));
+  if (UW) ["T+ 0.0 H", `Stardate ${(C.depart + C.hours / HPSD).toFixed(1)}`].forEach((v, j) => L.set(tot.xt[j], plotting ? "—" : v));
   L.set(lgPill, `6 Legs  ·  ${C.ly.toFixed(2)} Light-Years`);
 };
 const showHazards = () => {
@@ -426,7 +515,7 @@ const newCourse = () => {
   for (const k in placeLab) fg(placeLab[k], C.R.pts.includes(k) ? "ice" : DIM);
   L.set(mapPill, C.R.name);
   swap([stateSub], () => L.set(stateSub, subText()));
-  swap([...legRows.flatMap((r) => r.t), ...hzRows.flatMap((r) => [r.box, ...r.t])], () => { showLegs(true); showHazards(); });
+  swap([...legRows.flatMap((r) => [...r.t, ...r.xt]), ...hzRows.flatMap((r) => [r.box, ...r.t])], () => { showLegs(true); showHazards(); });
   drawProfile(C);
   addLog("Course Requested", `${PLACES[C.R.pts[0]].name} to ${PLACES[C.R.pts[6]].name}`);
 };
@@ -449,44 +538,51 @@ const placeStorm = () => {
   s.via = via;
   C.storm = s;
   const D = 2 * (s.r + s.margin * PXLY);
-  storm.style.left = MX + s.x - D / 2 + "px"; storm.style.top = MY + s.y - D / 2 + "px";
-  Object.assign(stormCore.style, { left: "0px", top: "0px", width: D + "px", height: D + "px" });
-  Object.assign(stormRing.style, { left: s.margin * PXLY + "px", top: s.margin * PXLY + "px", width: 2 * s.r + "px", height: 2 * s.r + "px" });
+  storm.style.left = MX + K * s.x - K * D / 2 + "px"; storm.style.top = MY + K * s.y - K * D / 2 + "px";
+  Object.assign(stormCore.style, { left: "0px", top: "0px", width: K * D + "px", height: K * D + "px" });
+  Object.assign(stormRing.style, { left: K * (s.margin * PXLY) + "px", top: K * (s.margin * PXLY) + "px", width: K * (2 * s.r) + "px", height: K * (2 * s.r) + "px" });
   // the labels: the first spot round each mark that is clear of every name, mark and course line on the chart
   const boxes = [
-    ...Object.values(PLACES).map((p) => labBox(p.x + p.lab[0], p.lab[1] + p.y, p.lab[2], p.name)),
+    ...Object.values(PLACES).map((p) => labBox(p.x + p.lab[0] / K, p.lab[1] / K + p.y, p.lab[2], p.name)),
     ...Object.values(PLACES).map((p) => ({ x0: p.x - 22, x1: p.x + 22, y0: p.y - 22, y1: p.y + 22 })),
     ...HAZ.map((h) => ({ x0: h.x - h.r, x1: h.x + h.r, y0: h.y - h.r, y1: h.y + h.r })),
-    ...hazLabBoxes, { x0: 0, x1: MW, y0: 0, y1: 52 }, { x0: 0, x1: 260, y0: MH - 80, y1: MH },
+    ...hazLabBoxes, { x0: 0, x1: MW, y0: 0, y1: 52 / K }, { x0: 0, x1: 260 / K, y0: MH - 80 / K, y1: MH },
   ];
   const pts = [];
   C.legs.forEach((q) => { const path = q === g ? [a, via, b] : pathOf(q);
     for (let i = 1; i < path.length; i++) { const n = Math.ceil(dist(path[i - 1], path[i]) / 8);
       for (let j = 0; j <= n; j++) pts.push({ x: L.mix(path[i - 1].x, path[i].x, j / n), y: L.mix(path[i - 1].y, path[i].y, j / n) }); } });
   const bad = (bx, extra = []) => {
-    if (bx.x0 < 16 || bx.x1 > MW - 16 || bx.y0 < 16 || bx.y1 > MH - 16) return 99;
-    const hit = (q) => bx.x0 < q.x1 + 8 && q.x0 < bx.x1 + 8 && bx.y0 < q.y1 + 8 && q.y0 < bx.y1 + 8;
-    return [...boxes, ...extra].filter(hit).length + pts.filter((q) => q.x > bx.x0 - 10 && q.x < bx.x1 + 10 && q.y > bx.y0 - 10 && q.y < bx.y1 + 10).length;
+    const e = 16 / K, g = 8 / K, n = 10 / K;                        // screen margins, in chart units
+    if (bx.x0 < e || bx.x1 > MW - e || bx.y0 < e || bx.y1 > MH - e) return 99;
+    const hit = (q) => bx.x0 < q.x1 + g && q.x0 < bx.x1 + g && bx.y0 < q.y1 + g && q.y0 < bx.y1 + g;
+    return [...boxes, ...extra].filter(hit).length + pts.filter((q) => q.x > bx.x0 - n && q.x < bx.x1 + n && q.y > bx.y0 - n && q.y < bx.y1 + n).length;
   };
   const around = (cx, cy, m, txt, extra) => {
     const c = [];
-    for (const R of [m + 14, m + 50, m + 100]) for (let a = 0; a < 360; a += 30) {
+    for (const R of (UP ? [14, 30, 50, 75, 100] : [14, 50, 100]).map((r) => (m + r) / K)) for (let a = 0; a < 360; a += 30) {
       const sn = Math.sin((a * Math.PI) / 180), cs = Math.cos((a * Math.PI) / 180), px = cx + R * sn, py = cy - R * cs;
-      c.push([px, cs > 0.3 ? py - 4 : cs < -0.3 ? py + 30 : py + 13, sn > 0.3 ? "l" : sn < -0.3 ? "r" : "c"]);
+      c.push([px, cs > 0.3 ? py - 4 / K : cs < -0.3 ? py + 30 / K : py + 13 / K, sn > 0.3 ? "l" : sn < -0.3 ? "r" : "c"]);
     }
     return c.map(([x, base, al]) => { const bx = labBox(x, base, al, txt); bx.at = [x, base, al]; return bx; })
       .map((bx, k) => [bad(bx, extra) + k * 0.001, bx]).sort((p, q) => p[0] - q[0])[0][1];
   };
   const sm = s.r + s.margin * PXLY;
+  let sb = { at: [s.x, s.y + 13 / K, "c"] };                         // the name inside it, as Typhon's is
+  // upright's names are larger on the chart: if the name inside clashes with a name or the course, it takes
+  // the nearest clear spot beside the hazard first, and the correction's label finds its place after it
+  if (UP && bad(labBox(s.x, s.y + 13 / K, "c", s.name))) {
+    sb = around(s.x, s.y, K * sm, s.name, [{ x0: via.x - 16 / K, x1: via.x + 16 / K, y0: via.y - 16 / K, y1: via.y + 16 / K }]);
+    boxes.push(sb);
+  }
   const vb = around(via.x, via.y, 16, "Course Correction", [{ x0: s.x - sm, x1: s.x + sm, y0: s.y - sm, y1: s.y + sm }]);
-  boxes.push(vb, { x0: via.x - 16, x1: via.x + 16, y0: via.y - 16, y1: via.y + 16 });
-  const sb = { at: [s.x, s.y + 13, "c"] };                         // the name inside it, as Typhon's is
+  boxes.push(vb, { x0: via.x - 16 / K, x1: via.x + 16 / K, y0: via.y - 16 / K, y1: via.y + 16 / K });
   const putLab = (e, bx) => { const [x, base, al] = bx.at, w = L.textWidth(e.textContent, 36);
-    e.parentElement.style.left = MX + (al === "c" ? x : al === "l" ? x + w / 2 : x - w / 2) + "px";
-    e.parentElement.style.top = MY + base - 0.83 * 36 - 4 + "px"; };
+    e.parentElement.style.left = MX + (al === "c" ? K * x : al === "l" ? K * x + w / 2 : K * x - w / 2) + "px";
+    e.parentElement.style.top = MY + K * base - 0.83 * 36 - 4 + "px"; };
   L.set(stormTxt, s.name);
   putLab(stormTxt, sb); putLab(viaTxt, vb);
-  viaMark.style.left = MX + via.x - 10 + "px"; viaMark.style.top = MY + via.y - 10 + "px";
+  viaMark.style.left = MX + K * via.x - 10 + "px"; viaMark.style.top = MY + K * via.y - 10 + "px";
   tf(viaMark, "rotate(45deg)");
 };
 
@@ -545,6 +641,7 @@ const showReadings = () => {
     if (phase === "plot" && st === "Plotted") {
       const vals = [q.a.name, q.b.name, hdgTxt(q), fmtLY(q.ly), `Warp ${q.warp}`, fmtH(q.hours), q.near.name, fmtLY(q.clear)];
       legRows[i].t.forEach((e, j) => { if (j < 8) L.set(e, vals[j]); });
+      if (UW) legTimes(q).forEach((v, j) => L.set(legRows[i].xt[j], v));
     }
   });
   const tot = legRows[6].t[8];
@@ -552,6 +649,7 @@ const showReadings = () => {
   fg(tot, phase === "laid" ? "ice" : "butter");
   const band = phase === "plot" ? Math.min(5, Math.max(0, Math.floor((pt - T_DRAW) / T_LEG))) : li;
   tf(lgBand, `translate3d(0,${band * P}px,0)`);
+  showWaypoints();
 };
 
 // ---------------- the first moment: a course part-way through its plotting ----------------
@@ -636,7 +734,7 @@ L.tick((t) => {
     op(viaMark, L.clamp((pt - 1.4) / 0.6)); op(viaLab, L.clamp((pt - 1.6) / 0.8));
     if (pt >= 3.4 && !E.logged) {
       E.logged = true;
-      swap([...legRows.flatMap((r) => r.t.slice(0, 8)), ...hzRows.flatMap((r) => r.t)], () => { showLegs(false); showHazards(); });
+      swap([...legRows.flatMap((r) => [...r.t.slice(0, 8), ...r.xt]), ...hzRows.flatMap((r) => r.t)], () => { showLegs(false); showHazards(); });
       drawProfile(C);
       addLog(`Leg ${D2(replotLeg + 1)} Re-Plotted`, `+ ${(g.ly - E.oldWas).toFixed(2)} LY`);
     }

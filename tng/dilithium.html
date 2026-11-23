@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Dilithium Chamber</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* everything that moves here moves on the compositor: CSS animations and transitions on layers */
@@ -21,7 +22,16 @@
 const L = LCARS;
 L.ready(() => {
 
+// Three layouts. Wide (3840×2160) is the original, hand-placed. Upright (2160×3120): the chamber
+// (its crystal drawn at 0.8) beside the spectrum and stream alignment, then integrity beside
+// recrystallization, the spare inventory across the full width, and the log beside the environment.
+// Ultrawide (5040×2160): the wide columns unchanged, and a fourth column: stress and efficiency
+// trends over the last ten minutes, and the recrystallization history below.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+
 // ---------------- the frame: sidebar left, title top right ----------------
+let B;
+if (L.shape === "wide") {
 const BAR = 64;
 L.title({ x: 3700, y: 40, h: BAR, c: "pink", txt: "Dilithium Chamber  •  Crystal Analysis" });
 // (L.title measures with a canvas, which sets this line ~11px wider than the page draws it; use the page's own width)
@@ -38,6 +48,14 @@ L.text({ x: 258, base: 1712, s: 40, c: "#000", txt: "Dilithium", align: "r", on:
 [[1540 + L.GAP, 600, "lilac"], [2164 + L.GAP, 900, "pink"], [3088 + L.GAP, 3700 - (3088 + L.GAP), "plum"]]
   .forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
 L.box({ x: 3724, y: 2056, w: 92, h: BAR, c: "lilac", r: "r" });
+B = { x0: 330, x1: 3816, y0: 140, y1: 2010 };
+} else {
+  // the same frame, drawn by the kit for this shape: type A, the same colours and sidebar labels
+  B = L.frame({ type: "A", title: "Dilithium Chamber  •  Crystal Analysis", c: "lilac", c2: "plum", accent: "ice", foot: "Dilithium",
+    side: [[140, "pink", "DIL 04"], [70, "ice", "Frame"], [420, "lilac", "Lattice"], [70, "pink", "Theta"],
+           [300, "plum", "Streams"], [70, "ice", "Flux"], [216, "lilac", "Spares"]] });
+  document.querySelector("[data-title]").style.color = "var(--pink)";   // the title in pink, as in wide
+}
 
 const header = (x, y, w, label, c1, c2, h = 56, fs = 32) => {
   const lw = Math.round((L.textWidth(label, fs) + 64) / 10) * 10;
@@ -57,9 +75,23 @@ const wave = (t, a, f, p) => a * Math.sin(t * f + p);
 const fmt = (n) => n.toLocaleString("en");
 const TRACK = "#1f1430";
 
-// The columns: left 330–1530, the chamber 1590–2830, right 2890–3816.
-const LX = 330, LR = 1530, MX = 1590, MR = 2830, RX = 2890, RR = 3816;
-const VX = 700;                                                           // the left column's values
+// The columns: left 330–1530, the chamber 1590–2830, right 2890–3816 (ultrawide the same, with a
+// fourth column 3876–5016). Upright: the chamber 330–1430 beside the right column 1494–2136; below,
+// two halves 330–1201 | 1265–2136 (integrity | recrystallization, log | environment), and the
+// spare inventory across the whole width.
+const LX = 330, LR = UP ? 1201 : 1530, MX = UP ? 330 : 1590, MR = UP ? 1430 : 2830, RX = UP ? 1494 : 2890, RR = UP ? 2136 : 3816;
+const VX = UP ? 590 : 700;                                                // the left column's values
+const BARR = UP ? 1028 : 1340;                                            // where its bars end (upright: flush with the Crystal line)
+// upright: how far each panel moves down from its wide place, and the right half's edges
+const IY = UP ? 1168 : 0;                                                 // integrity: header 280 → 1448
+const RCX0 = UP ? 1265 : LX, RCX1 = UP ? 2136 : LR, RVX = UP ? 1494 : VX;
+const RHY = UP ? 448 : 0, RY = UP ? 460 : 0;                              // recrystallization: header, rows (on integrity's grid)
+// upright: progress goes last, beside Decrystallization (a bar row beside integrity's bars would read as a title
+// between two bars), the pairs above it: anneal rate | target, remaining | retire at, gamma flux | fractures sealed
+const RPY = UP ? 688 : 0, RQ1 = UP ? 384 : 0, RQ2 = UP ? 460 : 0, RQ3 = UP ? 308 : 0;
+const SPX0 = UP ? 330 : MX, SPX1 = UP ? 2136 : MR, SPY = UP ? 492 : 0;   // spare inventory: 1620 → 2112
+const BOTY = UP ? 960 : 0;                                                // log and environment: 1620 → 2580
+const EX0 = UP ? 1265 : RX;                                               // the environment's left edge
 
 // ---------------- the chamber log (filled from everywhere below) ----------------
 let stardate = 47791.3;
@@ -73,79 +105,83 @@ function logEvent(txt, sys) {
 }
 
 // ---------------- the crystal's state: what every panel reads ----------------
-const S = { integ: 97.84, theta: 99.21, fract: 14, cycle: 4, sealed: 3, tilt: 0, tiltFrom: 0, tiltTo: 0, tiltT0: -99, state: "Matrix Stable" };
+const S = { integ: 97.84, theta: 99.21, fract: 14, cycle: 4, abs: 4, crystal: "C", sealed: 3, tilt: 0, tiltFrom: 0, tiltTo: 0, tiltT0: -99, state: "Matrix Stable" };
 const tiltAt = (t) => L.mix(S.tiltFrom, S.tiltTo, L.ease(L.clamp((t - S.tiltT0) / 9)));
 
 // ---------------- status line ----------------
 const STATEC = { "Matrix Stable": "lilac", "Alignment Check": "ice", "Alignment Drift": "pink", "Realigning": "pink" };
 const stateTxt = L.text({ x: LX, cap: 150, s: 100, c: "lilac", txt: S.state, cls: "fade" });
-const stateSub = L.text({ x: MX, base: 222, s: 38, c: "ice", txt: "" });          // on the chamber column's line
-const pill = L.box({ x: RR - 400, y: 150, w: 400, h: 72, c: "lilac", label: "Frame 2-4 Locked", r: "lr", fs: 36, cls: "pill" });
+const stateSub = L.text({ x: UP ? 840 : MX, base: 222, s: 38, c: "ice", txt: "" });          // on the chamber column's line
+const pill = L.box({ x: B.x1 - 400, y: 150, w: 400, h: 72, c: "lilac", label: "Frame 2-4 Locked", r: "lr", fs: 36, cls: "pill" });
 const setState = (st, pillTxt, pillC) => {
   S.state = st; put(stateTxt, st); stateTxt.style.color = `var(--${STATEC[st]})`;
   pill.textContent = pillTxt; pill.style.background = `var(--${pillC})`;
 };
 
 // ---------------- crystal integrity ----------------
-header(LX, 280, LR - LX, "Crystal Integrity", "pink", "lilac");
+header(LX, 280 + IY, LR - LX, "Crystal Integrity", "pink", "lilac");
 const lab = (y, txt, x = LX, c = "lilac") => L.text({ x, base: y, s: 40, c, txt });
 const val = (y, x = VX, align) => L.text({ x, base: y, s: 52, c: "white", txt: "", align });
-lab(404, "Crystal"); put(val(404), "C  ·  Coridan III  ·  Serial 2246-D");
-const bars = [["Integrity", 480, "lilac"], ["Theta Matrix", 556, "ice"], ["Lattice Stress", 632, "plum"]].map(([name, base, c]) => {
+lab(404 + IY, "Crystal"); put(val(404 + IY), "C  ·  Coridan III  ·  Serial 2246-D");
+const bars = [["Integrity", 480, "lilac"], ["Theta Matrix", 556, "ice"], ["Lattice Stress", 632, "plum"]].map(([name, b0, c]) => {
+  const base = b0 + IY;
   lab(base, name);
-  L.rect({ x: VX, y: base - 30, w: 1340 - VX, h: 30, c: TRACK });
-  return { f: fill(VX, base - 30, 1340 - VX, 30, c, "0 0", "eq"), v: val(base, LR, "r"), shown: -1 };
+  L.rect({ x: VX, y: base - 30, w: BARR - VX, h: 30, c: TRACK });
+  return { f: fill(VX, base - 30, BARR - VX, 30, c, "0 0", "eq"), v: val(base, LR, "r"), shown: -1 };
 });
-lab(708, "Micro-Fractures");
-const fractVal = val(708);
+lab(708 + IY, "Micro-Fractures");
+const fractVal = val(708 + IY);
 // fracture density, plane by plane: twelve cleavage planes of the lattice
-const PX0 = 840, PN = 12, PG = 8, PW = (LR - PX0 - (PN - 1) * PG) / PN;
+const PX0 = UP ? VX + 140 : 840, PN = 12, PG = 8, PW = (LR - PX0 - (PN - 1) * PG) / PN;
 const planes = Array.from({ length: PN }, (_, i) => {
   const x = PX0 + i * (PW + PG);
-  L.rect({ x, y: 708 - 37, w: PW, h: 37, c: TRACK, noalign: true });
-  const f = fill(x, 708 - 37, PW, 37, "pink", "0 0", "cell");
+  L.rect({ x, y: 708 + IY - 37, w: PW, h: 37, c: TRACK, noalign: true });
+  const f = fill(x, 708 + IY - 37, PW, 37, "pink", "0 0", "cell");
   return { f, d: 0 };
 });
 const seedPlanes = [2, 1, 0, 1, 3, 0, 2, 1, 1, 0, 2, 1];                  // 14 in all
 planes.forEach((p, i) => (p.d = seedPlanes[i]));
 const showPlanes = () => planes.forEach((p) => css(p.f, "opacity", (p.d ? 0.25 + 0.25 * Math.min(3, p.d) : 0.04).toFixed(2)));
 showPlanes();
-lab(784, "Decrystallization");
-const decryVal = val(784);
-lab(860, "Service Life");
-const lifeVal = val(860);
+lab(784 + IY, "Decrystallization");
+const decryVal = val(784 + IY);
+lab(860 + IY, "Service Life");
+const lifeVal = val(860 + IY);
 let hours = 1846;
 
 // ---------------- recrystallization ----------------
-header(LX, 1000, LR - LX, "Recrystallization", "lilac", "plum");
-lab(1112, "Cycle");
-const cycleVal = val(1112);
-const cycleNote = L.text({ x: LR, base: 1112, s: 40, c: "ice", txt: "", align: "r" });
+header(RCX0, 1000 + RHY, RCX1 - RCX0, "Recrystallization", "lilac", "plum");
+lab(1112 + RY, "Cycle", RCX0);
+const cycleVal = val(1112 + RY, RVX);
+const cycleNote = L.text({ x: RCX1, base: 1112 + RY, s: 40, c: "ice", txt: "", align: "r" });
 const PHASES = [["Gamma Flux", 40], ["Annealing", 60], ["Compositing", 50], ["Verification", 30], ["Standby", 30]];
 const PHT = PHASES.reduce((a, p) => a + p[1], 0);
-const PBW = (LR - LX - 4 * L.GAP) / 5;
-const phaseBoxes = PHASES.map(([name], i) => L.box({ x: LX + i * (PBW + L.GAP), y: 1136, w: PBW, h: 64, c: "plum", label: name, fs: 30,
+const PBW = (RCX1 - RCX0 - 4 * L.GAP) / 5;
+const phaseBoxes = PHASES.map(([name], i) => L.box({ x: RCX0 + i * (PBW + L.GAP), y: 1136 + RY, w: PBW, h: 64, c: "plum", label: name, fs: 30,
   r: i === 0 ? "l" : i === 4 ? "r" : null, cls: "pill" }));
-lab(1264, "Progress");
-L.rect({ x: VX, y: 1264 - 30, w: 1340 - VX, h: 30, c: TRACK });
-const progBar = fill(VX, 1264 - 30, 1340 - VX, 30, "pink");
+const C2X = UP ? 1780 : 1080;
+// upright: the progress bar ends flush with "Fractures Sealed" above it
+const RBARR = UP ? Math.round(C2X + L.textWidth("Fractures Sealed", 40)) : 1340;
+lab(1264 + RPY, "Progress", RCX0);
+L.rect({ x: RVX, y: 1264 + RPY - 30, w: RBARR - RVX, h: 30, c: TRACK });
+const progBar = fill(RVX, 1264 + RPY - 30, RBARR - RVX, 30, "pink");
 progBar.style.transition = "transform 1s linear";
-const progVal = val(1264, LR, "r");
-lab(1340, "Anneal Rate"); const rateVal = val(1340);
-lab(1416, "Gamma Flux"); const fluxVal = val(1416);
-lab(1492, "Remaining"); const remVal = val(1492);
-const C2X = 1080;
-lab(1340, "Target", C2X); const targetVal = val(1340, LR, "r");
-lab(1416, "Fractures Sealed", C2X); const annVal = val(1416, LR, "r");
-lab(1492, "Retire At", C2X); put(val(1492, LR, "r"), "9 Cycles");
+const progVal = val(1264 + RPY, RCX1, "r");
+lab(1340 + RQ1, "Anneal Rate", RCX0); const rateVal = val(1340 + RQ1, RVX);
+lab(1416 + RQ2, "Gamma Flux", RCX0); const fluxVal = val(1416 + RQ2, RVX);
+lab(1492 + RQ3, "Remaining", RCX0); const remVal = val(1492 + RQ3, RVX);
+lab(1340 + RQ1, "Target", C2X); const targetVal = val(1340 + RQ1, RCX1, "r");
+lab(1416 + RQ2, "Fractures Sealed", C2X); const annVal = val(1416 + RQ2, RCX1, "r");
+lab(1492 + RQ3, "Retire At", C2X); put(val(1492 + RQ3, RCX1, "r"), "9 Cycles");
 
 // ---------------- the chamber: the crystal in its articulation frame ----------------
 header(MX, 280, MR - MX, "Crystal Lattice  ·  Articulation Frame 2-4", "lilac", "pink");
 L.text({ x: MX, base: 404, s: 36, c: "lilac", txt: "2<5>6 Dilithium  2<:>1 Diallosilicate  1:9:1 Heptoferranide" });
 const latInfo = L.text({ x: MR, base: 404, s: 36, c: "ice", txt: "", align: "r" });
-const CX0 = (MX + MR) / 2, CY0 = 990;
+const CX0 = (MX + MR) / 2, CY0 = UP ? 904 : 990;
 // the lattice: a hexagonal bipyramid of seven layers, projected from a little above
-const A = 128, CZ = 116, EL = (20 * Math.PI) / 180, RT = (12 * Math.PI) / 180, K = 12, RAD = [0, 1, 2, 2, 2, 1, 0];
+// (upright's chamber is shorter: the crystal is drawn at 0.8, the readings stay true)
+const KS = UP ? 0.8 : 1, A = 128 * KS, CZ = 116 * KS, EL = (20 * Math.PI) / 180, RT = (12 * Math.PI) / 180, K = 12, RAD = [0, 1, 2, 2, 2, 1, 0];
 const nodes = [], at = new Map();
 RAD.forEach((R, li) => {
   for (let q = -R; q <= R; q++) for (let r = -R; r <= R; r++) {
@@ -216,7 +252,7 @@ L.svg("polygon", { points: hull.map((p) => p.map((v) => v.toFixed(1)).join(","))
 }
 
 // 2. the matter and antimatter streams, fixed in the chamber: matter from above, antimatter from below
-const INJ_T = 508, INJ_B = 1472, PKH = 36, TRAVEL = CY0 - INJ_T - PKH;
+const INJ_T = 508, INJ_B = UP ? 1300 : 1472, PKH = 36, TRAVEL = CY0 - INJ_T - PKH;
 document.head.appendChild(Object.assign(document.createElement("style"), { textContent:
   `@keyframes mflow { 0% { transform: translate3d(0,0,0); opacity: 0 } 12%, 78% { opacity: 1 } 100% { transform: translate3d(0,${TRAVEL}px,0); opacity: 0 } }
    @keyframes aflow { 0% { transform: translate3d(0,0,0); opacity: 0 } 12%, 78% { opacity: 1 } 100% { transform: translate3d(0,${-TRAVEL}px,0); opacity: 0 } }` }));
@@ -261,7 +297,7 @@ for (let k = 0; k < K; k++) {
 
 // 4. the articulation frame: two arms meeting the crystal at its girdle, open above and below for the streams
 const hullL = CX0 - HW + 8, hullR = CX0 + HW - 8;                         // the girdle's ends
-const FT = 556, FB = 1424, GAPX = 60, FW = CX0 - GAPX - MX;
+const FT = UP ? 540 : 556, FB = UP ? 1268 : 1424, GAPX = 60, FW = CX0 - GAPX - MX;
 L.elbow({ corner: "tl", x: MX, y: FT, w: FW, h: CY0 - FT, bw: 40, bh: 28, c: "plum" });
 L.elbow({ corner: "bl", x: MX, y: CY0, w: FW, h: FB - CY0, bw: 40, bh: 28, c: "plum" });
 L.elbow({ corner: "tr", x: CX0 + GAPX, y: FT, w: FW, h: CY0 - FT, bw: 40, bh: 28, c: "plum" });
@@ -272,16 +308,17 @@ L.box({ x: CX0 - 190, y: INJ_T - 64, w: 380, h: 64, c: "ice", label: "Matter Inj
 L.box({ x: CX0 - 190, y: INJ_B, w: 380, h: 64, c: "pink", label: "Antimatter Injector", fs: 32, r: "lr" });
 // readings in the frame's four corners
 const FX0 = MX + 130, FX1 = MR - 130;
-L.text({ x: FX0, base: 646, s: 36, c: "lilac", txt: "Frame 2 Angle" }); const f2Val = val(722, FX0);
-L.text({ x: FX1, base: 646, s: 36, c: "lilac", txt: "Frame 4 Angle", align: "r" }); const f4Val = val(722, FX1, "r");
-L.text({ x: FX0, base: 1298, s: 36, c: "lilac", txt: "Lattice Temp" }); const tempVal = val(1374, FX0);
-L.text({ x: FX1, base: 1298, s: 36, c: "lilac", txt: "Reaction Efficiency", align: "r" }); const effVal = val(1374, FX1, "r");
+const RT0 = UP ? 630 : 646, RV0 = UP ? 706 : 722, RT1 = UP ? 1142 : 1298, RV1 = UP ? 1218 : 1374;   // FT + 90, + 166; FB − 126, − 50
+L.text({ x: FX0, base: RT0, s: 36, c: "lilac", txt: "Frame 2 Angle" }); const f2Val = val(RV0, FX0);
+L.text({ x: FX1, base: RT0, s: 36, c: "lilac", txt: "Frame 4 Angle", align: "r" }); const f4Val = val(RV0, FX1, "r");
+L.text({ x: FX0, base: RT1, s: 36, c: "lilac", txt: "Lattice Temp" }); const tempVal = val(RV1, FX0);
+L.text({ x: FX1, base: RT1, s: 36, c: "lilac", txt: "Reaction Efficiency", align: "r" }); const effVal = val(RV1, FX1, "r");
 
 // ---------------- resonance spectrum ----------------
 header(RX, 280, RR - RX, "Resonance Spectrum", "ice", "lilac");
 L.text({ x: RX, base: 404, s: 36, c: "lilac", txt: "Subspace Resonance  ·  MHz" });
 const peakTxt = L.text({ x: RR, base: 404, s: 36, c: "white", txt: "", align: "r" });
-const NB = 28, BG = 6, BWD = (RR - RX - (NB - 1) * BG) / NB, BY0 = 436, BY1 = 856;
+const NB = 28, BG = 6, BWD = (RR - RX - (NB - 1) * BG) / NB, BY0 = 436, BY1 = UP ? 728 : 856;
 const spec = Array.from({ length: NB }, (_, i) => {
   const x = RX + i * (BWD + BG);
   L.rect({ x, y: BY0, w: BWD, h: BY1 - BY0, c: TRACK, noalign: true });
@@ -289,17 +326,18 @@ const spec = Array.from({ length: NB }, (_, i) => {
   return { f: fill(x, BY0, BWD, BY1 - BY0, c, "50% 100%", "eq"), seed: L.rand(0, 6) };
 });
 for (let i = 2; i < NB; i += 4)
-  L.text({ x: RX + i * (BWD + BG) + BWD / 2, base: 904, s: 30, c: "lilac", txt: String(12 + i), align: "c", w: 80, legend: true });
+  L.text({ x: RX + i * (BWD + BG) + BWD / 2, base: UP ? 776 : 904, s: 30, c: "lilac", txt: String(12 + i), align: "c", w: 80, legend: true });
 const shape = (i, t, broad) => 0.1 + 0.86 * Math.exp(-(((i - 19) / (1.25 + broad)) ** 2)) + 0.34 * Math.exp(-(((i - 4.5) / 1.3) ** 2))
   + 0.2 * Math.exp(-(((i - 26) / 1) ** 2)) + 0.05 * Math.sin(t * 0.4 + i * 0.9);
 let peak = 31.062;
 
 // ---------------- stream alignment ----------------
-header(RX, 1000, RR - RX, "Stream Alignment", "pink", "ice");
-const TW = (RR - RX - L.GAP) / 2, TY = 1136, TH = 280, TK = 70;             // TK: target px per degree of tilt
+const SAY = UP ? -128 : 0;                                                  // upright: header 1000 → 872
+header(RX, 1000 + SAY, RR - RX, "Stream Alignment", "pink", "ice");
+const TW = (RR - RX - L.GAP) / 2, TY = 1136 + SAY, TH = 280, TK = 70;             // TK: target px per degree of tilt
 const targets = [["Matter Stream", "ice"], ["Antimatter Stream", "pink"]].map(([name, c], i) => {
   const x = RX + i * (TW + L.GAP), cx = x + TW / 2, cy = TY + TH / 2;
-  const cap = L.text({ x, base: 1112, s: 36, c: "lilac", txt: name, cls: "fade" });
+  const cap = L.text(Object.assign({ x, base: 1112 + SAY, s: 36, c: "lilac", txt: name, cls: "fade" }, UP && i ? { x: x + TW, align: "r" } : {}));   // upright: flush with its target
   L.rect({ x, y: TY, w: TW, h: TH, rx: 12, c: "#140b22" });
   L.rect({ x: x + 20, y: cy - 1, w: TW - 40, h: 2, c: "#3b2a58", free: true });
   L.rect({ x: cx - 1, y: TY + 20, w: 2, h: TH - 40, c: "#3b2a58", free: true });
@@ -310,13 +348,13 @@ const targets = [["Matter Stream", "ice"], ["Antimatter Stream", "pink"]].map(([
   }
   const dot = L.layer({ x: cx - 16, y: cy - 16, w: 32, h: 32, cls: "dot" });
   dot.style.background = `var(--${c})`;
-  return { dot, v: val(1492, x), cap, name, sign: i ? 1 : -1, wob: [L.rand(-6, 6), L.rand(-6, 6)] };
+  return { dot, v: val(1492 + SAY, x), cap, name, sign: i ? 1 : -1, wob: [L.rand(-6, 6), L.rand(-6, 6)] };
 });
 
 // ---------------- chamber log ----------------
-header(LX, 1620, LR - LX, "Chamber Log", "lilac", "pink", 48, 28);
+header(LX, 1620 + BOTY, LR - LX, "Chamber Log", "lilac", "pink", 48, 28);
 logRows = Array.from({ length: 6 }, (_, i) => {
-  const base = 1734 + i * 54;
+  const base = 1734 + BOTY + i * 54;
   return { sd: L.text({ x: LX, base, s: 36, c: "plum", txt: "" }), tx: L.text({ x: LX + 190, base, s: 36, c: "lilac", txt: "" }),
            sys: L.text({ x: LR, base, s: 36, c: "ice", txt: "", align: "r" }) };
 });
@@ -326,35 +364,36 @@ logRows = Array.from({ length: 6 }, (_, i) => {
   .forEach((e) => logEvent(...e));
 
 // ---------------- spare crystals ----------------
-header(MX, 1620, MR - MX, "Spare Crystal Inventory", "pink", "plum", 48, 28);
-const IC = { origin: 1790, age: 2090, ann: 2230, b0: 2270, b1: 2500, pct: 2620 };
+header(SPX0, 1620 + SPY, SPX1 - SPX0, "Spare Crystal Inventory", "pink", "plum", 48, 28);
+const IC = UP ? { origin: 620, age: 1060, ann: 1260, b0: 1300, b1: 1790, pct: 1910 }
+           : { origin: 1790, age: 2090, ann: 2230, b0: 2270, b1: 2500, pct: 2620 };
 const SPARES = [["A", "Coridan III", 2.1, 0, 99.2, "Stored"], ["B", "Coridan III", 3.4, 1, 98.1, "Stored"],
   ["C", "Coridan III", 1.8, 3, 97.84, "In Service"], ["D", "Troyius", 5.7, 4, 94.6, "Stored"],
   ["E", "Elas", 7.2, 6, 88.3, "Awaiting Anneal"], ["F", "Rigel XII", 11.6, 9, 61.0, "Retired"]].map(([id, origin, age, ann, integ, st], i) => {
-  const base = 1734 + i * 54, live = st === "In Service";
-  const name = L.text({ x: MX, base, s: 36, c: live ? "pink" : "lilac", txt: `Crystal ${id}`, cls: "fade" });
-  L.text({ x: IC.origin, base, s: 36, c: "plum", txt: origin });
-  L.text({ x: IC.age, base, s: 36, c: "white", txt: `${age.toFixed(1)} yr`, align: "r" });
-  L.text({ x: IC.ann, base, s: 36, c: "white", txt: `${ann} of 9`, align: "r" });
+  const base = 1734 + SPY + i * 54, live = st === "In Service";
+  const name = L.text({ x: SPX0, base, s: 36, c: live ? "pink" : "lilac", txt: `Crystal ${id}`, cls: "fade" });
+  const oEl = L.text({ x: IC.origin, base, s: 36, c: "plum", txt: origin });
+  const aEl = L.text({ x: IC.age, base, s: 36, c: "white", txt: `${age.toFixed(1)} yr`, align: "r" });
+  const nEl = L.text({ x: IC.ann, base, s: 36, c: "white", txt: `${ann} of 9`, align: "r" });
   L.rect({ x: IC.b0, y: base - 22, w: IC.b1 - IC.b0, h: 22, c: TRACK });
   // the bar runs from 50% (empty) to 100% (full): the range where a crystal is worth keeping
   const f = fill(IC.b0, base - 22, IC.b1 - IC.b0, 22, live ? "pink" : integ < 70 ? "plum" : "lilac");
   f.style.transform = `scaleX(${L.clamp((integ - 50) / 50).toFixed(4)})`;
   const pct = L.text({ x: IC.pct, base, s: 36, c: "white", txt: integ.toFixed(1) + "%", align: "r" });
-  L.text({ x: MR, base, s: 36, c: live ? "pink" : st === "Retired" ? "plum" : "ice", txt: st, align: "r" });
-  return { id, name, f, pct, integ, live, st };
+  L.text({ x: SPX1, base, s: 36, c: live ? "pink" : st === "Retired" ? "plum" : "ice", txt: st, align: "r" });
+  return { id, name, f, pct, integ, live, st, oEl, aEl, nEl };
 });
 
 // ---------------- chamber environment ----------------
-header(RX, 1620, RR - RX, "Chamber Environment", "ice", "lilac", 48, 28);
+header(EX0, 1620 + BOTY, RR - EX0, "Chamber Environment", "ice", "lilac", 48, 28);
 const ENV = [["Containment Field", (t) => (98.7 + wave(t, 0.08, 0.05, 0)).toFixed(1) + "%"],
   ["Constrictor Segments", () => "30 of 30"],
   ["Gamma Flux", (t) => (2.41 + (phaseIdx(t) === 0 ? 0.6 : 0) + wave(t, 0.02, 0.07, 1)).toFixed(2) + " rad/s"],
   ["Chamber Pressure", (t) => (12.6 + wave(t, 0.2, 0.04, 2)).toFixed(1) + " mPa"],
   ["Coolant Flow", (t) => (41.2 + wave(t, 0.3, 0.03, 3)).toFixed(1) + " L/s"],
   ["Antimatter Reserve", (t) => (86.4 - t * 0.0004).toFixed(1) + "%"]].map(([name, get], i) => {
-  const base = 1734 + i * 54;
-  L.text({ x: RX, base, s: 36, c: "lilac", txt: name });
+  const base = 1734 + BOTY + i * 54;
+  L.text({ x: EX0, base, s: 36, c: "lilac", txt: name });
   return { get, v: L.text({ x: RR, base, s: 36, c: "white", txt: "", align: "r" }) };
 });
 
@@ -369,12 +408,34 @@ const showPhase = (t) => {
   const k = phaseIdx(t), n = Math.floor(cyc(t));
   if (k === shownPhase && n === shownCycle) return;
   if (shownPhase >= 0) {
-    if (k === 0) { S.cycle++; S.sealed = 0; logEvent(`Recrystallization cycle ${S.cycle} initiated`, "Theta Matrix"); }
+    if (k === 0) {
+      S.abs++; S.sealed = 0;
+      if (S.cycle >= 9) retire(); else S.cycle++;
+      put(SPARES[2].nEl, `${S.cycle - 1} of 9`);
+      logEvent(`Recrystallization cycle ${S.cycle} initiated`, "Theta Matrix");
+    }
     else if (k === 4) { S.integ = Math.min(98.4, S.integ + 0.06); logEvent(`Recrystallization cycle ${S.cycle} complete`, "Theta Matrix"); }
     else logEvent(`Cycle ${S.cycle}  ·  ${PHASES[k][0].toLowerCase()} phase`, "Theta Matrix");
   }
   shownPhase = k; shownCycle = n;
   phaseBoxes.forEach((b, i) => css(b, "background", `var(--${i === k ? PHC[k] : i < k ? "lilac" : "plum"})`));
+};
+
+// after its ninth cycle the crystal is retired (it takes the inventory's Retired row) and a fresh one
+// from the stores goes into the frame (it takes the In Service row), starting again at cycle 1
+const LETTERS = "CGHJKLMNPQRSTUVWXYZ";
+let inUse = { id: "C", origin: "Coridan III", age: "1.8 yr" };
+const retire = () => {
+  const old = inUse, oldInteg = S.integ;
+  inUse = { id: LETTERS[(LETTERS.indexOf(old.id) + 1) % LETTERS.length], origin: "Coridan III", age: "0.0 yr" };
+  logEvent(`Crystal ${old.id} retired  ·  9 cycles complete`, "Inventory");
+  logEvent(`Crystal ${inUse.id} installed  ·  frame 2-4`, "Frame");
+  S.crystal = inUse.id; S.cycle = 1; S.integ = 98.4; hours = 0;
+  const ret = SPARES[5], cur = SPARES[2];
+  put(ret.name, `Crystal ${old.id}`); put(ret.oEl, old.origin); put(ret.aEl, old.age); put(ret.nEl, "9 of 9");
+  ret.f.style.transform = `scaleX(${L.clamp((oldInteg - 50) / 50).toFixed(4)})`; put(ret.pct, oldInteg.toFixed(1) + "%");
+  put(cur.name, `Crystal ${inUse.id}`); put(cur.oEl, inUse.origin); put(cur.aEl, inUse.age);
+  cur.f.style.transform = `scaleX(${L.clamp((S.integ - 50) / 50).toFixed(4)})`; put(cur.pct, S.integ.toFixed(1) + "%");
 };
 
 // ---------------- events ----------------
@@ -426,12 +487,15 @@ later(46000, (t) => {
 }, 0.3);
 
 // ---------------- readings: once a second ----------------
+const stressAt = (t, drift) => 18.4 + wave(t, 0.6, 0.06, 2) + drift * 6;   // lattice stress, %
+const effAt = (t, drift) => 98.62 - drift * 0.9 + wave(t, 0.03, 0.06, 2);  // reaction efficiency, %
+let more = null;                                                          // ultrawide: its fourth column, each second
 const sgn = (v, d) => (v <= -0.0005 ? "-" : "") + Math.abs(v).toFixed(d);
 const read = (t) => {
   const tilt = tiltAt(t), drift = Math.abs(tilt);
   showPhase(t);
   const integ = S.integ + wave(t, 0.004, 0.05, 0), theta = S.theta + (phaseIdx(t) === 2 ? 0.25 * L.clamp(((t + CYC0) % PHT - 100) / 50) : 0) + wave(t, 0.01, 0.07, 1);
-  const stress = 18.4 + wave(t, 0.6, 0.06, 2) + drift * 6;
+  const stress = stressAt(t, drift);
   [[integ, 100, 2, "%"], [theta, 100, 2, "%"], [stress, 100, 1, "%"]].forEach(([v, max, d, u], i) => {
     const b = bars[i], k = (v / max).toFixed(4);
     if (k !== b.shown) { b.shown = k; b.f.style.transform = `scaleX(${k})`; }
@@ -456,7 +520,7 @@ const read = (t) => {
   put(latInfo, `Hexagonal  ·  ${nodes.length} nodes  ·  ${bonds.length} bonds`);
   put(f2Val, sgn(-tilt, 3) + "°"); put(f4Val, sgn(tilt, 3) + "°");
   put(tempVal, (306.2 + wave(t, 0.3, 0.05, 1) + drift * 1.4).toFixed(1) + " K");
-  const eff = 98.62 - drift * 0.9 + wave(t, 0.03, 0.06, 2);
+  const eff = effAt(t, drift);
   put(effVal, eff.toFixed(2) + "%");
   // the spectrum: the resonance broadens a little while the crystal is out of line
   peak = 31.062 + wave(t, 0.004, 0.05, 0) + tilt * 0.012;
@@ -470,8 +534,97 @@ const read = (t) => {
   });
   ENV.forEach((e) => put(e.v, e.get(t)));
   SPARES.forEach((s) => { if (s.live) { put(s.pct, integ.toFixed(1) + "%"); css(s.f, "transform", `scaleX(${L.clamp((integ - 50) / 50).toFixed(4)})`); } });
-  put(stateSub, `Crystal C  ·  Integrity ${integ.toFixed(2)}%  ·  Reaction efficiency ${eff.toFixed(1)}%  ·  Warp 6`);
+  put(stateSub, `Crystal ${S.crystal}  ·  Integrity ${integ.toFixed(2)}%  ·  Reaction efficiency ${eff.toFixed(1)}%  ·  Warp 6`);
+  if (more) more(t, integ, eff, p, stress);
 };
+// ---------------- ultrawide: the fourth column ----------------
+// Two trends over the last ten minutes, from the same readings as the panels (lattice stress and
+// reaction efficiency: a drift shows in both), and the recrystallization cycles before and after this one.
+if (UW) {
+  const NX0 = RR + 60, NX1 = B.x1, NW = NX1 - NX0;                       // 3876–5016
+  const N = 300, STEP = 2, PAD = 20;                                      // samples, seconds apart
+  // the frame drifted and was brought back four times in the ten minutes before we arrived (the same
+  // ease out and back as a live drift: 9 s out, a second's hold, 9 s back)
+  const PAST = [[-548, 1.2], [-402, -0.95], [-236, 1.35], [-104, -1.05]];
+  const pastTilt = (t) => PAST.reduce((a, [t0, deg]) => a + (t < t0 ? 0 : t < t0 + 10 ? deg * L.ease(L.clamp((t - t0) / 9))
+    : deg * (1 - L.ease(L.clamp((t - t0 - 10) / 9)))), 0);
+  // a trend slides left one sample every STEP seconds, smoothly: the line is redrawn one sample on
+  // and its layer set one sample right, then eased back over the STEP — no jumps. It holds one
+  // sample more than it shows, hidden past the left edge, so that edge never opens a gap.
+  const trend = (y0, y1, lo, hi, grid, c, f) => {
+    const H = y1 - y0, W = NW - 2 * PAD, dx = W / (N - 1), yOf = (v) => H - L.clamp((v - lo) / (hi - lo)) * H;
+    L.rect({ x: NX0, y: y0, w: NW, h: H, rx: 12, c: "#140b22" });
+    grid.forEach((v) => L.rect({ x: NX0 + PAD, y: y0 + yOf(v) - 1, w: W, h: 2, c: "#3b2a58", free: true }));
+    const clip = L.el("div", "boot", L.stage, { position: "absolute", left: NX0 + PAD + "px", top: y0 + "px", width: W + "px", height: H + "px", overflow: "hidden" });
+    const lay = L.layer({ x: -dx, y: 0, w: W + dx, h: H }, clip);
+    const sv = svgIn(lay, 0, 0, W + dx, H);
+    const area = L.svg("polygon", { fill: `var(--${c})`, "fill-opacity": 0.18 }, sv);   // the ground under the line
+    const line = L.svg("polyline", { fill: "none", stroke: `var(--${c})`, "stroke-width": 5, "stroke-linejoin": "round", "stroke-linecap": "round" }, sv);
+    const hist = Array.from({ length: N + 1 }, (_, i) => { const t = -(N + 1 - i) * STEP; return f(t, Math.abs(pastTilt(t))); });
+    const draw = () => {
+      const pts = hist.map((v, i) => `${(i * dx).toFixed(1)},${yOf(v).toFixed(1)}`).join(" ");
+      line.setAttribute("points", pts); area.setAttribute("points", `0,${H} ${pts} ${(N * dx).toFixed(1)},${H}`);
+    };
+    draw();
+    return { hist, add: (v) => {
+      hist.push(v); hist.shift(); draw();
+      lay.style.transition = "none"; lay.style.transform = `translate3d(${dx.toFixed(2)}px,0,0)`;
+      void lay.offsetWidth;
+      lay.style.transition = `transform ${STEP}s linear`; lay.style.transform = "translate3d(0,0,0)";
+    } };
+  };
+  const legend = (base) => {
+    L.text({ x: NX0, base, s: 30, c: "lilac", txt: "10 min ago", legend: true });
+    L.text({ x: NX0 + NW / 2, base, s: 30, c: "lilac", txt: "5 min", align: "c", w: 160, legend: true });
+    L.text({ x: NX1, base, s: 30, c: "lilac", txt: "Now", align: "r", legend: true });
+  };
+  header(NX0, 280, NW, "Lattice Stress  ·  Trend", "plum", "ice");
+  L.text({ x: NX0, base: 404, s: 36, c: "lilac", txt: "Lattice Stress  ·  16 – 28%  ·  Ten Minutes" });
+  const stressNow = L.text({ x: NX1, base: 404, s: 36, c: "white", txt: "", align: "r" });
+  const stressT = trend(436, 856, 16, 28, [19, 22, 25], "plum", stressAt);
+  legend(904);
+  header(NX0, 1000, NW, "Reaction Efficiency  ·  Trend", "ice", "pink");
+  L.text({ x: NX0, base: 1112, s: 36, c: "lilac", txt: "Reaction Efficiency  ·  97.2 – 99.0%  ·  Ten Minutes" });
+  const effNow = L.text({ x: NX1, base: 1112, s: 36, c: "white", txt: "", align: "r" });
+  const effT = trend(1136, 1416, 97.2, 99.0, [97.8, 98.4], "ice", effAt);
+  lab(1492, "Mean", NX0); const meanVal = val(1492, NX0 + 150);
+  lab(1492, "Range", NX0 + 560); const rangeVal = val(1492, NX1, "r");
+  L.every(STEP * 1000, (t) => { const d = Math.abs(tiltAt(t)); stressT.add(stressAt(t, d)); effT.add(effAt(t, d)); }, 0);
+
+  // the recrystallization cycles: three before this one, this one, and two to come
+  header(NX0, 1620, NW, "Recrystallization History", "lilac", "ice", 48, 28);
+  const done = { 1: { sealed: 6, integ: 97.72 }, 2: { sealed: 5, integ: 97.78 }, 3: { sealed: 4, integ: 97.84 } };
+  // the stardate each cycle began: this one's is the log's "cycle 4 initiated"; a later one takes the
+  // log's stardate when it is initiated; one still to come has none yet
+  const began = { 1: "47788.9", 2: "47789.8", 3: "47790.7", 4: "47791.9" };
+  const hist = Array.from({ length: 6 }, (_, i) => {
+    const base = 1734 + i * 54;
+    return { n: L.text({ x: NX0, base, s: 36, c: "lilac", txt: "", cls: "fade" }), sd: L.text({ x: NX0 + 200, base, s: 36, c: "plum", txt: "" }),
+             se: L.text({ x: NX0 + 560, base, s: 36, c: "white", txt: "", align: "r" }), ig: L.text({ x: NX0 + 780, base, s: 36, c: "white", txt: "", align: "r" }),
+             st: L.text({ x: NX1, base, s: 36, c: "ice", txt: "", align: "r", cls: "fade" }) };
+  });
+  more = (t, integ, eff, p, stress) => {
+    const ss = stressT.hist.slice(1).concat(stress), es = effT.hist.slice(1).concat(eff);   // what is shown, and the live reading
+    put(stressNow, `Now ${stress.toFixed(1)}%  ·  Peak ${Math.max(...ss).toFixed(1)}%`);
+    put(effNow, `Now ${eff.toFixed(2)}%`);
+    put(meanVal, (es.reduce((a, v) => a + v, 0) / es.length).toFixed(2) + "%");
+    put(rangeVal, `${Math.min(...es).toFixed(2)} – ${Math.max(...es).toFixed(2)}%`);
+    // keyed by the count of cycles run (S.abs), so a fresh crystal's cycle 1 never meets an old one's
+    if (!began[S.abs]) began[S.abs] = stardate.toFixed(1);
+    if (phaseIdx(t) === 4 && !done[S.abs]) done[S.abs] = { sealed: S.sealed, integ: S.integ };
+    for (const m of [began, done]) for (const k in m) if (+k < S.abs - 3) delete m[k];
+    hist.forEach((r, i) => {
+      const n = S.abs - 3 + i, d = done[n], now = n === S.abs && !d;
+      put(r.n, `Cycle ${((n - 1) % 9) + 1}`); css(r.n, "color", `var(--${n === S.abs ? "pink" : "lilac"})`);
+      put(r.sd, began[n] || "");
+      put(r.se, d ? `${d.sealed} sealed` : now ? `${S.sealed} sealed` : "");
+      put(r.ig, d ? d.integ.toFixed(2) + "%" : now ? integ.toFixed(2) + "%" : "");
+      put(r.st, d ? "Complete" : now ? `In Progress  ·  ${(p * 100).toFixed(1)}%` : "Scheduled");
+      css(r.st, "color", `var(--${d ? "ice" : now ? "pink" : "plum"})`);
+    });
+  };
+}
+
 read(0);
 L.every(1000, read, 0);
 });

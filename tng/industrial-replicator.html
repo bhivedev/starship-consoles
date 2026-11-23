@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Industrial Replicator</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* swapped text dips and comes back; colors change slowly; .boot (the start-up cascade) always wins */
@@ -13,7 +14,7 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: a bracket, title centred ----------------
-L.frame({ type: "C", title: "Industrial Replicator  •  Fabrication", c: "gold", c2: "tan", accent: "orange", foot: "Fab",
+const FB = L.frame({ type: "C", title: "Industrial Replicator  •  Fabrication", c: "gold", c2: "tan", accent: "orange", foot: "Fab",
   side: [[140, "tan", "Fab 02"], [70, "orange", "2716"], [420, "gold", "Queue"], [70, "butter", "27"], [300, "tan", "Stocks"],
          [70, "orange", "C4"], [216, "gold", "Deck 27"]],
   side2: [[140, "tan", "Ind 02"], [70, "orange", "5094"], [420, "gold", "Pattern"], [70, "butter", "04"], [300, "tan", "Energy"],
@@ -36,13 +37,31 @@ const D2 = (n) => String(n).padStart(2, "0");
 const fmt = (n, d = 0) => n.toLocaleString("en", { minimumFractionDigits: d, maximumFractionDigits: d });
 const ease = (x) => L.ease(L.clamp(x));
 
-// Columns: left 220–1080, the chamber 1140–2700, right 2760–3620. Rows of 64 on an 88 pitch from 428
-// (upper) and 1148 (lower), shared across all three columns; the bottom strip on a 54 grid.
-const LX = 220, LR = 1080, MX = 1140, MR = 2700, RX = 2760, RR = 3620;
+// ---------------- the grid, per shape ----------------
+// The data, readings and motion below are written once; only these positions differ by shape.
+// wide (3840 × 2160): left 220–1080, the chamber 1140–2700, right 2760–3620. Rows of 64 on an 88 pitch
+//   from 428 (upper) and 1148 (lower), shared across all three columns; the bottom strip on a 54 grid.
+// upright (2160 × 3120): the chamber full width across the top (drawn at 0.75), its stages and the
+//   layer | mass bars under it; then two columns, 220–1120 and 1180–1940: queue | energy and
+//   stocks | delivered on a 76 pitch, then the log | power draw on the 54 strip. (No shift totals:
+//   the page is a quarter smaller than wide.)
+// ultrawide (5040 × 2160): wide's columns with the chamber moved out 600, so it stays centred under
+//   the title, and two new 536 columns beside it: pattern library over part composition (on the
+//   stocks' rows) at 1140–1676, deposition readings over unit cycle at 3364–3900; delivered runs
+//   across both right columns with a destination; the power chart runs across both left ones (two hours).
+const TALL = L.shape === "upright", UW = L.shape === "ultrawide";
+const LX = FB.x0, RR = FB.x1;
+const LR = TALL ? 1120 : 1080, MX = TALL ? LX : UW ? 1740 : 1140, MR = TALL ? RR : UW ? 3300 : 2700, RX = TALL ? 1180 : UW ? 3960 : 2760;
+const AX = 1140, AR = 1676, VX = 3364, VR = 3900;           // ultrawide's new columns
 const BX = 340, BRW = 240;                                   // gauges: bar 340 in, stops 240 short of the edge
-const ROW0 = 428, ROW1 = 1148, PITCH = 88;
+const ROW0 = TALL ? 1496 : 428, ROW1 = TALL ? 2152 : 1148, PITCH = TALL ? 76 : 88;
 const base0 = (i) => ROW0 + i * PITCH + 52.5, base1 = (i) => ROW1 + i * PITCH + 52.5;
-const STRIP = (i) => 1734 + i * 54;
+const STRIP = (i) => (TALL ? 2690 : 1734) + i * 54;
+const HQ = TALL ? 1348 : 280, HS = TALL ? 2004 : 1000, HT = TALL ? 2576 : 1620;   // queue, stocks and strip headers
+const CT = 428, CHH = TALL ? 680 : 872, CB = CT + CHH;        // the chamber panel: 428 → 1300 in wide
+const PD = TALL ? [RX, RR] : UW ? [LX, AR] : [LX, LR];         // power draw, the log, shift totals
+const LG = TALL ? [LX, LR] : [MX, MR], TT = TALL ? null : [RX, RR];
+const DX = UW ? VX : RX;                                     // delivered starts here
 
 const gaugeRow = (x, r, base, name, c, bx = BX, brw = BRW) => {
   const n = L.text({ x, base, s: 40, c: "tan", txt: name });
@@ -196,7 +215,8 @@ const SHAPES = {
 };
 
 // the chamber: the object stands on the platform in a box 720 × 770
-const OBJ = { x: 1560, y: 456, w: 720, h: 770 }, OW = OBJ.w, OH = OBJ.h, MAXW = 600, MAXH = 690, FOOT = OH - 4;
+const OBJ = TALL ? { x: 810, y: 456, w: 540, h: 578 } : { x: UW ? 2160 : 1560, y: 456, w: 720, h: 770 }, OW = OBJ.w, OH = OBJ.h,
+      MAXW = TALL ? 450 : 600, MAXH = TALL ? 518 : 690, FOOT = OH - 4;
 const f1 = (v) => v.toFixed(1);
 function build(prims) {
   const lines = [], faces = [];
@@ -260,13 +280,14 @@ const ORDER = ["coil", "conduit", "coupling", "plate", "bracket", "injector"];
 
 // ---------------- status line ----------------
 L.text({ x: LX, cap: 150, s: 100, c: "gold", txt: "Fabricating" });
-const stateSub = cls(L.text({ x: MX, base: 222, s: 38, c: "tan", txt: "" }), "sw");
-const stagePill = cls(L.box({ x: RR - 400, y: 150, w: 400, h: 72, c: "gold", label: "", r: "lr", fs: 36 }), "sw");
+const stateSub = cls(L.text({ x: TALL ? LX + Math.ceil(L.textWidth("Fabricating", 100)) + 48 : MX, base: 222, s: 38, c: "tan", txt: "" }), "sw");
+const PILLW = TALL ? 340 : 400;                              // upright: narrower, so the subtitle has room
+const stagePill = cls(L.box({ x: RR - PILLW, y: 150, w: PILLW, h: 72, c: "gold", label: "", r: "lr", fs: 36 }), "sw");
 
 // ---------------- the fabrication queue ----------------
-L.header({ x: LX, y: 280, w: LR - LX, label: "Fabrication Queue", c1: "gold", c2: "tan" });
+L.header({ x: LX, y: HQ, w: LR - LX, label: "Fabrication Queue", c1: "gold", c2: "tan" });
 const QJW = 170, QNX = LX + QJW + L.GAP;
-[["Job", LX, ""], ["Part", QNX, ""], ["Units", LR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: 400, s: 36, c: "gold", txt, align }));
+[["Job", LX, ""], ["Part", QNX, ""], ["Units", LR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: HQ + 120, s: 36, c: "gold", txt, align }));
 const qRows = Array.from({ length: 6 }, (_, i) => ({
   box: cls(L.box({ x: LX, y: ROW0 + i * PITCH, w: QJW, h: 64, c: DIM, label: "", fs: 32, r: "l" }), "sw"),
   name: cls(L.text({ x: QNX, base: base0(i), s: 40, c: "tan", txt: "" }), "sw"),
@@ -285,17 +306,17 @@ const showQueue = () => qRows.forEach((r, i) => {
 });
 
 // ---------------- raw material stocks ----------------
-L.header({ x: LX, y: 1000, w: LR - LX, label: "Raw Material Stocks", c1: "tan", c2: "gold" });
-[["Stock", LX, ""], ["Bulk Reserve", LX + BX, ""], ["Level", LR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: 1120, s: 36, c: "gold", txt, align }));
+L.header({ x: LX, y: HS, w: LR - LX, label: "Raw Material Stocks", c1: "tan", c2: "gold" });
+[["Stock", LX, ""], ["Bulk Reserve", LX + BX, ""], ["Level", LR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: HS + 120, s: 36, c: "gold", txt, align }));
 const stocks = MATS.map(([name, c, cap, mean], i) => ({ ...gaugeRow(LX, LR, base1(i), name, c), cap, mean, lvl: mean + L.rand(-0.03, 0.01) }));
 
 // ---------------- the fabrication chamber ----------------
 L.header({ x: MX, y: 280, w: MR - MX, label: "Fabrication Chamber  ·  Layer Deposition", c1: "gold", c2: "orange" });
 const partName = cls(L.text({ x: MX, base: 400, s: 40, c: "butter", txt: "" }), "sw");
 const partMat = cls(L.text({ x: MR, base: 400, s: 40, c: "tan", txt: "", align: "r" }), "sw");
-L.rect({ x: MX, y: ROW0, w: MR - MX, h: 872, c: CHAMBER, panel: true });
+L.rect({ x: MX, y: CT, w: MR - MX, h: CHH, c: CHAMBER, panel: true });
 // the rails, the emitter above and the platform below: drawn once
-const RAILL = 1494, RAILR = 2334, PLAT = OBJ.y + FOOT + 2;
+const RAILL = TALL ? 759 : UW ? 2094 : 1494, RAILR = TALL ? 1389 : UW ? 2934 : 2334, PLAT = OBJ.y + FOOT + 2;
 L.rect({ x: RAILL - 14, y: 444, w: RAILR - RAILL + 40, h: 12, c: "#4a3714", rx: 6, free: true });
 for (const x of [RAILL, RAILR]) L.rect({ x, y: 456, w: 12, h: PLAT + 18 - 456, c: "#3a2a10", free: true });
 L.rect({ x: RAILL - 14, y: PLAT, w: RAILR - RAILL + 40, h: 16, c: "#4a3714", rx: 8, free: true });
@@ -357,10 +378,10 @@ op(beamL, 0);
 // readings in the chamber's four corners
 const CL = MX + 32, CR = MR - 32;
 const corner = (x, align, lb, vb, label) => ({ l: L.text({ x, base: lb, s: 36, c: "gold", txt: label, align }), v: L.text({ x, base: vb, s: 52, c: "white", txt: "", align }) });
-const cPat = corner(CL, "l", base0(0), base0(1), "Pattern");
-const cUnit = corner(CR, "r", base0(0), base0(1), "Unit");
-const cHt = corner(CL, "l", base1(0) - PITCH, base1(0), "Build Height");
-const cDev = corner(CR, "r", base1(0) - PITCH, base1(0), "Deviation");
+const cPat = corner(CL, "l", CT + 52.5, CT + 140.5, "Pattern");
+const cUnit = corner(CR, "r", CT + 52.5, CT + 140.5, "Unit");
+const cHt = corner(CL, "l", CB - 187.5, CB - 99.5, "Build Height");
+const cDev = corner(CR, "r", CB - 187.5, CB - 99.5, "Deviation");
 cls(cPat.v, "sw");
 
 // the stages, under the chamber, and the build against the part
@@ -369,48 +390,52 @@ const UNIT = 41.5;
 const stageAt = (u) => (u < 3 ? 0 : u < 33 ? 1 : u < 38 ? 2 : 3);
 const SBW = (MR - MX - 3 * L.GAP) / 4;
 const stageBox = STAGES.map(([, , label], k) => {
-  const b = cls(L.box({ x: MX + k * (SBW + L.GAP), y: ROW1 + 2 * PITCH, w: SBW, h: 64, c: DIM, label, fs: 32, r: k === 0 ? "l" : k === 3 ? "r" : null }), "sw");
+  const b = cls(L.box({ x: MX + k * (SBW + L.GAP), y: CB + 24, w: SBW, h: 64, c: DIM, label, fs: 32, r: k === 0 ? "l" : k === 3 ? "r" : null }), "sw");
   fg(b, "tan");
   return { b, state: "" };
 });
 // the build against the whole part: a labelled box, the bar, the count
-const boxRow = (i, label, c, bc) => {
-  const base = base1(i);
-  L.box({ x: MX, y: base - 52.5, w: BX - L.GAP, h: 64, c: bc, label, fs: 32, r: "l" });
-  L.rect({ x: MX + BX, y: base - 26, w: MR - 300 - (MX + BX), h: 26, c: TRACK });
-  return { bar: fill(MX + BX, base - 26, MR - 300 - (MX + BX), 26, c), v: L.text({ x: MR, base, s: 52, c: "white", txt: "", align: "r" }), u: -1 };
+// (upright: the two side by side, their bars on the columns' gauge bars)
+const boxRow = (i, label, c, bc, x = MX, r = MR, base = base1(i), br = MR - 300) => {
+  L.box({ x, y: base - 52.5, w: BX - L.GAP, h: 64, c: bc, label, fs: 32, r: "l" });
+  L.rect({ x: x + BX, y: base - 26, w: br - (x + BX), h: 26, c: TRACK });
+  return { bar: fill(x + BX, base - 26, br - (x + BX), 26, c), v: L.text({ x: r, base, s: 52, c: "white", txt: "", align: "r" }), u: -1 };
 };
-const gLayer = boxRow(3, "Layer", "gold", "tan");
-const gMass = boxRow(4, "Mass Deposited", "orange", "gold");
+const gLayer = TALL ? boxRow(3, "Layer", "gold", "tan", LX, LR, CB + 164.5, LR - BRW) : boxRow(3, "Layer", "gold", "tan");
+const gMass = TALL ? boxRow(4, "Mass Deposited", "orange", "gold", RX, RR, CB + 164.5, RR - BRW) : boxRow(4, "Mass Deposited", "orange", "gold");
 
 // ---------------- energy use ----------------
-L.header({ x: RX, y: 280, w: RR - RX, label: "Energy Use", c1: "gold", c2: "tan" });
-L.text({ x: RX, base: 400, s: 36, c: "gold", txt: "EPS Tap 27-04  ·  Fed from the Warp Core" });
+L.header({ x: RX, y: HQ, w: RR - RX, label: "Energy Use", c1: "gold", c2: "tan" });
+L.text({ x: RX, base: HQ + 120, s: 36, c: "gold", txt: "EPS Tap 27-04  ·  Fed from the Warp Core" });
 const EN = [["Power Draw", "gold"], ["Phase Coils", "tan"], ["Matter Stream", "orange"], ["Pattern Buffer", "tan"], ["Confinement", "gold"], ["Coolant", "tan"]]
   .map(([n, c], i) => ({ ...gaugeRow(RX, RR, base0(i), n, c), val: 0 }));
 
 // ---------------- delivered this shift ----------------
-L.header({ x: RX, y: 1000, w: RR - RX, label: "Delivered This Shift", c1: "tan", c2: "gold" });
+L.header({ x: DX, y: HS, w: RR - DX, label: "Delivered This Shift", c1: "tan", c2: "gold" });
 const DUX = RR - 270;
-[["Part", RX, ""], ["Units", DUX, "r"], ["Mass", RR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: 1120, s: 36, c: "gold", txt, align }));
+[["Part", DX, ""], ["Units", DUX, "r"], ["Mass", RR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: HS + 120, s: 36, c: "gold", txt, align }));
+if (UW) L.text({ x: RX, base: HS + 120, s: 36, c: "gold", txt: "Destination" });
+const destOf = (n) => (ORDER.map((k) => PARTS[k]).find((p) => p.name === n) || {}).dest || "";
 const dRows = Array.from({ length: 5 }, (_, i) => ({
-  name: cls(L.text({ x: RX, base: base1(i), s: 40, c: "tan", txt: "" }), "sw"),
+  name: cls(L.text({ x: DX, base: base1(i), s: 40, c: "tan", txt: "" }), "sw"),
   units: cls(L.text({ x: DUX, base: base1(i), s: 52, c: "white", txt: "", align: "r" }), "sw"),
   mass: cls(L.text({ x: RR, base: base1(i), s: 52, c: "white", txt: "", align: "r" }), "sw"),
+  dest: UW ? cls(L.text({ x: RX, base: base1(i), s: 40, c: "gold", txt: "" }), "sw") : null,
 }));
 const delivered = [["Hull Plate", 4, 386.0], ["Plasma Conduit Section", 6, 289.2], ["Deuterium Injector", 2, 62.8],
                    ["EPS Power Coupling", 8, 179.2], ["Mounting Bracket", 12, 115.2]];
 const showDelivered = () => dRows.forEach((r, i) => {
   const [n, u, kg] = delivered[i];
   L.set(r.name, n); L.set(r.units, String(u)); L.set(r.mass, fmt(kg, 1) + " kg");
+  if (r.dest) L.set(r.dest, destOf(n));
 });
 
 // ---------------- power draw, the last ten minutes ----------------
-L.header({ x: LX, y: 1620, w: LR - LX, label: "Power Draw  ·  Last Hour", c1: "gold", c2: "orange", h: 48 });
-L.text({ x: LX, base: STRIP(0), s: 36, c: "tan", txt: "EPS Draw" });
-const drawV = L.text({ x: LR, base: STRIP(0), s: 36, c: "white", txt: "", align: "r" });
-const CH = L.canvas({ x: LX, y: 1758, w: LR - LX, h: 2010 - 1758 });
-const NPT = 61, PMAX = 20, CMAX = 16;
+L.header({ x: PD[0], y: HT, w: PD[1] - PD[0], label: UW ? "Power Draw  ·  Last Two Hours" : "Power Draw  ·  Last Hour", c1: "gold", c2: "orange", h: 48 });
+L.text({ x: PD[0], base: STRIP(0), s: 36, c: "tan", txt: "EPS Draw" });
+const drawV = L.text({ x: PD[1], base: STRIP(0), s: 36, c: "white", txt: "", align: "r" });
+const CH = L.canvas({ x: PD[0], y: HT + 138, w: PD[1] - PD[0], h: (TALL ? 2966 : 2010) - (HT + 138) });
+const NPT = UW ? 121 : 61, PMAX = 20, CMAX = 16;
 const pw = [];
 const drawChart = () => {
   const g = CH.g, w = CH.w, h = CH.h, dx = w / (NPT - 1), Y = (v) => h - 4 - (v / CMAX) * (h - 8);
@@ -428,25 +453,28 @@ const drawChart = () => {
 CH.onResize = () => { if (pw.length) drawChart(); };
 
 // ---------------- fabrication log ----------------
-L.header({ x: MX, y: 1620, w: MR - MX, label: "Fabrication Log", c1: "tan", c2: "gold", h: 48 });
-const LOGT = MX + 170;
+L.header({ x: LG[0], y: HT, w: LG[1] - LG[0], label: "Fabrication Log", c1: "tan", c2: "gold", h: 48 });
+const LOGT = LG[0] + 170;
 const logRows = Array.from({ length: 6 }, (_, i) => ({
-  tm: L.text({ x: MX, base: STRIP(i), s: 36, c: "gold", txt: "" }),
+  tm: L.text({ x: LG[0], base: STRIP(i), s: 36, c: "gold", txt: "" }),
   tx: L.text({ x: LOGT, base: STRIP(i), s: 36, c: "tan", txt: "" }),
-  v: L.text({ x: MR, base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }) }));
+  v: L.text({ x: LG[1], base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }),
+  sys: UW ? L.text({ x: LG[1] - 660, base: STRIP(i), s: 36, c: "orange", txt: "" }) : null }));   // ultrawide: which part of the replicator
+const sysOf = (txt) => !txt ? "" : /^Unit /.test(txt) ? "Chamber" : / delivered /.test(txt) ? "Transport" : /replenished/.test(txt) ? "Reclamation" : "Pattern Buffer";
 const logged = [];
 const clockAt = (ago = 0) => { const d = new Date(Date.now() - ago * 1000); return `${D2(d.getHours())}:${D2(d.getMinutes())}:${D2(d.getSeconds())}`; };
 const logLine = (txt, v, ago = 0) => {
   logged.push([clockAt(ago), txt, v]); if (logged.length > logRows.length) logged.shift();
-  logRows.forEach((r, i) => { const e = logged[i] || ["", "", ""]; L.set(r.tm, e[0]); L.set(r.tx, e[1]); L.set(r.v, e[2]); });
+  logRows.forEach((r, i) => { const e = logged[i] || ["", "", ""]; L.set(r.tm, e[0]); L.set(r.tx, e[1]); L.set(r.v, e[2]); if (r.sys) L.set(r.sys, sysOf(e[1])); });
 };
 
 // ---------------- shift totals ----------------
-L.header({ x: RX, y: 1620, w: RR - RX, label: "Shift Totals", c1: "orange", c2: "tan", h: 48 });
-const TOT = ["Units Fabricated", "Mass Fabricated", "Energy Used", "Matter Reclaimed", "Rejected for Tolerance", "Replicator Uptime"]
-  .map((n, i) => { L.text({ x: RX, base: STRIP(i), s: 36, c: "tan", txt: n }); return L.text({ x: RR, base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }); });
+if (TT) L.header({ x: TT[0], y: HT, w: TT[1] - TT[0], label: "Shift Totals", c1: "orange", c2: "tan", h: 48 });
+const TOT = !TT ? [] : ["Units Fabricated", "Mass Fabricated", "Energy Used", "Matter Reclaimed", "Rejected for Tolerance", "Replicator Uptime"]
+  .map((n, i) => { L.text({ x: TT[0], base: STRIP(i), s: 36, c: "tan", txt: n }); return L.text({ x: TT[1], base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }); });
 const tot = { units: 148, kg: 4862.4, gj: 61.84, rec: 312.6 };
 const showTotals = () => {
+  if (!TOT.length) return;
   L.set(TOT[0], fmt(tot.units)); L.set(TOT[1], fmt(tot.kg, 1) + " kg"); L.set(TOT[2], tot.gj.toFixed(2) + " GJ");
   L.set(TOT[3], fmt(tot.rec, 1) + " kg"); L.set(TOT[4], "0"); L.set(TOT[5], "99.97%");
 };
@@ -458,10 +486,21 @@ const showTotals = () => {
   for (const k of ORDER) {
     const p = PARTS[k];
     fits(p.name, 40, LR - 140 - QNX, "queue");
-    fits(p.name, 40, DUX - 130 - RX, "delivered");
-    fits(`Unit 3 of 12 complete  ·  ${p.name}`, 36, MR - 200 - LOGT, "log");
-    fits(`Job J-4471 delivered to ${p.dest}`, 36, MR - 200 - LOGT, "log");
+    fits(p.name, 40, UW ? RX - 40 - DX : DUX - 130 - RX, "delivered");
+    fits(`Unit 3 of 12 complete  ·  ${p.name}`, 36, LG[1] - 200 - LOGT, "log");
+    fits(`Job J-4471 delivered to ${p.dest}`, 36, LG[1] - 200 - LOGT, "log");
+    if (!TALL && !UW) continue;
+    fits(`Industrial Replicator 2  ·  Deck 27  ·  Job J-4471 for ${p.dest}  ·  12 Jobs Queued`, 38, RR - PILLW - 60 - parseFloat(stateSub.style.left), "subtitle");
+    fits(`Pattern ${p.pat} loaded  ·  ${p.name}`, 36, LG[1] - 200 - LOGT, "log");
+    if (UW) fits(p.dest, 40, DUX - 130 - RX, "destination");
+    const logW = UW ? LG[1] - 660 - 40 - LOGT : LG[1] - 200 - LOGT;   // ultrawide: clear of the system column
+    fits(`Unit 11 of 12 complete  ·  ${p.name}`, 36, logW, "log (longest count)");
+    fits(`Job J-4471 delivered to ${p.dest}`, 36, logW, "log delivered");
   }
+  if (UW) fits("Conduit pattern revised from U.S.S. Jenolan records", 36, LG[1] - 660 - 40 - LOGT, "log before system");
+  if (UW) for (const k of ORDER) fits(`Pattern ${PARTS[k].pat} loaded  ·  ${PARTS[k].name}`, 36, LG[1] - 660 - 40 - LOGT, "log before system");
+  if (UW) fits("Bulk stocks replenished by matter reclamation", 36, LG[1] - 660 - 40 - LOGT, "log before system");
+  if (TALL || UW) fits("Conduit pattern revised from U.S.S. Jenolan records", 36, LG[1] - 200 - LOGT, "log");
   for (const [n] of MATS) fits(n, 40, BX - 30, "stocks");
   if (bad.length) setTimeout(() => { throw new Error("industrial-replicator: " + bad.join(" | ")); });
 }
@@ -476,7 +515,7 @@ const target = (st, p, t) => [
   0.986 + 0.002 * Math.sin(t * 0.037),
   0,
 ];
-let unitT0 = -14, shown = null;
+let unitT0 = -14, shown = null, onPart = null;
 const job = () => queue[0];
 const showPart = () => {
   const j = job(), g = geo[j.key];
@@ -487,6 +526,7 @@ const showPart = () => {
   const main = j.p.comp.indexOf(Math.max(...j.p.comp));
   L.set(partName, j.p.name); L.set(partMat, `${MATS[main][0]}  ·  ${j.p.kg.toFixed(1)} kg per Unit`);
   L.set(cPat.v, j.p.pat);
+  if (onPart) onPart(j);
 };
 const showSub = () => L.set(stateSub, `Industrial Replicator 2  ·  Deck 27  ·  Job J-${job().num} for ${job().p.dest}  ·  ${queue.length - 1} Jobs Queued`);
 const completeUnit = () => {
@@ -498,7 +538,7 @@ const completeUnit = () => {
   } else {
     logLine(`Job J-${j.num} delivered to ${j.p.dest}`, fmt(j.p.kg * j.qty, 1) + " kg");
     delivered.unshift([j.p.name, j.qty, j.p.kg * j.qty]); delivered.pop();
-    swap(dRows.flatMap((r) => [r.name, r.units, r.mass]), showDelivered);
+    swap(dRows.flatMap((r) => (r.dest ? [r.name, r.units, r.mass, r.dest] : [r.name, r.units, r.mass])), showDelivered);
     queue.shift();
     queue.push(newJob(ORDER[nextKind++ % ORDER.length]));
     swap(qRows.flatMap((r) => [r.box, r.name, r.units]), showQueue);
@@ -516,10 +556,12 @@ showQueue(); showDelivered(); showTotals(); showPart(); showSub();
 const cycleAvg = (p) => STAGES.reduce((a, [u0, u1], i) => a + (u1 - u0) * power(i, p), 0) / UNIT;
 const PAST = [["coil", 1], ["plate", 2.8], ["conduit", 4.2], ["injector", 1.4], ["coupling", 5.5], ["bracket", 8.3], ["plate", 4.2],
               ["conduit", 5.6], ["coil", 4.2], ["coupling", 6.9], ["bracket", 6.9], ["injector", 2.8], ["plate", 6]];
+const OLDER = [["bracket", 5], ["coupling", 7], ["plate", 6], ["conduit", 8], ["injector", 3], ["coil", 4.2], ["coupling", 6],
+               ["bracket", 8.8], ["plate", 5], ["conduit", 7]];        // ultrawide: the hour before
 {
   let m = 0, v = null;
   const per = [];
-  for (const [key, mins] of PAST) for (let i = 0; i < mins && per.length < NPT; i++, m++) per.push(cycleAvg(PARTS[key]));
+  for (const [key, mins] of (UW ? PAST.concat(OLDER) : PAST)) for (let i = 0; i < mins && per.length < NPT; i++, m++) per.push(cycleAvg(PARTS[key]));
   while (per.length < NPT) per.push(per[per.length - 1]);
   per.reverse().forEach((x, i) => { v = v === null ? x : v * 0.55 + x * 0.45; pw.push(v * (1 + 0.012 * Math.sin(i * 1.7))); });
 }
@@ -599,5 +641,62 @@ L.every(1000, () => showTotals(), 0);
 let acc = 0, accT = 0;
 L.every(60000, () => { if (accT > 0) { pw.shift(); pw.push(pw[NPT - 2] * 0.55 + (acc / accT) * 0.45); acc = accT = 0; drawChart(); } }, 0);
 L.every(30000, () => { tot.rec += L.rand(0.4, 1.6); }, 0.3);
+
+// =====================================================================================
+// ULTRAWIDE ONLY: the two columns beside the chamber
+// =====================================================================================
+if (UW) {
+  // the pattern library: every pattern the replicator holds, the one in the chamber lit
+  L.header({ x: AX, y: 280, w: AR - AX, label: "Pattern Library", c1: "tan", c2: "gold" });
+  [["Pattern", AX, ""], ["Per Unit", AR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: 400, s: 36, c: "gold", txt, align }));
+  const pRows = ORDER.map((k, i) => ({ k,
+    box: cls(L.box({ x: AX, y: ROW0 + i * PITCH, w: 260, h: 64, c: DIM, label: PARTS[k].pat, fs: 32, r: "l" }), "sw"),
+    v: cls(L.text({ x: AR, base: base0(i), s: 52, c: "white", txt: PARTS[k].kg.toFixed(1) + " kg", align: "r" }), "sw") }));
+  // the part's composition, on the stocks' rows: each stock's share of a unit, and its mass
+  L.header({ x: AX, y: 1000, w: AR - AX, label: "Part Composition", c1: "gold", c2: "tan" });
+  [["Share", AX, ""], ["Mass", AR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: 1120, s: 36, c: "gold", txt, align }));
+  const cRows = MATS.map(([, c], i) => {
+    L.rect({ x: AX, y: base1(i) - 26, w: AR - BRW - AX, h: 26, c: TRACK });
+    const bar = fill(AX, base1(i) - 26, AR - BRW - AX, 26, c);
+    return { bar, v: cls(L.text({ x: AR, base: base1(i), s: 52, c: "white", txt: "", align: "r" }), "sw") };
+  });
+  let partKey = null;
+  const showComp = (j) => {
+    pRows.forEach((r) => { const on = r.k === j.key; bg(r.box, on ? "gold" : DIM); fg(r.box, on ? "#000" : "tan"); fg(r.v, on ? "butter" : "white"); });
+    cRows.forEach((r, i) => { tf(r.bar, `scaleX(${(j.p.comp[i] / 100).toFixed(3)})`); L.set(r.v, ((j.p.comp[i] / 100) * j.p.kg).toFixed(1) + " kg"); });
+  };
+  onPart = (j) => {
+    if (partKey === j.key) return;
+    const first = partKey === null; partKey = j.key;
+    if (first) { showComp(j); cRows.forEach((r) => { r.bar.style.transition = "transform 1.2s ease"; }); } else swap(cRows.map((r) => r.v), () => showComp(j));
+  };
+  onPart(job());
+
+  // deposition: the build's rates, on the energy rows
+  L.header({ x: VX, y: 280, w: VR - VX, label: "Deposition", c1: "gold", c2: "orange" });
+  L.text({ x: VX, base: 400, s: 36, c: "gold", txt: "Emitter Head  ·  0.25 mm Layers" });
+  const DEP = ["Layer Rate", "Build Rate", "Layers Remaining", "Deposition Ends", "Next Unit In", "Cycle Elapsed"]
+    .map((n, i) => { L.text({ x: VX, base: base0(i), s: 40, c: "tan", txt: n }); return L.text({ x: VR, base: base0(i), s: 52, c: "white", txt: "", align: "r" }); });
+  // the unit cycle: each stage's time, the one under way lit
+  L.header({ x: VX, y: 1620, w: VR - VX, label: "Unit Cycle", c1: "tan", c2: "orange", h: 48 });
+  const CYC = [...STAGES.map(([u0, u1, n]) => [n, (u1 - u0).toFixed(1) + " s"]), ["Full Cycle", UNIT.toFixed(1) + " s"], ["Units per Hour", (3600 / UNIT).toFixed(1)]]
+    .map(([n, v], i) => ({ n: L.text({ x: VX, base: STRIP(i), s: 36, c: "tan", txt: n }), v: L.text({ x: VR, base: STRIP(i), s: 36, c: "white", txt: v, align: "r" }) }));
+  {
+    const bad = [];
+    for (const n of ["Layers Remaining", "Deposition Ends"]) if (L.textWidth(n, 40) + 40 + L.textWidth("Complete", 52) > VR - VX) bad.push(n);
+    if (bad.length) setTimeout(() => { throw new Error("industrial-replicator ultrawide: " + bad.join(" | ")); });
+  }
+  L.every(250, (t) => {
+    const u = t - unitT0, g = shown, s = stageAt(u);
+    const layer = Math.floor(L.clamp((u - 3) / 30) * g.layers);
+    L.set(DEP[0], s === 1 ? (g.layers / 30).toFixed(1) + " / s" : "0.0 / s");
+    L.set(DEP[1], s === 1 ? Math.round((g.mm / 30) * 60) + " mm/min" : "0 mm/min");
+    L.set(DEP[2], s <= 1 ? fmt(g.layers - layer) : "0");
+    L.set(DEP[3], s <= 1 ? Math.max(1, Math.ceil(33 - u)) + " s" : "Complete");
+    L.set(DEP[4], Math.max(1, Math.ceil(UNIT - u)) + " s");
+    L.set(DEP[5], u.toFixed(1) + " s");
+    CYC.forEach((r, i) => fg(r.n, i === s ? "butter" : "tan"));
+  }, 0);
+}
 });
 </script></body></html>

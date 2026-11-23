@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Exobiology</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* swapped text dips and comes back; .boot (the start-up cascade) always wins */
@@ -31,8 +32,18 @@ const fg = (e, c) => { if (e._fg !== c) { e._fg = c; e.style.color = `var(--${c}
 const swap = (els, f) => { els.forEach((e) => e.classList.add("out")); setTimeout(() => { f(); els.forEach((e) => e.classList.remove("out")); }, 460); };
 const fmt = (n) => Math.round(n).toLocaleString("en");
 
-// Columns: specimen 220–1060, cell 1120–2500, analysis 2560–3620. Rows on the 88 grid of the other screens.
-const LX = 220, LR = 1060, MX = 1120, MR = 2500, RX = 2560, RR = 3620;
+// ---------------- the grid, per shape ----------------
+// The data, readings and motion below are written once; only these positions differ by shape.
+// wide (3840 × 2160): specimen 220–1060, cell 1120–2500, analysis 2560–3620; stasis bays and the log in a
+//   strip along the bottom. Rows on the 88 grid of the other screens.
+// upright (2160 × 3120): two columns, 220–1060 and 1120–1940. Specimen over classification on the left and
+//   biochemistry over genome on the right, on wide's own rows; below them the cell (drawn at 0.8) on the left
+//   and, on the right, the stasis bays (two lines each) over the analysis log.
+// ultrawide (5040 × 2160): wide's columns and strip unchanged, plus a fourth column 3680–4820: stasis field
+//   strength per bay on the biochemistry rows, the sequencer on the genome rows, lab environment in the strip.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const LX = 220, LR = 1060, MX = UP ? 220 : 1120, MR = UP ? 1060 : 2500, RX = UP ? 1120 : 2560, RR = UP ? 1940 : 3620;
+const NX = 3680, NR = 4820;                               // ultrawide's fourth column
 const ROW0 = 428, ROW1 = 1148, PITCH = 88;
 const base0 = (i) => ROW0 + i * PITCH + 52.5, base1 = (i) => ROW1 + i * PITCH + 52.5;
 const STRIP = (i) => 1734 + i * 54;
@@ -101,7 +112,7 @@ const phaseAt = (u) => (u < T_IMG ? 0 : u < T_SEQ ? 1 : u < T_CLS ? 2 : u < T_DO
 
 // ---------------- status line ----------------
 const state = cls(L.text({ x: LX, cap: 150, s: 100, c: "butter", txt: "" }), "sw");
-const stateSub = cls(L.text({ x: MX, base: 222, s: 38, c: "sand", txt: "" }), "sw");
+const stateSub = cls(L.text({ x: UP ? 780 : MX, base: 222, s: 38, c: "sand", txt: "" }), "sw");
 const contain = cls(L.box({ x: RR - 420, y: 150, w: 420, h: 72, c: "olive", label: "", r: "lr", fs: 36 }), "sw");
 
 // ---------------- the specimen record ----------------
@@ -121,39 +132,41 @@ const CLS = ["Taxon", "Structure", "Metabolism", "Reproduction", "Biohazard"].ma
 });
 
 // ---------------- the cell: imaged, turning slowly in the field ----------------
-const CX = (MX + MR) / 2, CY = 996, RING = 440, CR = 380;
-L.header({ x: MX, y: 280, w: MR - MX, label: "Cell Structure", c1: "butter", c2: "sand" });
-const imgCap = cls(L.text({ x: MX, base: 400, s: 36, c: "sand", txt: "" }), "sw");
-const imgMag = cls(L.text({ x: MR, base: 400, s: 36, c: "olive", txt: "", align: "r" }), "sw");
-L.rect({ x: MX, y: ROW0, w: MR - MX, h: 1564 - ROW0, c: PANEL, panel: true });
+// upright: the panel under the record, the drawing (reticle, cell, scan, scale bar) at 0.8
+const CX = (MX + MR) / 2, CY = UP ? 2359 : 996, RING = 440, CR = 380, K = UP ? 0.8 : 1;
+const CH = UP ? 1620 : 280, PY = UP ? 1768 : ROW0, PB = UP ? 2970 : 1564;   // header, panel top and bottom
+L.header({ x: MX, y: CH, w: MR - MX, label: "Cell Structure", c1: "butter", c2: "sand" });
+const imgCap = cls(L.text({ x: MX, base: CH + 120, s: 36, c: "sand", txt: "" }), "sw");
+const imgMag = cls(L.text({ x: MR, base: CH + 120, s: 36, c: "olive", txt: "", align: "r" }), "sw");
+L.rect({ x: MX, y: PY, w: MR - MX, h: PB - PY, c: PANEL, panel: true });
 // the reticle: a ring with ticks every 10°, longer every 30°, and a faint cross
-L.svg("circle", { cx: CX, cy: CY, r: RING, fill: "none", stroke: "#3c3816", "stroke-width": 3, class: "boot" });
-L.svg("circle", { cx: CX, cy: CY, r: RING - 60, fill: "#15140a", class: "boot" });
+L.svg("circle", { cx: CX, cy: CY, r: RING * K, fill: "none", stroke: "#3c3816", "stroke-width": 3, class: "boot" });
+L.svg("circle", { cx: CX, cy: CY, r: (RING - 60) * K, fill: "#15140a", class: "boot" });
 for (let a = 0; a < 360; a += 10) {
   const long = a % 30 === 0, s = Math.sin((a * Math.PI) / 180), c = -Math.cos((a * Math.PI) / 180);
-  const r0 = RING + 6, r1 = RING + (long ? 30 : 16);
+  const r0 = RING * K + 6, r1 = RING * K + (long ? 30 : 16);
   L.svg("line", { x1: CX + r0 * s, y1: CY + r0 * c, x2: CX + r1 * s, y2: CY + r1 * c, stroke: long ? "var(--olive)" : "#5a5424", "stroke-width": long ? 5 : 3, class: "boot" });
 }
 
 // four readings in the panel's corners
 const CORNER = [["Diameter", MX + 40, ""], ["Membrane", MR - 40, "r"], ["Organelles", MX + 40, ""], ["Symmetry", MR - 40, "r"]];
 const corner = CORNER.map(([name, x, align], i) => {
-  const top = i < 2, lb = top ? 492 : 1474;
+  const top = i < 2, lb = top ? (UP ? 1832 : 492) : UP ? 2880 : 1474;
   L.text({ x, base: lb, s: 40, c: "olive", txt: name, align });
   return cls(L.text({ x, base: lb + 62, s: 52, c: "white", txt: "", align }), "sw");
 });
 // a scale bar under the ring: a round number of microns, its length true to the drawing
 const SB_W = 240;
-const sbar = fill(CX - SB_W / 2, 1484, SB_W, 10, "sand");
+const sbar = fill(CX - SB_W / 2, UP ? CY + 400 : 1484, SB_W, 10, "sand");
 sbar.style.transformOrigin = "50% 50%";
-const sbarL = cls(L.text({ x: CX, base: 1536, s: 36, c: "sand", txt: "", align: "c", w: 400 }), "sw");
+const sbarL = cls(L.text({ x: CX, base: UP ? CY + 452 : 1536, s: 36, c: "sand", txt: "", align: "c", w: 400 }), "sw");
 
 // the drawing itself, rebuilt for each specimen on a layer that turns
-const cellL = L.layer({ x: CX - 480, y: CY - 480, w: 960, h: 960 });
+const cellL = L.layer({ x: CX - 480 * K, y: CY - 480 * K, w: 960 * K, h: 960 * K });
 cellL.style.opacity = 0;
 const NS = "http://www.w3.org/2000/svg";
 const cellSvg = document.createElementNS(NS, "svg");
-cellSvg.setAttribute("viewBox", "-480 -480 960 960"); cellSvg.setAttribute("width", 960); cellSvg.setAttribute("height", 960);
+cellSvg.setAttribute("viewBox", "-480 -480 960 960"); cellSvg.setAttribute("width", 960 * K); cellSvg.setAttribute("height", 960 * K);
 Object.assign(cellSvg.style, { position: "absolute", left: "0", top: "0" });
 cellL.appendChild(cellSvg);
 const f1 = (v) => v.toFixed(1);
@@ -214,10 +227,10 @@ const drawCell = (sp) => {
   cellSvg.innerHTML = s;
 };
 // the imaging scan: a bright line passing down the field, a soft band behind it
-const scanL = L.layer({ x: CX - RING, y: CY - RING, w: 2 * RING, h: 6 });
+const scanL = L.layer({ x: CX - RING * K, y: CY - RING * K, w: 2 * RING * K, h: 6 });
 scanL.style.background = "linear-gradient(to right, rgba(255,204,102,0), rgba(255,204,102,.95) 16%, rgba(255,230,180,1) 50%, rgba(255,204,102,.95) 84%, rgba(255,204,102,0))";
 scanL.style.opacity = 0;
-const scanB = L.layer({ x: CX - RING, y: CY - RING - 90, w: 2 * RING, h: 90 });
+const scanB = L.layer({ x: CX - RING * K, y: CY - RING * K - 90, w: 2 * RING * K, h: 90 });
 scanB.style.background = "linear-gradient(to bottom, rgba(169,154,58,0), rgba(169,154,58,.22))";
 scanB.style.opacity = 0;
 
@@ -244,13 +257,24 @@ const SD = 47391.2 + L.irand(0, 40) / 10;
 let stardate = SD;
 const bays = [0, 1, 2, 3, 4, 5].map((i) => ({ sp: SPECIMENS[i], last: null }));
 let pool = SPECIMENS.slice(6);
-L.header({ x: LX, y: 1620, w: MR - LX, label: "Stasis Bays", c1: "olive", c2: "butter", h: 48, lw: KEYW });
-const hl = fill(LX, STRIP(0) - 38, MR - LX, 48, "#2a280e");
-const BC = { bay: LX, id: LX + 140, name: LX + 380, origin: LX + 960, haz: LX + 1500, last: MR - 440, st: MR };
+// upright: in the right column under the genome, two lines a bay (origin, hazard, last scan on the second)
+const BAYP = UP ? 112 : 54;                                // one bay's pitch: the highlight steps by it
+const BAY0 = 1740, BAY2 = { origin: 50, haz: 50, last: 50 };
+const bayBase = (k, i) => (UP ? BAY0 + i * BAYP + (BAY2[k] || 0) : STRIP(i));
+let hl, BC;
+if (UP) {
+  L.header({ x: RX, y: 1620, w: RR - RX, label: "Stasis Bays", c1: "olive", c2: "butter", lw: BX - L.GAP });
+  hl = fill(RX, BAY0 - 38, RR - RX, 98, "#2a280e");
+  BC = { bay: RX, id: RX + 130, name: RX + 250, origin: RX + 250, haz: RX + 460, last: RR, st: RR };
+} else {
+  L.header({ x: LX, y: 1620, w: MR - LX, label: "Stasis Bays", c1: "olive", c2: "butter", h: 48, lw: KEYW });
+  hl = fill(LX, STRIP(0) - 38, MR - LX, 48, "#2a280e");
+  BC = { bay: LX, id: LX + 140, name: LX + 380, origin: LX + 960, haz: LX + 1500, last: MR - 440, st: MR };
+}
 const bayRows = bays.map((b, i) => {
-  const row = { bay: L.text({ x: BC.bay, base: STRIP(i), s: 36, c: "olive", txt: `Bay ${i + 1}` }) };
-  for (const k of ["id", "name", "origin", "haz", "last"]) row[k] = cls(L.text({ x: BC[k], base: STRIP(i), s: 36, c: "sand", txt: "" }), "sw");
-  row.st = cls(L.text({ x: BC.st, base: STRIP(i), s: 36, c: "sand", txt: "", align: "r" }), "sw");
+  const row = { bay: L.text({ x: BC.bay, base: bayBase("bay", i), s: 36, c: "olive", txt: `Bay ${i + 1}` }) };
+  for (const k of ["id", "name", "origin", "haz", "last"]) row[k] = cls(L.text({ x: BC[k], base: bayBase(k, i), s: 36, c: "sand", txt: "", align: UP && k === "last" ? "r" : undefined }), "sw");
+  row.st = cls(L.text({ x: BC.st, base: bayBase("st", i), s: 36, c: "sand", txt: "", align: "r" }), "sw");
   return row;
 });
 const showBay = (i, cur) => {
@@ -264,11 +288,14 @@ const showBay = (i, cur) => {
 };
 
 // ---------------- the analysis log ----------------
-L.header({ x: RX, y: 1620, w: RR - RX, label: "Analysis Log", c1: "butter", c2: "olive", h: 48, lw: BX - L.GAP });
+// upright: under the stasis bays, its rows spread to the column's floor
+const LOGB = (i) => (UP ? 2537 + i * 81 : STRIP(i)), LOGTX = UP ? 140 : 160;
+if (UP) L.header({ x: RX, y: 2417, w: RR - RX, label: "Analysis Log", c1: "butter", c2: "olive", lw: BX - L.GAP });
+else L.header({ x: RX, y: 1620, w: RR - RX, label: "Analysis Log", c1: "butter", c2: "olive", h: 48, lw: BX - L.GAP });
 const logRows = Array.from({ length: 6 }, (_, i) => ({
-  sd: L.text({ x: RX, base: STRIP(i), s: 36, c: "olive", txt: "" }),
-  tx: L.text({ x: RX + 160, base: STRIP(i), s: 36, c: "sand", txt: "" }),
-  by: L.text({ x: RR, base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }) }));
+  sd: L.text({ x: RX, base: LOGB(i), s: 36, c: "olive", txt: "" }),
+  tx: L.text({ x: RX + LOGTX, base: LOGB(i), s: 36, c: "sand", txt: "" }),
+  by: L.text({ x: RR, base: LOGB(i), s: 36, c: "white", txt: "", align: "r" }) }));
 const logged = [];
 const logLine = (txt, by) => {
   stardate += 0.1;
@@ -286,7 +313,7 @@ logLine(`Transferred from stasis bay 6`, prev.id);
 logLine(`Cell structure imaged  ·  ${prev.diam} microns`, prev.id);
 logLine(`Genome sequenced  ·  ${fmt(prev.gen.bp)} ${prev.gen.type === "RNA" ? "bases" : "base pairs"}`, prev.id);
 bays[5].last = logLine(`Classified  ·  biohazard level ${prev.level}`, prev.id);
-logLine("Analysis chamber decontaminated", "Lab 2");
+const deconSD = logLine("Analysis chamber decontaminated", "Lab 2");
 
 // ---------------- showing a specimen ----------------
 const pct = (v) => Math.round(v) + "%";
@@ -295,6 +322,7 @@ const scaleFor = (diam) => {                             // a round length about
   return steps.reduce((a, b) => (Math.abs(Math.log(b / want)) < Math.abs(Math.log(a / want)) ? b : a));
 };
 const fmtMicrons = (v) => (v < 1 ? v.toFixed(1) : String(v)) + (v === 1 ? " Micron" : " Microns");
+let prevBay = 5;                                          // the bay analysed before this one (its field closing)
 let cur = null, prevComp = [0, 0, 0, 0, 0, 0], bayIdx = 0, cycleT0 = 0, phase = -1, clsShown = 0;
 const showRecord = (sp, i) => {
   L.set(recCap, `Stasis bay ${i + 1}  ·  Lab 2, Deck 11`);
@@ -310,7 +338,7 @@ const showImaging = (sp) => {
   L.set(corner[0], fmtMicrons(sp.diam)); L.set(corner[1], `${sp.mem} nm`);
   L.set(corner[2], String(sp.cell.rings.reduce((a, r) => a + r[1], 0) + (sp.cell.nuc || sp.cell.nucAt ? 1 : 0) + (sp.cell.vac ? 1 : 0)));
   L.set(corner[3], `${sp.sym}-Fold Radial`);
-  const sb = scaleFor(sp.diam), w = (2 * CR * sb) / sp.diam;
+  const sb = scaleFor(sp.diam), w = ((2 * CR * sb) / sp.diam) * K;
   tf(sbar, `scaleX(${(w / SB_W).toFixed(4)})`);
   L.set(sbarL, fmtMicrons(sb));
   L.set(imgCap, `${sp.id}  ·  ${sp.name}`);
@@ -319,9 +347,75 @@ const showImaging = (sp) => {
 const bayStart = (t) => {
   cur = bays[bayIdx].sp; cycleT0 = t; phase = -1; clsShown = 0;
   bays.forEach((_, i) => showBay(i, i === bayIdx));
-  tf(hl, `translate3d(0,${bayIdx * 54}px,0)`);
+  tf(hl, `translate3d(0,${bayIdx * BAYP}px,0)`);
   logLine(`Transferred from stasis bay ${bayIdx + 1}`, cur.id);
 };
+
+// =====================================================================================
+// ULTRAWIDE ONLY: a fourth column — the bays' stasis fields, the sequencer, the lab's environment
+// =====================================================================================
+let uwTick = null, uwEvery = null;
+if (UW) {
+  // rows keyed by a box, as in the specimen record; the bar centred on the box, its value at the column's edge
+  const keyRow = (y, name, kc, c, i) => {
+    L.box({ x: NX, y, w: KEYW, h: 64, c: kc, label: name, fs: 32, r: "l" });
+    const x = NX + KEYW + L.GAP, w = NR - BRW - x;
+    L.rect({ x, y: y + 19, w, h: 26, c: TRACK });
+    return { bar: fill(x, y + 19, w, 26, c), v: L.text({ x: NR, base: y + 52.5, s: 52, c: "white", txt: "", align: "r" }), u: -1 };
+  };
+  // stasis field strength, on the biochemistry rows: the bay under analysis stands open
+  L.header({ x: NX, y: 280, w: NR - NX, label: "Stasis Field", c1: "butter", c2: "olive", lw: KEYW });
+  L.text({ x: NX + KEYW + L.GAP, base: 400, s: 36, c: "sand", txt: "Six bays  ·  Lab 2, Deck 11  ·  Field strength" });
+  // the status line: the open bay's field, a pill at the column's edge beside containment's
+  const fieldPill = cls(L.box({ x: NR - 420, y: 150, w: 420, h: 72, c: "sand", label: "", r: "lr", fs: 36 }), "sw");
+  let pillFor = -1;
+  const FIELD = [0, 1, 2, 3, 4, 5].map((i) => keyRow(ROW0 + i * PITCH, `Bay ${i + 1}`, i % 2 ? "sand" : "olive", i % 2 ? "olive" : "butter"));
+  // the sequencer, on the genome rows: it reads while the genome is sequenced, then the run is held
+  L.header({ x: NX, y: 1000, w: NR - NX, label: "Sequencer", c1: "olive", c2: "butter", lw: KEYW });
+  const seqCap = cls(L.text({ x: NX + KEYW + L.GAP, base: 1120, s: 36, c: "sand", txt: "" }), "sw");
+  const SEQ = [["Read Depth", "butter"], ["Base Quality", "olive"], ["Error Rate", "olive"], ["Assembly", "olive"], ["Channels Active", "sand"]]
+    .map(([n, c], i) => keyRow(ROW1 + i * PITCH, n, i % 2 ? "olive" : "sand", c));
+  const SEQ_FIN = [40, 38, 0.2, 100, 0];                   // a finished run: depth ×, quality Q, error %, assembled %, channels
+  const seqVal = (i, p, t) => [40 * p, 38 - 18 * Math.exp(-6 * p), 0.2 + 3.8 * Math.exp(-5 * p), 100 * L.ease(L.clamp((p - 0.3) / 0.7)),
+    p < 1 ? Math.round(494 + 5 * Math.sin(t * 0.3)) : 0][i];
+  const seqBar = [(v) => v / 50, (v) => v / 40, (v) => v / 5, (v) => v / 100, (v) => v / 512];
+  const seqTxt = [(v) => Math.round(v) + "×", (v) => "Q" + Math.round(v), (v) => v.toFixed(1) + "%", (v) => pct(v), (v) => String(Math.round(v))];
+  // the lab's environment, in the strip: name, reading, state
+  L.header({ x: NX, y: 1620, w: NR - NX, label: "Lab Environment", c1: "butter", c2: "olive", h: 48, lw: KEYW });
+  const ENV = ["Chamber Temperature", "Pressure", "Atmosphere", "Biofilter", "Containment Field", "Decontamination"].map((n, i) => ({
+    n: L.text({ x: NX, base: STRIP(i), s: 36, c: "olive", txt: n }),
+    v: L.text({ x: NX + 360, base: STRIP(i), s: 36, c: "sand", txt: "" }),
+    st: L.text({ x: NR, base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }) }));
+  [["", "Nominal"], ["", "Negative"], ["Nitrogen-argon", "Sealed"], ["99.97% capture", "Online"], ["", "Active"], [`Last cycle SD ${deconSD}`, "Ready"]]
+    .forEach(([v, st], i) => { L.set(ENV[i].v, v); L.set(ENV[i].st, st); });
+  uwTick = (t, u) => {
+    // fields: nominal with a slow drift; this bay's opens across the transfer, the last one's closes again
+    const open = L.ease(L.clamp(u / T_IMG));
+    FIELD.forEach((g, i) => {
+      const k = i === bayIdx ? open : i === prevBay ? 1 - open : 0;
+      g.val = (97.6 + 0.6 * Math.sin(t * 0.05 + i * 1.3)) * (1 - k); g.open = k > 0.98;
+      showBar(g, g.val / 100);
+    });
+    // the sequencer: the last run's figures fall away across the transfer; idle until sequencing starts
+    const p = L.clamp((u - T_SEQ) / (T_CLS - T_SEQ - 1)), had = prevComp.some((v) => v > 0);
+    SEQ.forEach((g, i) => {
+      if (u < T_SEQ) { g.val = u < T_IMG && had ? SEQ_FIN[i] * (1 - L.ease(L.clamp(u / T_IMG))) : 0; g.idle = !(u < T_IMG && had); }
+      else { g.val = seqVal(i, p, t); g.idle = false; }
+      showBar(g, seqBar[i](g.val));
+    });
+    const G = cur.gen;
+    L.set(seqCap, u < T_SEQ ? "Idle  ·  512 nanopore channels" : p < 1 ? `Reading  ·  ${G.type} strands  ·  512 channels`
+      : `Run complete  ·  ${G.chrom} ${G.chrom === 1 ? "contig" : "contigs"} assembled`);
+  };
+  uwEvery = (t) => {
+    FIELD.forEach((g) => L.set(g.v, g.open ? "Open" : g.val.toFixed(1) + "%"));
+    if (pillFor !== bayIdx) { pillFor = bayIdx; L.set(fieldPill, `Stasis Bay ${bayIdx + 1}  ·  Field Open`); }
+    SEQ.forEach((g, i) => L.set(g.v, g.idle ? "—" : seqTxt[i](g.val)));
+    L.set(ENV[0].v, (4 + 0.1 * Math.sin(t * 0.02)).toFixed(1) + " °C");
+    L.set(ENV[1].v, (96.4 + 0.2 * Math.sin(t * 0.013 + 1)).toFixed(1) + " kPa");
+    L.set(ENV[4].v, `Level ${cur ? cur.level : 1}`);
+  };
+}
 
 // ---------------- the clock ----------------
 let rot = 0, lastT = 0, drawnFor = null, started = false;
@@ -332,6 +426,7 @@ L.tick((t) => {
   if (u >= CYCLE) {
     // the next bay; after a full pass, one bay takes a newly collected specimen
     prevComp = cur.comp.slice();
+    prevBay = bayIdx;
     bayIdx = (bayIdx + 1) % 6;
     if (bayIdx === 0 && pool.length) {
       const k = L.irand(1, 5), out = bays[k].sp;
@@ -351,7 +446,7 @@ L.tick((t) => {
   // the imaging scan passes down the cell once
   const k = (u - T_IMG) / (T_SEQ - T_IMG - 0.6);
   if (k > 0 && k < 1) {
-    const y = L.ease(k) * (2 * RING - 6), a = Math.min(1, k * 8, (1 - k) * 8);
+    const y = L.ease(k) * (2 * RING * K - 6), a = Math.min(1, k * 8, (1 - k) * 8);
     tf(scanL, `translate3d(0,${y.toFixed(1)}px,0)`); tf(scanB, `translate3d(0,${y.toFixed(1)}px,0)`);
     op(scanL, a); op(scanB, a * Math.min(1, y / 90));
   } else { op(scanL, 0); op(scanB, 0); }
@@ -389,11 +484,13 @@ L.tick((t) => {
   // the classification fills in, one line at a time
   const want = u < T_CLS ? 0 : Math.min(5, 1 + Math.floor((u - T_CLS) / 0.8));
   while (clsShown < want) { const e = CLS[clsShown]; L.set(e, cur.cls[clsShown]); fg(e, "white"); clsShown++; }
+  if (uwTick) uwTick(t, u);
 });
 // the numbers beside the gauges, a few times a second
 L.every(250, () => {
   COMP.forEach((g) => L.set(g.v, g.val !== undefined ? pct(g.val) : ""));
   GEN.forEach((g, i) => L.set(g.v, g.val ? pct(g.val) : i === 0 ? "0%" : "—"));
 }, 0);
+if (uwEvery) L.every(250, uwEvery, 0);
 });
 </script></body></html>

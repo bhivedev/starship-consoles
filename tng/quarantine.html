@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Quarantine</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* swapped text dips and comes back; colors change slowly; .boot (the start-up cascade) always wins */
@@ -14,7 +15,7 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: a bracket, title centred ----------------
-L.frame({ type: "C", title: "Quarantine  •  Biohazard Containment", c: "mars", c2: "butter", accent: "peach", foot: "Medical",
+const FB = L.frame({ type: "C", title: "Quarantine  •  Biohazard Containment", c: "mars", c2: "butter", accent: "peach", foot: "Medical",
   side: [[140, "butter", "Med 12"], [70, "peach", "4475"], [420, "mars", "Isolation"], [70, "butter", "06"],
          [300, "peach", "Wards"], [70, "butter", "L4"], [216, "mars", "Protocol"]],
   side2: [[140, "peach", "Bio 03"], [70, "butter", "0917"], [420, "mars", "Pathogen"], [70, "peach", "47"],
@@ -31,14 +32,31 @@ const mmss = (s) => { s = Math.max(0, Math.ceil(s)); return `${Math.floor(s / 60
 const swap = (els, f) => { els.forEach((e) => e.classList.add("out")); setTimeout(() => { f(); els.forEach((e) => e.classList.remove("out")); }, 460); };
 const wave = (t, p, ph = 0) => Math.sin((2 * Math.PI * t) / p + ph);   // a slow drift, never a jump
 
-// ---------------- the grid ----------------
-// Columns: the wards 220–1500 (three tiles of 400), the pathogen 1580–2540, fields and cycle 2620–3620.
-// Two sections, headers at 280 and 950; a caption one row in, then five rows on an 88 px pitch.
+// ---------------- the grid, per shape ----------------
+// The data, readings and motion below are written once; only these positions differ by shape.
+// wide (3840 × 2160): the wards 220–1500 (three tiles of 400), the pathogen 1580–2540, fields and
+//   cycle 2620–3620. Two sections, headers at 280 and 950; a caption one row in, then five rows on
+//   an 88 px pitch; the bottom strip (protocol, environment, log) at 1620.
+// upright (2160 × 3120): two halves of 820 (220–1040 | 1120–1940) and four sections on a 72 px
+//   pitch: the wards two to a row down the left, the cycle under them; the model (at 0.9), profile,
+//   fields and environment down the right; protocol and log in the strip at the foot.
+// ultrawide (5040 × 2160): wide's three columns exactly, and a fourth, 3700–4820: the rounds rota,
+//   the last airlock cycles and the away team's bioscans.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
 const AX = 220, AR = 1500, BX = 1580, BR = 2540, CX = 2620, CR = 3620;
-const H = [280, 950];
-const cap = (s) => H[s] + 120;
-const row = (s, i) => H[s] + 200 + i * 88;
-const STRIP = (i) => 1734 + i * 54;
+const DX = 3700, DR = FB.x1;                               // ultrawide only: the fourth column
+const H = UP ? [350, 907, 1464, 2021] : [280, 950];
+const CAPD = UP ? 110 : 120, ROW0 = UP ? 180 : 200, RP = UP ? 72 : 88;
+const cap = (s) => H[s] + CAPD;
+const row = (s, i) => H[s] + ROW0 + i * RP;
+const SY = UP ? 2578 : 1620;                               // the bottom strip's headers
+const STRIP = (i) => SY + 114 + i * 54;
+// where each panel sits: [left, right, section]
+const UL = [AX, 1040], UR = [1120, FB.x1];
+const PL = UP ? { model: [...UR, 0], profile: [...UR, 1], fields: [...UR, 2], cycle: [...UL, 3], env: [...UR, 3],
+                  proto: UL, log: UR, boxes: UR, ofx: 650 }
+              : { model: [BX, BR, 0], profile: [BX, BR, 1], fields: [CX, CR, 0], cycle: [CX, CR, 1], env: [BX, BR],
+                  proto: [AX, AR], log: [CX, CR], boxes: [CX, CR], ofx: 980 };
 
 // a gauge: a name, a dark track and its fill, a value at the column's right edge
 const fill = (x, y, w, h, c) => {
@@ -79,14 +97,22 @@ const cycleAt = (t) => {
 const WORDS = ["Containment Secure", "Decontamination Cycle"];
 const SUBX = AX + Math.max(...WORDS.map((w) => L.textWidth(w, 100))) + 56;
 const state = cls(L.text({ x: AX, cap: 150, s: 100, c: "mars", txt: "" }), "sw");
-const stateSub = cls(L.text({ x: SUBX, base: 222, s: 38, c: "peach", txt: "" }), "sw");
-L.box({ x: CX, y: 158, w: 488, h: 64, c: "mars", label: "Biohazard Level 4", fs: 32, r: "l" });
-L.box({ x: CX + 488 + L.GAP, y: 158, w: CR - (CX + 488 + L.GAP), h: 64, c: "butter", label: "Deck 12  ·  Sealed", fs: 32, r: "r" });
+// upright: the subtitle takes its own line under the state word, the boxes beside it
+const stateSub = cls(L.text({ x: UP ? AX : SUBX, base: UP ? 292 : 222, s: 38, c: "peach", txt: "" }), "sw");
+const [KX, KR] = PL.boxes;
+L.box({ x: KX, y: 158, w: 488, h: 64, c: "mars", label: "Biohazard Level 4", fs: 32, r: "l" });
+L.box({ x: KX + 488 + L.GAP, y: 158, w: (UW ? DX - L.GAP : KR) - (KX + 488 + L.GAP), h: 64, c: "butter", label: "Deck 12  ·  Sealed", fs: 32, r: UW ? "" : "r" });
+if (UW) L.box({ x: DX, y: 158, w: DR - DX, h: 64, c: "peach", label: "Away Team  ·  Celtris III", fs: 32, r: "r" });
+// upright: a second row of boxes beside the subtitle line, its foot on the subtitle's baseline
+if (UP) {
+  L.box({ x: KX, y: 246, w: 488, h: 46, c: "peach", label: "Away Team  ·  Celtris III", fs: 32, r: "l" });
+  L.box({ x: KX + 488 + L.GAP, y: 246, w: KR - (KX + 488 + L.GAP), h: 46, c: "mars", label: "Rounds Every 1:20", fs: 32, r: "r" });
+}
 
-// ---------------- the isolation wards: six tiles, three across, one per section row ----------------
-const TW = 400, TG = 40;
+// ---------------- the isolation wards: six tiles, three across, one per section row (upright: two across) ----------------
+const TW = UP ? 390 : 400, TG = 40, PER = UP ? 2 : 3;
 const tiles = WARDS.map((w, i) => {
-  const s = Math.floor(i / 3), x = AX + (i % 3) * (TW + TG), occ = !!w.dept;
+  const s = Math.floor(i / PER), x = AX + (i % PER) * (TW + TG), occ = !!w.dept;
   L.header({ x, y: H[s], w: TW, label: `Ward ${i + 1}`, c1: i % 2 ? "butter" : "mars", c2: i % 2 ? "mars" : "peach" });
   L.text({ x, base: cap(s), s: 52, c: occ ? "white" : "peach", txt: w.name });
   L.text({ x, base: row(s, 0), s: 36, c: occ ? "butter" : "peach", txt: occ ? `${w.dept}  ·  Day ${w.day} of 6` : `Sterile since ${w.since}` });
@@ -98,19 +124,22 @@ const tiles = WARDS.map((w, i) => {
 });
 
 // ---------------- the pathogen model: a retrovirus, flat and geometric, turning slowly ----------------
-L.header({ x: BX, y: H[0], w: BR - BX, label: "Pathogen Model  ·  RV-4475", c1: "peach", c2: "mars" });
-const CXm = (BX + BR) / 2, CYm = 620, LS = 520;
+const [MX, MR, MS] = PL.model;
+L.header({ x: MX, y: H[MS], w: MR - MX, label: "Pathogen Model  ·  RV-4475", c1: "peach", c2: "mars" });
+// MK scales the drawing (exactly 1 in wide); upright draws it at 0.9 to sit in its section
+const MK = UP ? 0.9 : 1;
+const CXm = (MX + MR) / 2, CYm = UP ? H[MS] + 305 : 620, LS = 520, LW = LS * MK;
 // the scan ring and its ticks, drawn once
-L.svg("circle", { cx: CXm, cy: CYm, r: 240, fill: "none", stroke: RING, "stroke-width": 3, class: "boot" });
+L.svg("circle", { cx: CXm, cy: CYm, r: 240 * MK, fill: "none", stroke: RING, "stroke-width": 3 * MK, class: "boot" });
 for (let a = 0; a < 360; a += 10) {
-  const big = a % 30 === 0, r1 = big ? 232 : 236, r2 = big ? 250 : 246, s = Math.sin((a * Math.PI) / 180), c = -Math.cos((a * Math.PI) / 180);
-  L.svg("line", { x1: CXm + r1 * s, y1: CYm + r1 * c, x2: CXm + r2 * s, y2: CYm + r2 * c, stroke: big ? "#b06a4a" : RING, "stroke-width": big ? 4 : 3, class: "boot" });
+  const big = a % 30 === 0, r1 = (big ? 232 : 236) * MK, r2 = (big ? 250 : 246) * MK, s = Math.sin((a * Math.PI) / 180), c = -Math.cos((a * Math.PI) / 180);
+  L.svg("line", { x1: CXm + r1 * s, y1: CYm + r1 * c, x2: CXm + r2 * s, y2: CYm + r2 * c, stroke: big ? "#b06a4a" : RING, "stroke-width": (big ? 4 : 3) * MK, class: "boot" });
 }
 const NSs = "http://www.w3.org/2000/svg";
 const modelLayer = (draw) => {
-  const lay = cls(L.layer({ x: CXm - LS / 2, y: CYm - LS / 2, w: LS, h: LS }), "boot");
+  const lay = cls(L.layer({ x: CXm - LW / 2, y: CYm - LW / 2, w: LW, h: LW }), "boot");
   const sv = document.createElementNS(NSs, "svg");
-  sv.setAttribute("viewBox", `0 0 ${LS} ${LS}`); sv.setAttribute("width", LS); sv.setAttribute("height", LS);
+  sv.setAttribute("viewBox", `0 0 ${LS} ${LS}`); sv.setAttribute("width", LW); sv.setAttribute("height", LW);
   sv.style.display = "block";
   lay.appendChild(sv); draw(sv, LS / 2);
   return lay;
@@ -145,41 +174,45 @@ const genome = modelLayer((sv, c) => {
 // callouts at the corners, leaders to the parts they name
 const callout = (txt, side, base, ang, r) => {
   const w = L.textWidth(txt, 36), right = side === "r";
-  L.text({ x: right ? BR : BX, base, s: 36, c: "peach", txt, align: right ? "r" : "l" });
-  const x0 = right ? BR - w - 18 : BX + w + 18, y0 = base - 13;
-  const px = CXm + r * Math.sin((ang * Math.PI) / 180), py = CYm - r * Math.cos((ang * Math.PI) / 180);
+  L.text({ x: right ? MR : MX, base, s: 36, c: "peach", txt, align: right ? "r" : "l" });
+  const x0 = right ? MR - w - 18 : MX + w + 18, y0 = base - 13;
+  const px = CXm + r * MK * Math.sin((ang * Math.PI) / 180), py = CYm - r * MK * Math.cos((ang * Math.PI) / 180);
   L.svg("polyline", { points: `${x0},${y0} ${px.toFixed(1)},${py.toFixed(1)}`, fill: "none", stroke: "#b06a4a", "stroke-width": 3, class: "boot" });
 };
-callout("Glycoprotein Spikes", "l", cap(0), 315, 206);
-callout("Lipid Envelope", "r", cap(0), 45, 184);
-callout("Icosahedral Capsid", "l", row(0, 4), 225, 104);
-callout("RNA Genome", "r", row(0, 4), 135, 72);
-L.text({ x: BX, base: row(0, 1), s: 36, c: "peach", txt: "Diameter" });
-L.text({ x: BX, base: row(0, 2), s: 52, c: "white", txt: "118 nm" });
-L.text({ x: BR, base: row(0, 1), s: 36, c: "peach", txt: "Scan Pass", align: "r" });
-const passTxt = L.text({ x: BR, base: row(0, 2), s: 52, c: "white", txt: "", align: "r" });
+callout("Glycoprotein Spikes", "l", cap(MS), 315, 206);
+callout("Lipid Envelope", "r", cap(MS), 45, 184);
+callout("Icosahedral Capsid", "l", row(MS, 4), 225, 104);
+callout("RNA Genome", "r", row(MS, 4), 135, 72);
+L.text({ x: MX, base: row(MS, 1), s: 36, c: "peach", txt: "Diameter" });
+L.text({ x: MX, base: row(MS, 2), s: 52, c: "white", txt: "118 nm" });
+L.text({ x: MR, base: row(MS, 1), s: 36, c: "peach", txt: "Scan Pass", align: "r" });
+const passTxt = L.text({ x: MR, base: row(MS, 2), s: 52, c: "white", txt: "", align: "r" });
 
 // ---------------- pathogen profile ----------------
-L.header({ x: BX, y: H[1], w: BR - BX, label: "Pathogen Profile", c1: "mars", c2: "butter" });
-L.text({ x: BX, base: cap(1), s: 36, c: "butter", txt: "Retrovirus  ·  Away team soil core, Celtris III" });
-const pg = (i, n, c) => gauge({ x: BX, r: BR, base: row(1, i), name: n, c, bx: 300, brw: 200 });
+const [QX, QR, QS] = PL.profile;
+L.header({ x: QX, y: H[QS], w: QR - QX, label: "Pathogen Profile", c1: "mars", c2: "butter" });
+L.text({ x: QX, base: cap(QS), s: 36, c: "butter", txt: "Retrovirus  ·  Away team soil core, Celtris III" });
+const pg = (i, n, c) => gauge({ x: QX, r: QR, base: row(QS, i), name: n, c, bx: 300, brw: 200 });
 const PRO = { genome: pg(0, "Genome Mapped", "peach"), repl: pg(1, "Replication", "mars"), eff: pg(2, "Antiviral Efficacy", "butter"),
   synth: pg(3, "Synthesis", "butter"), doses: pg(4, "Doses Ready", "peach") };
 
 // ---------------- containment fields ----------------
-L.header({ x: CX, y: H[0], w: CR - CX, label: "Containment Fields", c1: "butter", c2: "mars" });
-L.text({ x: CX, base: cap(0), s: 36, c: "butter", txt: "Level 10 quarantine fields  ·  Bars to rated strength" });
-const cg = (i, n, c) => gauge({ x: CX, r: CR, base: row(0, i), name: n, c, bx: 300, brw: 200 });
+const [FX, FR, FS] = PL.fields;
+L.header({ x: FX, y: H[FS], w: FR - FX, label: "Containment Fields", c1: "butter", c2: "mars" });
+L.text({ x: FX, base: cap(FS), s: 36, c: "butter", txt: "Level 10 quarantine fields  ·  Bars to rated strength" });
+const cg = (i, n, c) => gauge({ x: FX, r: FR, base: row(FS, i), name: n, c, bx: 300, brw: 200 });
 const FLD = [cg(0, "Ward Fields", "mars"), cg(1, "Airlock Fields", "mars"), cg(2, "Deck Barrier", "peach"),
   cg(3, "Emitter Load", "butter"), cg(4, "Backup Emitters", "peach")];
 
 // ---------------- decontamination cycle ----------------
-L.header({ x: CX, y: H[1], w: CR - CX, label: "Decontamination Cycle", c1: "mars", c2: "peach" });
-const cycCap = L.text({ x: CX, base: cap(1), s: 36, c: "butter", txt: "" });
-const STG = STAGES.map(([n], i) => gauge({ x: CX, r: CR, base: row(1, i), name: n, c: i % 2 ? "peach" : "butter", bx: 300, brw: 200 }));
+const [YX, YR, YS] = PL.cycle;
+L.header({ x: YX, y: H[YS], w: YR - YX, label: "Decontamination Cycle", c1: "mars", c2: "peach" });
+const cycCap = L.text({ x: YX, base: cap(YS), s: 36, c: "butter", txt: "" });
+const STG = STAGES.map(([n], i) => gauge({ x: YX, r: YR, base: row(YS, i), name: n, c: i % 2 ? "peach" : "butter", bx: 300, brw: 200 }));
 
-// ---------------- bottom strip: protocol, environment, log ----------------
-L.header({ x: AX, y: 1620, w: AR - AX, label: "Quarantine Protocol", c1: "butter", c2: "mars", h: 48 });
+// ---------------- bottom strip: protocol, environment, log (upright: the environment is a section, in its type) ----------------
+const [OX, OR] = PL.proto;
+L.header({ x: OX, y: SY, w: OR - OX, label: "Quarantine Protocol", c1: "butter", c2: "mars", h: 48 });
 const PROTO = [
   ["Isolation wards sealed  ·  Deck 12", "Lt. Worf", "Confirmed"],
   ["Level 10 quarantine fields raised", "Lt. Cmdr. Data", "Confirmed"],
@@ -188,21 +221,47 @@ const PROTO = [
   ["Away team bioscans complete", "Dr. Selar", "6 / 6"],
   ["Airlock cycles logged  ·  This shift", "Nurse Ogawa", ""],
 ];
-const OFX = 980;
+const OFX = PL.ofx;
 const protoV = PROTO.map(([a, b, c], i) => {
-  L.text({ x: AX, base: STRIP(i), s: 36, c: "peach", txt: a });
+  L.text({ x: OX, base: STRIP(i), s: 36, c: "peach", txt: a });
   L.text({ x: OFX, base: STRIP(i), s: 36, c: "white", txt: b });
-  return L.text({ x: AR, base: STRIP(i), s: 36, c: "butter", txt: c, align: "r" });
+  return L.text({ x: OR, base: STRIP(i), s: 36, c: "butter", txt: c, align: "r" });
 });
-L.header({ x: BX, y: 1620, w: BR - BX, label: "Isolation Environment", c1: "mars", c2: "butter", h: 48 });
-const eg = (i, n, c) => gauge({ x: BX, r: BR, base: STRIP(i), name: n, c, bx: 260, brw: 170, bh: 22, s: 36, ns: 36 });
+const [EX, ER] = PL.env;
+L.header({ x: EX, y: UP ? H[3] : SY, w: ER - EX, label: "Isolation Environment", c1: "mars", c2: "butter", h: UP ? 56 : 48 });
+const envBase = (i) => (UP ? (i ? row(3, i - 1) : cap(3)) : STRIP(i));
+const eg = (i, n, c) => gauge({ x: EX, r: ER, base: envBase(i), name: n, c, bx: UP ? 300 : 260, brw: UP ? 200 : 170, bh: 22, s: UP ? 52 : 36, ns: UP ? 40 : 36 });
 const ENV = { press: eg(0, "Pressure Diff", "mars"), air: eg(1, "Air Exchange", "mars"), bio: eg(2, "Biofilter Load", "butter"),
   hum: eg(3, "Humidity", "peach"), oxy: eg(4, "Oxygen", "peach"), scrub: eg(5, "Scrubbers", "butter") };
-L.header({ x: CX, y: 1620, w: CR - CX, label: "Medical Log", c1: "peach", c2: "mars", h: 48 });
+const [GX, GR] = PL.log;
+L.header({ x: GX, y: SY, w: GR - GX, label: "Medical Log", c1: "peach", c2: "mars", h: 48 });
 const logRows = Array.from({ length: 6 }, (_, i) => ({
-  sd: L.text({ x: CX, base: STRIP(i), s: 36, c: "butter", txt: "" }),
-  tx: L.text({ x: CX + 150, base: STRIP(i), s: 36, c: "peach", txt: "" }),
-  by: L.text({ x: CR, base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }) }));
+  sd: L.text({ x: GX, base: STRIP(i), s: 36, c: "butter", txt: "" }),
+  tx: L.text({ x: GX + 150, base: STRIP(i), s: 36, c: "peach", txt: "" }),
+  by: L.text({ x: GR, base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }) }));
+
+// ---------------- ultrawide only: the fourth column — rounds rota, airlock cycles, away team ----------------
+// Read from the same story (cycleAt, wardOf, staffOf, the airlock count); nothing here drives anything else.
+// Each table runs four columns across its 1120 (name | who | what | value) so no row leaves a band.
+const QC = [DX, DX + 300, DX + 640];
+const tableRow = (base, cols) => ({
+  a: L.text({ x: QC[0], base, s: cols[4] || 40, c: "peach", txt: cols[0] }),
+  b: L.text({ x: QC[1], base, s: cols[4] || 40, c: "white", txt: cols[1] }),
+  c: L.text({ x: QC[2], base, s: cols[4] || 40, c: "butter", txt: cols[2] }),
+  v: L.text({ x: DR, base, s: cols[4] ? cols[4] : 52, c: "white", txt: cols[3], align: "r" }) });
+let rota = null, cycD = null, cycDCap = null;
+if (UW) {
+  L.header({ x: DX, y: H[0], w: DR - DX, label: "Rounds Rota", c1: "peach", c2: "butter" });
+  L.text({ x: DX, base: cap(0), s: 36, c: "butter", txt: "Airlock rounds every 1:20  ·  Six doses each round" });
+  rota = [0, 1, 2, 3, 4].map((i) => tableRow(row(0, i), i < 4 ? [`Ward ${i + 1}`, WARDS[i].name, "", ""] : ["Wards 5  ·  6", "Vacant", "No rounds", "Sterile"]));
+  L.header({ x: DX, y: H[1], w: DR - DX, label: "Airlock Cycles", c1: "butter", c2: "peach" });
+  cycDCap = L.text({ x: DX, base: cap(1), s: 36, c: "butter", txt: "" });
+  cycD = [0, 1, 2, 3, 4].map((i) => tableRow(row(1, i), ["", "", "", ""]));
+  L.header({ x: DX, y: SY, w: DR - DX, label: "Away Team Bioscans", c1: "mars", c2: "butter", h: 48 });
+  WARDS.slice(0, 4).map((w, i) => [w.name, w.dept, "RV-4475 positive", `Ward ${i + 1}`])
+    .concat([["Cmdr. W. Riker", "Command", "Clear", "Released"], ["Lt. Cmdr. Data", "Operations", "Not susceptible", "Released"]])
+    .forEach((r, i) => tableRow(STRIP(i), [...r, 36]));
+}
 let stardate = 47634.2;
 const logged = [];
 const logLine = (txt, by) => {                            // newest at the foot; always in time order
@@ -329,6 +388,22 @@ L.every(250, (t) => {
   const oxy = 21.0 + 0.04 * wave(t, 83); showBar(ENV.oxy, oxy / 30); L.set(ENV.oxy.v, oxy.toFixed(1) + "%");
   showBar(ENV.scrub, 0.97); L.set(ENV.scrub.v, "97%");
   L.set(protoV[5], String(airlocks));
+  // ultrawide: the rota (who goes in next, and when) and the last five cycles, newest at the foot
+  if (UW) {
+    rota.forEach((r, i) => {
+      if (i > 3) return;
+      if (c.st >= 0 && c.w === i) { L.set(r.c, c.staff); L.set(r.v, "Cycling"); return; }
+      let k = 1; while (wardOf(c.n + k) !== i) k++;
+      L.set(r.c, staffOf(c.n + k)); L.set(r.v, mmss((c.n + k) * PERIOD - (t + OFFSET)));
+    });
+    cycD.forEach((r, i) => {
+      const m = c.n - 4 + i, now = i === 4 && c.st >= 0;
+      L.set(r.a, `Ward ${wardOf(m) + 1}`); L.set(r.b, staffOf(m));
+      L.set(r.c, now ? STAGES[c.st][0] : "Scan clear");
+      L.set(r.v, now ? "Cycling" : mmss(t + OFFSET - (m * PERIOD + RUN)));
+    });
+    L.set(cycDCap, `${airlocks} cycles this shift  ·  Time since release`);
+  }
 }, 0);
 });
 </script></body></html>

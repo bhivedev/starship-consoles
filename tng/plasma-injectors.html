@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Plasma Injectors</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* colors change slowly; progress steps glide; .boot (the start-up cascade) always wins */
@@ -12,13 +13,28 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: sidebar left, title top right ----------------
-L.frame({ type: "A", title: "Plasma Injectors  •  Timing", c: "sky", c2: "orange", accent: "peach", foot: "Injectors",
+const FB = L.frame({ type: "A", title: "Plasma Injectors  •  Timing", c: "sky", c2: "orange", accent: "peach", foot: "Injectors",
   side: [[140, "orange", "PI 01"], [70, "peach", "Port"], [420, "sky", "Timing"], [70, "ice", "Phase"],
          [300, "orange", "Thermal"], [70, "peach", "Recal"], [216, "sky", "Nacelle"]] });
 
-// three columns below the strips: phase · temperature · injection
-const COLS = [[330, 1452], [1512, 2634], [2694, 3816]];
+// ---------------- the grid, per shape ----------------
+// The data, readings and motion are written once; only these positions differ by shape.
+// wide (3840 × 2160): the strips full width, then three columns of 1122 (phase · temperature ·
+//   injection), the log over the first two and the sequence under the third.
+// upright (2160 × 3120): the strips full width, then two columns of 873 stacked in four rows, each
+//   pair on one baseline grid: phase | temperature, injection | plasma flow, the log full width,
+//   sequence | recalibration record.
+// ultrawide (5040 × 2160): the strips 1200 longer; wide's three columns unchanged, and a fourth
+//   (3876–5016) with plasma flow on the tables' rows and the recalibration record on the log's.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const COLS = UP ? [[FB.x0, FB.x0 + 873], [FB.x1 - 873, FB.x1], [FB.x1 - 873, FB.x1]] : [[330, 1452], [1512, 2634], [2694, 3816]];
 const [A, B, C] = COLS;
+const D = UW ? [FB.x1 - 1140, FB.x1] : B;                         // plasma flow and the record: ultrawide column 4, upright column 2
+const X1 = UW ? FB.x1 : C[1];                             // the right-hand edge of the strips and the status line
+const PJ = UP ? A : C, SQ = UP ? A : C;                  // where plasma injection and the sequence go
+// header lines: phase + temperature (T1), injection + flow (T2), the log (L1), sequence + record (L2)
+const T1 = UP ? 1158 : 1120, T2 = UP ? 1658 : 1120, L1 = UP ? 2158 : 1620, L2 = UP ? 2580 : 1620;
+const HY = UP ? 318 : 280;                               // the strips' header
 const TRACK = "#0e1838", ZONE = "#1c2c5c";
 const fill = (x, y, w, h, c, origin = "0 0") => {
   const f = L.layer({ x, y, w, h });
@@ -68,8 +84,8 @@ const DONE = 20.5;
 
 // ---------------- status line ----------------
 const stateTxt = L.text({ x: A[0], cap: 150, s: 100, c: "ice", txt: "" });
-L.text({ x: B[0], base: 222, s: 38, c: "peach", txt: "U.S.S. Enterprise NCC-1701-D  ·  Warp Nacelle Plasma Injection  ·  Warp 6" });
-const cond = cls(L.box({ x: C[1] - 400, y: 150, w: 400, h: 72, c: "sky", label: "", r: "lr", fs: 36 }), "sw");
+L.text({ x: UP ? A[0] : B[0], base: UP ? 280 : 222, s: 38, c: "peach", txt: "U.S.S. Enterprise NCC-1701-D  ·  Warp Nacelle Plasma Injection  ·  Warp 6" });
+const cond = cls(L.box({ x: X1 - 400, y: 150, w: 400, h: 72, c: "sky", label: "", r: "lr", fs: 36 }), "sw");
 
 // a section header with a pill at its right end
 const pillHeader = (x0, x1, y, label, c1, c2, texts, pc, h = 56) => {
@@ -79,9 +95,9 @@ const pillHeader = (x0, x1, y, label, c1, c2, texts, pc, h = 56) => {
 };
 
 // ---------------- the strip charts: three injectors firing, full width ----------------
-pillHeader(A[0], C[1], 280, "Injector Firing Timing", "orange", "sky", ["Firing Order  1 · 2 · 3"], "peach");
-const TABW = 300, WX = A[0] + TABW + L.GAP, WW = C[1] - WX;   // the strip: 654 → 3816
-const SY = 372, SH = 204, SG = 28, TRACE_H = 3 * SH + 2 * SG;
+pillHeader(A[0], X1, HY, "Injector Firing Timing", "orange", "sky", ["Firing Order  1 · 2 · 3"], "peach");
+const TABW = 300, WX = A[0] + TABW + L.GAP, WW = X1 - WX;   // the strip: 654 → 3816
+const SY = HY + 92, SH = 204, SG = 28, TRACE_H = 3 * SH + 2 * SG;
 const MS = 480;                                         // design px per millisecond of firing
 const RATE = 1182, P = (MS * 1000) / RATE;              // firing rate (Hz) and the period it gives (≈406 px)
 const SPEED = 240;                                      // how fast the strip glides, design px per second
@@ -93,7 +109,7 @@ INJ.forEach((g, i) => {
   L.box({ x: A[0], y, w: TABW, h: SH, c: g.c, label: g.name, fs: 40 });
   g.big = L.text({ x: A[0] + 24, cap: y + 22, s: 110, c: "#000", txt: "", on: true });
   L.rect({ x: WX, y, w: WW, h: SH, c: "#08102a" });
-  for (let k = 1; k * MS < WW; k++) L.rect({ x: C[1] - k * MS - 1, y, w: 2, h: SH, c: "#1a2a5c", free: true });
+  for (let k = 1; k * MS < WW; k++) L.rect({ x: X1 - k * MS - 1, y, w: 2, h: SH, c: "#1a2a5c", free: true });
 });
 // time from the right-hand edge (now), and the key
 const KEY = [["Firing Pulse", INJ[0].body, INJ[0].ink], ["Timing Window", "#6f80b8", null], ["Out of Tolerance", ALERT.body, ALERT.ink]];
@@ -103,10 +119,10 @@ for (const [txt, body, ink] of KEY) {
   L.rect({ x: kx, y: LEG - 31, w: 48, h: 36, c: ink || body });
   if (ink) L.rect({ x: kx + 4, y: LEG - 27, w: 40, h: 28, c: body, free: true });
   L.text({ x: kx + 68, base: LEG, s: 36, c: "lilac", txt, legend: true });
-  kx += 68 + Math.ceil(L.textWidth(txt, 36)) + 56;
+  kx += 68 + Math.ceil(L.textWidth(txt, 36)) + (L.shape === "wide" ? 56 : 40);
 }
 for (let k = 0; k * MS < WW; k++) {
-  const x = C[1] - k * MS, txt = k ? k + " ms" : "Now", w = L.textWidth(txt, 36);
+  const x = X1 - k * MS, txt = k ? k + " ms" : "Now", w = L.textWidth(txt, 36);
   if (k === 0) L.text({ x, base: LEG, s: 36, c: "lilac", txt, align: "r", legend: true });
   else if (x - w / 2 > kx + 20) L.text({ x, base: LEG, s: 36, c: "lilac", txt, align: "c", w: 200, legend: true });
 }
@@ -180,23 +196,23 @@ L.tick((t) => {
 });
 
 // ---------------- lower panels ----------------
-const MID = 1120, ROW0 = 1264, PITCH = 88, rowBase = (i) => ROW0 + i * PITCH + 52.5, LAB = 1240;
+const PITCH = 88, rowY = (y, i) => y + 144 + i * PITCH, rowBase = (i, y = T1) => y + 144 + i * PITCH + 52.5, lab = (y) => y + 120;
 const BOXW = 250;
 
 // phase alignment: each injector's error either side of its due phase
-L.header({ x: A[0], y: MID, w: A[1] - A[0], label: "Phase Alignment", c1: "sky", c2: "orange" });
+L.header({ x: A[0], y: T1, w: A[1] - A[0], label: "Phase Alignment", c1: "sky", c2: "orange" });
 const NOMX = A[0] + BOXW + L.GAP, NOMW = wide(["240°"], 40);
 const VALW = wide(["12.5°", "Error"], 52);
-const GX0 = NOMX + NOMW + 2 * L.GAP, GX1 = A[1] - VALW - L.GAP, GC = Math.round((GX0 + GX1) / 2), GH = GX1 - GC;
+const GX0 = NOMX + NOMW + 2 * L.GAP, GX1 = A[1] - VALW - L.GAP - (UP ? 10 : 0), GC = Math.round((GX0 + GX1) / 2), GH = GX1 - GC;
 const RANGE = 14;
-L.text({ x: A[0], base: LAB, s: 36, c: "lilac", txt: "Injector" });
-L.text({ x: NOMX, base: LAB, s: 36, c: "lilac", txt: "Nominal" });
-L.text({ x: GC, base: LAB, s: 36, c: "lilac", txt: "Early  ·  Late", align: "c", w: GX1 - GX0 });
-L.text({ x: A[1], base: LAB, s: 36, c: "lilac", txt: "Error", align: "r" });
+L.text({ x: A[0], base: lab(T1), s: 36, c: "lilac", txt: "Injector" });
+L.text({ x: NOMX, base: lab(T1), s: 36, c: "lilac", txt: "Nominal" });
+L.text({ x: GC, base: lab(T1), s: 36, c: "lilac", txt: "Early  ·  Late", align: "c", w: GX1 - GX0 });
+L.text({ x: A[1], base: lab(T1), s: 36, c: "lilac", txt: "Error", align: "r" });
 const PHROWS = [...INJ.map((g) => [g.name, g.c, g.nom + "°"]), ["Nacelle Sync", "peach", "0°"]];
 const phase = PHROWS.map(([label, c, nom], i) => {
   const base = rowBase(i), zw = Math.round((GH * TOL) / RANGE);
-  L.box({ x: A[0], y: ROW0 + i * PITCH, w: BOXW, h: 64, c, label, fs: 32, r: "l" });
+  L.box({ x: A[0], y: rowY(T1, i), w: BOXW, h: 64, c, label, fs: 32, r: "l" });
   L.text({ x: NOMX, base, s: 40, c: "lilac", txt: nom });
   L.rect({ x: GX0, y: base - 26, w: GX1 - GX0, h: 26, c: TRACK });
   L.rect({ x: GC - zw, y: base - 26, w: 2 * zw, h: 26, c: ZONE, free: true });   // the tolerance
@@ -206,16 +222,16 @@ const phase = PHROWS.map(([label, c, nom], i) => {
 });
 
 // injector temperature
-L.header({ x: B[0], y: MID, w: B[1] - B[0], label: "Injector Temperature", c1: "orange", c2: "sky" });
+L.header({ x: B[0], y: T1, w: B[1] - B[0], label: "Injector Temperature", c1: "orange", c2: "sky" });
 const TVALW = wide(["2,088 K", "Kelvin"], 52);
 const TX0 = B[0] + BOXW + L.GAP, TX1 = B[1] - TVALW - L.GAP, TLO = 1000, THI = 2500, LIMIT = 2400;
-L.text({ x: B[0], base: LAB, s: 36, c: "lilac", txt: "Injector" });
-L.text({ x: TX0, base: LAB, s: 36, c: "lilac", txt: "Housing  ·  Limit 2,400 K" });
-L.text({ x: B[1], base: LAB, s: 36, c: "lilac", txt: "Kelvin", align: "r" });
+L.text({ x: B[0], base: lab(T1), s: 36, c: "lilac", txt: "Injector" });
+L.text({ x: TX0, base: lab(T1), s: 36, c: "lilac", txt: "Housing  ·  Limit 2,400 K" });
+L.text({ x: B[1], base: lab(T1), s: 36, c: "lilac", txt: "Kelvin", align: "r" });
 const TROWS = [...INJ.map((g) => [g.name, g.c]), ["Manifold", "peach"]];
 const temps = TROWS.map(([label, c], i) => {
   const base = rowBase(i);
-  L.box({ x: B[0], y: ROW0 + i * PITCH, w: BOXW, h: 64, c, label, fs: 32, r: "l" });
+  L.box({ x: B[0], y: rowY(T1, i), w: BOXW, h: 64, c, label, fs: 32, r: "l" });
   L.rect({ x: TX0, y: base - 26, w: TX1 - TX0, h: 26, c: TRACK });
   const bar = fill(TX0, base - 26, TX1 - TX0, 26, c);
   L.rect({ x: TX0 + ((TX1 - TX0) * (LIMIT - TLO)) / (THI - TLO) - 2, y: base - 34, w: 4, h: 42, c: "mars", free: true });
@@ -223,12 +239,12 @@ const temps = TROWS.map(([label, c], i) => {
 });
 
 // plasma injection: a table of what the injectors are set to, and what they are doing
-L.header({ x: C[0], y: MID, w: C[1] - C[0], label: "Plasma Injection", c1: "sky", c2: "peach" });
-const INJW = 300, NOWX = C[0] + INJW + L.GAP + 290, SETX = NOWX + 250;
-L.text({ x: C[0], base: LAB, s: 36, c: "lilac", txt: "Reading" });
-L.text({ x: NOWX, base: LAB, s: 36, c: "lilac", txt: "Now", align: "r" });
-L.text({ x: SETX, base: LAB, s: 36, c: "lilac", txt: "Set", align: "r" });
-L.text({ x: C[1], base: LAB, s: 36, c: "lilac", txt: "Unit", align: "r" });
+L.header({ x: PJ[0], y: T2, w: PJ[1] - PJ[0], label: "Plasma Injection", c1: "sky", c2: "peach" });
+const INJW = 300, NOWX = PJ[0] + INJW + L.GAP + (UP ? 196 : 290), SETX = NOWX + (UP ? 170 : 250);
+L.text({ x: PJ[0], base: lab(T2), s: 36, c: "lilac", txt: "Reading" });
+L.text({ x: NOWX, base: lab(T2), s: 36, c: "lilac", txt: "Now", align: "r" });
+L.text({ x: SETX, base: lab(T2), s: 36, c: "lilac", txt: "Set", align: "r" });
+L.text({ x: PJ[1], base: lab(T2), s: 36, c: "lilac", txt: "Unit", align: "r" });
 const READ = [
   ["Firing Rate", "orange", (t) => fmt(RATE), fmt(RATE), "Hz"],
   ["Pulse Width", "peach", (t) => (0.254 + 0.001 * Math.round(Math.sin(t * 0.11))).toFixed(3), "0.254", "ms"],
@@ -236,23 +252,23 @@ const READ = [
   ["Field Output", "peach", (t) => "392", "392", "Cochranes"],
 ];
 const reads = READ.map(([label, c, f, set, unit], i) => {
-  const base = rowBase(i);
-  L.box({ x: C[0], y: ROW0 + i * PITCH, w: INJW, h: 64, c, label, fs: 32, r: "l" });
+  const base = rowBase(i, T2);
+  L.box({ x: PJ[0], y: rowY(T2, i), w: INJW, h: 64, c, label, fs: 32, r: "l" });
   L.text({ x: SETX, base, s: 40, c: "sky", txt: set, align: "r" });
-  L.text({ x: C[1], base, s: 40, c: "lilac", txt: unit, align: "r" });
+  L.text({ x: PJ[1], base, s: 40, c: "lilac", txt: unit, align: "r" });
   return { f, val: L.text({ x: NOWX, base, s: 52, c: "white", txt: "", align: "r" }) };
 });
 
 // ---------------- recalibration events ----------------
-const LOGY = 1620, ROWS = (i) => 1734 + i * 54;
-L.header({ x: A[0], y: LOGY, w: B[1] - A[0], label: "Recalibration Events", c1: "orange", c2: "sky", h: 48 });
+const ROWS = (i, y = L1) => y + 114 + i * 54;
+L.header({ x: A[0], y: L1, w: B[1] - A[0], label: "Recalibration Events", c1: "orange", c2: "sky", h: 48 });
 const EVENTS = ["Early firing drift, window realigned", "Late firing drift, window realigned", "Thermal drift, window realigned",
   "Plasma pressure transient compensated", "Scheduled timing verification", "Coil alignment checked after Typhon Expanse transit"];
 const SDX = A[0], INX = SDX + wide(["47988.8"], 36, 2) + 48, EVX = INX + wide(["Injector 3", "Injector"], 36, 2) + 48;
 const EVW = wide(EVENTS, 36);
 const LOGCOLS = [["Peak Drift", "Early 12.5°"], ["Peak Temp", "1,921 K"], ["Duration", "14.0 s"], ["Result", "Complete"]];
 // the four number columns share what is left equally, right-aligned
-const NX0 = EVX + EVW + 48, NSTEP = (B[1] - NX0) / LOGCOLS.length;
+const NX0 = UP ? FB.x0 + 970 : EVX + EVW + 48, NSTEP = (B[1] - NX0) / LOGCOLS.length;
 const ncol = LOGCOLS.map((_, j) => Math.round(NX0 + (j + 1) * NSTEP));
 ncol[ncol.length - 1] = B[1];
 L.text({ x: SDX, base: ROWS(0), s: 36, c: "lilac", txt: "Stardate" });
@@ -280,32 +296,117 @@ const showLog = () => logRows.forEach((r, i) => {
   fg(r.nums[3], e[6] === "Complete" ? "sky" : "lilac");
 });
 showLog();
+let onLogged = null;                                     // upright and ultrawide: the record listens here
 const logEvent = (k) => {
   stardate += 0.4 + Math.random() * 0.3;
   const i = who(k), a = amp(k);
   logged.push([stardate.toFixed(1), i, EVENTS[a > 0 ? 1 : 0], ddeg(a), fmt(INJ[i].temp + Math.abs(a) * 4) + " K", (DONE - 9).toFixed(1) + " s", "Complete"]);
   if (logged.length > logRows.length) logged.shift();
   showLog();
+  if (onLogged) onLogged(i, a);
 };
 
 // ---------------- the recalibration sequence ----------------
-const seqPill = pillHeader(C[0], C[1], LOGY, "Recalibration Sequence", "sky", "orange", ["Injector 3"], "peach", 48);
+const seqPill = pillHeader(SQ[0], SQ[1], L2, "Recalibration Sequence", "sky", "orange", ["Injector 3"], "peach", 48);
 cls(seqPill, "sw");
 const STW = wide(["Complete", "Pending", "Active"], 36);
 const steps = STEPS.map(([txt], i) => {
-  const base = ROWS(i);
-  L.box({ x: C[0], y: base - 29, w: 96, h: 40, c: i % 2 ? "peach" : "sky", label: pad2(i + 1), fs: 30, r: "l" });
-  L.text({ x: C[1] - STW - 48, base, s: 36, c: "lilac", txt: (STEPS[i][1] - STEPS[0][1]).toFixed(1) + " s", align: "r" });
-  return { e: L.text({ x: C[0] + 124, base, s: 36, c: "ice", txt }), st: L.text({ x: C[1], base, s: 36, c: "lilac", txt: "", align: "r" }), look: "" };
+  const base = ROWS(i, L2);
+  L.box({ x: SQ[0], y: base - 29, w: 96, h: 40, c: i % 2 ? "peach" : "sky", label: pad2(i + 1), fs: 30, r: "l" });
+  L.text({ x: SQ[1] - STW - 48, base, s: 36, c: "lilac", txt: (STEPS[i][1] - STEPS[0][1]).toFixed(1) + " s", align: "r" });
+  return { e: L.text({ x: SQ[0] + 124, base, s: 36, c: "ice", txt }), st: L.text({ x: SQ[1], base, s: 36, c: "lilac", txt: "", align: "r" }), look: "" };
 });
-const PB = ROWS(5), CNTW = wide(["5 Of 5"], 36);
-L.text({ x: C[0], base: PB, s: 36, c: "lilac", txt: "Progress" });
-const PX0 = C[0] + 124, PX1 = C[1] - CNTW - L.GAP;
+const PB = ROWS(5, L2), CNTW = wide(["5 Of 5"], 36);
+L.text({ x: SQ[0], base: PB, s: 36, c: "lilac", txt: "Progress" });
+const PX0 = SQ[0] + 124, PX1 = SQ[1] - CNTW - L.GAP;
 L.rect({ x: PX0, y: PB - 26, w: PX1 - PX0, h: 26, c: TRACK });
 const prog = cls(fill(PX0, PB - 26, PX1 - PX0, 26, "sky"), "glide");
-const progN = L.text({ x: C[1], base: PB, s: 36, c: "white", txt: "", align: "r" });
+const progN = L.text({ x: SQ[1], base: PB, s: 36, c: "white", txt: "", align: "r" });
 // the step marks sit over the bar, so each fifth reads as one step
 for (let k = 1; k < 5; k++) { const m = L.layer({ x: Math.round(PX0 + ((PX1 - PX0) * k) / 5) - 3, y: PB - 26, w: 6, h: 26 }); m.style.background = "#000"; }
+
+// =====================================================================================
+// UPRIGHT AND ULTRAWIDE ONLY: plasma flow (beside the injection table) and the recalibration
+// record (beside the sequence). Upright: column 2; ultrawide: the fourth column.
+// =====================================================================================
+if (L.shape !== "wide") {
+  // plasma flow through each injector: a mistimed injector fires part of its pulse outside the window
+  const FLO = 50, FHI = 110;
+  const flowOf = (i, t) => 93.4 + 0.5 * Math.sin(t * 0.09 + i * 1.7) - 0.55 * Math.abs(err(i, t));
+  const flowAt = (i, t) => (i < 3 ? flowOf(i, t) : (flowOf(0, t) + flowOf(1, t) + flowOf(2, t)) / 3);
+  L.header({ x: D[0], y: T2, w: D[1] - D[0], label: "Plasma Flow", c1: "peach", c2: "orange" });
+  const FVALW = wide(["100.0%", "Percent"], 52);
+  const FX0 = D[0] + BOXW + L.GAP, FX1 = D[1] - FVALW - L.GAP;
+  L.text({ x: D[0], base: lab(T2), s: 36, c: "lilac", txt: "Injector" });
+  L.text({ x: FX0, base: lab(T2), s: 36, c: "lilac", txt: "Flow  ·  Rated 100%" });
+  L.text({ x: D[1], base: lab(T2), s: 36, c: "lilac", txt: "Percent", align: "r" });
+  const flows = [...INJ.map((g) => [g.name, g.c]), ["Nacelle", "peach"]].map(([label, c], i) => {
+    const base = rowBase(i, T2);
+    L.box({ x: D[0], y: rowY(T2, i), w: BOXW, h: 64, c, label, fs: 32, r: "l" });
+    L.rect({ x: FX0, y: base - 26, w: FX1 - FX0, h: 26, c: TRACK });
+    const bar = fill(FX0, base - 26, FX1 - FX0, 26, c);
+    L.rect({ x: FX0 + ((FX1 - FX0) * (100 - FLO)) / (FHI - FLO) - 2, y: base - 34, w: 4, h: 42, c: "white", free: true });   // rated
+    return { bar, val: L.text({ x: D[1], base, s: 52, c: "white", txt: "", align: "r" }), v: -1 };
+  });
+
+  // the recalibration record: this watch so far, agreeing with the log's seeded rows
+  L.header({ x: D[0], y: L2, w: D[1] - D[0], label: "Recalibration Record", c1: "peach", c2: "sky", h: 48 });
+  const rec = [{ n: 3, big: 10.0, last: "47987.4" }, { n: 2, big: -9.1, last: "47983.2" }, { n: 2, big: -7.9, last: "47984.6" }];
+  const RX0 = D[0] + wide(["All Injectors", "Since Last"], 36, 2) + 48, RSTEP = (D[1] - RX0) / 3;
+  // upright: on the log's last three columns, right above
+  const rcol = UP ? ncol.slice(1) : [1, 2, 3].map((j) => (j === 3 ? D[1] : Math.round(RX0 + j * RSTEP)));
+  L.text({ x: D[0], base: ROWS(0, L2), s: 36, c: "lilac", txt: "Injector" });
+  ["Events", "Largest Drift", "Last Stardate"].forEach((h, j) => L.text({ x: rcol[j], base: ROWS(0, L2), s: 36, c: "lilac", txt: h, align: "r" }));
+  const recRows = ["Injector 1", "Injector 2", "Injector 3", "All Injectors"].map((name, i) => {
+    const base = ROWS(i + 1, L2);
+    L.text({ x: D[0], base, s: 36, c: "sky", txt: name });
+    return [["white"], ["white"], ["orange"]].map(([c], j) => L.text({ x: rcol[j], base, s: 36, c, txt: "", align: "r" }));
+  });
+  // the last row: seconds since the last recalibration in the Events column, and a bar over the
+  // last two columns that fills over the 36 s cycle
+  const SB = ROWS(5, L2), SBX = rcol[0] + 48;
+  L.text({ x: D[0], base: SB, s: 36, c: "lilac", txt: "Since Last" });
+  L.rect({ x: SBX, y: SB - 26, w: D[1] - SBX, h: 26, c: TRACK });
+  const since = { bar: fill(SBX, SB - 26, D[1] - SBX, 26, "peach"), v: -1 };
+  const sinceN = L.text({ x: rcol[0], base: SB, s: 36, c: "white", txt: "", align: "r" });
+  const sinceT = (t) => mod(cyc(t) - DONE, CYCLE);           // seconds since the last recalibration finished
+  // ultrawide: the last recalibration on the status line, over the fourth column
+  const lastLine = UW ? L.text({ x: D[0], base: 222, s: 38, c: "peach", txt: "" }) : null;
+  const showRec = () => {
+    rec.forEach((r, i) => { L.set(recRows[i][0], String(r.n)); L.set(recRows[i][1], ddeg(r.big)); L.set(recRows[i][2], r.last); });
+    const big = rec.reduce((a, r) => (Math.abs(r.big) > Math.abs(a.big) ? r : a));
+    const latest = rec.reduce((a, r) => (+r.last > +a.last ? r : a));
+    L.set(recRows[3][0], String(rec.reduce((a, r) => a + r.n, 0))); L.set(recRows[3][1], ddeg(big.big)); L.set(recRows[3][2], latest.last);
+    if (lastLine) {
+      const i = rec.indexOf(latest);
+      L.set(lastLine, "Last Recalibration  ·  " + INJ[i].name + "  ·  " + ddeg(latest.lastAmp) + "  ·  Stardate " + latest.last);
+    }
+  };
+  rec[0].lastAmp = 10.0; rec[1].lastAmp = -9.1; rec[2].lastAmp = -6.4;   // each one's most recent drift (the log's rows)
+  showRec();
+  onLogged = (i, a) => {
+    const r = rec[i];
+    r.n++; r.last = stardate.toFixed(1); r.lastAmp = a;
+    if (Math.abs(a) > Math.abs(r.big)) r.big = a;
+    showRec();
+  };
+  L.tick((t) => {
+    flows.forEach((r, i) => {
+      const v = L.clamp((flowAt(i, t) - FLO) / (FHI - FLO));
+      if (Math.abs(v - r.v) > 0.0004) { r.v = v; tf(r.bar, `scaleX(${v.toFixed(4)})`); }
+    });
+    const v = sinceT(t) / CYCLE;
+    if (Math.abs(v - since.v) > 0.0004) {
+      // a new recalibration: the bar glides back to empty, as the progress bar does, rather than snapping
+      if (v < since.v - 0.5) { since.bar.classList.add("glide"); setTimeout(() => since.bar.classList.remove("glide"), 900); }
+      since.v = v; tf(since.bar, `scaleX(${v.toFixed(4)})`);
+    }
+  });
+  L.every(250, (t) => {
+    flows.forEach((r, i) => L.set(r.val, flowAt(i, t).toFixed(1) + "%"));
+    L.set(sinceN, Math.floor(sinceT(t)) + " s");
+  }, 0);
+}
 
 // ---------------- the clock ----------------
 // bars and the big phase numbers glide every frame (their functions are smooth)

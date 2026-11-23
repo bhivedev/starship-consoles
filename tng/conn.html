@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Conn</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* swapped text dips and comes back; colors change slowly; .boot (the start-up cascade) always wins */
@@ -13,7 +14,7 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: a bracket, title centred ----------------
-L.frame({ type: "C", title: "Conn  •  Flight Control", c: "orange", c2: "peach", accent: "sunset", foot: "Helm",
+const B = L.frame({ type: "C", title: "Conn  •  Flight Control", c: "orange", c2: "peach", accent: "sunset", foot: "Helm",
   side: [[140, "peach", "Conn 01"], [70, "sunset", "4471"], [420, "orange", "Course"], [70, "tan", "06"], [300, "peach", "Attitude"],
          [70, "sunset", "A2"], [216, "orange", "Nav"]],
   side2: [[140, "peach", "Helm 02"], [70, "sunset", "5810"], [420, "orange", "Deflector"], [70, "tan", "17"], [300, "peach", "Thrusters"],
@@ -37,12 +38,29 @@ const deg0 = (v) => String(Math.round(((v % 360) + 360) % 360) % 360).padStart(3
 const sgn = (v, n = 2) => (v < -0.5 * 10 ** -n ? "−" : "+") + Math.abs(v).toFixed(n);
 const swap = (els, f) => { els.forEach((e) => e.classList.add("out")); setTimeout(() => { f(); els.forEach((e) => e.classList.remove("out")); }, 460); };
 
-// Columns: left 220–1080, the helm instrument 1140–2700, right 2760–3620.
-const LX = 220, LR = 1080, MX = 1140, MR = 2700, RX = 2760, RR = 3620;
+// ---------------- the grid, per shape ----------------
+// The data, readings and motion are written once; only these positions differ by shape.
+// wide (3840 × 2160): left 220–1080, the helm instrument 1140–2700, right 2760–3620; three bands of
+//   panels down each side (headers at 280, 1000, 1620), the instrument between them.
+// upright (2160 × 3120): the left and right panels become two columns of 768 (220–988 | 1172–1940;
+//   184 apart, so a right-hand name is never read as a title between the bars either side of it)
+//   in three rows: warp drive | course at the top, the instrument across the full width in the
+//   middle (drawn smaller: its ring 820 across, figures every 30°, the four corner readings beside
+//   it), impulse | deflector, then thrusters | log on the content box's floor.
+// ultrawide (5040 × 2160): the wide columns, with the instrument at its wide size centred under the
+//   title, and a 540 flank either side of it (1140–1680 | 3360–3900) on the same three bands:
+//   waypoints, course corrections, RCS thrusters; stellar fix, hazards ahead, voyage this watch.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const UMID = (B.x0 + B.x1) / 2;                              // upright: the page's centre line, 1080
+const LX = 220, LR = UP ? UMID - 92 : 1080, MX = UP ? B.x0 : UW ? 1740 : 1140, MR = UP ? B.x1 : UW ? 3300 : 2700,
+      RX = UP ? UMID + 92 : UW ? 3960 : 2760, RR = UP || UW ? B.x1 : 3620;
 const BX = 300, BRW = 220;                                   // bars start 300 in, stop 220 short of the column's edge
-const ROW0 = 428, ROW1 = 1148, PITCH = 88;
+const Y1 = UP ? B.y1 - 1004 : 1000, Y2 = UP ? B.y1 - 384 : 1620;   // upright: the strips end on the floor          // the middle and bottom bands' headers
+const HY = UP ? 1000 : 280;                                  // the instrument's header
+const ROW0 = 428, ROW1 = UP ? Y1 + 148 : 1148, PITCH = 88;
 const base0 = (i) => ROW0 + i * PITCH + 52.5, base1 = (i) => ROW1 + i * PITCH + 52.5;
-const STRIP = (i) => 1734 + i * 54;
+const STRIP = (i) => (UP ? Y2 + 114 : 1734) + i * 54;
+const watchHook = {};                                        // ultrawide: the flanks listen here
 
 // a reading: name | gauge | value, on one baseline
 const gaugeRow = (x, r, base, name, c) => {
@@ -68,12 +86,17 @@ const LYS = CEE / 31557600;                                  // light years cove
 const DEST = "Starbase 173", TOTAL = 9.214, REMAIN0 = 4.8613;
 const SD0 = 47615.21, SD_PER_S = 1000 / 31557600 * 1.0;     // a thousand stardates a year
 const sdNow = (t) => SD0 + SD_PER_S * t;
-const remain = (t) => REMAIN0 - LYS * t;
+// On arrival the course is laid in straight back (Starbase 173 ⇄ Starbase 112), so the readings stay true
+// for any length of run: the first leg ends ~108 h in, each one after takes TOTAL / LYS (~206 h).
+const ORIGIN = "Starbase 112", T0 = REMAIN0 / LYS, LEG = TOTAL / LYS;
+const leg = (t) => (t < T0 ? 0 : 1 + Math.floor((t - T0) / LEG));   // 0 the leg the screen began on, then alternating
+const destOf = (k) => (k % 2 ? ORIGIN : DEST), fromOf = (k) => (k % 2 ? DEST : ORIGIN);
+const remain = (t) => (t < T0 ? REMAIN0 - LYS * t : TOTAL - LYS * ((t - T0) % LEG));
 
 // ---------------- status line ----------------
 const state = cls(L.text({ x: LX, cap: 150, s: 100, c: "orange", txt: "Course Laid In" }), "sw");
-const stateSub = L.text({ x: MX, base: 222, s: 38, c: "peach", txt: "" });
-const helmPill = cls(L.box({ x: RR - 400, y: 150, w: 400, h: 72, c: "peach", label: "Helm Locked", r: "lr", fs: 36 }), "sw");
+const stateSub = L.text({ x: UP ? 775 : 1140, base: 222, s: 38, c: "peach", txt: "" });
+const helmPill = cls(L.box({ x: RR - (UP ? 280 : 400), y: 150, w: UP ? 280 : 400, h: 72, c: "peach", label: "Helm Locked", r: "lr", fs: 36 }), "sw");
 
 // ---------------- warp drive ----------------
 L.header({ x: LX, y: 280, w: LR - LX, label: "Warp Drive", c1: "orange", c2: "peach" });
@@ -85,21 +108,21 @@ const warp = [["Velocity", "orange"], ["Field Symmetry", "peach"], ["Coil Effici
 L.set(warp[0].v, `${CEE} c`); showBar(warp[0], CEE / 1516);   // against warp 9
 
 // ---------------- impulse drive ----------------
-L.header({ x: LX, y: 1000, w: LR - LX, label: "Impulse Drive", c1: "peach", c2: "orange" });
-L.text({ x: LX, base: 1120, s: 36, c: "orange", txt: "Impulse Engines  ·  Disengaged at Warp" });
+L.header({ x: LX, y: Y1, w: LR - LX, label: "Impulse Drive", c1: "peach", c2: "orange" });
+L.text({ x: LX, base: Y1 + 120, s: 36, c: "orange", txt: "Impulse Engines  ·  Disengaged at Warp" });
 buttonRow(LX, LR, ROW1, ["Standby", "1/4", "1/2", "3/4", "Full"], 0, "tan");
 const imp = [["Reactor Output", "tan"], ["Driver Coils", "peach"], ["Deuterium", "tan"], ["Coolant", "peach"]]
   .map(([n, c], i) => gaugeRow(LX, LR, base1(i + 1), n, c));
 
 // ---------------- thruster attitude ----------------
-L.header({ x: LX, y: 1620, w: LR - LX, label: "Thruster Attitude", c1: "orange", c2: "sunset", h: 48 });
+L.header({ x: LX, y: Y2, w: LR - LX, label: "Thruster Attitude", c1: "orange", c2: "sunset", h: 48 });
 const AX = LX + BX, AR = LR - BRW, AC = (AX + AR) / 2, AMAX = 2;   // centre-zero gauges, ±2° a second
 const att = ["Pitch", "Yaw", "Roll"].map((n, i) => {
   const base = STRIP(i);
   L.text({ x: LX, base, s: 36, c: "peach", txt: n });
   L.rect({ x: AX, y: base - 22, w: AR - AX, h: 22, c: TRACK });
   const f = fill(AC, base - 22, (AR - AX) / 2, 22, i === 1 ? "butter" : "orange");
-  tf(f, "scaleX(0)");
+  tf(f, "scaleX(0)"); if (L.shape !== "wide") f.dataset.gap = "free";   // (not in wide, whose page is frozen) fills out from the centre, either way
   L.rect({ x: AC - 2, y: base - 30, w: 4, h: 38, c: "white", free: true });
   return { f, v: L.text({ x: LR, base, s: 36, c: "white", txt: "", align: "r" }), u: 0 };
 });
@@ -107,9 +130,9 @@ const QUADS = ["Port Fwd", "Stbd Fwd", "Port Aft", "Stbd Aft"];
 const QW = (LR - LX - 3 * 8) / 4;
 const quads = QUADS.map((label, i) => {
   const x = LX + i * (QW + 8);
-  const b = L.box({ x, y: 1878, w: QW, h: 64, c: DIM, label, fs: 28, r: i === 0 ? "l" : i === 3 ? "r" : null });
+  const b = L.box({ x, y: Y2 + 258, w: QW, h: 64, c: DIM, label, fs: 28, r: i === 0 ? "l" : i === 3 ? "r" : null });
   fg(b, "tan");
-  const lay = L.layer({ x, y: 1878, w: QW, h: 64 });
+  const lay = L.layer({ x, y: Y2 + 258, w: QW, h: 64 });
   const lit = L.box({ x: 0, y: 0, w: QW, h: 64, c: "butter", label, fs: 28, r: i === 0 ? "l" : i === 3 ? "r" : null }, lay);
   lay.style.opacity = 0;
   return { lay, lit, u: 0 };
@@ -121,30 +144,33 @@ const dampBar = { bar: fill(AX, STRIP(5) - 22, AR - AX, 22, "peach"), u: -1 };
 
 // ---------------- course ----------------
 L.header({ x: RX, y: 280, w: RR - RX, label: `Course  ·  ${DEST}`, c1: "orange", c2: "peach" });
+const courseHead = [...L.stage.querySelectorAll(".bx")].find((e) => e.textContent === `Course  ·  ${DEST}`);   // relabelled on arrival
 const courseSub = L.text({ x: RX, base: 400, s: 36, c: "orange", txt: `Laid In  ·  Stardate 47609.8  ·  ${TOTAL.toFixed(2)} Light Years` });
-const destBox = L.box({ x: RX, y: ROW0, w: BX - 24, h: 64, c: "peach", label: DEST, fs: 32, r: "l" });
+// (upright: 40 short of the bar, so the subtitle above, longer than either, is not read as a near-miss of the pair)
+const destBox = L.box({ x: RX, y: ROW0, w: BX - (UP ? 40 : 24), h: 64, c: "peach", label: DEST, fs: 32, r: "l" });
 L.rect({ x: RX + BX, y: base0(0) - 26, w: RR - BRW - (RX + BX), h: 26, c: TRACK });
 const journey = { bar: fill(RX + BX, base0(0) - 26, RR - BRW - (RX + BX), 26, "orange"), v: L.text({ x: RR, base: base0(0), s: 52, c: "white", txt: "", align: "r" }), u: -1 };
 const dist = gaugeRow(RX, RR, base0(1), "Distance", "peach");
 const eta = gaugeRow(RX, RR, base0(2), "Time to Arrival", "orange");
 const plain = (i, name, txt) => {
   L.text({ x: RX, base: base0(i), s: 40, c: "peach", txt: name });
-  return L.text({ x: RX + BX, base: base0(i), s: 52, c: "white", txt });
+  return UP ? L.text({ x: RR, base: base0(i), s: 52, c: "white", txt, align: "r" })   // upright: on the values' edge, the bars are short
+            : L.text({ x: RX + BX, base: base0(i), s: 52, c: "white", txt });
 };
 const bearV = cls(plain(3, "Bearing", ""), "sw");
 const arriveV = plain(4, "Arrival", "");
 plain(5, "Plotted", "Clear of the Typhon Expanse");
 
 // ---------------- navigational deflector ----------------
-L.header({ x: RX, y: 1000, w: RR - RX, label: "Navigational Deflector", c1: "peach", c2: "orange" });
-const navSub = L.text({ x: RX, base: 1120, s: 36, c: "orange", txt: "" });
+L.header({ x: RX, y: Y1, w: RR - RX, label: "Navigational Deflector", c1: "peach", c2: "orange" });
+const navSub = L.text({ x: RX, base: Y1 + 120, s: 36, c: "orange", txt: "" });
 L.box({ x: RX, y: ROW1, w: BX - 24, h: 64, c: "tan", label: "Helm Link", fs: 32, r: "l" });
 const linkPill = cls(L.box({ x: RX + BX, y: ROW1, w: RR - RX - BX, h: 64, c: "peach", label: "Locked  ·  Course Synchronized", fs: 32, r: "r" }), "sw");
 const nav = [["Beam Power", "orange"], ["Graviton Output", "peach"], ["Sweep Range", "orange"], ["Particle Density", "butter"]]
   .map(([n, c], i) => gaugeRow(RX, RR, base1(i + 1), n, c));
 
 // ---------------- manoeuvring log ----------------
-L.header({ x: RX, y: 1620, w: RR - RX, label: "Maneuvering Log", c1: "peach", c2: "sunset", h: 48 });
+L.header({ x: RX, y: Y2, w: RR - RX, label: "Maneuvering Log", c1: "peach", c2: "sunset", h: 48 });
 const LOGT = RX + 150;
 const logRows = Array.from({ length: 6 }, (_, i) => ({
   tm: L.text({ x: RX, base: STRIP(i), s: 36, c: "orange", txt: "" }),
@@ -158,12 +184,14 @@ const logLine = (txt, v, ago = 0) => {
 };
 
 // ---------------- the helm: heading and mark ----------------
-L.header({ x: MX, y: 280, w: MR - MX, label: "Helm  ·  Heading and Mark", c1: "orange", c2: "peach" });
-const CX = 1920, CY = 1130;
-const RB0 = 684, RB1 = 700;                                  // the bezel
-const RT0 = 590, RT5 = 606, RT1 = 624, RTO = 644;            // ticks: tens, fives, ones, outer edge
-const RL = 545;                                              // the figures
-const RI0 = 490, RI1 = 506, RD = 470;                        // the inner band, the mark disk
+L.header({ x: MX, y: HY, w: MR - MX, label: "Helm  ·  Heading and Mark", c1: "orange", c2: "peach" });
+const CX = UP ? UMID : UW ? L.W / 2 : 1920, CY = UP ? 1500 : 1130;
+// upright draws the instrument smaller, but its type, bands and the gaps between them keep their sizes
+const RB0 = UP ? 396 : 684, RB1 = UP ? 410 : 700;            // the bezel
+const RT0 = UP ? 326 : 590, RT5 = UP ? 340 : 606, RT1 = UP ? 352 : 624, RTO = UP ? 364 : 644;   // ticks: tens, fives, ones, outer edge
+const RL = UP ? 288 : 545;                                   // the figures
+const RI0 = UP ? 236 : 490, RI1 = UP ? 248 : 506, RD = UP ? 220 : 470;   // the inner band, the mark disk
+const LSTEP = UP ? 30 : 10;                                  // a figure every 10° (upright: every 30°, the ring is shorter)
 // the bezel and the inner band: segmented, drawn once
 for (let k = 0; k < 12; k++) L.svg("path", { d: L.arc(CX, CY, RB0, RB1, k * 30 + 0.6, k * 30 + 29.4), fill: `var(--${["orange", "peach", "sunset"][k % 3]})`, class: "boot" });
 for (let k = 0; k < 8; k++) L.svg("path", { d: L.arc(CX, CY, RI0, RI1, k * 45 + 1, k * 45 + 44), fill: `var(--${k % 2 ? "tan" : "sunset"})`, class: "boot" });
@@ -180,7 +208,7 @@ const rose = L.layer({ x: CX - RO, y: CY - RO, w: RS, h: RS });
     const r0 = a % 10 === 0 ? RT0 : a % 5 === 0 ? RT5 : RT1, sn = Math.sin((a * Math.PI) / 180), cs = Math.cos((a * Math.PI) / 180);
     const seg = `M${(RO + r0 * sn).toFixed(2)},${(RO - r0 * cs).toFixed(2)} L${(RO + RTO * sn).toFixed(2)},${(RO - RTO * cs).toFixed(2)}`;
     if (a % 10 === 0) p10 += seg; else if (a % 5 === 0) p5 += seg; else p1 += seg;
-    if (a % 10 === 0) {
+    if (a % LSTEP === 0) {
       const card = a % 90 === 0, fs = card ? 52 : 40;
       txt += `<text x="${RO}" y="${(RO - RL + 0.36 * fs).toFixed(1)}" transform="rotate(${a} ${RO} ${RO})" text-anchor="middle" font-size="${fs}" style="fill:var(--${card ? "butter" : "peach"})">${String(a).padStart(3, "0")}</text>`;
     }
@@ -190,7 +218,7 @@ const rose = L.layer({ x: CX - RO, y: CY - RO, w: RS, h: RS });
   rose.appendChild(s);
 }
 // the commanded course: a bug on the rim, turned about the centre
-const BUGW = 64, BUGR = 680, BUGIN = 650;
+const BUGW = UP ? 48 : 64, BUGR = UP ? 392 : 680, BUGIN = UP ? 366 : 650;
 const bug = L.layer({ x: CX - BUGW / 2, y: CY - BUGR, w: BUGW, h: BUGR - BUGIN });
 bug.style.transformOrigin = `${BUGW / 2}px ${BUGR}px`;
 bug.innerHTML = `<svg width="${BUGW}" height="${BUGR - BUGIN}" style="position:absolute;left:0;top:0">
@@ -202,7 +230,7 @@ idx.innerHTML = `<svg width="40" height="${BUGR - RT0 - 2}" style="position:abso
 
 // the mark: a ladder inside the disk, slid to the current mark
 const disk = L.el("div", "disk boot", L.stage, { left: CX - RD + "px", top: CY - RD + "px", width: 2 * RD + "px", height: 2 * RD + "px", background: "#1b1007" });
-const KM = 14, MSPAN = 90;                                   // 14 px a degree; the ladder covers ±90° of the start
+const KM = UP ? 6 : 14, MSPAN = 90;                                   // 14 px a degree; the ladder covers ±90° of the start
 const M0 = 12.0;
 const MB = Math.round(M0 / 10) * 10;                         // the ladder is built round a ten, so its numbers are tens
 const LH = 2 * MSPAN * KM + 2 * RD;
@@ -210,7 +238,7 @@ const ladder = L.layer({ x: 0, y: RD - LH / 2, w: 2 * RD, h: LH }, disk);
 {
   let p10 = "", p5 = "", txt = "";
   for (let m = -MSPAN; m <= MSPAN; m += 5) {
-    const y = LH / 2 - m * KM, ten = m % 10 === 0, a = ten ? 270 : 160, b = 70;
+    const y = LH / 2 - m * KM, ten = m % 10 === 0, a = UP ? (ten ? 96 : 58) : ten ? 270 : 160, b = UP ? 30 : 70;
     const seg = `M${RD - a},${y} H${RD - b} M${RD + b},${y} H${RD + a}`;
     if (ten) {
       p10 += seg;
@@ -223,11 +251,16 @@ const ladder = L.layer({ x: 0, y: RD - LH / 2, w: 2 * RD, h: LH }, disk);
     <path d="${p5}" stroke="var(--tan)" stroke-width="4"/><path d="${p10}" stroke="var(--orange)" stroke-width="6"/>${txt}</svg>`;
 }
 // the ladder fades out toward the rim, so no number is cut by the ring
-L.layer({ x: 0, y: 0, w: 2 * RD, h: 2 * RD }, disk).style.background = (
+// (upright's disk is smaller: its figures' outer corners meet the rim about 87 px in, so the cover is solid to 25%
+//  (a figure there is wholly hidden, never half shown) and thins, eased, over a long band, so figures fade rather than stop)
+L.layer({ x: 0, y: 0, w: 2 * RD, h: 2 * RD }, disk).style.background = UP ?
+   "linear-gradient(#1b1007 0%, #1b1007 25%, rgba(27,16,7,0.9) 29%, rgba(27,16,7,0.6) 34%, rgba(27,16,7,0.25) 39%, rgba(27,16,7,0) 44%, " +
+   "rgba(27,16,7,0) 56%, rgba(27,16,7,0.25) 61%, rgba(27,16,7,0.6) 66%, rgba(27,16,7,0.9) 71%, #1b1007 75%, #1b1007 100%)" : (
    "linear-gradient(#1b1007 0%, #1b1007 9%, rgba(27,16,7,0) 24%, rgba(27,16,7,0) 76%, #1b1007 91%, #1b1007 100%)");
 // the ship, fixed in the middle of the disk
-const ship = L.layer({ x: CX - 260, y: CY - 30, w: 520, h: 60 });
-ship.innerHTML = `<svg width="520" height="60" style="position:absolute;left:0;top:0;fill:var(--butter)">
+const SS = UP ? 0.36 : 1;                                    // upright: the ship drawn at 0.36
+const ship = L.layer({ x: CX - 260 * SS, y: CY - 30 * SS, w: 520 * SS, h: 60 * SS });
+ship.innerHTML = `<svg width="${520 * SS}" height="${60 * SS}"${UP ? ' viewBox="0 0 520 60"' : ""} style="position:absolute;left:0;top:0;fill:var(--butter)">
   <rect x="0" y="24" width="150" height="12" rx="6"/><path d="M150,24 H190 L220,54 H204 L180,36 H150 Z"/>
   <rect x="370" y="24" width="150" height="12" rx="6"/><path d="M370,24 H330 L300,54 H316 L340,36 H370 Z"/>
   <circle cx="260" cy="30" r="12"/></svg>`;
@@ -238,13 +271,16 @@ const corner = (x, align, lb, label, vb, cb) => ({
   v: L.text({ x, base: vb, s: 100, c: "white", txt: "", align }),
   c: L.text({ x, base: cb, s: 36, c: "peach", txt: "", align }),
 });
-const cHead = corner(MX, "l", 400, "Heading", base0(1), base0(2));
-const cMark = corner(MR, "r", 400, "Mark", base0(1), base0(2));
-const cTurn = corner(MX, "l", STRIP(0), "Turn Rate", STRIP(3), STRIP(5));
-const cErr = corner(MR, "r", STRIP(0), "Course Error", STRIP(3), STRIP(5));
+// (upright: beside the ring, the top pair on the wide offsets from the header, the bottom pair ending on the ring's floor)
+const TOPV = UP ? [HY + 288.5, HY + 376.5] : [base0(1), base0(2)], BOT = UP ? [1640, 1802, 1910] : [STRIP(0), STRIP(3), STRIP(5)];
+const cHead = corner(MX, "l", HY + 120, "Heading", ...TOPV);
+const cMark = corner(MR, "r", HY + 120, "Mark", ...TOPV);
+const cTurn = corner(MX, "l", BOT[0], "Turn Rate", BOT[1], BOT[2]);
+const cErr = corner(MR, "r", BOT[0], "Course Error", BOT[1], BOT[2]);
 L.set(cTurn.c, "Degrees per Second");
 L.set(cErr.c, "Tolerance  0.05°");
-L.text({ x: CX, base: STRIP(5), s: 36, c: "orange", txt: "Referenced to the Galactic Core", align: "c", w: 800 });
+if (UP) L.text({ x: MX, base: HY + 430.5, s: 36, c: "orange", txt: "Referenced to the Galactic Core" });   // under the heading
+else L.text({ x: CX, base: STRIP(5), s: 36, c: "orange", txt: "Referenced to the Galactic Core", align: "c", w: 800 });
 
 // ---------------- course corrections ----------------
 const REASONS = [
@@ -269,6 +305,21 @@ const begin = (t) => {
   swap([helmPill], () => { L.set(helmPill, "Correcting"); bg(helmPill, "butter"); });
   swap([linkPill], () => { L.set(linkPill, "Realigning to New Course"); bg(linkPill, "butter"); });
   swap([bearV], () => L.set(bearV, `${deg0(cmdH)} mark ${deg0(cmdM)}`));
+  if (watchHook.begin) watchHook.begin(t, dH, dM, D);
+};
+// on arrival (below), once the helm is free: come about for the leg back, a slow half turn
+let legTurned = 0;
+const turnAbout = (t) => {
+  legTurned = legNow;
+  const dH = 180, D = 200;                                   // 200 s: the turn rate stays inside the gauges' ±2°/s
+  mv = { t0: t, D, H0: H, M0: M, dH, dM: 0 };
+  cmdH = H + dH; cmdM = M;
+  logLine("Coming about for " + destOf(legNow), "+180.0°  +0.0°");
+  swap([state], () => { L.set(state, "Correcting Course"); fg(state, "butter"); });
+  swap([helmPill], () => { L.set(helmPill, "Correcting"); bg(helmPill, "butter"); });
+  swap([linkPill], () => { L.set(linkPill, "Realigning to New Course"); bg(linkPill, "butter"); });
+  swap([bearV], () => L.set(bearV, `${deg0(cmdH)} mark ${deg0(cmdM)}`));
+  if (watchHook.begin) watchHook.begin(t, dH, 0, D);
 };
 const settle = () => {                                       // within tolerance: the course is laid in
   mv.settled = true;
@@ -284,10 +335,104 @@ L.set(bearV, `${deg0(cmdH)} mark ${deg0(cmdM)}`);
  ["Helm link to deflector confirmed", "Locked", 1120], ["Subspace drift corrected", "+0.8°  +0.0°", 610], ["Navigational beacon fix, course refined", "−1.1°  +0.4°", 205]]
   .forEach(([txt, v, ago]) => logLine(txt, v, ago));
 
+// ---------------- ultrawide: a flank either side of the instrument ----------------
+// Everything here is worked out from the voyage, the helm and the thrusters above.
+if (UW) {
+  const FA = 1140, FAR = 1680, FB = 3360, FBR = 3900, FW = 540;
+  const WATCH0 = 1460;                                       // the course was laid in this long before the screen began
+  const made = (t) => TOTAL - remain(t);                     // light years covered since departure
+  const dur = (s) => { s = Math.max(0, Math.floor(s)); const h = Math.floor(s / 3600);
+    return h ? `${h}:${D2(Math.floor(s / 60) % 60)}:${D2(s % 60)}` : `${D2(Math.floor(s / 60))}:${D2(s % 60)}`; };
+  const row = (x, r, base, name, s1, s2) => ({ n: L.text({ x, base, s: s1, c: "peach", txt: name }), v: L.text({ x: r, base, s: s2, c: "white", txt: "", align: "r" }) });
+  // range ahead, or how far astern once passed
+  const range = (e, d) => {
+    if (d > 0) { L.set(e, d.toFixed(4) + " ly"); fg(e, "white"); }
+    else { L.set(e, (-d).toFixed(2) + " ly Astern"); fg(e, "tan"); }
+  };
+
+  // ---- waypoints (left, top) ----
+  L.header({ x: FA, y: 280, w: FW, label: "Waypoints", c1: "peach", c2: "orange" });
+  L.text({ x: FA, base: 400, s: 36, c: "orange", txt: "Range Ahead  ·  Light Years" });
+  const wps = [["Starbase 112  ·  Departed", 0], ["Beacon Kappa 9", 1.84], ["Typhon Expanse  ·  Closest", 4.70], ["Sector 21505 Marker", 5.62],
+               ["Subspace Relay 47", 7.31], [DEST, TOTAL]].map(([n, at], i) => ({ at, ...row(FA, FAR, base0(i), n, 40, 52) }));
+
+  // ---- course corrections this watch (left, middle) ----
+  L.header({ x: FA, y: 1000, w: FW, label: "Course Corrections", c1: "orange", c2: "sunset" });
+  L.text({ x: FA, base: 1120, s: 36, c: "orange", txt: "This Watch  ·  Ensign Ro Laren" });
+  const cc = ["Corrections", "Since Last", "Largest", "Mean Interval", "Last Maneuver"].map((n, i) => row(FA, FAR, base1(i), n, 40, 52));
+  let nCorr = 3, lastAt = -205, largest = Math.hypot(4.2, 1.0), lastD = 7 + 0.6 * 1.1;   // as the log found it
+  const showCorr = () => { L.set(cc[0].v, String(nCorr)); L.set(cc[2].v, largest.toFixed(1) + "°"); L.set(cc[4].v, lastD.toFixed(1) + " s"); };
+  showCorr();
+
+  // ---- RCS thrusters (left, strip): a pulse each time a quad fires ----
+  L.header({ x: FA, y: 1620, w: FW, label: "RCS Thrusters", c1: "peach", c2: "sunset", h: 48 });
+  const pulses = [118, 121, 116, 114], fired = [false, false, false, false];
+  let prop = 0.9642;
+  const rcs = QUADS.map((q, i) => row(FA, FAR, STRIP(i), q + " Quad", 36, 36));
+  const rcsTot = row(FA, FAR, STRIP(4), "Total Pulses", 36, 36), rcsProp = row(FA, FAR, STRIP(5), "RCS Propellant", 36, 36);
+  const showRcs = () => {
+    rcs.forEach((r, i) => L.set(r.v, `${pulses[i]} Pulses`));
+    L.set(rcsTot.v, String(pulses.reduce((a, b) => a + b, 0))); L.set(rcsProp.v, (prop * 100).toFixed(2) + "%");
+  };
+  showRcs();
+
+  // ---- stellar fix (right, top): galactic bearings of six references, from the bow ----
+  L.header({ x: FB, y: 280, w: FW, label: "Stellar Fix", c1: "orange", c2: "peach" });
+  L.text({ x: FB, base: 400, s: 36, c: "orange", txt: "Galactic Bearings from the Bow" });
+  const fix = [["Galactic Core", 0], ["Arcturus", 15.1], ["Vega", 67.4], ["Deneb", 84.3], ["Rigel", 209.2], ["Canopus", 261.2]]
+    .map(([n, a], i) => ({ a, ...row(FB, FBR, base0(i), n, 40, 52) }));
+
+  // ---- hazards ahead (right, middle): what the deflector's sweep has found along the course ----
+  L.header({ x: FB, y: 1000, w: FW, label: "Hazards Ahead", c1: "peach", c2: "orange" });
+  L.text({ x: FB, base: 1120, s: 36, c: "orange", txt: "Deflector Sweep  ·  Range Ahead" });
+  const haz = [["Gravimetric Eddy  ·  Stbd", 4.61], ["Interstellar Dust", 4.98], ["Ion Storm  ·  Port", 5.47], ["Particle Cloud", 6.02],
+               ["Debris Field  ·  Stbd", 6.66]].map(([n, at], i) => ({ at, ...row(FB, FBR, base1(i), n, 40, 52) }));
+
+  // ---- voyage this watch (right, strip) ----
+  L.header({ x: FB, y: 1620, w: FW, label: "Voyage This Watch", c1: "orange", c2: "sunset", h: 48 });
+  const voy = ["Distance Made Good", "Time This Watch", "Stellar Fixes Taken", `Light Time to ${DEST}`, "Subspace Relay Lag", "Antimatter Used"]
+    .map((n, i) => row(FB, FBR, STRIP(i), n, 36, 36));
+
+  // a watch is eight hours: when it changes, this watch's tallies start again from nothing
+  const WATCH = 8 * 3600, inWatch = (t) => (WATCH0 + t) % WATCH;
+  let watchN = Math.floor(WATCH0 / WATCH);
+  const rollWatch = (t) => {
+    const n = Math.floor((WATCH0 + t) / WATCH);
+    if (n !== watchN) { watchN = n; nCorr = 0; largest = 0; showCorr(); }
+  };
+  // the way back: the same waypoints and hazards, reversed, measured from Starbase 173 (port and starboard swap)
+  const back = (list) => list.slice().reverse().map(([n, at]) => [n.replace(/Stbd|Port/, (m) => (m === "Stbd" ? "Port" : "Stbd")), +(TOTAL - at).toFixed(3)]);
+  const out = (list) => list.map((e) => [e.n.textContent, e.at]);
+  const WPS = [out(wps), [[`${DEST}  ·  Departed`, 0], ...back(out(wps).slice(1, -1)), [ORIGIN, TOTAL]]];
+  const HAZ = [out(haz), back(out(haz))];
+
+  watchHook.begin = (t, dH, dM, D) => { rollWatch(t); nCorr++; lastAt = t; largest = Math.max(largest, Math.hypot(dH, dM)); lastD = D; showCorr(); };
+  watchHook.fire = (want) => {
+    let any = false;
+    want.forEach((w, i) => { if (w && !fired[i]) { pulses[i]++; prop -= 0.00002; any = true; } fired[i] = w; });
+    if (prop < 0.9) { prop = 0.9642; logLine("RCS propellant replenished from reserve", "96.42%"); }   // topped up, never run dry
+    if (any) showRcs();
+  };
+  L.every(250, () => fix.forEach((f) => L.set(f.v, deg(f.a - H) + "°")), 0);
+  L.every(1000, (t) => {
+    const r = remain(t), m = made(t), k = leg(t) % 2, w = inWatch(t);
+    rollWatch(t);
+    wps.forEach((e, i) => { e.at = WPS[k][i][1]; L.set(e.n, WPS[k][i][0]); range(e.v, e.at - m); });
+    haz.forEach((e, i) => { e.at = HAZ[k][i][1]; L.set(e.n, HAZ[k][i][0]); range(e.v, e.at - m); });
+    L.set(voy[3].n, `Light Time to ${destOf(k)}`);
+    L.set(cc[1].v, dur(t - lastAt)); L.set(cc[3].v, nCorr ? dur(w / nCorr) : "—");
+    L.set(voy[0].v, (w * LYS).toFixed(4) + " ly"); L.set(voy[1].v, dur(w));
+    L.set(voy[2].v, String(Math.floor(w / 300)));                                // a fix every five minutes
+    L.set(voy[5].v, (w * 0.00185).toFixed(2) + " kg");                           // at warp 6
+    L.set(voy[3].v, r.toFixed(3) + " Years"); L.set(voy[4].v, (r / 3053 * 8766).toFixed(1) + " Hours");   // subspace at warp 9.9
+  }, 0);
+}
+
 // ---------------- the clock ----------------
 let tPrev = null, yawR = 0, pitR = 0, roll = 0, accH = 0, accM = 0;
 L.tick((t) => {
   const dt = tPrev === null ? 0 : Math.min(0.1, t - tPrev); tPrev = t;
+  if (!mv && legTurned !== legNow) turnAbout(t);
   if (!mv && t >= nextAt) begin(t);
   if (mv) {
     const u = L.clamp((t - mv.t0) / mv.D), e = L.ease(u), de = (u < 0.5 ? 4 * u : 4 * (1 - u)) / mv.D;
@@ -308,6 +453,7 @@ L.tick((t) => {
   // thrusters fire to start a turn and again to stop it
   // (yaw: a diagonal pair; pitch: both forward or both aft) — each quad either fires or not
   const want = [accH > 0 || accM > 0, accH < 0 || accM > 0, accH < 0 || accM < 0, accH > 0 || accM < 0];
+  if (watchHook.fire) watchHook.fire(want);
   quads.forEach((q, i) => { q.u += ((want[i] ? 1 : 0) - q.u) * Math.min(1, dt * 6); op(q.lay, q.u < 0.01 ? 0 : q.u > 0.99 ? 1 : q.u); });
   // the deflector sees a cloud before the helm turns for it
   densGoal = !mv && nextAt - t < 7 && nextAt - t > 0 ? 0.62 : 0.21;
@@ -321,9 +467,16 @@ L.every(250, (t) => {
   [pitR, yawR, roll].forEach((r, i) => L.set(att[i].v, `${sgn(r)}°/s`));
   showBar(nav[3], dens / 1.2); L.set(nav[3].v, dens.toFixed(2) + " ppm");
 }, 0);
+let legNow = 0;
 L.every(1000, (t) => {
-  const r = remain(t), secs = r / LYS;
-  L.set(stateSub, `En route to ${DEST}  ·  Warp ${WARP}  ·  Stardate ${sdNow(t).toFixed(1)}  ·  Ensign Ro at the conn`);
+  const r = remain(t), secs = r / LYS, k = leg(t);
+  if (k !== legNow) {                                        // arrived: lay in the course for the next leg
+    legNow = k;
+    logLine(`Arrived at ${fromOf(k)}`, "Full Stop"); logLine("Course laid in for " + destOf(k), `${TOTAL.toFixed(2)} ly`);
+    L.set(courseHead, `Course  ·  ${destOf(k)}`); L.set(destBox, destOf(k));
+    L.set(courseSub, `Laid In  ·  Stardate ${sdNow(t).toFixed(1)}  ·  ${TOTAL.toFixed(2)} Light Years`);
+  }
+  L.set(stateSub, `En route to ${destOf(k)}  ·  Warp ${WARP}  ·  Stardate ${sdNow(t).toFixed(1)}  ·  Ensign Ro at the conn`);
   showBar(journey, 1 - r / TOTAL); L.set(journey.v, ((1 - r / TOTAL) * 100).toFixed(1) + "%");
   showBar(dist, r / TOTAL); L.set(dist.v, r.toFixed(4) + " ly");
   showBar(eta, r / TOTAL);
@@ -332,7 +485,8 @@ L.every(1000, (t) => {
   // steady readings, breathing a little
   const w = [null, 0.9997 + 0.0002 * Math.sin(t * 0.05), 0.964 + 0.003 * Math.sin(t * 0.031), 0.712 + 0.01 * Math.sin(t * 0.043) + (mv ? 0.02 : 0), 0.625 + 0.008 * Math.sin(t * 0.027)];
   for (let i = 1; i < 5; i++) { showBar(warp[i], w[i]); L.set(warp[i].v, (w[i] * 100).toFixed(i === 1 ? 2 : 1) + "%"); }
-  const im = [0.18 + 0.004 * Math.sin(t * 0.07), 0.64 + 0.006 * Math.sin(t * 0.05), 0.884 - t * 0.000002, 0.57 + 0.005 * Math.sin(t * 0.033)];
+  // (deuterium: the tanks are topped up every 50 h, so it never runs below 52.4%; unchanged before then)
+  const im = [0.18 + 0.004 * Math.sin(t * 0.07), 0.64 + 0.006 * Math.sin(t * 0.05), 0.884 - (t % 180000) * 0.000002, 0.57 + 0.005 * Math.sin(t * 0.033)];
   im.forEach((v, i) => { showBar(imp[i], v); L.set(imp[i].v, (v * 100).toFixed(1) + "%"); });
   const beam = 0.68 + 0.06 * (dens - 0.21) / 0.41, grav = 1.42 + 0.3 * (dens - 0.21) / 0.41, sweep = 2.4;
   showBar(nav[0], beam); L.set(nav[0].v, (beam * 100).toFixed(1) + "%");

@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Search and Rescue</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .cell { transition: fill 1.2s ease; }
@@ -17,17 +18,34 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame, mirrored: sidebar on the right, title at top left ----------------
-L.frame({ type: "B", title: "Search and Rescue  •  Grid Search", c: "peach", c2: "sky", accent: "ice", foot: "Rescue",
+const FB = L.frame({ type: "B", title: "Search and Rescue  •  Grid Search", c: "peach", c2: "sky", accent: "ice", foot: "Rescue",
   side: [[140, "sky", "SAR 07"], [70, "peach", "Grid"], [420, "sky", "Search Area"], [70, "ice", "128"],
          [300, "peach", "Sensors"], [70, "tan", "Sweep"], [216, "sky", "Navigation"]] });
 
 // The map on the left (40–2140), a column of tables on the right (2200–3520), a three-panel strip.
 // The grid's cells are 128 square from x 92, y 424; the right column's rows on a 64 grid from 400;
 // the strip on a 54 grid from 1716.
-const LX = 40, MR = 2140, RX = 2200, RR = 3520;
-const GX0 = 92, GY0 = 424, CS = 128, NC = 16, NR = 8, N = NC * NR;
-const SB = (k) => 1716 + 54 * k;
-const KEY1 = 1530, KEY2 = 1580;
+//
+// Per shape (only positions differ; the data, readings and motion below are written once):
+// upright (2160 × 3120, content 40–1840): the map across the top (cells 108, flush right at 1840);
+//   then three bands on the content box: search assets (40–1210) beside search effort (1270–1840)
+//   on the assets' rows; missing craft beside the success curve (two 870 columns, 40–910 | 970–1840)
+//   on the craft table's 64 grid; the search log beside the rescue record on a 54 grid from 2680.
+// ultrawide (5040 × 2160, content 40–4720): wide's map, column and strip unchanged, plus a fourth
+//   column 3580–4720 on the right column's rows: probability by sector, the most probable cells,
+//   drift projection, and a recovery sequence in the strip.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const LX = 40, MR = UP ? 1840 : 2140, RX = 2200, RR = 3520;
+const CS = UP ? 108 : 128, NC = 16, NR = 8, N = NC * NR;
+const GX0 = UP ? MR - NC * CS : 92, GY0 = UP ? 494 : 424, HG = UP ? 350 : 280;
+const SB = (k) => (UP ? 2680 : 1716) + 54 * k;
+const KEY1 = UP ? 1440 : 1530, KEY2 = UP ? 1490 : 1580;
+// the right column's panels: missing craft, search assets, search effort, rescue record; the strip's top
+const MC = UP ? { x: 40, r: 910, y: 2056, mv: 300 } : { x: RX, r: RR, y: 280, mv: 360 };
+const AS = UP ? { x: 40, r: 1210, y: 1580 } : { x: RX, r: RR, y: 784 };
+const EF = UP ? { x: 1270, r: 1840, y: 1580 } : { x: RX, r: RR, y: 1260 };
+const RC = UP ? { x: 970, r: 1840 } : { x: RX, r: RR };
+const STRIP = UP ? 2584 : 1620;
 const PANEL = "#07101f", TRACK = "#14223f";
 const col = (c) => (c.startsWith("#") ? c : `var(--${c})`);
 const ink = (e, c) => { if (e._ink !== c) { e._ink = c; e.style.color = col(c); } };
@@ -70,17 +88,18 @@ const PAUSE = 1.6, RT = 0.3;                            // pause between passes;
 const WORDS = { search: ["Searching", "peach"], contact: ["Contact", "butter"], recovery: ["Recovery", "sky"], done: ["Concluded", "ice"] };
 const SUBX = LX + Math.ceil(Math.max(...Object.values(WORDS).map(([w]) => L.textWidth(w, 100))) / 10) * 10 + 56;
 const stateTxt = L.text({ x: LX, cap: 150, s: 100, c: "peach", txt: "", cls: "sw" });
-const stateSub = L.text({ x: SUBX, base: 222, s: 38, c: "sky", txt: "" });
-L.text({ x: RX, base: 222, s: 40, c: "sky", txt: "Stardate" });
-const sdVal = L.text({ x: RX + L.textWidth("Stardate", 40) + 24, base: 222, s: 52, c: "white", txt: "" });
-L.box({ x: RR - 400, y: 150, w: 400, h: 72, c: "sky", label: "Rescue Operation", r: "lr", fs: 36 });
+const stateSub = L.text({ x: UP ? LX : SUBX, base: UP ? 290 : 222, s: 38, c: "sky", txt: "" });   // upright: a line of its own
+const SDX = UP ? RC.x : RX;
+L.text({ x: SDX, base: 222, s: 40, c: "sky", txt: "Stardate" });
+const sdVal = L.text({ x: SDX + L.textWidth("Stardate", 40) + 24, base: 222, s: 52, c: "white", txt: "" });
+L.box({ x: (UP || UW ? FB.x1 : RR) - 400, y: 150, w: 400, h: 72, c: "sky", label: "Rescue Operation", r: "lr", fs: 36 });
 
 // =====================================================================================
 // THE SEARCH GRID: probability of containment per cell, the craft on their tracks
 // =====================================================================================
-L.header({ x: LX, y: 280, w: MR - LX, label: "Search Grid  ·  Probability Map", c1: "peach", c2: "sky" });
+L.header({ x: LX, y: HG, w: MR - LX, label: "Search Grid  ·  Probability Map", c1: "peach", c2: "sky" });
 const letters = Array.from({ length: NC }, (_, c) =>
-  L.text({ x: GX0 + c * CS + CS / 2, base: 400, s: 36, c: "tan", txt: LETTER[c], align: "c", w: 60, legend: true, cls: "sw" }));
+  L.text({ x: GX0 + c * CS + CS / 2, base: HG + 120, s: 36, c: "tan", txt: LETTER[c], align: "c", w: 60, legend: true, cls: "sw" }));
 for (let r = 0; r < NR; r++) L.text({ x: LX, base: GY0 + r * CS + CS / 2 + 13, s: 36, c: "tan", txt: String(r + 1), legend: true });
 
 // the colour of a probability: dark to bright blue, ten steps of half a percent
@@ -120,11 +139,11 @@ ASSETS.forEach((a) => {
 // ---------------- the key, under the grid ----------------
 L.text({ x: LX, base: KEY1, s: 36, c: "tan", txt: "Containment" });
 L.text({ x: LX, base: KEY2, s: 36, c: "tan", txt: "Percent" });
-const KX0 = GX0 + 2 * CS, KS = 6 * CS, KW = KS / LEVELS;
+const KX0 = GX0 + 2 * CS, KS = (UP ? 5 : 6) * CS, KW = KS / LEVELS;
 LEVEL_C.forEach((c, i) => L.rect({ x: KX0 + i * KW + 2, y: KEY1 - 26, w: KW - 4, h: 26, c, noalign: true }));
 for (let v = 0; v <= 5; v++)
   L.text({ x: KX0 + (v / 5) * KS, base: KEY2, s: 30, c: "tan", txt: String(v), align: v === 0 ? "l" : v === 5 ? "r" : "c", w: 60, legend: true });
-const KM1 = 1320, KM2 = 1660;
+const KM1 = UP ? 960 : 1320, KM2 = UP ? 1300 : 1660;
 L.svg("polygon", { points: `${KM1 + 13},${KEY1 - 26} ${KM1 + 26},${KEY1 - 13} ${KM1 + 13},${KEY1} ${KM1},${KEY1 - 13}`, fill: "var(--white)" });
 L.text({ x: KM1 + 48, base: KEY1, s: 36, c: "tan", txt: "Last Known Position" });
 L.svg("line", { x1: KM1, y1: KEY2 - 13, x2: KM1 + 30, y2: KEY2 - 13, stroke: "rgba(242,242,255,.6)", "stroke-width": 3, "stroke-dasharray": "10 6" });
@@ -139,57 +158,62 @@ L.text({ x: MR, base: KEY2, s: 36, c: "tan", txt: "2,500 km Cells", align: "r" }
 // =====================================================================================
 // MISSING CRAFT
 // =====================================================================================
-L.header({ x: RX, y: 280, w: RR - RX, label: "Missing Craft", c1: "sky", c2: "peach" });
-const MV = RX + 360;
+L.header({ x: MC.x, y: MC.y, w: MC.r - MC.x, label: "Missing Craft", c1: "sky", c2: "peach" });
+const MV = MC.x + MC.mv;
 const miss = ["Craft", "Crew Aboard", "Last Contact", "Last Known", "Probable Cause", "Life Support"].map((label, i) => {
-  const base = 400 + 64 * i;
-  L.text({ x: RX, base, s: 40, c: "tan", txt: label });
-  return { v: L.text({ x: MV, base, s: 52, c: "white", txt: "", cls: "sw" }), cp: L.text({ x: RR, base, s: 36, c: "sky", txt: "", align: "r", cls: "sw" }) };
+  const base = MC.y + 120 + 64 * i;
+  L.text({ x: MC.x, base, s: 40, c: "tan", txt: label });
+  return { v: L.text({ x: MV, base, s: 52, c: "white", txt: "", cls: "sw" }), cp: L.text({ x: MC.r, base, s: 36, c: "sky", txt: "", align: "r", cls: "sw" }) };
 });
 
 // =====================================================================================
 // SEARCH ASSETS
 // =====================================================================================
-L.header({ x: RX, y: 784, w: RR - RX, label: "Search Assets", c1: "peach", c2: "ice" });
-const AC = { sec: RX + 304, st: RX + 480, pod: 3010, bar: 3060, barW: 300 };
-[["Asset", RX, "l"], ["Sector", AC.sec, "l"], ["State", AC.st, "l"], ["POD", AC.pod, "r"], ["Swept This Pass", AC.bar, "l"]]
-  .forEach(([txt, x, align]) => L.text({ x, base: 904, s: 36, c: "sky", txt, align }));
+L.header({ x: AS.x, y: AS.y, w: AS.r - AS.x, label: "Search Assets", c1: "peach", c2: "ice" });
+const AC = UP ? { sec: AS.x + 304, st: AS.x + 420, pod: AS.x + 680, bar: AS.x + 720, barW: 290 }
+              : { sec: RX + 304, st: RX + 480, pod: 3010, bar: 3060, barW: 300 };
+[["Asset", AS.x, "l"], ["Sector", AC.sec, "l"], ["State", AC.st, "l"], ["POD", AC.pod, "r"], ["Swept This Pass", AC.bar, "l"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: AS.y + 120, s: 36, c: "sky", txt, align }));
 ASSETS.forEach((a, i) => {
-  const y = 928 + 72 * i, base = y + 44.56;
-  L.box({ x: RX, y, w: 280, h: 56, c: a.c, label: a.name, fs: 32, r: "l" });
+  const y = AS.y + 144 + 72 * i, base = y + 44.56;
+  L.box({ x: AS.x, y, w: 280, h: 56, c: a.c, label: a.name, fs: 32, r: "l" });
   a.tSec = L.text({ x: AC.sec, base, s: 40, c: "tan", txt: "" });
   a.tSt = L.text({ x: AC.st, base, s: 40, c: "white", txt: "", cls: "sw" });
   a.tPod = L.text({ x: AC.pod, base, s: 52, c: "white", txt: "", align: "r" });
   L.rect({ x: AC.bar, y: base - 26, w: AC.barW, h: 26, c: TRACK });
   a.bar = L.layer({ x: AC.bar, y: base - 26, w: AC.barW, h: 26, cls: "fl" });
   a.bar.style.background = col(a.c); a.bar.style.transform = "scaleX(0)";
-  a.tCnt = L.text({ x: RR, base, s: 40, c: "white", txt: "", align: "r" });
+  a.tCnt = L.text({ x: AS.r, base, s: 40, c: "white", txt: "", align: "r" });
 });
 
 // =====================================================================================
 // SEARCH EFFORT
 // =====================================================================================
-L.header({ x: RX, y: 1260, w: RR - RX, label: "Search Effort", c1: "ice", c2: "peach" });
-L.text({ x: RX, base: 1386, s: 40, c: "tan", txt: "Probability of Success" });
-const posBig = L.text({ x: RX, base: 1530, s: 140, c: "butter", txt: "" });
+// upright: 570 wide, on the assets' rows: the big figure under its label, cells swept beside it with
+// its bar on the next row, then search time and search pass with their captions
+L.header({ x: EF.x, y: EF.y, w: EF.r - EF.x, label: "Search Effort", c1: "ice", c2: "peach" });
+L.text({ x: EF.x, base: UP ? 1700 : 1386, s: 40, c: "tan", txt: "Probability of Success" });
+const posBig = L.text({ x: EF.x, base: UP ? 1840.56 : 1530, s: 140, c: "butter", txt: "" });
 const EX = 2760, EV = 3010;
+const EL = UP ? [[1530, 1768.56, 1840, "r"], [1270, 1912.56, 1430], [1270, 1984.56, 1430]] : null;
 const eff = ["Cells Swept", "Search Time", "Search Pass"].map((label, i) => {
-  const base = 1386 + 72 * i;
-  L.text({ x: EX, base, s: 40, c: "tan", txt: label });
-  return { v: L.text({ x: EV, base, s: 52, c: "white", txt: "" }), base };
+  const [lx, base, vx, align] = EL ? EL[i] : [EX, 1386 + 72 * i, EV];
+  L.text({ x: lx, base, s: 40, c: "tan", txt: label });
+  return { v: L.text({ x: vx, base, s: 52, c: "white", txt: "", align }), base };
 });
-L.rect({ x: 3220, y: eff[0].base - 26, w: RR - 3220, h: 26, c: TRACK });
-const sweptBar = L.layer({ x: 3220, y: eff[0].base - 26, w: RR - 3220, h: 26, cls: "fl" });
+const SBX = UP ? 1530 : 3220, SBY = UP ? 1840.56 : eff[0].base;   // upright: the bar on the row under its count
+L.rect({ x: SBX, y: SBY - 26, w: EF.r - SBX, h: 26, c: TRACK });
+const sweptBar = L.layer({ x: SBX, y: SBY - 26, w: EF.r - SBX, h: 26, cls: "fl" });
 sweptBar.style.background = "var(--sky)"; sweptBar.style.transform = "scaleX(0)";
-const effCap = [null, L.text({ x: RR, base: eff[1].base, s: 36, c: "sky", txt: "1,000 km/s", align: "r" }),
-  L.text({ x: RR, base: eff[2].base, s: 36, c: "sky", txt: "", align: "r" })];
+const effCap = [null, L.text({ x: EF.r, base: eff[1].base, s: 36, c: "sky", txt: "1,000 km/s", align: "r" }),
+  L.text({ x: EF.r, base: eff[2].base, s: 36, c: "sky", txt: "", align: "r" })];
 
 // =====================================================================================
 // THE STRIP: search log, the success curve, the rescue record
 // =====================================================================================
 // ---------------- search log ----------------
-const GL1 = GX0 + 9 * CS - 64;                            // 1180: the strip splits under the grid's columns
-L.header({ x: LX, y: 1620, w: GL1 - LX, label: "Search Log", c1: "sky", c2: "peach", h: 48 });
+const GL1 = UP ? 910 : GX0 + 9 * CS - 64;                 // 1180: the strip splits under the grid's columns
+L.header({ x: LX, y: STRIP, w: GL1 - LX, label: "Search Log", c1: "sky", c2: "peach", h: 48 });
 const logRows = Array.from({ length: 6 }, (_, i) => ({
   sd: L.text({ x: LX, base: SB(i), s: 36, c: "sky", txt: "" }), tx: L.text({ x: LX + 156, base: SB(i), s: 36, c: "peach", txt: "" }) }));
 const logged = [];
@@ -200,9 +224,10 @@ const log = (txt, sd = stardate()) => {
 };
 
 // ---------------- the success curve ----------------
-const CX0 = GX0 + 9 * CS, CPX0 = CX0 + 148, CPX1 = MR - 24, CTOP = 1703, CBOT = 1919, CMAX = 300;
-L.header({ x: CX0, y: 1620, w: MR - CX0, label: "Success Curve", c1: "peach", c2: "sky", h: 48 });
-L.rect({ x: CX0 + 124, y: 1690, w: MR - CX0 - 124, h: 250, c: PANEL, panel: true });
+// upright: in the right-hand column beside the missing craft, taller, its axis on the table's last row
+const CX0 = UP ? RC.x : GX0 + 9 * CS, CPX0 = CX0 + 148, CPX1 = MR - 24, CTOP = UP ? 2139 : 1703, CBOT = UP ? 2429 : 1919, CMAX = 300;
+L.header({ x: CX0, y: UP ? MC.y : 1620, w: MR - CX0, label: "Success Curve", c1: "peach", c2: "sky", h: UP ? 56 : 48 });
+L.rect({ x: CX0 + 124, y: UP ? 2126 : 1690, w: MR - CX0 - 124, h: UP ? 324 : 250, c: PANEL, panel: true });
 const cx = (s) => CPX0 + (Math.min(s, CMAX) / CMAX) * (CPX1 - CPX0), cy = (p) => CBOT - p * (CBOT - CTOP);
 [0, 0.25, 0.5, 0.75, 1].forEach((p) => {
   L.rect({ x: CPX0, y: cy(p) - 1, w: CPX1 - CPX0, h: 2, c: p === 0 ? "#3c5a8c" : "#16284a", free: true });
@@ -210,7 +235,7 @@ const cx = (s) => CPX0 + (Math.min(s, CMAX) / CMAX) * (CPX1 - CPX0), cy = (p) =>
 });
 for (let m = 1; m <= 5; m++) L.rect({ x: Math.round(cx(m * 60)) - 1, y: CTOP, w: 2, h: CBOT - CTOP, c: "#16284a", free: true });
 for (let m = 0; m <= 5; m++)
-  L.text({ x: m === 5 ? MR : cx(m * 60), base: SB(5), s: 30, c: "tan", txt: m === 5 ? "5 Min" : String(m), align: m === 5 ? "r" : "c", w: 60, legend: true });
+  L.text({ x: m === 5 ? MR : cx(m * 60), base: UP ? 2496 : SB(5), s: 30, c: "tan", txt: m === 5 ? "5 Min" : String(m), align: m === 5 ? "r" : "c", w: 60, legend: true });
 const prevLine = L.svg("polyline", { points: "", fill: "none", stroke: "#4a5f8c", "stroke-width": 3, "stroke-dasharray": "10 8" });
 const curArea = L.svg("polygon", { points: "", fill: "rgba(92,157,255,.18)" });
 const curLine = L.svg("polyline", { points: "", fill: "none", stroke: "var(--sky)", "stroke-width": 4, "stroke-linejoin": "round" });
@@ -235,9 +260,9 @@ const drawCurve = () => {
 };
 
 // ---------------- rescue record ----------------
-L.header({ x: RX, y: 1620, w: RR - RX, label: "Rescue Record", c1: "ice", c2: "sky", h: 48 });
-const HC = { sd: RX, craft: RX + 170, loc: RX + 600 };
-[["Stardate", HC.sd, "l"], ["Craft", HC.craft, "l"], ["Location", HC.loc, "l"], ["Outcome", RR, "r"]]
+L.header({ x: RC.x, y: STRIP, w: RC.r - RC.x, label: "Rescue Record", c1: "ice", c2: "sky", h: 48 });
+const HC = UP ? { sd: RC.x, craft: RC.x + 150, loc: RC.x + 430 } : { sd: RX, craft: RX + 170, loc: RX + 600 };
+[["Stardate", HC.sd, "l"], ["Craft", HC.craft, "l"], ["Location", HC.loc, "l"], ["Outcome", RC.r, "r"]]
   .forEach(([txt, x, align]) => L.text({ x, base: SB(0), s: 36, c: "sky", txt, align }));
 const OUTC = { "Four Recovered": "tan", Recovered: "sky", Located: "peach", "Crew Recovered": "ice" };
 const history = [
@@ -249,7 +274,7 @@ const history = [
 ];
 const histRows = Array.from({ length: 5 }, (_, i) => ({
   sd: L.text({ x: HC.sd, base: SB(i + 1), s: 36, c: "orange", txt: "" }), craft: L.text({ x: HC.craft, base: SB(i + 1), s: 36, c: "white", txt: "" }),
-  loc: L.text({ x: HC.loc, base: SB(i + 1), s: 36, c: "sky", txt: "" }), out: L.text({ x: RR, base: SB(i + 1), s: 36, c: "sky", txt: "", align: "r" }) }));
+  loc: L.text({ x: HC.loc, base: SB(i + 1), s: 36, c: "sky", txt: "" }), out: L.text({ x: RC.r, base: SB(i + 1), s: 36, c: "sky", txt: "", align: "r" }) }));
 const showHistory = (fresh) => histRows.forEach((r, i) => {
   const h = history[history.length - 5 + i];
   L.set(r.sd, h[0]); L.set(r.craft, h[1]); L.set(r.loc, h[2]); L.set(r.out, h[3]); ink(r.out, OUTC[h[3]]);
@@ -524,17 +549,123 @@ L.every(1000, () => {
 let noted = -1;
 const t1note = (t) => { if (noted === incN || t - tSearch < 40) return false; noted = incN; return true; };
 
+// =====================================================================================
+// ULTRAWIDE ONLY: A FOURTH COLUMN (3580–4720) on the right column's rows, read from the same search
+// =====================================================================================
+if (UW) {
+  const X0 = RR + 60, X1 = FB.x1;
+  // the status row over this column: the search pattern, as the stardate heads the column beside it
+  L.text({ x: X0, base: 222, s: 40, c: "sky", txt: "Search Pattern" });
+  L.text({ x: X0 + L.textWidth("Search Pattern", 40) + 24, base: 222, s: 52, c: "white", txt: "Parallel Track" });
+  fits("Parallel Track", 52, X1 - 400 - 60 - (X0 + L.textWidth("Search Pattern", 40) + 24), "pattern");
+  // ---------------- probability by sector: what each sector still holds, and how well it is covered ----------------
+  L.header({ x: X0, y: 280, w: X1 - X0, label: "Probability by Sector", c1: "peach", c2: "sky" });
+  const SC = { as: X0 + 160, val: X0 + 560, bar: X0 + 600, barW: 409 };   // the bar runs up to the coverage figure
+  [["Sector", X0, "l"], ["Asset", SC.as, "l"], ["Remaining", SC.val, "r"], ["Containment", SC.bar, "l"], ["Coverage", X1, "r"]]
+    .forEach(([txt, x, align]) => L.text({ x, base: 400, s: 36, c: "sky", txt, align }));
+  const secRow = (i, name) => {
+    const base = 464 + 64 * i;
+    L.text({ x: X0, base, s: 40, c: "tan", txt: name });
+    const r = { as: L.text({ x: SC.as, base, s: 40, c: "white", txt: "", cls: "sw" }), val: L.text({ x: SC.val, base, s: 52, c: "white", txt: "", align: "r" }),
+      cov: L.text({ x: X1, base, s: 40, c: "white", txt: "", align: "r" }) };
+    L.rect({ x: SC.bar, y: base - 26, w: SC.barW, h: 26, c: TRACK });
+    r.bar = L.layer({ x: SC.bar, y: base - 26, w: SC.barW, h: 26, cls: "fl" }); r.bar.style.transform = "scaleX(0)";
+    return r;
+  };
+  const secRows = [0, 1, 2, 3].map((s) => secRow(s, secName(s)));
+  const allRow = secRow(4, "All Sectors");
+  L.set(allRow.as, "Four Assets"); allRow.bar.style.background = "var(--sky)";
+  const barTo = (e, k) => { const v = `scaleX(${L.clamp(k).toFixed(4)})`; if (e._v !== v) { e._v = v; e.style.transform = v; } };
+
+  // ---------------- the most probable cells: eight, two columns of four on the assets' rows ----------------
+  L.header({ x: X0, y: 784, w: X1 - X0, label: "Most Probable Cells", c1: "sky", c2: "ice" });
+  const cellRows = [0, 600].flatMap((dx) => {
+    const sx = X0 + dx;
+    L.text({ x: sx, base: 904, s: 36, c: "sky", txt: "Cell" });
+    L.text({ x: sx + 260, base: 904, s: 36, c: "sky", txt: "Containment", align: "r" });
+    return [0, 1, 2, 3].map((i) => {                    // most probable first, down the left column, then the right
+      const base = 972.56 + 72 * i;
+      const r = { cell: L.text({ x: sx, base, s: 52, c: "white", txt: "", cls: "sw" }), val: L.text({ x: sx + 260, base, s: 52, c: "white", txt: "", align: "r" }) };
+      L.rect({ x: sx + 300, y: base - 26, w: 240, h: 26, c: TRACK });
+      r.bar = L.layer({ x: sx + 300, y: base - 26, w: 240, h: 26, cls: "fl" }); r.bar.style.transform = "scaleX(0)"; r.bar.dataset.gap = "free";   // its figure sits to its left
+      return r;
+    });
+  });
+
+  // ---------------- drift projection: where the craft should have drifted since last contact ----------------
+  L.header({ x: X0, y: 1260, w: X1 - X0, label: "Drift Projection", c1: "peach", c2: "ice" });
+  const drows = [["Drift Bearing", "Mark 0"], ["Drift Distance", "Since Last Contact"], ["Search Datum", "Projected Position"]].map(([label, cap], i) => {
+    const base = 1386 + 72 * i;
+    L.text({ x: X0, base, s: 40, c: "tan", txt: label });
+    L.text({ x: X1, base, s: 36, c: "sky", txt: cap, align: "r" });
+    return L.text({ x: X0 + 360, base, s: 52, c: "white", txt: "", cls: "sw" });
+  });
+
+  // ---------------- recovery sequence, in the strip ----------------
+  L.header({ x: X0, y: 1620, w: X1 - X0, label: "Recovery Sequence", c1: "sky", c2: "peach", h: 48 });
+  [["Recovery Step", X0, "l"], ["Status", X0 + 560, "l"], ["Search Time", X1, "r"]]
+    .forEach(([txt, x, align]) => L.text({ x, base: SB(0), s: 36, c: "sky", txt, align }));
+  // [step, starts, ends] in seconds from contact, as the recovery runs above
+  const STEPS = [["Contact", 0, 0], ["Life Signs Scan", 0, 4], ["Enterprise Closing", 8, 18], ["Tractor Beam", 18, 22], ["Transport to Sickbay", 22, 26]];
+  const srows = STEPS.map(([name], i) => ({
+    name: L.text({ x: X0, base: SB(i + 1), s: 36, c: "peach", txt: name, cls: "sw" }),
+    st: L.text({ x: X0 + 560, base: SB(i + 1), s: 36, c: "tan", txt: "", cls: "sw" }),
+    tm: L.text({ x: X1, base: SB(i + 1), s: 36, c: "sky", txt: "", align: "r" }) }));
+  const mmss = (s) => `${pad(Math.floor(s / 60))}:${pad(Math.floor(s) % 60)}`;
+
+  let drawnFor = -1;
+  L.every(250, (t) => {
+    if (!inc) return;
+    // per sector: the probability still in it (sums to what is left unfound) and its mean coverage
+    let all = 0, allCov = 0;
+    secRows.forEach((r, s) => {
+      const q = sectorSeq(s);
+      const m = q.reduce((x, i) => x + p[i], 0), c = q.reduce((x, i) => x + cov[i], 0) / q.length;
+      all += m; allCov += c / 4;
+      const a = ASSETS.find((as) => as.sector === s);
+      if (a) { L.set(r.as, a.name); ink(r.as, a.c); if (r.bar._c !== a.c) { r.bar._c = a.c; r.bar.style.background = col(a.c); } }
+      L.set(r.val, Math.round(100 * m) + "%"); L.set(r.cov, Math.round(100 * c) + "%"); barTo(r.bar, m);
+    });
+    L.set(allRow.val, Math.round(100 * all) + "%"); L.set(allRow.cov, Math.round(100 * allCov) + "%"); barTo(allRow.bar, all);
+    // the most probable cells, as the map shows them (normalized); held still once the search ends
+    if ((phase === "search" || drawnFor !== incN) && all > 0) {
+      drawnFor = incN;
+      const order = Array.from({ length: N }, (_, i) => i).sort((x, y) => p[y] - p[x] || x - y).slice(0, 8);
+      order.forEach((i, k) => {
+        const r = cellRows[k], q = p[i] / all, lv = Math.min(LEVELS - 1, Math.floor((q / PMAX) * LEVELS));
+        L.set(r.cell, gridName(i)); r.i = i;
+        L.set(r.val, (100 * q).toFixed(1) + "%"); barTo(r.bar, q / (2 * PMAX));   // bars on 0–10%: the leaders pass the map's 5% top step mid-search
+        if (r.bar._c !== lv) { r.bar._c = lv; r.bar.style.background = LEVEL_C[Math.max(4, lv)]; }
+      });
+      // the drift, once per incident
+      const a = (inc.hdg * Math.PI) / 180, mx = inc.lkp[0] + Math.sin(a) * inc.drift, my = inc.lkp[1] - Math.cos(a) * inc.drift;
+      L.set(drows[0], pad(inc.hdg, 3)); L.set(drows[1], `${fmt(inc.drift * 2500)} km`);
+      L.set(drows[2], `Grid ${gridName(L.clamp(Math.floor(my), 0, NR - 1) * NC + L.clamp(Math.floor(mx), 0, NC - 1))}`);
+    }
+    cellRows.forEach((r) => ink(r.cell, phase !== "search" && r.i === T ? "butter" : "white"));
+    // the recovery, step by step
+    const r = phase === "search" ? -1 : t - tc;
+    STEPS.forEach(([, a, b], i) => {
+      const st = r < 0 || r < a ? "Standing By" : r < b ? "In Progress" : "Complete";
+      L.set(srows[i].st, st); ink(srows[i].st, st === "Complete" ? "ice" : st === "In Progress" ? "butter" : "tan");
+      ink(srows[i].name, st === "In Progress" ? "white" : "peach");
+      L.set(srows[i].tm, st === "Complete" ? mmss(elapsedAtContact + b) : "Pending"); ink(srows[i].tm, st === "Complete" ? "sky" : "tan");
+    });
+  }, 0);
+}
+
 // ---------------- a guard: every line of words fits its place ----------------
 [...INC, ...CRAFT].forEach((c) => { if (!c.loc) c = Object.assign({}, INC[0], c);
-  fits(`Shuttlecraft ${c.craft} overdue  ·  ${c.loc}  ·  ${N} cells, four sectors`, 38, RX - 60 - SUBX, "subtitle");
-  fits(`Shuttlecraft ${c.craft} located  ·  Grid P8  ·  Enterprise sensors`, 38, RX - 60 - SUBX, "subtitle");
-  fits(`Shuttlecraft ${c.craft}`, 52, RR - L.textWidth(c.cls, 36) - 40 - MV, "craft");
-  fits(c.cause, 52, RR - L.textWidth(c.effect, 36) - 40 - MV, "cause");
+  const SUBW = UP ? FB.x1 - LX : RX - 60 - SUBX;
+  fits(`Shuttlecraft ${c.craft} overdue  ·  ${c.loc}  ·  ${N} cells, four sectors`, 38, SUBW, "subtitle");
+  fits(`Shuttlecraft ${c.craft} located  ·  Grid P8  ·  Enterprise sensors`, 38, SUBW, "subtitle");
+  fits(`Shuttlecraft ${c.craft}`, 52, MC.r - L.textWidth(c.cls, 36) - 40 - MV, "craft");
+  fits(c.cause, 52, MC.r - L.textWidth(c.effect, 36) - 40 - MV, "cause");
   fits(`Shuttlecraft ${c.craft}`, 36, HC.loc - HC.craft - 30, "record craft");
-  fits(c.loc, 36, RR - L.textWidth("Crew Recovered", 36) - 30 - HC.loc, "record loc");
+  fits(c.loc, 36, RC.r - L.textWidth("Crew Recovered", 36) - 30 - HC.loc, "record loc");
   fits(c.loc, 36, MR - (KM2 + 48 + L.textWidth("Contact", 36)) - 40, "key loc");
 });
-history.forEach((h) => { fits(h[1], 36, HC.loc - HC.craft - 30, "record craft"); fits(h[2], 36, RR - L.textWidth(h[3], 36) - 30 - HC.loc, "record loc"); });
+history.forEach((h) => { fits(h[1], 36, HC.loc - HC.craft - 30, "record craft"); fits(h[2], 36, RC.r - L.textWidth(h[3], 36) - 30 - HC.loc, "record loc"); });
 if (bad.length) setTimeout(() => { throw new Error("search-rescue: " + bad.join(" | ")); });
 });
 </script></body></html>

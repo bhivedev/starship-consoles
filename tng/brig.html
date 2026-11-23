@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Brig</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* the cell plans: plain blocks on one dark floor; the forcefield, the people and the sweep are layers */
@@ -34,6 +35,7 @@ const ink = (e, c) => { if (e._ink !== c) { e._ink = c; e.style.color = colr(c);
 const swap = (els, f) => { els.forEach((e) => e.classList.add("out")); setTimeout(() => { f(); els.forEach((e) => e.classList.remove("out")); }, 460); };
 const wave = (t, p, ph = 0) => Math.sin((2 * Math.PI * t) / p + ph);   // a slow drift, never a jump
 const pad2 = (n) => String(n).padStart(2, "0");
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
 
 // ---------------- the grid ----------------
 // Columns: six cells 220–2540 (360 wide, 32 apart), records 2620–3620. One row pitch of 88 for
@@ -41,8 +43,16 @@ const pad2 = (n) => String(n).padStart(2, "0");
 const AX = 220, AR = 2540, CX = 2620, CR = 3620, TW = 360, TG = 32;
 const cellX = (i) => AX + i * (TW + TG);
 const ROW = (k) => 430 + 88 * k;
-const STRIP = (i) => 1734 + i * 54;
-const P1 = [AX, cellX(2) + TW], P2 = [cellX(3), AR];
+const STRIP = (i) => (UP ? 2696 : 1734) + i * 54;
+const P1 = UP ? [AX, 1048] : [AX, cellX(2) + TW], P2 = UP ? [1112, 1940] : [cellX(3), AR];
+// Per shape. Wide is the grid above. Ultrawide keeps wide's whole layout where it is and adds a
+// column (NX0–NX1) on the same rows: lifesigns on the record's rows, a six-hour watch timeline on the
+// prior detentions' rows, a watch summary on the strip. Upright (2160 x 3120): two 828 columns
+// (220–1048 | 1112–1940); the six cells two to a row, each plan with its readings beside it on a 60
+// grid and its pill in the header; record beside prior detentions on a 76 grid; the log beside field
+// power on the 54 strip. The detention protocols are left out of upright: there is no room.
+const NX0 = CR + 80, NX1 = 4820;
+const SY = UP ? 2582 : 1620;                                  // the bottom strip's headers
 
 // a block (not audited: the plan is one picture)
 const blk = (x, y, w, h, c, rad = 0, parent = L.stage) => {
@@ -70,6 +80,9 @@ const REL_T = 278, REL_LEN = 18, REL_CELL = 4;                 // the release: 2
 const shipSec = (t) => 8 * 3600 + (t - (REL_T + 3)) * 12;      // the field drops on the stroke of 0800
 const hhmm = (s) => { s = ((Math.floor(s / 60) % 1440) + 1440) % 1440; return pad2(Math.floor(s / 60)) + pad2(s % 60); };
 const STARDATE = "46412.4";
+// the watches: eight hours of ship time, changing at 0000, 0800 and 1600 (the night watch, with its
+// seven diagnostics and five visits since 0122, ends as Kovar walks out at 0800)
+const WATCH = 8 * 3600, watchAt = (t) => Math.floor(shipSec(t) / WATCH);
 
 const CELLS = [
   { name: "Kreb", line: "Ferengi  ·  Trader", charge: "Kemocite Smuggling", since: "46405.3", next: "Transfer  ·  Starbase 133", pulse: 88, home: 0,
@@ -109,33 +122,42 @@ const cycleAt = (t) => {
 const WORDS = ["Detention Secure", "Visitation", "Field Diagnostic", "Detainee Release"];
 const SUBX = AX + Math.max(...WORDS.map((w) => L.textWidth(w, 100))) + 56;
 const state = cls(L.text({ x: AX, cap: 150, s: 100, c: "red", txt: "" }), "sw");
-const stateSub = cls(L.text({ x: SUBX, base: 222, s: 38, c: "sand", txt: "" }), "sw");
-L.box({ x: CX, y: 158, w: 488, h: 64, c: "red", label: "Detention Level  ·  Deck 8", fs: 32, r: "l" });
-const clockBox = L.box({ x: CX + 488 + L.GAP, y: 158, w: CR - (CX + 488 + L.GAP), h: 64, c: "sand", label: "", fs: 32, r: "r" });
+const stateSub = cls(L.text({ x: UP ? AX : SUBX, base: UP ? 280 : 222, s: 38, c: "sand", txt: "" }), "sw");
+const BXS = UP ? 1940 - 1000 : CX;                           // upright: on the state word's line, at the right
+L.box({ x: BXS, y: 158, w: 488, h: 64, c: "red", label: "Detention Level  ·  Deck 8", fs: 32, r: "l" });
+const clockBox = UP || UW ? L.box({ x: BXS + 488 + L.GAP, y: 158, w: 488, h: 64, c: "sand", label: "", fs: 32, r: "r" })
+  : L.box({ x: CX + 488 + L.GAP, y: 158, w: CR - (CX + 488 + L.GAP), h: 64, c: "sand", label: "", fs: 32, r: "r" });
+if (UW) L.box({ x: NX0, y: 158, w: NX1 - NX0, h: 64, c: "slate", label: "Brig Officer  ·  Lt. Worf", fs: 32, r: "lr" });
 
 // ---------------- the cells: six plans seen from above, the forcefield across the front ----------------
 // Plan: back wall, side walls, floor with bunk and basin; the field between two emitters; the
 // corridor below it, where visitors stand.
 const PY = 360, PB = 780, FY = 700;                            // plan top, plan bottom, field line
 const tiles = CELLS.map((c, i) => {
-  const x = cellX(i);
+  // upright: two to a row, 892 apart, rows 548 apart; the plan as in wide, its readings beside it
+  const x = UP ? AX + (i % 2) * 892 : cellX(i), hy = UP ? 340 + Math.floor(i / 2) * 548 : 280;
+  const py = UP ? hy + 80 : PY, pb = py + (PB - PY), fy = py + (FY - PY);
+  const rx = UP ? x + TW + 48 : x, rr = UP ? x + 828 : x + TW;     // the readings' edges (upright: each bar starts 150
+  // in and runs to 90 short of the column's edge, up to its value; the 36 px lines above and below it are
+  // then never read as captions of it)
+  const RB = (k) => (UP ? py + 60 * (k + 1) : ROW(5 + k));         // name, three lines, two gauges, a line
   // header, kept so the cell on record can light up
   const lw = Math.ceil(L.textWidth(`Cell ${i + 1}`, 32) + 88);
-  const hd = cls(L.box({ x, y: 280, w: lw, h: 56, c: "red", label: `Cell ${i + 1}`, fs: 32, r: "l" }), "hd");
-  L.rect({ x: x + lw + L.GAP, y: 280, w: TW - lw - L.GAP, h: 56, c: i % 2 ? "sand" : "slate" });
+  const hd = cls(L.box({ x, y: hy, w: lw, h: 56, c: "red", label: `Cell ${i + 1}`, fs: 32, r: "l" }), "hd");
+  if (!UP) L.rect({ x: x + lw + L.GAP, y: hy, w: TW - lw - L.GAP, h: 56, c: i % 2 ? "sand" : "slate" });
   // the plan
-  L.rect({ x, y: PY, w: TW, h: PB - PY, c: HALL });
-  blk(x, PY, TW, 16, WALL);
-  blk(x, PY, 16, FY - PY, WALL); blk(x + TW - 16, PY, 16, FY - PY, WALL);
-  blk(x + 16, PY + 16, TW - 32, FY - PY - 16, FLOOR);
-  blk(x + 30, PY + 30, 116, 200, FURN, 6); blk(x + 38, PY + 38, 100, 46, FURN2, 4);   // bunk and pillow
-  blk(x + TW - 70, PY + 30, 40, 52, FURN, 6); blk(x + TW - 62, PY + 38, 24, 24, FURN2, 12);   // basin
-  blk(x + TW - 118, PY + 210, 88, 40, FURN, 6);                                        // bench
-  if (c.reinforced) { blk(x + 16, PY + 16, TW - 32, 6, "red"); blk(x + 16, PY + 16, 6, FY - PY - 16, "red"); blk(x + TW - 22, PY + 16, 6, FY - PY - 16, "red"); }
-  blk(x + 6, FY - 14, 26, 34, "red", 4); blk(x + TW - 32, FY - 14, 26, 34, "red", 4);   // emitters
-  blk(x + 40, PB - 10, TW - 80, 4, "#1f2630");                                         // corridor line
+  L.rect({ x, y: py, w: TW, h: pb - py, c: HALL });
+  blk(x, py, TW, 16, WALL);
+  blk(x, py, 16, fy - py, WALL); blk(x + TW - 16, py, 16, fy - py, WALL);
+  blk(x + 16, py + 16, TW - 32, fy - py - 16, FLOOR);
+  blk(x + 30, py + 30, 116, 200, FURN, 6); blk(x + 38, py + 38, 100, 46, FURN2, 4);   // bunk and pillow
+  blk(x + TW - 70, py + 30, 40, 52, FURN, 6); blk(x + TW - 62, py + 38, 24, 24, FURN2, 12);   // basin
+  blk(x + TW - 118, py + 210, 88, 40, FURN, 6);                                        // bench
+  if (c.reinforced) { blk(x + 16, py + 16, TW - 32, 6, "red"); blk(x + 16, py + 16, 6, fy - py - 16, "red"); blk(x + TW - 22, py + 16, 6, fy - py - 16, "red"); }
+  blk(x + 6, fy - 14, 26, 34, "red", 4); blk(x + TW - 32, fy - 14, 26, 34, "red", 4);   // emitters
+  blk(x + 40, pb - 10, TW - 80, 4, "#1f2630");                                         // corridor line
   // the field: a glow and a moving shimmer strip, one layer so it can be lowered
-  const field = cls(L.layer({ x: x + 32, y: FY - 70, w: TW - 64, h: 82 }), "boot");
+  const field = cls(L.layer({ x: x + 32, y: fy - 70, w: TW - 64, h: 82 }), "boot");
   const glow = L.el("div", "", field, { position: "absolute", left: "0", top: "0", width: TW - 64 + "px", height: "64px",
     background: `linear-gradient(to top, rgba(${ICE},.26), rgba(${ICE},0))` });
   const clip = L.el("div", "clip", field, { left: "0", top: "64px", width: TW - 64 + "px", height: "12px" });
@@ -151,22 +173,23 @@ const tiles = CELLS.map((c, i) => {
   const who = mark("white", "red"), vis = mark("white", "sand");
   op(vis, 0);
   // the diagnostic sweep: a bright line down the cell
-  const sweep = L.layer({ x: x + 16, y: PY + 16, w: TW - 32, h: 6 });
+  const sweep = L.layer({ x: x + 16, y: py + 16, w: TW - 32, h: 6 });
   sweep.style.background = `rgb(${ICE})`; sweep.style.boxShadow = `0 0 18px 4px rgba(${ICE},.45)`;
   op(sweep, 0);
   // the readings under the plan
-  const nm = cls(L.text({ x, base: ROW(5), s: 52, c: "white", txt: "" }), "sw");
-  const l1 = cls(L.text({ x, base: ROW(6), s: 36, c: "butter", txt: "" }), "sw");
-  const l2 = cls(L.text({ x, base: ROW(7), s: 36, c: "sand", txt: "" }), "sw");
-  const l3 = cls(L.text({ x, base: ROW(8), s: 36, c: "sand", txt: "" }), "sw");
-  const gF = gauge({ x, r: x + TW, base: ROW(9), name: "Field", c: "red", bx: 112, brw: 112, bh: 18, s: 40, ns: 36 });
-  const gP = gauge({ x, r: x + TW, base: ROW(10), name: "Pulse", c: "sand", bx: 112, brw: 112, bh: 18, s: 40, ns: 36 });
-  const l4 = cls(L.text({ x, base: ROW(11), s: 36, c: "butter", txt: "" }), "sw");
-  const pill = cls(L.box({ x, y: ROW(12) - 42, w: TW, h: 48, c: "slate", label: "", fs: 30, r: "lr" }), "pill");
+  const nm = cls(L.text({ x: rx, base: RB(0), s: 52, c: "white", txt: "" }), "sw");
+  const l1 = cls(L.text({ x: rx, base: RB(1), s: 36, c: "butter", txt: "" }), "sw");
+  const l2 = cls(L.text({ x: rx, base: RB(2), s: 36, c: "sand", txt: "" }), "sw");
+  const l3 = cls(L.text({ x: rx, base: RB(3), s: 36, c: "sand", txt: "" }), "sw");
+  const gF = gauge({ x: rx, r: rr, base: RB(4), name: "Field", c: "red", bx: UP ? 150 : 112, brw: UP ? 90 : 112, bh: 18, s: 40, ns: 36 });
+  const gP = gauge({ x: rx, r: rr, base: RB(5), name: "Pulse", c: "sand", bx: UP ? 150 : 112, brw: UP ? 90 : 112, bh: 18, s: 40, ns: 36 });
+  const l4 = cls(L.text({ x: rx, base: RB(6), s: 36, c: "butter", txt: "" }), "sw");
+  const pill = cls(UP ? L.box({ x: x + lw + L.GAP, y: hy, w: 828 - lw - L.GAP, h: 56, c: "slate", label: "", fs: 30, r: "r" })
+    : L.box({ x, y: ROW(12) - 42, w: TW, h: 48, c: "slate", label: "", fs: 30, r: "lr" }), "pill");
   // where people stand: rest points inside, the front of the cell, the corridor
   const P = {
-    bunk: [x + 88, PY + 150], mid: [x + 180, PY + 190], bench: [x + TW - 74, PY + 290], corner: [x + 96, PY + 290],
-    front: [x + 180, FY - 46], hall: [x + 180, PB - 40], hallIn: [x + TW - 40, PB - 40],
+    bunk: [x + 88, py + 150], mid: [x + 180, py + 190], bench: [x + TW - 74, py + 290], corner: [x + 96, py + 290],
+    front: [x + 180, fy - 46], hall: [x + 180, pb - 40], hallIn: [x + TW - 40, pb - 40],
   };
   const walk = c.pacer ? ["mid", "corner", "bench", "mid", "bunk"] : c.home === 1 ? ["bench", "mid", "bench", "bunk"] : ["bunk", "mid", "bunk", "corner"];
   return { i, x, c, hd, field, strip, who, vis, sweep, nm, l1, l2, l3, l4, gF, gP, pill, P, walk,
@@ -176,26 +199,30 @@ const tiles = CELLS.map((c, i) => {
 const ORDER = { 0: "first", 3: "second", 4: "third" };
 
 // ---------------- detainee record ----------------
-L.header({ x: CX, y: 280, w: CR - CX, label: "Detainee Record", c1: "red", c2: "sand" });
-const recCap = cls(L.text({ x: CX, base: ROW(0), s: 36, c: "butter", txt: "" }), "sw");
-const RVX = CX + 250;
+// upright: record (220–1048) beside prior detentions (1112–1940), one header line, rows 76 apart
+const RX0 = UP ? AX : CX, RX1 = UP ? 1048 : CR, QX0 = UP ? 1112 : CX, QX1 = UP ? 1940 : CR, RY = 2000;
+const RROW = (k) => (UP ? RY + 132 + 76 * k : ROW(k));          // record rows 0–4
+const QROW = (k) => (UP ? RY + 132 + 76 * (k - 7) : ROW(k));    // prior rows 7–12
+L.header({ x: RX0, y: UP ? RY : 280, w: RX1 - RX0, label: "Detainee Record", c1: "red", c2: "sand" });
+const recCap = cls(L.text({ x: RX0, base: RROW(0), s: 36, c: "butter", txt: "" }), "sw");
+const RVX = RX0 + 250;
 const recRows = ["Name", "Species", "Charge", "Disposition"].map((n, k) => {
-  L.text({ x: CX, base: ROW(1 + k), s: 40, c: "sand", txt: n });
-  return cls(L.text({ x: RVX, base: ROW(1 + k), s: k === 0 ? 52 : 44, c: k === 0 ? "white" : "butter", txt: "" }), "sw");
+  L.text({ x: RX0, base: RROW(1 + k), s: 40, c: "sand", txt: n });
+  return cls(L.text({ x: RVX, base: RROW(1 + k), s: k === 0 ? 52 : 44, c: k === 0 ? "white" : "butter", txt: "" }), "sw");
 });
 
 // ---------------- prior detentions ----------------
-L.header({ x: CX, y: 896, w: CR - CX, label: "Prior Detentions", c1: "slate", c2: "red" });
-const PCOL = [CX, CX + 170, CX + 420];
-["Stardate", "Detainee", "Species"].forEach((h, j) => L.text({ x: PCOL[j], base: ROW(7), s: 36, c: "butter", txt: h }));
-L.text({ x: CR, base: ROW(7), s: 36, c: "butter", txt: "Disposition", align: "r" });
+L.header({ x: QX0, y: UP ? RY : 896, w: QX1 - QX0, label: "Prior Detentions", c1: "slate", c2: "red" });
+const PCOL = UP ? [QX0, QX0 + 160, QX0 + 340] : [CX, CX + 170, CX + 420];
+["Stardate", "Detainee", "Species"].forEach((h, j) => L.text({ x: PCOL[j], base: QROW(7), s: 36, c: "butter", txt: h }));
+L.text({ x: QX1, base: QROW(7), s: 36, c: "butter", txt: "Disposition", align: "r" });
 const priorRows = PRIOR.map((r, k) => [
-  ...[0, 1, 2].map((j) => L.text({ x: PCOL[j], base: ROW(8 + k), s: 40, c: j === 0 ? "sand" : "white", txt: r[j] })),
-  L.text({ x: CR, base: ROW(8 + k), s: 40, c: "sand", txt: r[3], align: "r" })]);
+  ...[0, 1, 2].map((j) => L.text({ x: PCOL[j], base: QROW(8 + k), s: 40, c: j === 0 ? "sand" : "white", txt: r[j] })),
+  L.text({ x: QX1, base: QROW(8 + k), s: 40, c: "sand", txt: r[3], align: "r" })]);
 
 // ---------------- bottom strip: visitation log, field power, protocols ----------------
-L.header({ x: P1[0], y: 1620, w: P1[1] - P1[0], label: "Visitation Log", c1: "sand", c2: "red", h: 48 });
-const VC = [P1[0], P1[0] + 130, P1[0] + 480];
+L.header({ x: P1[0], y: SY, w: P1[1] - P1[0], label: "Visitation Log", c1: "sand", c2: "red", h: 48 });
+const VC = [P1[0], P1[0] + 130, P1[0] + (UP ? 330 : 480)];
 const logRows = Array.from({ length: 6 }, (_, i) => ({
   tm: L.text({ x: VC[0], base: STRIP(i), s: 36, c: "butter", txt: "" }),
   who: L.text({ x: VC[1], base: STRIP(i), s: 36, c: "white", txt: "" }),
@@ -212,11 +239,13 @@ const logLine = (e) => { logged.push(e); if (logged.length > logRows.length) log
 [["0215", "Lt. Worf", "Cell 5", "Admission  ·  18 min"], ["0236", "Dr. Crusher", "Cell 5", "Medical Check  ·  9 min"],
  ["0610", "Sec. Detail 2", "Cells 1, 4, 5", "Meal Service  ·  14 min"], ["0627", "Nurse Ogawa", "Cell 4", "Medical Check  ·  11 min"], ["0641", "Cmdr. Riker", "Cell 1", "Interview  ·  16 min"]].forEach(logLine);
 
-L.header({ x: P2[0], y: 1620, w: P2[1] - P2[0], label: "Field Power", c1: "red", c2: "slate", h: 48 });
-const pg = (i, n, c) => gauge({ x: P2[0], r: P2[1], base: STRIP(i), name: n, c, bx: 330, brw: 220, bh: 22, s: 36, ns: 36 });
+L.header({ x: P2[0], y: SY, w: P2[1] - P2[0], label: "Field Power", c1: "red", c2: "slate", h: 48 });
+const pg = (i, n, c) => gauge({ x: P2[0], r: P2[1], base: STRIP(i), name: n, c, bx: 330, brw: UP ? 124 : 220, bh: 22, s: 36, ns: 36 });
 const PWR = { gen: pg(0, "Primary Generator", "red"), back: pg(1, "Backup Generator", "slate"), full: pg(2, "Cells at Full Field", "red"),
   load: pg(3, "Emitter Load", "sand"), inhib: pg(4, "Transporter Inhibitor", "sand"), res: pg(5, "Power Reserve", "slate") };
 
+let protoV = [];
+if (!UP) {
 L.header({ x: CX, y: 1620, w: CR - CX, label: "Detention Protocols", c1: "slate", c2: "sand", h: 48 });
 const PROTO = [
   ["Transporter Lock-out", "Lt. Worf", "Active"],
@@ -226,14 +255,15 @@ const PROTO = [
   ["Communications", "Operations", "Monitored"],
   ["Diagnostics  ·  This Watch", "Brig Officer", ""],
 ];
-const protoV = PROTO.map(([a, b, c], i) => {
+protoV = PROTO.map(([a, b, c], i) => {
   L.text({ x: CX, base: STRIP(i), s: 36, c: "sand", txt: a });
   L.text({ x: CX + 470, base: STRIP(i), s: 36, c: "white", txt: b });
   return L.text({ x: CR, base: STRIP(i), s: 36, c: "butter", txt: c, align: "r" });
 });
+}
 
 // ---------------- the running state ----------------
-let last = null, phaseKey = "", lastT = 0, diags = 7, released = false, recIx = -1, recKey = "", visitEntry = null;
+let last = null, phaseKey = "", lastT = 0, diags = 7, watchN = watchAt(0), released = false, recIx = -1, recKey = "", visitEntry = null;
 const sm = { load: 0.41, gen: 1.84 };
 const records = () => [...occupied(L.t).map((i) => ({ cell: i, ...CELLS[i] })), HUGH];
 
@@ -287,6 +317,120 @@ const showState = (c, occN) => {
   }
 };
 
+// ---------------- ultrawide only: a column of lifesigns, the watch timeline, a watch summary ----------------
+// Built from the same story: the tiles' positions and pulses, the visit cycle, the diagnostics, the release.
+const UWX = !UW ? null : (() => {
+  // lifesigns, on the record's rows
+  L.header({ x: NX0, y: 280, w: NX1 - NX0, label: "Internal Sensors  ·  Lifesigns", c1: "slate", c2: "red" });
+  const LC = [NX0, NX0 + 170, NX0 + 520];
+  ["Cell", "Detainee", "Position"].forEach((h, j) => L.text({ x: LC[j], base: ROW(0), s: 36, c: "butter", txt: h }));
+  L.text({ x: NX1, base: ROW(0), s: 36, c: "butter", txt: "Pulse", align: "r" });
+  const lrow = (k, a) => [L.text({ x: LC[0], base: ROW(1 + k), s: 40, c: "sand", txt: a }),
+    L.text({ x: LC[1], base: ROW(1 + k), s: 40, c: "white", txt: "" }), L.text({ x: LC[2], base: ROW(1 + k), s: 40, c: "butter", txt: "" }),
+    L.text({ x: NX1, base: ROW(1 + k), s: 40, c: "white", txt: "", align: "r" })];
+  const HELD = [0, 3, 4], lrows = HELD.map((i, k) => lrow(k, `Cell ${i + 1}`)), vrow = lrow(3, "Corridor");
+  const WHERE = { bunk: "On the Bunk", mid: "Centre of Cell", bench: "On the Bench", corner: "Rear of Cell",
+    front: "At the Forcefield", hall: "In the Corridor", hallIn: "In the Corridor" };
+  const placeOf = (tl, t) => {
+    if (t - tl.m0 < tl.mdur) return tl.c.pacer ? "Pacing" : "Moving";
+    const k = Object.keys(tl.P).find((n) => tl.P[n][0] === tl.to[0] && tl.P[n][1] === tl.to[1]);
+    return WHERE[k] || "";
+  };
+
+  // the watch timeline: the last six hours of ship time, a lane for each cell, now at the right
+  L.header({ x: NX0, y: 896, w: NX1 - NX0, label: "Watch Timeline  ·  Last 6 Hours", c1: "red", c2: "sand" });
+  const TX0 = NX0 + 160, TW6 = NX1 - TX0, PXS = TW6 / (6 * 3600);        // 160 px an hour of ship time
+  const LT = ROW(7) - 28, LH = ROW(12) - LT;
+  CELLS.forEach((cc, i) => {
+    L.text({ x: NX0, base: ROW(7 + i), s: 36, c: "sand", txt: `Cell ${i + 1}` });
+    L.rect({ x: TX0, y: ROW(7 + i) - 28, w: TW6, h: 28, c: TRACK });
+  });
+  [1, 2, 3, 4, 5].forEach((h) => L.rect({ x: TX0 + h * 160 - 1, y: LT, w: 2, h: LH, c: "#3a2420", free: true }));
+  [["6 h ago", TX0, "l"], ["4 h ago", TX0 + 320, "c"], ["2 h ago", TX0 + 640, "c"], ["Now", NX1, "r"]].forEach(([txt, x, a]) =>
+    L.text({ x, base: ROW(12) + 58, s: 30, c: "sand", txt, align: a, w: 160, legend: true }));
+  const clip = cls(L.el("div", "clip", L.stage, { left: TX0 + "px", top: LT + "px", width: TW6 + "px", height: LH + "px" }), "boot");
+  const slide = L.layer({ x: 0, y: 0, w: 1, h: LH }, clip);
+  const S0 = shipSec(0);
+  const sx = (sec) => (sec - S0) * PXS + TW6;                              // in the slide, now at t = 0 is the right edge
+  const bars = [];
+  const bar = (lane, s0, s1, col, h, top) => {
+    const e = L.el("div", "blk", slide, { top: ROW(7 + lane) - 28 - LT + top + "px", height: h + "px", left: sx(s0).toFixed(1) + "px", width: "0px" });
+    e.style.background = col.startsWith("#") || col.startsWith("rgb") ? col : colr(col);
+    const b = { e, s0, s1, w: -1 };
+    bars.push(b); return b;
+  };
+  const grow = (b, now) => {                                              // a bar is drawn only from just past the window's left edge
+    const s0 = Math.max(b.s0, now - 6.2 * 3600), l = sx(s0).toFixed(1);
+    if (l !== b.l) { b.l = l; b.e.style.left = l + "px"; }
+    const w = Math.max(4, (Math.min(now, b.s1(now)) - s0) * PXS).toFixed(1);
+    if (w !== b.w) { b.w = w; b.e.style.width = w + "px"; }
+  };
+  const at = (hm, m = 0) => (+hm.slice(0, 2) * 60 + +hm.slice(2) + m) * 60;
+  // held: Kreb and Dreyer since before the window, Kovar from his admission at 0215 until he walks out
+  bar(0, S0 - 8 * 3600, () => Infinity, "red", 8, 10); bar(3, S0 - 8 * 3600, () => Infinity, "red", 8, 10);
+  bar(4, at("0215"), () => shipSec(REL_T + 8), "red", 8, 10);
+  // the night's visits, as in the log
+  [["0215", [4], 18], ["0236", [4], 9], ["0610", [0, 3, 4], 14], ["0627", [3], 11], ["0641", [0], 16]].forEach(([hm, cs, m]) =>
+    cs.forEach((ci) => bar(ci, at(hm), () => at(hm, m), "sand", 28, 0)));
+  // the watch's seven field diagnostics so far (the count the strip starts from), cell 6 the last
+  [["0122", 5], ["0208", 0], ["0254", 1], ["0340", 2], ["0426", 3], ["0512", 4], ["0558", 5]].forEach(([hm, ci]) =>
+    bar(ci, at(hm), () => at(hm, (DIAG1 - DIAG0) * 12 / 60), `rgb(${ICE})`, 28, 0));
+  const cursor = L.layer({ x: NX1 - 3, y: LT - 8, w: 3, h: LH + 16 });
+  cursor.style.background = "var(--white)";
+
+  // the watch summary, on the strip
+  L.header({ x: NX0, y: 1620, w: NX1 - NX0, label: "Watch Summary", c1: "sand", c2: "slate", h: 48 });
+  const SC = [NX0, NX0 + 330];
+  const srow = ["Visits This Watch", "Field Diagnostics", "Detainees Held", "Releases", "Next Visit", "Emitter Load Peak"].map((n, i) => [
+    L.text({ x: SC[0], base: STRIP(i), s: 36, c: "sand", txt: n }), L.text({ x: SC[1], base: STRIP(i), s: 36, c: "white", txt: "" }),
+    L.text({ x: NX1, base: STRIP(i), s: 36, c: "butter", txt: "", align: "r" })]);
+  let prev = null, visits = 5, vWatch = watchAt(0), lastVis = "Cmdr. Riker  ·  Cell 1", lastDiag = 6, peak = sm.load, relMark = false;
+  return {
+    tick(t, c) {
+      if (watchAt(t) !== vWatch) { vWatch = watchAt(t); visits = 0; }      // a new watch
+      if (c.visit && (!prev || !prev.visit || prev.n !== c.n)) {
+        const s0 = shipSec(c.n * PERIOD), len = c.visit.dur * 12;
+        bar(c.visit.cell, s0, () => s0 + len, "sand", 28, 0);
+        visits++; lastVis = `${c.visit.who}  ·  Cell ${c.visit.cell + 1}`;
+      }
+      if (c.diag && (!prev || !prev.diag || prev.n !== c.n)) {
+        const s0 = shipSec(c.n * PERIOD + DIAG0), len = (DIAG1 - DIAG0) * 12;
+        bar(c.diag.cell, s0, () => s0 + len, `rgb(${ICE})`, 28, 0); lastDiag = c.diag.cell + 1;
+      }
+      if (released && !relMark) { relMark = true; const r0 = shipSec(REL_T + 3); bar(REL_CELL, r0, () => r0 + 135, "white", 28, 0); }
+      prev = c;
+      tf(slide, `translate3d(${(-(shipSec(t) - S0) * PXS).toFixed(2)}px,0,0)`);
+    },
+    every(t, c) {
+      const now = shipSec(t);
+      for (let k = bars.length - 1; k >= 0; k--) {
+        const b = bars[k];
+        if (b.s1(now) < now - 6.2 * 3600) { b.e.remove(); bars.splice(k, 1); } else grow(b, now);
+      }
+      HELD.forEach((i, k) => {
+        const tl = tiles[i], row = lrows[k];
+        L.set(row[1], tl.c.name);
+        if (tl.out) { L.set(row[2], "Released at 0800"); L.set(row[3], "—"); }
+        else { L.set(row[2], placeOf(tl, t)); L.set(row[3], tl.pv ? String(tl.pv) : "—"); }
+      });
+      const v = c.visit ? [c.visit.who, `Outside Cell ${c.visit.cell + 1}`, "Visitor"]
+        : c.rel && c.rel.ph < 13 ? ["Lt. Worf", "Outside Cell 5", "Escort"] : ["Clear", "Security Detail at Post", "—"];
+      v.forEach((x, j) => L.set(vrow[j + 1], x));
+      peak = Math.max(peak, sm.load);
+      const occ = occupied(t), nn = c.n + 1;
+      const vals = [
+        [`Last  ·  ${lastVis}`, String(visits)],
+        [`Last  ·  Cell ${lastDiag}`, String(diags)],
+        [occ.length ? `Cells ${occ.map((i) => i + 1).join(", ")}` : "None", String(occ.length)],
+        released && watchAt(t) === watchAt(REL_T + 3) ? ["Kovar  ·  Released at 0800", "1"]
+          : released ? ["None This Watch", "0"] : ["Kovar  ·  Due at 0800", "0"],
+        [`Cell ${c.nextCell + 1}  ·  ${VISITORS[nn % VISITORS.length][0]}`, hhmm(shipSec(nn * PERIOD))],
+        [peak > 0.45 ? "During Field Diagnostic" : "Routine Load", Math.round(peak * 100) + "%"]];
+      vals.forEach(([d, x], i) => { L.set(srow[i][1], d); L.set(srow[i][2], x); });
+    },
+  };
+})();
+
 const ease = L.ease;
 L.tick((t) => {
   const dt = Math.min(0.1, t - lastT); lastT = t;
@@ -300,6 +444,7 @@ L.tick((t) => {
   if (last && last.visit && !c.visit && visitEntry) {
     visitEntry[3] = `${last.visit.why}  ·  ${Math.round((last.visit.dur * 12) / 60)} min`; visitEntry = null; drawLog();
   }
+  if (watchAt(t) !== watchN) { watchN = watchAt(t); diags = 0; }       // a new watch
   if (last && last.diag && !c.diag) diags++;
   if (c.rel && c.rel.ph >= 3 && !released) {
     released = true; logLine([hhmm(shipSec(t)), "Lt. Worf", "Cell 5", "Release  ·  End of Detention"]);
@@ -307,6 +452,7 @@ L.tick((t) => {
   }
   if (c.rel && c.rel.ph >= 14 && !tiles[REL_CELL].out) { const tl = tiles[REL_CELL]; tl.out = true; swap([tl.nm, tl.l1, tl.l2, tl.l3, tl.l4], () => showCell(tl)); }
   last = c;
+  if (UWX) UWX.tick(t, c);
 
   // the cells
   tiles.forEach((tl) => {
@@ -393,8 +539,8 @@ L.every(250, (t) => {
     if (occ) {
       const visiting = c.visit && c.visit.cell === tl.i;
       const p = tl.c.pulse + 1.5 * wave(t, 37, tl.i) + (visiting ? 4 * Math.sin(Math.PI * L.clamp(c.visit.k)) : 0);
-      showBar(tl.gP, p / 160); L.set(tl.gP.v, String(Math.round(p)));
-    } else { showBar(tl.gP, 0); L.set(tl.gP.v, "—"); }
+      showBar(tl.gP, p / 160); L.set(tl.gP.v, String(Math.round(p))); tl.pv = Math.round(p);
+    } else { showBar(tl.gP, 0); L.set(tl.gP.v, "—"); tl.pv = null; }
   });
   // field power
   L.set(PWR.gen.v, sm.gen.toFixed(2) + " MW");
@@ -404,7 +550,8 @@ L.every(250, (t) => {
   L.set(PWR.load.v, Math.round(sm.load * 100) + "%");
   showBar(PWR.inhib, 1); L.set(PWR.inhib.v, "100%");
   const res = 96.2 + 0.2 * wave(t, 71); showBar(PWR.res, res / 100); L.set(PWR.res.v, res.toFixed(1) + "%");
-  L.set(protoV[5], String(diags));
+  if (protoV[5]) L.set(protoV[5], String(diags));
+  if (UWX) UWX.every(t, c);
 }, 0);
 });
 </script></body></html>

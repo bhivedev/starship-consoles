@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Replicator Systems</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* text that is swapped fades out and back in; colors change slowly; .boot (the start-up cascade) always wins */
@@ -15,7 +16,10 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: sidebar left, title top right ----------------
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
 const BAR = 64;
+let B;
+if (L.shape === "wide") {
 L.title({ x: 3700, y: 40, h: BAR, c: "peach", txt: "Replicator Systems  •  Food and Matter Synthesis" });
 // (L.title measures with a canvas, which sets this line ~11px wider than the page draws it; use the page's own width)
 const titleLeft = 3700 - document.querySelector("[data-title]").offsetWidth;
@@ -31,6 +35,19 @@ L.text({ x: 258, base: 1712, s: 40, c: "#000", txt: "Synthesis", align: "r", on:
 [[1540 + L.GAP, 600, "pink"], [2164 + L.GAP, 900, "butter"], [3088 + L.GAP, 3700 - (3088 + L.GAP), "lilac"]]
   .forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
 L.box({ x: 3724, y: 2056, w: 92, h: BAR, c: "pink", r: "r" });
+B = { x0: 330, x1: 3816, y0: 140, y1: 2010 };
+} else {
+  // the same frame, drawn by the kit for this shape: type A, the same colours and sidebar labels
+  const X1R = L.W - 116 - L.GAP;                          // where the kit right-aligns the title
+  B = L.frame({ type: "A", title: "Replicator Systems  •  Food and Matter Synthesis", c: "pink", c2: "lilac", accent: "butter", foot: "Synthesis",
+    side: [[140, "lilac", "Rep 10"], [70, "butter", "Food"], [420, "pink", "Network"], [70, "peach", "Matter"],
+           [300, "lilac", "Patterns"], [70, "butter", "Energy"], [216, "pink", "Reclaim"]] });
+  const tt = document.querySelector("[data-title]");
+  tt.style.color = "var(--peach)";                       // the title in peach, as in wide
+  // upright: the long title leaves a piece too short for the kit to draw between the elbow and it
+  const tl = X1R - tt.offsetWidth, gx = 680 + L.GAP;
+  if (UP && tl - L.GAP - gx > 0 && tl - L.GAP - gx < 60) L.rect({ x: gx, y: 40, w: tl - L.GAP - gx, h: BAR, c: "butter" });
+}
 
 // a section header: a rounded box and a bar to the column's edge; returns where the bar starts
 const header = (x, y, w, label, c1, c2, h = 56, fs = 32, lw) => {
@@ -60,6 +77,36 @@ const later = (ms, f, jitter) => L.every(ms, (t) => { if (t > 1) f(t); }, jitter
 const LX = 330, LR = 1530, MX = 1590, MR = 2730, RX = 2790, RR = 3816;
 const ROW0 = 428, PITCH = 88, rowBase = (i) => ROW0 + i * PITCH + 52.5;   // rows of 64 on an 88 grid, left and right
 const TRACK = "#2a1a30";                                                   // the dark of an empty gauge
+
+// ---------------- the grid, per shape ----------------
+// The data, readings and motion are written once; only positions and sizes differ by shape.
+// wide (3840 × 2160): the three columns above.
+// ultrawide (5040 × 2160): the chamber keeps its wide size and moves out 600, so it stays centred;
+//   the left column stays, the right column moves out 1200. Two new 536 columns beside the chamber:
+//   Order Detail (each active order's deck, mass and energy, on the replicators' rows) over Pattern
+//   and Serve At (on the most-requested rows) at 1590–2126; Matter Drawn and Returned (on the
+//   reserves' rows) at 3394–3930. Network load runs across 330–2126 (wider bars), the log across
+//   2190–3930 (with pattern and energy columns), the energy chart across 3394–5016 (90 minutes).
+// upright (2160 × 3120): the chamber at its wide size at 330–1470, the order cycle (stage boxes,
+//   cycle time, composition) beside it at 1534–2136; active replicators across the full width;
+//   reserves beside energy and pattern memory (two 871 columns, 330–1201 | 1265–2136, on an 80 row
+//   pitch); network load beside the log at the foot. Most Requested and Matter Reclamation are left
+//   out: there is no room for them.
+const X1 = B.x1;
+const CX = UP ? -1260 : UW ? 600 : 0;                     // the chamber's shift from wide
+const HL = [330, 1201], HR = [1265, 2136], CYC = [1534, 2136];   // upright: half columns; the cycle column
+const NA = [1590, 2126], NB = [3394, 3930];               // ultrawide: the two new columns
+const AR = UP ? X1 : LR, AY = UP ? 1204 : 280, AROW0 = UP ? 1352 : ROW0;   // active replicators
+const RSX = UW ? RX + 1200 : UP ? HL[0] : RX, RSR = UW ? RR + 1200 : UP ? HL[1] : RR;   // reserves
+const RSY = UP ? 1900 : 280, RSROW0 = UP ? 2048 : ROW0, RSP = UP ? 80 : PITCH;
+const rsBase = (i) => RSROW0 + i * RSP + 52.5;
+const EX = UW ? NB[0] : UP ? HR[0] : RX, ER = UW ? RR + 1200 : UP ? HR[1] : RR;   // energy, pattern memory
+const EY = UP ? 1900 : 1000, ELB = UP ? 2020 : 1112, EH = UP ? 212 : 180;
+const PB = UP ? 2340.5 : 1400, CY0 = UP ? 2372.5 : 1424, CPI = UP ? 46 : 42;
+const NR = UW ? NA[1] : UP ? HL[1] : LR, NY = UP ? 2576 : 1620;                    // network load
+const GX = UP ? HR[0] : MX + CX, GR = UW ? NB[1] : UP ? HR[1] : MR, GY = UP ? 2576 : 1620;   // the log
+const RCX = UW ? RX + 1200 : RX, RCRR = UW ? RR + 1200 : RR;                        // reclamation
+const ghost = () => document.createElement("div");       // a reading kept but not shown in this shape
 
 // ---------------- what the ship asks for ----------------
 // The six stocks a replicator draws on, in the order of the reserves table and every composition.
@@ -96,8 +143,9 @@ const pickItem = () => {
 // ---------------- status line ----------------
 const STATE = "Replicators Online";
 L.text({ x: LX, cap: 150, s: 100, c: "pink", txt: STATE });
-const stateSub = L.text({ x: MX, base: 222, s: 38, c: "peach", txt: "" });          // on the chamber column's line
-L.box({ x: RR - 400, y: 150, w: 400, h: 72, c: "lilac", label: "Network Nominal", r: "lr", fs: 36 });
+const stateSub = UP ? L.text({ x: X1 - 440, base: 222, s: 38, c: "peach", txt: "", align: "r" })   // before the pill
+  : L.text({ x: MX + CX, base: 222, s: 38, c: "peach", txt: "" });          // on the chamber column's line
+L.box({ x: X1 - 400, y: 150, w: 400, h: 72, c: "lilac", label: "Network Nominal", r: "lr", fs: 36 });
 
 // ---------------- the cycle of one order ----------------
 // Pattern retrieval 0–3 s, matter conversion 3–6.5 s, materialization 6.5–10 s, then complete.
@@ -106,12 +154,12 @@ const DONE = 10, HOLD = 11.6, GONE = 12.2;                 // the chamber holds 
 const stageAt = (u) => (u < 3 ? 0 : u < 6.5 ? 1 : u < DONE ? 2 : 3);
 
 // ---------------- active replicators ----------------
-const ORDX = header(LX, 280, LR - LX, "Active Replicators", "pink", "lilac", 56, 32, 300);   // 654: the order column
-const SEGX = 1040, SEGW = 60, SEGG = 8, PILLX = 1280;
-[["Replicator", LX], ["Order", ORDX], ["Stage", PILLX]].forEach(([txt, x]) => L.text({ x, base: 400, s: 36, c: "lilac", txt }));
-L.text({ x: SEGX + (3 * SEGW + 2 * SEGG) / 2, base: 400, s: 36, c: "lilac", txt: "Progress", align: "c", w: 3 * SEGW + 2 * SEGG });   // centred on its gauges
+const ORDX = header(LX, AY, AR - LX, "Active Replicators", "pink", "lilac", 56, 32, 300);   // 654: the order column
+const SEGX = UP ? HR[0] : 1040, SEGW = UP ? 120 : 60, SEGG = 8, PILLX = UP ? 1685 : 1280;   // upright: gauges on the right half column
+[["Replicator", LX], ["Order", ORDX], ["Stage", PILLX]].forEach(([txt, x]) => L.text({ x, base: AY + 120, s: 36, c: "lilac", txt }));
+L.text({ x: SEGX + (3 * SEGW + 2 * SEGG) / 2, base: AY + 120, s: 36, c: "lilac", txt: "Progress", align: "c", w: 3 * SEGW + 2 * SEGG });   // centred on its gauges
 const slots = Array.from({ length: 6 }, (_, i) => {
-  const y = ROW0 + i * PITCH, base = rowBase(i);
+  const y = AROW0 + i * PITCH, base = AROW0 + i * PITCH + 52.5;
   const loc = L.box({ x: LX, y, w: 300, h: 64, c: "lilac", label: "", fs: 32, r: "l", cls: "sw" });
   const item = L.text({ x: ORDX, base, s: 40, c: "white", txt: "", cls: "sw" });
   const segs = STAGES.map(([, , , c], k) => {
@@ -119,18 +167,29 @@ const slots = Array.from({ length: 6 }, (_, i) => {
     L.rect({ x, y: base - 26, w: SEGW, h: 26, c: TRACK });
     return cls(fill(x, base - 26, SEGW, 26, c), "sw");
   });
-  const pill = L.box({ x: PILLX, y, w: LR - PILLX, h: 64, c: "lilac", label: "", fs: 32, r: "lr", cls: "sw" });
-  return { i, loc, item, segs, pill, order: null, t0: 0, linger: 0, phase: "run", fadeT: 0, stage: -2, done: false, mon: false };
+  const pill = L.box({ x: PILLX, y, w: AR - PILLX, h: 64, c: "lilac", label: "", fs: 32, r: "lr", cls: "sw" });
+  // ultrawide: the order's deck, mass and energy beside it, in the new column
+  const det = UW ? [L.text({ x: NA[0], base, s: 40, c: "peach", txt: "", cls: "sw" }),
+                    L.text({ x: NA[0] + 290, base, s: 52, c: "white", txt: "", align: "r", cls: "sw" }),
+                    L.text({ x: NA[1], base, s: 52, c: "white", txt: "", align: "r", cls: "sw" })]
+    // upright: the mass laid down so far, ending on the half column's edge
+    : UP ? [ghost(), L.text({ x: HL[1], base, s: 52, c: "white", txt: "", align: "r", cls: "sw" }), ghost()] : null;
+  return { i, loc, item, segs, pill, det, order: null, t0: 0, linger: 0, phase: "run", fadeT: 0, stage: -2, done: false, mon: false };
 });
-const rowEls = (s) => [s.loc, s.item, s.pill, ...s.segs];
+const rowEls = (s) => [s.loc, s.item, s.pill, ...s.segs, ...(s.det || [])];
+if (UP) L.text({ x: HL[1], base: AY + 120, s: 36, c: "lilac", txt: "Mass", align: "r" });
+if (UW) {
+  header(NA[0], 280, NA[1] - NA[0], "Order Detail", "butter", "pink");
+  [["Deck", NA[0], ""], ["Mass", NA[0] + 290, "r"], ["Energy", NA[1], "r"]].forEach(([txt, x, align]) => L.text({ x, base: 400, s: 36, c: "lilac", txt, align }));
+}
 
 // ---------------- the synthesis chamber ----------------
-header(MX, 280, MR - MX, "Matter Synthesis", "butter", "pink");
-const monLoc = cls(L.text({ x: MX, base: 400, s: 40, c: "butter", txt: "" }), "sw");
-const monNum = cls(L.text({ x: MR, base: 400, s: 40, c: "peach", txt: "", align: "r" }), "sw");
+header(MX + CX, 280, MR - MX, "Matter Synthesis", "butter", "pink");
+const monLoc = cls(L.text({ x: MX + CX, base: 400, s: 40, c: "butter", txt: "" }), "sw");
+const monNum = cls(L.text({ x: MR + CX, base: 400, s: 40, c: "peach", txt: "", align: "r" }), "sw");
 const CHAMBER = "#170e1d", ALCOVE = "#22152b";
-L.rect({ x: MX, y: 428, w: MR - MX, h: 732, c: CHAMBER, panel: true });
-const OBJ = { x: 1900, y: 532, w: 520, h: 566 };          // the alcove; the object stands on its floor
+L.rect({ x: MX + CX, y: 428, w: MR - MX, h: 732, c: CHAMBER, panel: true });
+const OBJ = { x: 1900 + CX, y: 532, w: 520, h: 566 };          // the alcove; the object stands on its floor
 const OW = OBJ.w, OH = OBJ.h, MAXW = 450, MAXH = 500, K = 0.24;   // K: how far down we look at it
 L.svg("rect", { x: OBJ.x, y: OBJ.y, width: OBJ.w, height: OBJ.h, fill: ALCOVE, class: "boot" });
 L.svg("rect", { x: OBJ.x - 20, y: OBJ.y - 22, width: OBJ.w + 40, height: 10, rx: 5, fill: "#4a3058", class: "boot" });   // emitter
@@ -139,10 +198,10 @@ const padGlow = fill(OBJ.x - 20, OBJ.y + OBJ.h + 8, OBJ.w + 40, 16, "butter");
 padGlow.style.borderRadius = "8px"; padGlow.style.opacity = 0;
 const emitGlow = fill(OBJ.x - 20, OBJ.y - 22, OBJ.w + 40, 10, "lilac");
 emitGlow.style.borderRadius = "5px"; emitGlow.style.opacity = 0;
-const monName = cls(L.text({ x: 2160, base: 492, s: 52, c: "white", txt: "", align: "c", w: 1000 }), "sw");
+const monName = cls(L.text({ x: 2160 + CX, base: 492, s: 52, c: "white", txt: "", align: "c", w: 1000 }), "sw");
 // four readings either side of the alcove
-const SIDE = [["Layer", 1630, ""], ["Mass", 1630, ""], ["Serve At", 1630, ""], ["Resolution", 1630, ""],
-              ["Pattern", 2690, "r"], ["Energy", 2690, "r"], ["Matter Stream", 2690, "r"], ["Phase Variance", 2690, "r"]];
+const SIDE = [["Layer", 1630 + CX, ""], ["Mass", 1630 + CX, ""], ["Serve At", 1630 + CX, ""], ["Resolution", 1630 + CX, ""],
+              ["Pattern", 2690 + CX, "r"], ["Energy", 2690 + CX, "r"], ["Matter Stream", 2690 + CX, "r"], ["Phase Variance", 2690 + CX, "r"]];
 const side = SIDE.map(([name, x, align], i) => {
   const k = i % 4;
   L.text({ x, base: 492 + k * 150, s: 40, c: "lilac", txt: name, align });
@@ -280,22 +339,31 @@ for (const k in SHAPES) {                                  // drawn once each; o
 }
 const rg0 = solidSvg.querySelector("#rg0"), rg1 = solidSvg.querySelector("#rg1");
 
-// the stages, under the chamber
+// the stages, under the chamber (upright: stacked in the cycle column beside it, under the cycle time)
+let cycV = null;
+if (UP) {
+  header(CYC[0], 280, CYC[1] - CYC[0], "Order Cycle", "pink", "lilac");
+  L.text({ x: CYC[0], base: 400, s: 40, c: "lilac", txt: "Cycle Time" });
+  cycV = L.text({ x: CYC[1], base: 400, s: 40, c: "white", txt: "", align: "r" });
+}
 const SBW = (MR - MX - 2 * L.GAP) / 3;
 const stageBox = ["Pattern Retrieval", "Matter Conversion", "Materialization"].map((label, k) => {
-  const x = MX + k * (SBW + L.GAP);
-  const b = L.box({ x, y: 1204, w: SBW, h: 64, c: "#3a2646", label, fs: 32, r: k === 0 ? "l" : k === 2 ? "r" : null, cls: "sw" });
+  const x = UP ? CYC[0] : MX + CX + k * (SBW + L.GAP), y = UP ? 428 + k * 132 : 1204, w = UP ? CYC[1] - CYC[0] : SBW;
+  const b = L.box({ x, y, w, h: 64, c: "#3a2646", label, fs: 32, r: UP ? "lr" : k === 0 ? "l" : k === 2 ? "r" : null, cls: "sw" });
   fg(b, "lilac");
-  L.rect({ x, y: 1286, w: SBW, h: 14, c: TRACK });
-  return { b, bar: fill(x, 1286, SBW, 14, STAGES[k][3]), state: "" };
+  L.rect({ x, y: y + 82, w, h: 14, c: TRACK });
+  return { b, bar: fill(x, y + 82, w, 14, STAGES[k][3]), state: "" };
 });
 // what the order is made of
-L.text({ x: MX, base: 1400, s: 40, c: "lilac", txt: "Composition by Mass" });
-const monKg = L.text({ x: MR, base: 1400, s: 52, c: "white", txt: "", align: "r" });
-L.rect({ x: MX, y: 1420, w: MR - MX, h: 32, c: TRACK });
-const CW = MR - MX;
-const compSegs = MATTER.map(([, c]) => cls(fill(MX, 1420, CW, 32, c), "seg"));
-const compLegend = MATTER.map(([, c, short], i) => L.text({ x: MX + i * 190, base: 1544, s: 36, c, txt: short }));
+const CPX = UP ? CYC[0] : MX + CX, CPR = UP ? CYC[1] : MR + CX, CPB = UP ? 900 : 1400;
+L.text({ x: CPX, base: CPB, s: 40, c: "lilac", txt: "Composition by Mass" });
+const monKg = L.text({ x: CPR, base: CPB, s: 52, c: "white", txt: "", align: "r" });
+L.rect({ x: CPX, y: CPB + 20, w: CPR - CPX, h: 32, c: TRACK });
+const CW = CPR - CPX;
+const compSegs = MATTER.map(([, c]) => cls(fill(CPX, CPB + 20, CW, 32, c), "seg"));
+// the key: one line under the bar (upright: two columns of three)
+const compLegend = MATTER.map(([, c, short], i) => UP ? L.text({ x: CPX + (i < 3 ? 0 : 301), base: 1052 + (i % 3) * 54, s: 36, c, txt: short })
+  : L.text({ x: CPX + i * 190, base: 1544, s: 36, c, txt: short }));
 const showComp = (comp) => {
   let x = 0;
   comp.forEach((p, i) => {
@@ -307,17 +375,24 @@ const showComp = (comp) => {
 };
 
 // ---------------- most requested ----------------
-const MRX = header(LX, 1000, LR - LX, "Most Requested  ·  This Shift", "peach", "pink");
+const MRX = UP ? 0 : header(LX, 1000, LR - LX, "Most Requested  ·  This Shift", "peach", "pink");   // upright: not shown
 const TOP = [["Tea, Earl Grey, hot", 412], ["Raktajino", 356], ["Coffee, black", 301], ["Plomeek soup", 244],
              ["Chocolate sundae", 198], ["Synthehol, Saurian brandy", 151], ["Prune juice", 97]].map(([name, n]) => ({ name, n }));
 const BARR = 1380;
+if (UW) header(NA[0], 1000, NA[1] - NA[0], "Pattern  ·  Serve At", "lilac", "peach");
 const topRows = TOP.map((_, i) => {
+  if (UP) return { name: ghost(), bar: ghost(), v: ghost(), u: 0 };
   const base = 1112 + i * 72;
+  const ex = UW ? [cls(L.text({ x: NA[0], base, s: 40, c: "peach", txt: "" }), "sw"), cls(L.text({ x: NA[1], base, s: 52, c: "white", txt: "", align: "r" }), "sw")] : null;
   const name = cls(L.text({ x: LX, base, s: 40, c: "peach", txt: "" }), "sw");
   L.rect({ x: MRX, y: base - 26, w: BARR - MRX, h: 26, c: TRACK });
-  return { name, bar: fill(MRX, base - 26, BARR - MRX, 26, i % 2 ? "pink" : "peach"), v: L.text({ x: LR, base, s: 52, c: "white", txt: "", align: "r" }), u: 0 };
+  return { name, bar: fill(MRX, base - 26, BARR - MRX, 26, i % 2 ? "pink" : "peach"), v: L.text({ x: LR, base, s: 52, c: "white", txt: "", align: "r" }), u: 0, ex };
 });
-const showTop = () => TOP.forEach((e, i) => { put(topRows[i].name, e.name); put(topRows[i].v, fmt(e.n)); });
+const showTop = () => TOP.forEach((e, i) => {
+  put(topRows[i].name, e.name); put(topRows[i].v, fmt(e.n));
+  if (topRows[i].ex) { const it = ITEMS.find((it) => it.name === e.name); put(topRows[i].ex[0], it.pat); put(topRows[i].ex[1], it.temp); }
+});
+const swapEls = (i) => [topRows[i].name, ...(topRows[i].ex || [])];
 const countItem = (name) => { const e = TOP.find((e) => e.name === name); if (e) e.n++; };
 let swapping = false;
 later(5000, () => {                                       // a new favourite: the two rows trade places, faded
@@ -325,33 +400,44 @@ later(5000, () => {                                       // a new favourite: th
   const i = TOP.findIndex((e, k) => k < TOP.length - 1 && TOP[k + 1].n > e.n);
   if (i < 0) return;
   swapping = true;
-  [topRows[i].name, topRows[i + 1].name].forEach((e) => e.classList.add("out"));
+  [...swapEls(i), ...swapEls(i + 1)].forEach((e) => e.classList.add("out"));
   setTimeout(() => {
     [TOP[i], TOP[i + 1]] = [TOP[i + 1], TOP[i]]; showTop();
-    [topRows[i].name, topRows[i + 1].name].forEach((e) => e.classList.remove("out")); swapping = false;
+    [...swapEls(i), ...swapEls(i + 1)].forEach((e) => e.classList.remove("out")); swapping = false;
   }, 480);
 }, 0.2);
 
 // ---------------- raw matter reserves ----------------
-const RVX = header(RX, 280, RR - RX, "Raw Matter Reserves", "lilac", "peach", 56, 32, 340);   // 3154
-const RVR = 3640;
-[["Stock", RX, ""], ["Reserve", RVX, ""], ["Level", RR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: 400, s: 36, c: "lilac", txt, align }));
+const RVX = header(RSX, RSY, RSR - RSX, "Raw Matter Reserves", "lilac", "peach", 56, 32, 340);   // 3154
+const RVR = RSR - 176;                                    // 3640
+[["Stock", RSX, ""], ["Reserve", RVX, ""], ["Level", RSR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: RSY + 120, s: 36, c: "lilac", txt, align }));
 const MEAN = [0.84, 0.71, 0.63, 0.57, 0.76, 0.9];
 const reserves = MATTER.map(([name, c], i) => {
-  const base = rowBase(i);
-  const n = L.text({ x: RX, base, s: 40, c: "peach", txt: name });
+  const base = rsBase(i);
+  const n = L.text({ x: RSX, base, s: 40, c: "peach", txt: name });
   L.rect({ x: RVX, y: base - 26, w: RVR - RVX, h: 26, c: TRACK });
-  return { n, bar: fill(RVX, base - 26, RVR - RVX, 26, c), v: L.text({ x: RR, base, s: 52, c: "white", txt: "", align: "r" }),
+  return { n, bar: fill(RVX, base - 26, RVR - RVX, 26, c), v: L.text({ x: RSR, base, s: 52, c: "white", txt: "", align: "r" }),
            lvl: MEAN[i] + L.rand(-0.02, 0.02), u: MEAN[i], drawing: false };
 });
+// ultrawide: what each stock gave to orders and got back from reclamation this shift, beside the reserves
+// (returned sums to the reclaimed total)
+const DRAWN = UW ? [2614.2, 1087.5, 168.9, 1702.4, 141.3, 96.8] : null, RET = UW ? [62.1, 18.3, 4.2, 81.5, 14.6, 5.7] : null;
+let drawnEls = null;
+if (UW) {
+  header(NB[0], 280, NB[1] - NB[0], "Matter Drawn  ·  Returned", "pink", "butter");
+  [["Drawn", NB[0], ""], ["Returned", NB[1], "r"]].forEach(([txt, x, align]) => L.text({ x, base: 400, s: 36, c: "lilac", txt, align }));
+  drawnEls = MATTER.map((_, i) => [L.text({ x: NB[0], base: rsBase(i), s: 52, c: "white", txt: "" }),
+                                   L.text({ x: NB[1], base: rsBase(i), s: 52, c: "white", txt: "", align: "r" })]);
+}
+const showDrawn = () => drawnEls && drawnEls.forEach(([d, r], i) => { put(d, fmt(DRAWN[i]) + " kg"); put(r, RET[i].toFixed(1) + " kg"); });
 const draw = (comp, kg, sign = -1) => comp.forEach((p, i) => (reserves[i].lvl += sign * (p / 100) * kg * 0.004));
 
 // ---------------- energy and pattern memory ----------------
-header(RX, 1000, RR - RX, "Energy  ·  Pattern Memory", "pink", "butter");
-L.text({ x: RX, base: 1112, s: 40, c: "lilac", txt: "Energy Use  ·  Last Hour" });
-const energyV = L.text({ x: RR, base: 1112, s: 52, c: "white", txt: "", align: "r" });
-const EG = L.canvas({ x: RX, y: 1136, w: RR - RX, h: 180 });
-const NE = 61, ELO = 3700, EHI = 4900;
+header(EX, EY, ER - EX, "Energy  ·  Pattern Memory", "pink", "butter");
+L.text({ x: EX, base: ELB, s: 40, c: "lilac", txt: UW ? "Energy Use  ·  Last 90 Minutes" : "Energy Use  ·  Last Hour" });
+const energyV = L.text({ x: ER, base: ELB, s: 52, c: "white", txt: "", align: "r" });
+const EG = L.canvas({ x: EX, y: ELB + 24, w: ER - EX, h: EH });
+const NE = UW ? 91 : 61, ELO = 3700, EHI = 4900;
 const energyAt = (t, busy) => 4180 + 260 * Math.sin(t * 0.021 + 1) + 110 * Math.sin(t * 0.077) + 22 * busy + L.rand(-24, 24);
 const energy = Array.from({ length: NE }, (_, k) => energyAt((k - NE) * 3, 3));
 const drawEnergy = () => {
@@ -368,12 +454,12 @@ const drawEnergy = () => {
   put(energyV, fmt(energy[NE - 1]) + " MJ/h");
 };
 EG.onResize = drawEnergy;
-L.text({ x: RX, base: 1400, s: 40, c: "lilac", txt: "Pattern Buffer" });
-const bufV = L.text({ x: RR, base: 1400, s: 52, c: "white", txt: "", align: "r" });
-const NCOL = 24, CG = 8, CELLW = (RR - RX - (NCOL - 1) * CG) / NCOL;
+L.text({ x: EX, base: PB, s: 40, c: "lilac", txt: "Pattern Buffer" });
+const bufV = L.text({ x: ER, base: PB, s: 52, c: "white", txt: "", align: "r" });
+const NCOL = UW ? 38 : UP ? 16 : 24, CG = 8, CELLW = (ER - EX - (NCOL - 1) * CG) / NCOL;
 const cells = [];
 for (let r = 0; r < 3; r++) for (let k = 0; k < NCOL; k++) {
-  const x = RX + k * (CELLW + CG), y = 1424 + r * 42;
+  const x = EX + k * (CELLW + CG), y = CY0 + r * CPI;
   L.rect({ x, y, w: CELLW, h: 36, c: TRACK, noalign: true });
   const e = cls(fill(x, y, CELLW, 36, r === 1 ? "pink" : "lilac"), "cell");
   const stored = Math.random() < 0.68;
@@ -386,12 +472,13 @@ const readPattern = (it, on) => patCells(it).forEach((i) => { const c = cells[i]
 let bufPct = 62.4;
 
 // ---------------- network load by deck ----------------
-small(LX, 1620, LR - LX, "Network Load by Deck", "lilac", "pink");
-L.text({ x: LX, base: 1734, s: 36, c: "lilac", txt: "Requests per Minute" });
-const loadV = L.text({ x: LR, base: 1734, s: 36, c: "white", txt: "", align: "r" });
-const DBW = 23, DBG = 4, DGG = 18, DT = 1764, DB = 1950, DGW = 7 * DBW + 6 * DBG;
+small(LX, NY, NR - LX, "Network Load by Deck", "lilac", "pink");
+L.text({ x: LX, base: NY + 114, s: 36, c: "lilac", txt: "Requests per Minute" });
+const loadV = L.text({ x: NR, base: NY + 114, s: 36, c: "white", txt: "", align: "r" });
+// 42 bars in six groups of seven, filling the panel: 42·DBW + 36·DBG + 5·DGG = its width
+const DBW = UW ? 36 : UP ? 17 : 23, DBG = UP ? 2 : 4, DGG = UW ? 28 : UP ? 17 : 18, DT = NY + 144, DB = NY + 330, DGW = 7 * DBW + 6 * DBG;
 const deckX = (d) => LX + d * (DBW + DBG) + Math.floor(d / 7) * (DGG - DBG);     // d from 0
-for (let g = 0; g < 6; g++) L.text({ x: deckX(g * 7) + DGW / 2, base: 2004, s: 32, c: "lilac", txt: `${D2(g * 7 + 1)} – ${D2(g * 7 + 7)}`, align: "c", w: DGW, legend: true });
+for (let g = 0; g < 6; g++) L.text({ x: deckX(g * 7) + DGW / 2, base: NY + 384, s: 32, c: "lilac", txt: `${D2(g * 7 + 1)} – ${D2(g * 7 + 7)}`, align: "c", w: DGW, legend: true });
 // what each deck asks for, per minute: Ten Forward most, then the quarters; the antimatter decks hardly at all
 const DW = [5, 4, 4, 5, 7, 9, 10, 12, 11, 27, 8, 9, 6, 7, 10, 4, 9, 8, 5, 7, 4, 6, 3, 5, 5, 8, 6, 7, 4, 3, 2, 3, 6, 4, 7, 12, 6, 4, 3, 2, 2, 2];
 const DMAX = 34;
@@ -401,33 +488,40 @@ const decks = DW.map((w, d) => {
 });
 
 // ---------------- replication log ----------------
-small(MX, 1620, MR - MX, "Replication Log", "peach", "butter");
+small(GX, GY, GR - GX, "Replication Log", "peach", "butter");
 const logRows = Array.from({ length: 6 }, (_, i) => {
-  const base = 1734 + i * 54;
-  return { sd: L.text({ x: MX, base, s: 36, c: "pink", txt: "" }), tx: L.text({ x: MX + 190, base, s: 36, c: "peach", txt: "" }),
-           kg: L.text({ x: MR, base, s: 36, c: "lilac", txt: "", align: "r" }) };
+  const base = GY + 114 + i * 54;
+  return { sd: L.text({ x: GX, base, s: 36, c: "pink", txt: "" }), tx: L.text({ x: GX + 190, base, s: 36, c: "peach", txt: "" }),
+           kg: L.text({ x: GR, base, s: 36, c: "lilac", txt: "", align: "r" }),
+           // ultrawide: the pattern and the energy it took, in the middle of the longer line
+           pat: UW ? L.text({ x: GX + 840, base, s: 36, c: "lilac", txt: "" }) : null,
+           mj: UW ? L.text({ x: GX + 1340, base, s: 36, c: "white", txt: "", align: "r" }) : null };
 });
 let stardate = 47783.2;
 const logged = [];
-const logLine = (txt, kg) => {
-  stardate += 0.1; logged.push([stardate.toFixed(1), txt, kg]); if (logged.length > 6) logged.shift();
-  logRows.forEach((r, i) => { const e = logged[i] || ["", "", ""]; put(r.sd, e[0]); put(r.tx, e[1]); put(r.kg, e[2]); });
+const logLine = (txt, kg, pat, mj) => {
+  stardate += 0.1; logged.push([stardate.toFixed(1), txt, kg, pat, mj]); if (logged.length > 6) logged.shift();
+  logRows.forEach((r, i) => {
+    const e = logged[i] || ["", "", ""]; put(r.sd, e[0]); put(r.tx, e[1]); put(r.kg, e[2]);
+    if (r.pat) { put(r.pat, e[3] || ""); put(r.mj, e[4] || ""); }
+  });
 };
 
 // ---------------- matter reclamation ----------------
-small(RX, 1620, RR - RX, "Matter Reclamation", "pink", "lilac");
-const RCB = 3360, RCR = 3640;
+if (!UP) small(RCX, 1620, RCRR - RCX, "Matter Reclamation", "pink", "lilac");   // upright: not shown
+const RCB = RCX + 570, RCR = RCRR - 176;                  // 3360, 3640
 const reclaim = Array.from({ length: 4 }, (_, i) => {
+  if (UP) return { n: ghost(), bar: ghost(), v: ghost(), job: null, p: 0, shown: -1, busy: false };
   const base = 1734 + i * 54;
-  const n = cls(L.text({ x: RX, base, s: 36, c: "peach", txt: "" }), "sw");
+  const n = cls(L.text({ x: RCX, base, s: 36, c: "peach", txt: "" }), "sw");
   L.rect({ x: RCB, y: base - 22, w: RCR - RCB, h: 22, c: TRACK });
   return { n, bar: cls(fill(RCB, base - 22, RCR - RCB, 22, i % 2 ? "pink" : "lilac"), "sw"),
-           v: cls(L.text({ x: RR, base, s: 36, c: "white", txt: "", align: "r" }), "sw"), job: null, p: 0, shown: -1, busy: false };
+           v: cls(L.text({ x: RCRR, base, s: 36, c: "white", txt: "", align: "r" }), "sw"), job: null, p: 0, shown: -1, busy: false };
 });
-L.text({ x: RX, base: 1950, s: 36, c: "lilac", txt: "Reclaimed This Shift" });
-const recTotV = L.text({ x: RR, base: 1950, s: 36, c: "white", txt: "", align: "r" });
-L.text({ x: RX, base: 2004, s: 36, c: "lilac", txt: "Recovery Efficiency" });
-const recEffV = L.text({ x: RR, base: 2004, s: 36, c: "white", txt: "", align: "r" });
+if (!UP) L.text({ x: RCX, base: 1950, s: 36, c: "lilac", txt: "Reclaimed This Shift" });
+const recTotV = UP ? ghost() : L.text({ x: RCRR, base: 1950, s: 36, c: "white", txt: "", align: "r" });
+if (!UP) L.text({ x: RCX, base: 2004, s: 36, c: "lilac", txt: "Recovery Efficiency" });
+const recEffV = UP ? ghost() : L.text({ x: RCRR, base: 2004, s: 36, c: "white", txt: "", align: "r" });
 let recTotal = 186.4, recEff = 99.6;
 const returns = [];                                        // returned dishes and parts, waiting for a reclaimer
 const retOf = (it, loc) => ({ txt: `${it.ret}  ·  Deck ${D2(deckOf(loc))}`, kg: it.kg * 0.78, comp: it.comp, dur: L.rand(14, 22) });
@@ -438,16 +532,16 @@ const startJob = (r, job, p = 0) => { r.job = job; r.p = p; r.shown = -1; put(r.
   const bad = [];
   const fits = (txt, s, w, where) => { if (L.textWidth(txt, s) > w) bad.push(`${where}: "${txt}" ${Math.round(L.textWidth(txt, s))}>${Math.round(w)}`); };
   for (const it of ITEMS) {
-    fits(it.name, 40, SEGX - ORDX - 30, "order");
+    fits(it.name, 40, (UP ? HL[1] - 150 : SEGX) - ORDX - 30, "order");   // upright: clear of the mass column
     fits(it.name, 52, 2 * (2160 - 1880), "chamber");
-    fits(it.name + "  ·  Ready Room", 36, MR - MX - 190 - 130, "log");
+    fits(it.name + "  ·  Ready Room", 36, UW ? 840 - 190 - 30 : GR - GX - 190 - 130, "log");
     for (const loc of it.where) {
       fits(loc, 32, 300 - 22 - 14, "replicator");
-      fits(retOf(it, loc).txt, 36, RCB - RX - 30, "reclamation");
+      fits(retOf(it, loc).txt, 36, RCB - RCX - 30, "reclamation");
       fits(`${loc}  ·  Deck ${D2(deckOf(loc))}`, 40, MR - MX - 300, "chamber location");
     }
   }
-  for (const e of TOP) fits(e.name, 40, MRX - LX - 30, "most requested");
+  if (!UP) for (const e of TOP) fits(e.name, 40, MRX - LX - 30, "most requested");
   if (bad.length) setTimeout(() => { throw new Error("replicators: " + bad.join(" | ")); });
 }
 
@@ -465,6 +559,15 @@ const fillSlot = (s, o, t0) => {
   s.loc.textContent = o.loc; s.item.textContent = o.it.name;
   s.segs.forEach((e) => tf(e, "scaleX(0)"));
   decks[deckOf(o.loc) - 1].bump += 5;
+  showDetail(s, -1);
+};
+// ultrawide (upright: mass only): the order's deck, the mass laid down so far, and the energy used so far (as the chamber shows them)
+const showDetail = (s, t) => {
+  if (!s.det || !s.order) return;
+  const u = t - s.t0, k = L.clamp((u - 6.5) / 3.5), kf = k * k * (3 - 2 * k);
+  put(s.det[0], D2(deckOf(s.order.loc)));
+  put(s.det[1], (kf * s.order.it.kg).toFixed(2) + " kg");
+  put(s.det[2], (s.order.energy * L.clamp((u - 3) / 3.5) + (u > 0 ? 0.04 * Math.min(u, 3) : 0)).toFixed(2) + " MJ");
 };
 const showStage = (s, k) => {
   s.stage = k;
@@ -473,12 +576,13 @@ const showStage = (s, k) => {
   if (k === 0 && !s.reading) { s.reading = true; readPattern(s.order.it, true); }
   if (k > 0 && s.reading) { s.reading = false; readPattern(s.order.it, false); }
   if (k === 2) draw(s.order.it.comp, s.order.it.kg);
+  if (k === 2 && DRAWN) s.order.it.comp.forEach((p, i) => (DRAWN[i] += (p / 100) * s.order.it.kg));
 };
 const complete = (s, t, quiet) => {
   s.done = true;
   if (quiet) return;
   countItem(s.order.it.name); served++;
-  if (s.mon) logLine(`${s.order.it.name}  ·  ${s.order.loc}`, s.order.it.kg.toFixed(2) + " kg");
+  if (s.mon) logLine(`${s.order.it.name}  ·  ${s.order.loc}`, s.order.it.kg.toFixed(2) + " kg", s.order.it.pat, (s.order.energy + 0.12).toFixed(2) + " MJ");   // the chamber's final reading: conversion plus the 3 s of pattern retrieval
   if (Math.random() < 0.6) { const r = retOf(s.order.it, s.order.loc); setTimeout(() => { if (returns.length < 8) returns.push(r); }, L.rand(8000, 20000)); }
 };
 
@@ -571,6 +675,7 @@ const chamberText = (t) => {
   put(side[1], (kf * it.kg).toFixed(2) + " kg");
   put(side[5], (mon.o.energy * L.clamp((u - 3) / 3.5) + (u > 0 ? 0.04 * Math.min(u, 3) : 0)).toFixed(2) + " MJ");
   put(side[6], active ? Math.round(u < 3 ? 8 : u < 6.5 ? 64 + 4 * Math.sin(t) : 38 + 4 * Math.sin(t)) + "%" : "0%");
+  if (cycV) put(cycV, `${L.clamp(u, 0, DONE).toFixed(1)} of ${DONE.toFixed(1)} s`);
   put(side[7], active ? (0.0028 + 0.0006 * Math.sin(t * 0.9) + 0.0002 * Math.sin(t * 2.3)).toFixed(4) : "0.0000");
 };
 
@@ -581,9 +686,9 @@ showTop();
   s.linger = L.rand(5, 10);
 });
 monitor(slots[0]);
-[["Tea, Earl Grey, hot  ·  Ready Room", 0.46], ["Plomeek soup  ·  Quarters 0901", 0.74], ["Raktajino  ·  Security Office", 0.52],
- ["Spare isolinear chip  ·  Main Engineering", 0.03], ["Chocolate sundae  ·  Schoolroom 4", 0.58], ["Synthehol, Saurian brandy  ·  Ten Forward 3", 0.98]]
-  .forEach(([txt, kg]) => logLine(txt, kg.toFixed(2) + " kg"));
+[["Tea, Earl Grey, hot  ·  Ready Room", 0.46, "31-0417"], ["Plomeek soup  ·  Quarters 0901", 0.74, "22-1146"], ["Raktajino  ·  Security Office", 0.52, "31-2209"],
+ ["Spare isolinear chip  ·  Main Engineering", 0.03, "07-4410"], ["Chocolate sundae  ·  Schoolroom 4", 0.58, "48-0912"], ["Synthehol, Saurian brandy  ·  Ten Forward 3", 0.98, "39-5521"]]
+  .forEach(([txt, kg, pat]) => logLine(txt, kg.toFixed(2) + " kg", pat, (kg * 6.2 + 0.4).toFixed(2) + " MJ"));
 [ITEMS[0], ITEMS[3], ITEMS[11], ITEMS[5]].forEach((it, i) => startJob(reclaim[i], retOf(it, L.pick(it.where)), L.rand(0.1, 0.8)));
 
 // ---------------- the clock ----------------
@@ -632,6 +737,7 @@ L.tick((t) => {
     if (Math.abs(r.p - r.shown) > 0.001) { r.shown = r.p; tf(r.bar, `scaleX(${r.p.toFixed(4)})`); }
     if (r.p >= 1) {
       r.busy = true; recTotal += r.job.kg; draw(r.job.comp, r.job.kg * 0.6, 1);
+      if (RET) r.job.comp.forEach((p, i) => (RET[i] += (p / 100) * r.job.kg));
       const els = [r.n, r.bar, r.v];
       setTimeout(() => {
         els.forEach((e) => e.classList.add("out"));
@@ -647,6 +753,7 @@ L.tick((t) => {
 L.every(250, (t) => {
   chamberText(t);
   reclaim.forEach((r) => { if (r.job && !r.busy) put(r.v, (r.job.kg * r.p).toFixed(2) + " kg"); });
+  if (UP || UW) slots.forEach((s) => showDetail(s, t));
 }, 0);
 L.every(1000, (t) => {
   // the stocks: drawn down by orders, refilled by reclamation and the recyclers, never far from their usual level
@@ -671,7 +778,7 @@ L.every(1000, (t) => {
   put(recTotV, recTotal.toFixed(1) + " kg");
   recEff = L.clamp(recEff + L.rand(-0.02, 0.02), 99.4, 99.8);
   put(recEffV, recEff.toFixed(1) + "%");
-  showTop();
+  showTop(); showDrawn();
 }, 0);
 later(2600, () => { const it = pickItem(); countItem(it.name); served++; }, 0.3);     // the rest of the ship, unseen
 L.every(3000, (t) => {

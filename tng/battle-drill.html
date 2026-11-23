@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Battle Drill</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .sw { transition: background-color .8s ease, color .8s ease; }
@@ -26,18 +27,31 @@ const fg = (e, c) => { if (e._fg !== c) { e._fg = c; e.style.color = col(c); } }
 const op = (e, v) => { v = (+v).toFixed(2); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
 const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
 
-// ---------------- the grid ----------------
-// Scenario column | station labels + the drill timeline (120 s at 12 px a second) | station response table.
-// The bottom strip splits under the same three columns.
-const X0 = 40, X1 = 3816;
-const SX0 = X0, SX1 = 720;                                   // scenario + script
-const LX0 = 784, LW = 340, TX0 = LX0 + LW + L.GAP, SEC = 12, SPAN = 120, TX1 = TX0 + SPAN * SEC;   // 1148 → 2588
+// ---------------- the grid, per shape ----------------
+// The data, readings and motion below are written once; only these positions differ by shape.
+// wide (3840 × 2160): scenario column | station labels + the drill timeline (120 s at 12 px a second) |
+//   station response table, all on the same twelve rows. The bottom strip splits under the same three columns.
+// upright (2160 × 3120): the timeline runs the full width (11 px a second) with the response figures
+//   on its rows at the right (the officers drop out); below it scenario + colour key | script | readiness
+//   trend share one grid; the bottom strip is departments | drill history.
+// ultrawide (5040 × 2160): the same three columns, the timeline lengthened to 22 px a second (the
+//   response column keeps its wide width); the bottom strip gains a readiness summary under the timeline.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const X0 = 40, X1 = UP ? 2136 : UW ? 5016 : 3816;
+const SX0 = X0, SX1 = UP ? 600 : 720;                        // scenario (+ script, wide)
+const LX0 = UP ? 40 : 784, LW = UP ? 230 : 340, TX0 = LX0 + LW + L.GAP, SEC = UP ? 11 : UW ? 22 : 12, SPAN = 120, TX1 = TX0 + SPAN * SEC;   // 1148 → 2588
 const RX0 = TX1 + 64, RX1 = X1;                              // 2652 → 3816
+const EVW = UP ? 48 : 56;                                    // an event marker's width
+// upright's middle grid: scenario | script | trend, on rows of 64 every 88 from y 1768
+const SCX0 = UP ? 664 : SX0, SCX1 = UP ? 1264 : SX1;         // the script's column
+const TRX0 = UP ? 1328 : RX0, TRX1 = UP ? X1 : RX1;          // the trend's column
 const HY = 280, CAP = 400, BAND = 428, ROW0 = 508, PITCH = 88, RH = 64, NROW = 12;
 const rowY = (i) => ROW0 + i * PITCH, rowBase = (i) => rowY(i) + 52.5;    // a 32px box label's baseline
 const GB = rowY(NROW - 1) + RH;                              // the timeline's foot (1540)
 const tx = (s) => TX0 + s * SEC;
 const bandBase = BAND + 56 - 6 - 0.17 * 32;                  // a band box's label baseline
+const MH = 1646, MCAP = MH + 120, scrY = (k) => (UP ? MCAP + 28 + 88 * k : rowY(4 + k));   // upright: the middle grid
+const scrBase = (k) => scrY(k) + 52.5;
 
 // ---------------- the stations ----------------
 // [station, department, the event that calls it, standard (s), officer]
@@ -144,37 +158,42 @@ const SD0 = 45892.4, stardate = (t) => SD0 + t / 3600 / 8.766;
 // ---------------- status line ----------------
 const stateTxt = L.text({ x: X0, cap: 150, s: 100, c: "orange", txt: "Battle Stations", cls: "sw" });
 const stateSub = L.text({ x: 0, base: 222, s: 38, c: "peach", txt: "" });
-const SDX = TX1 - Math.ceil(L.textWidth("45892.4", 52)) - 24 - Math.ceil(L.textWidth("Stardate", 40));
+const SDX = (UP ? X1 : TX1) - Math.ceil(L.textWidth("45892.4", 52)) - 24 - Math.ceil(L.textWidth("Stardate", 40));
 L.text({ x: SDX, base: 222, s: 40, c: "peach", txt: "Stardate" });
 const sdVal = L.text({ x: SDX + Math.ceil(L.textWidth("Stardate", 40)) + 24, base: 222, s: 52, c: "white", txt: "" });
 {                                                            // the key: what a bar's colour means
   const keys = [["Responding", "peach"], ["Ahead of Standard", "butter"], ["Within Standard", "orange"], ["Over Standard", "mars"]];
+  if (UP)                                                    // upright: a stack of keys under the scenario
+    keys.forEach(([name, c], i) => L.box({ x: SX0, y: scrY(4 + i), w: SX1 - SX0, h: RH, c, label: name, fs: 32, r: "l" }));
+  else {
   const KG = 16, KW = (RX1 - RX0 - KG * (keys.length - 1)) / keys.length;
   keys.forEach(([name, c], i) => L.box({ x: Math.round(RX0 + i * (KW + KG)), y: 166, w: Math.round(KW), h: 56, c, label: name, fs: 28, r: i === 0 ? "l" : null }));
+  }
 }
 
 // ---------------- the scenario and its script ----------------
-L.header({ x: SX0, y: HY, w: SX1 - SX0, label: "Drill Scenario", c1: "orange", c2: "peach" });
-const seriesTxt = L.text({ x: SX0, base: CAP, s: 36, c: "peach", txt: "" });
-const scBox = L.box({ x: SX0, y: BAND, w: SX1 - SX0, h: 56, c: "butter", label: "", fs: 32, r: "l", cls: "fd" });
+L.header({ x: SX0, y: UP ? MH : HY, w: SX1 - SX0, label: "Drill Scenario", c1: "orange", c2: "peach" });
+const seriesTxt = L.text({ x: SX0, base: UP ? MCAP : CAP, s: 36, c: "peach", txt: "" });
+const scBox = L.box({ x: SX0, y: UP ? scrY(0) : BAND, w: SX1 - SX0, h: UP ? RH : 56, c: "butter", label: "", fs: 32, r: "l", cls: "fd" });
 const PARAMS = ["Threat", "Profile", "Drill Officer"];
 const PVX = SX0 + widest(PARAMS, 40) + 48;
 const params = PARAMS.map((p, i) => {
-  L.text({ x: SX0, base: rowBase(i), s: 40, c: "orange", txt: p });
-  return L.text({ x: PVX, base: rowBase(i), s: 40, c: "white", txt: "", cls: "fd" });
+  const base = UP ? scrBase(i + 1) : rowBase(i);
+  L.text({ x: SX0, base, s: 40, c: "orange", txt: p });
+  return L.text({ x: PVX, base, s: 40, c: "white", txt: "", cls: "fd" });
 });
-L.header({ x: SX0, y: rowY(3) + 8, w: SX1 - SX0, label: "Drill Script", c1: "peach", c2: "orange" });
-const STX = SX0 + 100 + L.GAP, SDXT = STX + widest(["T+000"], 40) + 32;
+L.header({ x: SCX0, y: UP ? MH : rowY(3) + 8, w: SCX1 - SCX0, label: "Drill Script", c1: "peach", c2: "orange" });
+const STX = SCX0 + 100 + L.GAP, SDXT = STX + widest(["T+000"], 40) + 32;
+if (UP) [["Clock", STX], ["Event", SDXT]].forEach(([txt, x]) => L.text({ x, base: MCAP, s: 36, c: "peach", txt }));
 const script = Array.from({ length: 8 }, (_, k) => {
-  const i = 4 + k;
   return {
-    no: L.box({ x: SX0, y: rowY(i), w: 100, h: RH, c: "orange", label: pad2(k + 1), fs: 32, r: "l", cls: "sw" }),
-    tm: L.text({ x: STX, base: rowBase(i), s: 40, c: "orange", txt: "", cls: "sw" }),
-    tx: L.text({ x: SDXT, base: rowBase(i), s: 40, c: "orange", txt: "", cls: "sw" }),
+    no: L.box({ x: SCX0, y: scrY(k), w: 100, h: RH, c: "orange", label: pad2(k + 1), fs: 32, r: "l", cls: "sw" }),
+    tm: L.text({ x: STX, base: scrBase(k), s: 40, c: "orange", txt: "", cls: "sw" }),
+    tx: L.text({ x: SDXT, base: scrBase(k), s: 40, c: "orange", txt: "", cls: "sw" }),
   };
 });
 const longest = widest(SCENARIOS.flatMap((s) => s.ev.map((e) => e[2])), 40);
-if (SDXT + longest > SX1) console.warn("script line too long", SDXT + longest - SX1);
+if (SDXT + longest > SCX1) console.warn("script line too long", SDXT + longest - SCX1);
 
 // ---------------- the timeline ----------------
 L.header({ x: LX0, y: HY, w: TX1 - LX0, label: "Drill Timeline  ·  Seconds from Red Alert", c1: "orange", c2: "butter" });
@@ -192,14 +211,14 @@ STATIONS.forEach((s, i) => {
   L.rect({ x: TX0, y: rowY(i), w: TX1 - TX0, h: RH, c: DARK });
 });
 // everything that belongs to one run sits on one layer, so a run fades out as a whole
-const runLayer = L.layer({ x: TX0, y: BAND, w: TX1 - TX0, h: GB - BAND, cls: "fd" });
+const runLayer = L.layer({ x: TX0, y: BAND, w: TX1 - TX0, h: GB - BAND, cls: "fd" }); if (L.shape !== "wide") runLayer.dataset.gap = "free";   // a timeline: its bars are times, not bars run to a figure
 const guides = Array.from({ length: 8 }, () => {
   const g = L.layer({ x: 0, y: ROW0 - BAND, w: 2, h: GB - ROW0 }, runLayer);
   g.style.background = "var(--peach)"; g.style.opacity = "0.28";
   return g;
 });
 const evBoxes = Array.from({ length: 8 }, (_, k) => {
-  const b = L.box({ x: 0, y: 0, w: 56, h: 56, c: "orange", label: pad2(k + 1), fs: 28, cls: "c sw" }, runLayer);
+  const b = L.box({ x: 0, y: 0, w: EVW, h: 56, c: "orange", label: pad2(k + 1), fs: 28, cls: "c sw" }, runLayer);
   return b;
 });
 const lanes = STATIONS.map((s, i) => {
@@ -216,25 +235,32 @@ const cursor = L.layer({ x: 0, y: BAND - 4, w: 4, h: GB - BAND + 8 });
 cursor.style.background = "var(--white)";
 
 // ---------------- station response ----------------
-L.header({ x: RX0, y: HY, w: RX1 - RX0, label: "Station Response", c1: "butter", c2: "orange" });
+// upright: response flush left, no officer column; the header's box ends on the standard column
+const RU1 = RX0 + Math.ceil(Math.max(L.textWidth("Response  Sec", 36), L.textWidth("Standby", 52)));
+const RU2 = RX1 - 124;                                       // 124 in from the column's edge
+L.header({ x: RX0, y: HY, w: RX1 - RX0, label: "Station Response", c1: "butter", c2: "orange", lw: UP ? RU2 - RX0 : undefined });
+let RC1, RC2, RC3;
+if (UP) { RC1 = RU1; RC2 = RU2; RC3 = RX1; } else {
 const ONW = widest(STATIONS.map((s) => s.officer), 40);
 const NCW = (RX1 - RX0 - ONW) / 3;
-const RC1 = Math.round(RX0 + ONW + NCW), RC2 = Math.round(RX0 + ONW + 2 * NCW), RC3 = RX1;
-[["Officer", RX0, "l"], ["Response  Sec", RC1, "r"], ["Standard  Sec", RC2, "r"], ["Score", RC3, "r"]]
+RC1 = Math.round(RX0 + ONW + NCW), RC2 = Math.round(RX0 + ONW + 2 * NCW), RC3 = RX1;
+}
+[["Officer", RX0, "l"], ["Response  Sec", RC1, "r"], ["Standard  Sec", RC2, "r"], ["Score", RC3, "r"]].slice(UP ? 1 : 0)
   .forEach(([txt, x, align]) => L.text({ x, base: CAP, s: 36, c: "peach", txt, align }));
-L.text({ x: RX0, base: bandBase, s: 40, c: "orange", txt: "Drill Clock" });
-const clockVal = L.text({ x: RX0 + Math.ceil(L.textWidth("Drill Clock", 40)) + 24, base: bandBase, s: 52, c: "white", txt: "" });
+const CLK = UP ? "Clock" : "Drill Clock";                    // upright: room for "Stations Standing By"
+L.text({ x: RX0, base: bandBase, s: 40, c: "orange", txt: CLK });
+const clockVal = L.text({ x: RX0 + Math.ceil(L.textWidth(CLK, 40)) + 24, base: bandBase, s: 52, c: "white", txt: "" });
 const readyTxt = L.text({ x: RX1, base: bandBase, s: 40, c: "butter", txt: "", align: "r" });
 const resp = STATIONS.map((s, i) => {
   const base = rowBase(i);
-  L.text({ x: RX0, base, s: 40, c: "orange", txt: s.officer });
+  if (!UP) L.text({ x: RX0, base, s: 40, c: "orange", txt: s.officer });
   L.text({ x: RC2, base, s: 40, c: "peach", txt: s.std.toFixed(1), align: "r" });
   return { r: L.text({ x: RC1, base, s: 52, c: "white", txt: "", align: "r", cls: "sw" }),
            sc: L.text({ x: RC3, base, s: 52, c: "butter", txt: "", align: "r", cls: "sw" }) };
 });
 
 // ---------------- bottom strip: departments, history, trend ----------------
-const BH = 1620, BROW = (i) => 1716 + 54 * i;
+const BH = UP ? 2580 : 1620, BROW = (i) => (UP ? 2676 : 1716) + 54 * i;
 
 // scores by department (the last scored run)
 L.header({ x: SX0, y: BH, w: SX1 - SX0, label: "Scores by Department", c1: "orange", c2: "peach", h: 48 });
@@ -253,7 +279,7 @@ const showDepts = (r) => deptRows.forEach((row) => {
 });
 
 // drill history: newest first; the Academy's Nova Squadron finding stays pinned as the oldest entry
-const HX0 = LX0, HX1 = TX1;
+const HX0 = UP ? SCX0 : LX0, HX1 = UP ? X1 : UW ? 2588 : TX1;
 L.header({ x: HX0, y: BH, w: HX1 - HX0, label: "Drill History", c1: "butter", c2: "orange", h: 48 });
 const HCW = [widest(["45892.4", "Stardate"], 36), widest(["Academy", "12-6"], 36), widest(SCENARIOS.map((s) => s.name), 36),
   widest(STATIONS.map((s) => s.name).concat("Lead Station"), 36), widest(["Over"], 36), widest(["Score", "100.0"], 36), widest(["Below Standard"], 36)];
@@ -286,23 +312,23 @@ const showHistory = (fresh) => hist.forEach((row, k) => {
 });
 
 // readiness trend: the overall score of the last twelve runs, newest on the right
-L.header({ x: RX0, y: BH, w: RX1 - RX0, label: "Readiness Trend", c1: "peach", c2: "butter", h: 48 });
-L.text({ x: RX0, base: BROW(0), s: 36, c: "peach", txt: "Overall Score  ·  Last 12 Runs" });
-L.text({ x: RX1, base: BROW(0), s: 36, c: "butter", txt: "Standard 85", align: "r" });
-const CY0 = 1758, CY1 = 1950, vy = (v) => CY1 - ((v - 70) / 30) * (CY1 - CY0);
-const CX0 = RX0 + Math.ceil(L.textWidth("100", 30)) + 20, CW = RX1 - CX0, CN = 12, CP = CW / CN, CBW = 56;
+L.header({ x: TRX0, y: UP ? MH : BH, w: TRX1 - TRX0, label: "Readiness Trend", c1: "peach", c2: "butter", h: UP ? 56 : 48 });
+L.text({ x: TRX0, base: UP ? MCAP : BROW(0), s: 36, c: "peach", txt: "Overall Score  ·  Last 12 Runs" });
+L.text({ x: TRX1, base: UP ? MCAP : BROW(0), s: 36, c: "butter", txt: "Standard 85", align: "r" });
+const CY0 = UP ? 1856 : 1758, CY1 = UP ? 2426 : 1950, TCT = UP ? 1816 : 1720, TCH = UP ? 670 : 290, vy = (v) => CY1 - ((v - 70) / 30) * (CY1 - CY0);
+const CX0 = TRX0 + Math.ceil(L.textWidth("100", 30)) + 20, CW = TRX1 - CX0, CN = 12, CP = CW / CN, CBW = UP ? 40 : 56;
 [70, 80, 90, 100].forEach((v) => {
-  L.text({ x: RX0, base: vy(v) + 11, s: 30, c: "peach", txt: String(v), legend: true });
+  L.text({ x: TRX0, base: vy(v) + 11, s: 30, c: "peach", txt: String(v), legend: true });
   L.rect({ x: CX0, y: vy(v) - 1, w: CW, h: 2, c: GRID2, free: true });
 });
-const clip = L.layer({ x: CX0, y: 1720, w: CW, h: 290 });
+const clip = L.layer({ x: CX0, y: TCT, w: CW, h: TCH });
 clip.style.overflow = "hidden";
-const strip = L.layer({ x: 0, y: 0, w: CW + CP, h: 290 }, clip);
+const strip = L.layer({ x: 0, y: 0, w: CW + CP, h: TCH }, clip);
 const cols = Array.from({ length: CN + 1 }, () => {
-  const e = L.layer({ x: 0, y: 0, w: CP, h: 290 }, strip);
-  const b = L.layer({ x: (CP - CBW) / 2, y: vy(100) - 1720, w: CBW, h: CY1 - vy(100) }, e);
+  const e = L.layer({ x: 0, y: 0, w: CP, h: TCH }, strip);
+  const b = L.layer({ x: (CP - CBW) / 2, y: vy(100) - TCT, w: CBW, h: CY1 - vy(100) }, e);
   b.style.transformOrigin = "0 100%"; b.style.transition = "background-color .8s ease";
-  const lab = L.text({ x: CP / 2, w: CP, align: "c", base: 1986 - 1720, s: 30, c: "peach", txt: "", legend: true }, e);
+  const lab = L.text({ x: CP / 2, w: CP, align: "c", base: (UP ? scrBase(7) : 1986) - TCT, s: 30, c: "peach", txt: "", legend: true }, e);
   return { e, b, lab, v: 0 };
 });
 const stdLine = L.layer({ x: CX0, y: vy(85) - 1, w: CW, h: 3 });
@@ -319,6 +345,7 @@ const pushTrend = (t, r) => {
   trendT0 = t; recycled = false;
   const c = order[CN];
   setCol(c, r.overall, r.label); placeCol(c, CN, 0); op(c.lab, 0); op(c.e, 1);
+  if (summary) summary(r.label, r.overall);
 };
 const stepTrend = (t) => {                                   // fade the oldest, slide one column left, then the new one grows
   if (trendT0 === null) return;
@@ -338,6 +365,43 @@ const stepTrend = (t) => {                                   // fade the oldest,
   if (u >= 3.0) trendT0 = null;
 };
 
+// ---------------- ultrawide: a readiness summary of the same twelve runs, under the timeline ----------------
+let summary = null;
+if (UW) {
+  const QX0 = 2652, QX1 = TX1, last = TREND0.map(([lab, v]) => ({ lab, v }));
+  L.header({ x: QX0, y: BH, w: QX1 - QX0, label: "Readiness Summary", c1: "orange", c2: "peach", h: 48 });
+  L.text({ x: QX0, base: BROW(0), s: 36, c: "peach", txt: "Last 12 Scored Runs" });
+  const latest = L.text({ x: QX1, base: BROW(0), s: 36, c: "butter", txt: "", align: "r" });
+  const ROWS = ["Average Score", "Best Run", "Commendable", "Satisfactory", "Below Standard"];
+  // as in Scores by Department: name | value | the bar, which runs on to the column's edge
+  const BEST = (lab) => `Best Run  ·  ${lab}`;
+  const QNW = widest(ROWS.concat(["00", "08", "88", "11", "10", "12", "19"].map((s) => BEST(s + "-6"))), 36);
+  const QVX = QX0 + QNW + 40 + widest(["100.0", "12 of 12"], 40), QBX = QVX + 32, QBW = QX1 - QBX;
+  const rows = ROWS.map((name, i) => {
+    const base = BROW(i + 1);
+    const n = L.text({ x: QX0, base, s: 36, c: "peach", txt: name });
+    L.rect({ x: QBX, y: base - 26, w: QBW, h: 26, c: DARK });
+    const f = L.layer({ x: QBX, y: base - 26, w: QBW, h: 26, cls: "fl" });
+    f.style.transform = "scaleX(0)";
+    return { n, f, v: L.text({ x: QVX, base, s: 40, c: "white", txt: "", align: "r" }) };
+  });
+  const show = () => {
+    const vs = last.map((x) => x.v), avg = vs.reduce((a, b) => a + b, 0) / vs.length;
+    const best = last.reduce((a, x) => (x.v > a.v ? x : a), last[0]);
+    const n = (lo, hi) => vs.filter((v) => v >= lo && v < hi).length;
+    const k = (v) => L.clamp((v - 70) / 30).toFixed(4);
+    const set = (i, frac, c, txt) => { bg(rows[i].f, c); tf(rows[i].f, `scaleX(${frac})`); L.set(rows[i].v, txt); };
+    set(0, k(avg), scoreColor(avg), avg.toFixed(1));
+    set(1, k(best.v), scoreColor(best.v), best.v.toFixed(1)); L.set(rows[1].n, BEST(best.lab));
+    [[92, 101, "butter"], [85, 92, "orange"], [0, 85, "mars"]].forEach(([lo, hi, c], j) => {
+      const m = n(lo, hi); set(2 + j, (m / last.length).toFixed(4), c, `${m} of ${last.length}`);
+    });
+    L.set(latest, `Latest Run ${last[last.length - 1].lab}`);
+  };
+  summary = (lab, v) => { last.push({ lab, v }); last.shift(); show(); };
+  show();
+}
+
 // ---------------- running a run ----------------
 let shown = -1, scored = -1;
 const applyRun = (r) => {                                    // a new run: its script, its events, its standards
@@ -347,7 +411,7 @@ const applyRun = (r) => {                                    // a new run: its s
   L.set(params[0], sc.threat); L.set(params[1], sc.profile); L.set(params[2], sc.officer);
   sc.ev.forEach(([s, , txt], k) => {
     L.set(script[k].tm, "T+" + pad3(s)); L.set(script[k].tx, txt);
-    const bx = L.clamp(s * SEC - 28, 0, SPAN * SEC - 56);
+    const bx = L.clamp(s * SEC - EVW / 2, 0, SPAN * SEC - EVW);
     evBoxes[k].style.left = bx + "px";
     guides[k].style.left = s * SEC - 1 + "px";
     guides[k].style.display = s === 0 || s === SPAN ? "none" : "";

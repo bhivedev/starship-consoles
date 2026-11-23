@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Tactical Database</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .clip { position: absolute; overflow: hidden; }
@@ -12,15 +13,28 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame, mirrored: sidebar on the right, title at top left ----------------
-L.frame({ type: "B", title: "Tactical Database  •  Known Vessels", c: "red", c2: "sand", accent: "tan", foot: "Database",
+const B = L.frame({ type: "B", title: "Tactical Database  •  Known Vessels", c: "red", c2: "sand", accent: "tan", foot: "Database",
   side: [[140, "tan", "Tac 04"], [70, "sand", "Records"], [420, "red", "Known Vessels"], [70, "butter", "Five"],
          [300, "sand", "Intelligence"], [70, "tan", "Restricted"], [216, "red", "Tactical"]] });
 
-// Two columns over a three-panel strip. Upper rows sit on a 72px grid from 480 (comparison rows
-// beside the profile panel); lower rows on a 72px grid from 1104 (profile data beside the scale).
-const LX = 40, LR = 1700, RX = 1760, RR = 3520;
-const ROW = (k) => 480 + 72 * k, ROW2 = (k) => 1104 + 72 * k;
-const BCAP = 1716, BROW = (i) => 1776 + i * 54;
+// ---------------- the grid, per shape ----------------
+// The records, readouts and motion below are written once; only these positions differ by shape.
+// wide (3840 × 2160): two columns over a three-panel strip. Upper rows sit on a 72px grid from 480
+//   (comparison rows beside the signature panel); lower rows on a 72px grid from 1104 (profile data
+//   beside the scale); the strip on a 54px grid from 1716.
+// upright (2160 × 3120, content 40–1840): the signature and the comparison each run the full width;
+//   (comparison rows 80 apart) then two columns (40–720 | 780–1840) on one 54px grid from 1830 (ROW2): profile data beside the
+//   relative scale over the assessment, then records beside the encounter history, last row at 2964.
+// ultrawide (5040 × 2160, content 40–4720): the wide layout where it is, and a third column
+//   (3580–4720) on the same rows: every record's specifications, a threat matrix, last contacts.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const LX = 40, LR = UP ? 1840 : 1700, RX = UP ? 40 : 1760, RR = UP ? 1840 : 3520, PR = B.x1;
+const ROW = UP ? (k) => 1176 + 80 * k : (k) => 480 + 72 * k, ROW2 = UP ? (k) => 1830 + 54 * k : (k) => 1104 + 72 * k;
+const BCAP = UP ? 2694 : 1716, BROW = UP ? (i) => 2748 + i * 54 : (i) => 1776 + i * 54;
+const SPEC_Y = UP ? 984 : 280, SPEC_CAP = UP ? 1104 : 400;    // the comparison's header and its caption line
+const LOW_Y = UP ? 1734 : 984;                                  // profile data and the relative scale
+const PRR = UP ? 720 : LR, SRX = UP ? 780 : RX;                 // profile's right edge; the scale's left
+const STRIP_Y = UP ? 2598 : 1620, ASSESS_Y = UP ? 2220 : 1620;  // records and history; the assessment
 const TRACK = "#2c1512", PANEL = "#150908", GRIDC = "#2e1813", DIM = "#6e4a3c";
 const FRAME = document.getElementById("frame");
 const col = (c) => (c.startsWith("#") ? c : `var(--${c})`);
@@ -88,7 +102,7 @@ const THREAT = { Extreme: "mars", High: "orange", Moderate: "butter", Low: "sand
 // =====================================================================================
 const stateTxt = L.text({ x: LX, cap: 150, s: 100, c: "sand", txt: "" });
 const stateSub = L.text({ x: 0, base: 222, s: 38, c: "tan", txt: "" });
-const pill = L.box({ x: RR - 400, y: 150, w: 400, h: 72, c: "mars", label: "", r: "lr", fs: 36, cls: "sw" });
+const pill = L.box({ x: PR - 400, y: 150, w: 400, h: 72, c: "mars", label: "", r: "lr", fs: 36, cls: "sw" });
 
 // =====================================================================================
 // SENSOR SIGNATURE: the specifications as a seven-axis chart, the Galaxy class beneath
@@ -121,21 +135,21 @@ const CORNER = [["Primary Weapon", 40, 70, "l"], ["Length", PW - 40, 70, "r"], [
 // =====================================================================================
 // SPECIFICATION COMPARISON: subject against the Galaxy class, other records as ticks
 // =====================================================================================
-L.header({ x: RX, y: 280, w: RR - RX, label: "Specification Comparison", c1: "sand", c2: "red" });
-const TX0 = 2060, TX1 = 3000, VR = 3290;
-L.text({ x: RX, base: 400, s: 36, c: "tan", txt: "Specification" });
+L.header({ x: RX, y: SPEC_Y, w: RR - RX, label: "Specification Comparison", c1: "sand", c2: "red" });
+const TX0 = UP ? 340 : 2060, TX1 = UP ? 1320 : 3000, VR = UP ? 1610 : 3290;
+L.text({ x: RX, base: SPEC_CAP, s: 36, c: "tan", txt: "Specification" });
 // the key, across the track column
 {
   let kx = TX0;
   [["Subject", "red", 36, 26], ["Galaxy Class", "sand", 8, 40], ["Other Records", DIM, 6, 32]].forEach(([txt, c, w, h]) => {
-    L.text({ x: kx, base: 400, s: 36, c: "tan", txt });
+    L.text({ x: kx, base: SPEC_CAP, s: 36, c: "tan", txt });
     kx += L.textWidth(txt, 36) + 18;
-    L.rect({ x: kx, y: 400 - 13 - h / 2, w, h, c, free: true });
+    L.rect({ x: kx, y: SPEC_CAP - 13 - h / 2, w, h, c, free: true });
     kx += w + 56;
   });
 }
-L.text({ x: VR, base: 400, s: 36, c: "tan", txt: "Subject", align: "r" });
-L.text({ x: RR, base: 400, s: 36, c: "tan", txt: "Galaxy", align: "r" });
+L.text({ x: VR, base: SPEC_CAP, s: 36, c: "tan", txt: "Subject", align: "r" });
+L.text({ x: RR, base: SPEC_CAP, s: 36, c: "tan", txt: "Galaxy", align: "r" });
 const SPECS = [
   ["Length", "len", 3500, (v) => fmt(v) + " m"],
   ["Mass", "mass", 6e6, (v) => fmt(v) + " t"],
@@ -161,7 +175,8 @@ const specRows = SPECS.map(([name, k, max, f], i) => {
 });
 
 // ---------------- the signature chart, drawn from the comparison bars as they move ----------------
-const RCX = PX + PW / 2, RCY = PY + PH / 2 + 10, RR0 = 170, NA = SPECS.length;
+const RCX = PX + PW / 2 + (UP ? 60 : 0),   // upright: nudged right, the left readouts being the wider
+      RCY = PY + PH / 2 + 10, RR0 = 170, NA = SPECS.length;
 const AXN = ["Length", "Mass", "Complement", "Max Warp", "Shields", "Firepower", "Maneuver"];
 const pt = (i, k) => { const a = (i * 2 * Math.PI) / NA; return [RCX + k * RR0 * Math.sin(a), RCY - k * RR0 * Math.cos(a)]; };
 const ring = (k) => Array.from({ length: NA }, (_, i) => pt(i, k).map((v) => v.toFixed(1)).join(",")).join(" ");
@@ -189,29 +204,34 @@ const drawSignature = () => {
 // =====================================================================================
 // PROFILE DATA
 // =====================================================================================
-L.header({ x: LX, y: 984, w: LR - LX, label: "Profile Data", c1: "tan", c2: "red" });
+L.header({ x: LX, y: LOW_Y, w: PRR - LX, label: "Profile Data", c1: "tan", c2: "red", h: UP ? 48 : undefined });
 const FL = ["Affiliation", "Homeworld", "Classification", "Propulsion", "Power Source", "Cloaking", "First Observed",
             "Primary Weapon", "Secondary Weapon", "Defenses", "Special Systems", "Known Vessels", "Last Contact", "Posture"];
-const F2 = 880, FV1 = LX + 300, FV2 = F2 + 330;
-FL.forEach((txt, i) => L.text({ x: i < 7 ? LX : F2, base: ROW2(i % 7), s: 36, c: "tan", txt }));
+const F2 = 880, FV1 = LX + (UP ? 230 : 300), FV2 = F2 + 330;
+// wide: two columns of seven; upright: one column of fourteen
+const PROW = UP ? (i) => ROW2(i) : (i) => ROW2(i % 7), PLX = (i) => (i < 7 || UP ? LX : F2), PVX = (i) => (i < 7 || UP ? FV1 : FV2);
+FL.forEach((txt, i) => L.text({ x: PLX(i), base: PROW(i), s: 36, c: "tan", txt }));
 const profLayer = L.layer({ x: 0, y: 0, w: L.W, h: L.H });
-const profVals = FL.map((_, i) => L.text({ x: i < 7 ? FV1 : FV2, base: ROW2(i % 7), s: 40, c: i === 13 ? "butter" : "white", txt: "" }, profLayer));
+const profVals = FL.map((_, i) => L.text({ x: PVX(i), base: PROW(i), s: 40, c: i === 13 ? "butter" : "white", txt: "" }, profLayer));
 
 // =====================================================================================
 // RELATIVE SCALE: every record's length on one axis, the subject lit
 // =====================================================================================
-L.header({ x: RX, y: 984, w: RR - RX, label: "Relative Scale  ·  Overall Length", c1: "red", c2: "tan" });
+L.header({ x: SRX, y: LOW_Y, w: RR - SRX, label: "Relative Scale  ·  Overall Length", c1: "red", c2: "tan", h: UP ? 48 : undefined });
 const ALL = [GALAXY, ...VESSELS];
-const SB0 = RX + 280, SB1 = RR - 160, SMAX = 3500, sx = (m) => SB0 + (m / SMAX) * (SB1 - SB0);
+const ASSESS = ["Weapon Effect", "Shield Endurance", "Sensor Lock", "Engagement Odds", "Data Confidence"];   // (named here: upright lines the scale up with them)
+const AW = Math.ceil(Math.max(...ASSESS.map((a) => L.textWidth(a, 36)))) + 30;
+// upright: the axis shares its ends with the assessment gauges below, and runs to 4,000 so the longest bar's value stays on its track
+const SB0 = SRX + (UP ? AW : 280), SB1 = RR - (UP ? 124 : 160), SMAX = UP ? 4000 : 3500, sx = (m) => SB0 + (m / SMAX) * (SB1 - SB0);
 ALL.forEach((v, i) => L.rect({ x: SB0, y: ROW2(i) - 30, w: SB1 - SB0, h: 32, c: TRACK, noalign: true }));   // tracks the full axis long
 for (let m = 0; m <= SMAX; m += 500) {
-  L.rect({ x: Math.round(sx(m)) - 1, y: ROW2(0) - 56, w: 2, h: ROW2(5) - ROW2(0) + 76, c: m ? "#4a2820" : DIM, free: true });
+  L.rect({ x: Math.round(sx(m)) - 1, y: ROW2(0) - (UP ? 40 : 56), w: 2, h: ROW2(5) - ROW2(0) + (UP ? 50 : 76), c: m ? "#4a2820" : DIM, free: true });
   L.text({ x: sx(m), base: ROW2(6), s: 36, c: "tan", txt: fmt(m), align: m ? "c" : "l", w: 140, legend: true });
 }
-L.text({ x: RX, base: ROW2(6), s: 36, c: "tan", txt: "Meters" });
+L.text({ x: SRX, base: ROW2(6), s: 36, c: "tan", txt: "Meters" });
 ALL.forEach((v, i) => {
   const base = ROW2(i), x1 = sx(v.spec.len);
-  v.sName = L.text({ x: RX, base, s: 40, c: v === GALAXY ? "sand" : "tan", txt: v.short, cls: "sw" });
+  v.sName = L.text({ x: SRX, base, s: 40, c: v === GALAXY ? "sand" : "tan", txt: v.short, cls: "sw" });
   v.sBar = L.rect({ x: SB0, y: base - 30, w: x1 - SB0, h: 32, c: v === GALAXY ? "sand" : DIM, noalign: true });
   v.sVal = L.text({ x: x1 + 20, base, s: 36, c: v === GALAXY ? "sand" : "tan", txt: fmt(v.spec.len) + " m", cls: "sw", on: true });   // printed on its track
 });
@@ -219,11 +239,11 @@ ALL.forEach((v, i) => {
 // =====================================================================================
 // THE STRIP: records, assessment, encounter history
 // =====================================================================================
-const AX0 = LX, AX1 = 1040, SX0 = 1100, SX1 = LR, HX0 = RX, HX1 = RR;
+const AX0 = LX, AX1 = UP ? 720 : 1040, SX0 = UP ? 780 : 1100, SX1 = UP ? 1840 : LR, HX0 = UP ? 780 : RX, HX1 = RR;
 
 // ---------------- database records, a cursor on the one displayed ----------------
-L.header({ x: AX0, y: 1620, w: AX1 - AX0, label: "Database Records", c1: "sand", c2: "red", h: 48 });
-const RC = { no: AX0, cls: AX0 + 140, aff: AX0 + 470 };
+L.header({ x: AX0, y: STRIP_Y, w: AX1 - AX0, label: "Database Records", c1: "sand", c2: "red", h: 48 });
+const RC = { no: AX0, cls: AX0 + (UP ? 124 : 140), aff: AX0 + (UP ? 340 : 470) };
 [["Record", RC.no, "l"], ["Class", RC.cls, "l"], ["Affiliation", RC.aff, "l"], ["Threat", AX1, "r"]]
   .forEach(([txt, x, align]) => L.text({ x, base: BCAP, s: 36, c: "tan", txt, align }));
 const cursor = L.layer({ x: AX0 - 16, y: BROW(0) - 40, w: AX1 - AX0 + 32, h: 52 });
@@ -237,13 +257,16 @@ VESSELS.forEach((v, i) => {
 });
 
 // ---------------- tactical assessment, against U.S.S. Enterprise ----------------
-L.header({ x: SX0, y: 1620, w: SX1 - SX0, label: "Tactical Assessment", c1: "red", c2: "sand", h: 48 });
+// (upright: the caption goes into the header, and the gauges sit on the profile's last five rows)
+L.header({ x: SX0, y: ASSESS_Y, w: SX1 - SX0, label: UP ? "Tactical Assessment  ·  Against NCC-1701-D" : "Tactical Assessment", c1: "red", c2: "sand", h: 48 });
+if (!UP) {
 L.text({ x: SX0, base: BCAP, s: 36, c: "tan", txt: "Against NCC-1701-D" });
 L.text({ x: SX1, base: BCAP, s: 36, c: "tan", txt: "Percent", align: "r" });
-const ASSESS = ["Weapon Effect", "Shield Endurance", "Sensor Lock", "Engagement Odds", "Data Confidence"];
-const AT0 = SX0 + Math.ceil(Math.max(...ASSESS.map((a) => L.textWidth(a, 36)))) + 30, AT1 = SX1 - 90;
+}
+const AROW = UP ? (i) => ROW2(9 + i) : BROW;
+const AT0 = SX0 + AW, AT1 = SX1 - (UP ? 124 : 90);   // upright: 124 in from the header's end, the gauges sitting right under it
 const gauges = ASSESS.map((name, i) => {
-  const base = BROW(i);
+  const base = AROW(i);
   L.text({ x: SX0, base, s: 36, c: "sand", txt: name });
   L.rect({ x: AT0, y: base - 24, w: AT1 - AT0, h: 24, c: TRACK });
   return { bar: fill(AT0, base - 24, AT1 - AT0, 24, i === 3 ? "butter" : "red"),
@@ -251,8 +274,8 @@ const gauges = ASSESS.map((name, i) => {
 });
 
 // ---------------- encounter history: the subject's file, oldest first ----------------
-L.header({ x: HX0, y: 1620, w: HX1 - HX0, label: "Encounter History", c1: "tan", c2: "sand", h: 48 });
-const HC = { sd: HX0, ev: HX0 + 160, loc: HX0 + 840 };
+L.header({ x: HX0, y: STRIP_Y, w: HX1 - HX0, label: "Encounter History", c1: "tan", c2: "sand", h: 48 });
+const HC = { sd: HX0, ev: HX0 + (UP ? 140 : 160), loc: HX0 + (UP ? 610 : 840) };
 const OUTC = { Hostile: "mars", Destroyed: "red", Withdrew: "butter", Standoff: "orange", Truce: "sand", Allied: "sand", Cooperated: "sand", Peaceful: "sand", Filed: "tan" };
 [["Stardate", HC.sd, "l"], ["Encounter", HC.ev, "l"], ["Location", HC.loc, "l"], ["Outcome", HX1, "r"]]
   .forEach(([txt, x, align]) => L.text({ x, base: BCAP, s: 36, c: "tan", txt, align }));
@@ -267,6 +290,51 @@ const histRows = Array.from({ length: 5 }, (_, i) => ({
 // =====================================================================================
 // RUNNING IT: a record every 30 seconds
 // =====================================================================================
+let extra = null;                                         // ultrawide: the third column's highlight
+
+// =====================================================================================
+// ULTRAWIDE ONLY: A THIRD COLUMN (3580–4720) ON THE SAME ROWS — every record side by side
+// =====================================================================================
+if (UW) {
+  const QX0 = RR + 60, QX1 = PR, lit = [];                // lit: [element, record] — white while that record is shown
+  // ---------------- records on file: each record's specifications, on the comparison's rows ----------------
+  L.header({ x: QX0, y: 280, w: QX1 - QX0, label: "Records on File  ·  Specifications", c1: "tan", c2: "red" });
+  const QW = (QX1 - QX0) / VESSELS.length;
+  VESSELS.forEach((v, j) => {
+    const x = QX0 + QW * (j + 1);
+    lit.push([L.text({ x, base: 400, s: 36, c: "tan", txt: v.short, align: "r", cls: "sw" }), j]);
+    SPECS.forEach(([, k, , f], i) => {
+      const txt = v.spec[k] === null ? "Unknown" : f(v.spec[k]);
+      fits(txt, 40, QW - 30, "records on file");
+      lit.push([L.text({ x, base: ROW(i), s: 40, c: "tan", txt, align: "r", cls: "sw" }), j]);
+    });
+  });
+  // ---------------- threat matrix: every record's assessment, on the scale's rows ----------------
+  L.header({ x: QX0, y: 984, w: QX1 - QX0, label: "Threat Matrix  ·  Against NCC-1701-D", c1: "red", c2: "sand" });
+  const MH = ["Weapons", "Shields", "Lock", "Odds", "Confidence", "Threat"], MN = 240, MW = (QX1 - QX0 - MN) / MH.length;
+  MH.forEach((txt, c) => L.text({ x: QX0 + MN + MW * (c + 1), base: ROW2(0), s: 36, c: "tan", txt, align: "r" }));
+  VESSELS.forEach((v, j) => {
+    const base = ROW2(j + 1);
+    lit.push([L.text({ x: QX0, base, s: 40, c: "tan", txt: v.short, cls: "sw" }), j]);
+    v.assess.forEach((n, c) => lit.push([L.text({ x: QX0 + MN + MW * (c + 1), base, s: 40, c: "tan", txt: String(n), align: "r", cls: "sw" }), j]));
+    L.text({ x: QX1, base, s: 40, c: THREAT[v.threat], txt: v.threat, align: "r" });
+  });
+  L.text({ x: QX0, base: ROW2(6), s: 36, c: "tan", txt: "Percent  ·  Starfleet Intelligence Assessment" });
+  // ---------------- last contact with each record, on the strip's rows ----------------
+  L.header({ x: QX0, y: 1620, w: QX1 - QX0, label: "Last Contact", c1: "sand", c2: "tan", h: 48 });
+  const LC = { v: QX0, sd: QX0 + 285, loc: QX0 + 570 };
+  [["Vessel", LC.v, "l"], ["Stardate", LC.sd, "l"], ["Location", LC.loc, "l"], ["Posture", QX1, "r"]]
+    .forEach(([txt, x, align]) => L.text({ x, base: BCAP, s: 36, c: "tan", txt, align }));
+  VESSELS.forEach((v, j) => {
+    const [sd, loc] = v.prof[12].split("  ·  "), base = BROW(j);
+    lit.push([L.text({ x: LC.v, base, s: 36, c: "tan", txt: v.short, cls: "sw" }), j]);
+    L.text({ x: LC.sd, base, s: 36, c: "orange", txt: sd });
+    lit.push([L.text({ x: LC.loc, base, s: 36, c: "tan", txt: loc, cls: "sw" }), j]);
+    lit.push([L.text({ x: QX1, base, s: 36, c: "tan", txt: v.prof[13], align: "r", cls: "sw" }), j]);
+    fits(loc, 36, QX1 - LC.loc - L.textWidth(v.prof[13], 36) - 40, "last contact");
+  });
+  extra = (i) => lit.forEach(([e, j]) => { e.style.color = col(j === i ? "white" : "tan"); });
+}
 const HOLD = 30, OUT = 0.6, REVEAL = 2.6, SETTLE = 1.8;
 let cur = -1, prev = -1, t0 = 0, swapped = true;
 const show = (i) => {                                     // put record i's data in place (hidden parts fade in)
@@ -294,6 +362,7 @@ const show = (i) => {                                     // put record i's data
     w.sName.style.color = col(j === i ? "white" : "tan"); w.sVal.style.color = col(j === i ? "white" : "tan");
     w.rCls.style.color = col(j === i ? "white" : "tan"); w.rAff.style.color = col(j === i ? "white" : "tan");
   });
+  if (extra) extra(i);
 };
 const cursorFrom = { y: 0 }, cursorTo = { y: 0 };
 const begin = (t) => {
@@ -340,13 +409,13 @@ L.every(160, (t) => {
 
 // ---------------- a guard: every line of words fits its place ----------------
 VESSELS.forEach((v) => {
-  v.prof.forEach((txt, k) => fits(txt, 40, k < 7 ? F2 - FV1 - 40 : LR - FV2, "profile"));
+  v.prof.forEach((txt, k) => fits(txt, 40, UP ? PRR - FV1 : k < 7 ? F2 - FV1 - 40 : LR - FV2, "profile"));
   v.hist.forEach((h) => { fits(h[1], 36, HC.loc - HC.ev - 40, "history"); fits(h[2], 36, HX1 - HC.loc - L.textWidth("Cooperated", 36) - 40, "location"); if (!OUTC[h[3]]) bad.push("outcome " + h[3]); });
-  fits(`${v.aff}  ·  ${v.type}  ·  Record ${v.rec}  ·  Starfleet Intelligence`, 38, RR - 400 - 40 - (LX + L.textWidth(v.cls, 100) + 40), "subtitle");
+  fits(`${v.aff}  ·  ${v.type}  ·  Record ${v.rec}  ·  Starfleet Intelligence`, 38, PR - 400 - 40 - (LX + L.textWidth(v.cls, 100) + 40), "subtitle");
   fits(`Threat  ·  ${v.threat}`, 36, 400 - 70, "pill");
   [v.prof[7], v.prof[4], v.prof[8], v.prof[5]].forEach((txt) => fits(txt, 44, 440, "corner"));
 });
-FL.forEach((txt, i) => fits(txt, 36, (i < 7 ? FV1 - LX : FV2 - F2) - 30, "field label"));
+FL.forEach((txt, i) => fits(txt, 36, (i < 7 || UP ? FV1 - LX : FV2 - F2) - 30, "field label"));
 if (bad.length) setTimeout(() => { throw new Error("tactical-database: " + bad.join(" | ")); });
 });
 </script></body></html>

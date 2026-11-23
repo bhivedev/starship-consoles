@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Wormhole Transit</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* swapped text dips and comes back; .boot (the start-up cascade) always wins */
@@ -33,13 +34,24 @@ const mod = (a, n) => ((a % n) + n) % n;
 const D2 = (n) => String(n).padStart(2, "0");
 const mmss = (s) => { s = Math.max(0, Math.ceil(s)); return `${Math.floor(s / 60)}:${D2(s % 60)}`; };
 
-// Columns: left 220–1080, the mouth 1140–2700, right 2760–3620. Rows of 64 on an 88 grid above,
-// the bottom strip on 54.
-const LX = 220, LR = 1080, MX = 1140, MR = 2700, RX = 2760, RR = 3620;
-const BX = 300, BRW = 220;                                   // bars start 300 in, stop 220 short of the edge
-const ROW0 = 428, ROW1 = 1148, PITCH = 88;
+// The data, readings and motion below are written once; only positions and sizes differ by shape.
+// wide (3840 × 2160): columns left 220–1080, the mouth 1140–2700, right 2760–3620. Rows of 64 on an
+//   88 grid above, the bottom strip on 54.
+// upright (2160 × 3120): the mouth header runs the full width; under it the ring (drawn at 415/600)
+//   fills the left column 220–1050 and the four readings two by two over a five-minute sweep fill the
+//   right column 1110–1940. Below, wide's side columns on the same two columns, on a 76 grid:
+//   outbound queue | terminus, belt | inbound queue, log | traffic control.
+// ultrawide (5040 × 2160): the mouth stays at wide size, centred (1740–3300), with a 540 column either
+//   side of it (1140–1680: the transit cycle over the verteron array; 3360–3900: the current transit
+//   over the relay chain); the sweep runs 1140–3900 over eighteen minutes.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const LX = 220, LR = UP ? 1050 : 1080, MX = UP ? 220 : UW ? 1740 : 1140, MR = UP ? 1940 : UW ? 3300 : 2700,
+      RX = UP ? 1110 : UW ? 3960 : 2760, RR = UP ? 1940 : UW ? 4820 : 3620;
+const BX = UP ? 280 : 300, BRW = 220;                        // bars start 300 in, stop 220 short of the edge
+const ROW0 = UP ? 1496 : 428, ROW1 = UP ? 2156 : 1148, PITCH = UP ? 76 : 88;
+const H0 = UP ? 1348 : 280, H1 = UP ? 2008 : 1000, H2 = UP ? 2580 : 1620;   // section headers
 const base0 = (i) => ROW0 + i * PITCH + 52.5, base1 = (i) => ROW1 + i * PITCH + 52.5;
-const STRIP = (i) => 1734 + i * 54;
+const STRIP = (i) => (UP ? 2694 : 1734) + i * 54;
 
 const fill = (x, y, w, h, c) => {
   const f = L.layer({ x, y, w, h });
@@ -114,12 +126,13 @@ const doneCount = (t, dir) => {
 };
 
 const SD0 = 46602.5, SD_PER_S = 1000 / 31557600;
+const relaySignal = (t) => 0.974 + 0.004 * Math.sin(t * 0.037);   // at the Gamma terminus
 
 // ---------------- status line ----------------
 const WORDS = { closed: ["Wormhole Closed", "lilac"], cleared: ["Transit Cleared", "sky"], opening: ["Wormhole Opening", "ice"],
   transit: ["Transit in Progress", "ice"], closing: ["Wormhole Closing", "sky"] };
 const state = cls(L.text({ x: LX, cap: 150, s: 100, c: "lilac", txt: "" }), "sw");
-const stateSub = L.text({ x: MX, base: 222, s: 38, c: "lilac", txt: "" });
+const stateSub = L.text({ x: UP ? LX : MX, base: UP ? 290 : 222, s: 38, c: "lilac", txt: "" });
 L.box({ x: RR - 400, y: 150, w: 400, h: 72, c: "sky", label: "Station Keeping", r: "lr", fs: 36 });
 
 // ---------------- a queue of vessels, as rows that slide up ----------------
@@ -127,7 +140,7 @@ const queue = (x, r, y0, rows, dir, sub) => {
   const w = r - x;
   const make = (i) => {
     const lay = cls(L.layer({ x, y: y0, w, h: 64 }), "qrow");
-    const box = L.box({ x: 0, y: 0, w: BX - 24, h: 64, c: "ice", label: "", fs: 32, r: "l" }, lay);
+    const box = L.box({ x: 0, y: UP ? 4 : 0, w: BX - 24, h: UP ? 56 : 64, c: "ice", label: "", fs: 32, r: "l" }, lay);   // upright: 20 apart on its 76 pitch
     const type = L.text({ x: BX, base: 52.5, s: 40, c: "lilac", txt: "" }, lay);
     const eta = L.text({ x: w, base: 52.5, s: 52, c: "white", txt: "", align: "r", rightIn: true }, lay);
     return { lay, box, type, eta, k: null, slot: i };
@@ -164,18 +177,18 @@ const queue = (x, r, y0, rows, dir, sub) => {
 };
 
 // ---------------- outbound queue ----------------
-L.header({ x: LX, y: 280, w: LR - LX, label: "Transit Queue  ·  Outbound", c1: "lilac", c2: "sky" });
-L.text({ x: LX, base: 400, s: 36, c: "sky", txt: "Bajor to Gamma  ·  Cleared by Deep Space 9" });
+L.header({ x: LX, y: H0, w: LR - LX, label: "Transit Queue  ·  Outbound", c1: "lilac", c2: "sky" });
+L.text({ x: LX, base: H0 + 120, s: 36, c: "sky", txt: "Bajor to Gamma  ·  Cleared by Deep Space 9" });
 const qOut = queue(LX, LR, ROW0, 6, "out");
 
 // ---------------- the Denorios Belt ----------------
-L.header({ x: LX, y: 1000, w: LR - LX, label: "Denorios Belt", c1: "sky", c2: "lilac" });
-L.text({ x: LX, base: 1120, s: 36, c: "sky", txt: "Charged Plasma Field  ·  Approach Corridor Clear" });
+L.header({ x: LX, y: H1, w: LR - LX, label: "Denorios Belt", c1: "sky", c2: "lilac" });
+L.text({ x: LX, base: H1 + 120, s: 36, c: "sky", txt: "Charged Plasma Field  ·  Approach Corridor Clear" });
 const belt = [["Plasma Density", "lilac"], ["Field Charge", "sky"], ["Tachyon Eddies", "lilac"], ["Neutrino Flux", "ice"], ["Deflector Load", "sky"]]
   .map(([n, c], i) => gaugeRow(LX, LR, base1(i), n, c));
 
 // ---------------- transit log ----------------
-L.header({ x: LX, y: 1620, w: LR - LX, label: "Transit Log", c1: "lilac", c2: "plum", h: 48 });
+L.header({ x: LX, y: H2, w: LR - LX, label: "Transit Log", c1: "lilac", c2: "plum", h: 48 });
 const LOGV = LX + 150, LOGT = LX + 470;
 const logRows = Array.from({ length: 6 }, (_, i) => ({
   tm: L.text({ x: LX, base: STRIP(i), s: 36, c: "sky", txt: "" }),
@@ -198,19 +211,19 @@ while (T(lastLogged) + DONE > 0) lastLogged--;
 for (let k = lastLogged - 5; k <= lastLogged; k++) logTransit(k, -(T(k) + DONE));
 
 // ---------------- the Gamma terminus ----------------
-L.header({ x: RX, y: 280, w: RR - RX, label: "Gamma Terminus  ·  Idran System", c1: "sky", c2: "lilac" });
-L.text({ x: RX, base: 400, s: 36, c: "sky", txt: "Relayed by Probe 3  ·  70,000 Light Years" });
+L.header({ x: RX, y: H0, w: RR - RX, label: "Gamma Terminus  ·  Idran System", c1: "sky", c2: "lilac" });
+L.text({ x: RX, base: H0 + 120, s: 36, c: "sky", txt: "Relayed by Probe 3  ·  70,000 Light Years" });
 const gamma = [["Relay Signal", "sky"], ["Relay Lag", "lilac"], ["Neutrino Flux", "ice"], ["Verteron Nodes", "lilac"], ["Stellar Wind", "sky"], ["Probe Power", "lilac"]]
   .map(([n, c], i) => gaugeRow(RX, RR, base0(i), n, c));
 
 // ---------------- inbound queue ----------------
-L.header({ x: RX, y: 1000, w: RR - RX, label: "Transit Queue  ·  Inbound", c1: "lilac", c2: "sky" });
-L.text({ x: RX, base: 1120, s: 36, c: "sky", txt: "Gamma to Bajor  ·  Holding at the Idran Terminus" });
+L.header({ x: RX, y: H1, w: RR - RX, label: "Transit Queue  ·  Inbound", c1: "lilac", c2: "sky" });
+L.text({ x: RX, base: H1 + 120, s: 36, c: "sky", txt: "Gamma to Bajor  ·  Holding at the Idran Terminus" });
 const qIn = queue(RX, RR, ROW1, 5, "in");
 
 // ---------------- traffic control ----------------
-L.header({ x: RX, y: 1620, w: RR - RX, label: "Traffic Control  ·  Deep Space 9", c1: "sky", c2: "plum", h: 48 });
-const TC = [RX, 3080, 3260, 3440, RR];
+L.header({ x: RX, y: H2, w: RR - RX, label: "Traffic Control  ·  Deep Space 9", c1: "sky", c2: "plum", h: 48 });
+const TC = UP ? [RX, RX + 290, RX + 470, RX + 650, RR] : UW ? [RX, RX + 320, RX + 500, RX + 680, RR] : [RX, 3080, 3260, 3440, RR];
 ["Direction", "Transits", "Queued", "Interval", "Next"].forEach((txt, i) => L.text({ x: TC[i], base: STRIP(0), s: 36, c: "sky", txt, align: i ? "r" : "l" }));
 const tcRows = [["Outbound", "lilac", "out", 6, P * 2], ["Inbound", "sky", "in", 5, P * 2], ["Combined", "ice", undefined, 11, P]].map(([name, c, dir, qd, iv], i) => {
   L.text({ x: RX, base: STRIP(i + 1), s: 36, c, txt: name });
@@ -228,13 +241,14 @@ const openTime = small(4, "Mouth Open", "ice");
 const corridor = small(5, "Corridor Load", "lilac");
 
 // ---------------- the mouth ----------------
-L.header({ x: MX, y: 280, w: MR - MX, label: "Wormhole Mouth  ·  Bajor Terminus", c1: "lilac", c2: "sky" });
-const CX = 1920, CY = 975, RB0 = 584, RB1 = 600, RD = 528;
-const pt = (r, a) => [CX + r * Math.sin((a * Math.PI) / 180), CY - r * Math.cos((a * Math.PI) / 180)];
+L.header({ x: MX, y: UP ? 350 : 280, w: MR - MX, label: "Wormhole Mouth  ·  Bajor Terminus", c1: "lilac", c2: "sky" });
+const CX = UP ? 635 : UW ? 2520 : 1920, CY = UP ? 861 : 975, RB0 = 584, RB1 = 600, RD = 528;
+const K = UP ? 415 / 600 : 1;                                  // upright draws the mouth smaller; radii stay in wide's units
+const pt = (r, a) => [CX + r * K * Math.sin((a * Math.PI) / 180), CY - r * K * Math.cos((a * Math.PI) / 180)];
 // the bezel: twelve segments; the approach gate (225°) and the exit gate (45°) lit
 for (let s = 0; s < 12; s++) {
   const c = s === 7 ? "lilac" : s === 1 ? "ice" : ["violet", "sky", "plum"][s % 3];
-  L.svg("path", { d: L.arc(CX, CY, RB0, RB1, s * 30 + 0.7, s * 30 + 29.3), fill: colr(c), class: "boot" });
+  L.svg("path", { d: L.arc(CX, CY, RB0 * K, RB1 * K, s * 30 + 0.7, s * 30 + 29.3), fill: colr(c), class: "boot" });
 }
 {
   let p5 = "", p30 = "";
@@ -246,8 +260,8 @@ for (let s = 0; s < 12; s++) {
   L.svg("path", { d: p5, stroke: "var(--violet)", "stroke-width": 3, class: "boot" });
   L.svg("path", { d: p30, stroke: "var(--lilac)", "stroke-width": 6, class: "boot" });
 }
-L.svg("circle", { cx: CX, cy: CY, r: RD, fill: DISK, class: "boot" });
-[176, 352].forEach((r) => L.svg("circle", { cx: CX, cy: CY, r, fill: "none", stroke: "#1a1c48", "stroke-width": 3, class: "boot" }));
+L.svg("circle", { cx: CX, cy: CY, r: RD * K, fill: DISK, class: "boot" });
+[176, 352].forEach((r) => L.svg("circle", { cx: CX, cy: CY, r: r * K, fill: "none", stroke: "#1a1c48", "stroke-width": 3, class: "boot" }));
 // the two lanes: in from the south-west, out to the north-east
 const lane = (a, c) => {
   let d = "";
@@ -258,8 +272,9 @@ lane(225, "#4a3c66"); lane(45, "#26476e");
 
 const SZ = 1040, SO = SZ / 2;
 const svgLayer = (inner, size = SZ) => {
-  const lay = L.layer({ x: CX - size / 2, y: CY - size / 2, w: size, h: size });
-  lay.innerHTML = `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="position:absolute;left:0;top:0">${inner}</svg>`;
+  const sz = size * K;
+  const lay = L.layer({ x: CX - sz / 2, y: CY - sz / 2, w: sz, h: sz });
+  lay.innerHTML = `<svg width="${sz}" height="${sz}" viewBox="0 0 ${size} ${size}" style="position:absolute;left:0;top:0">${inner}</svg>`;
   return lay;
 };
 // at rest: the verteron nodes, faint, turning slowly
@@ -298,7 +313,7 @@ const rings = (() => {
   segs(118, 10, 6, 34, "white"); segs(214, 12, 8, 26, "ice"); segs(306, 10, 10, 18, "lilac"); segs(398, 14, 12, 12, "sky"); segs(478, 8, 16, 9, "lilac");
   return svgLayer(s);
 })();
-const core = L.layer({ x: CX - 190, y: CY - 190, w: 380, h: 380, cls: "core" });
+const core = L.layer({ x: CX - 190 * K, y: CY - 190 * K, w: 380 * K, h: 380 * K, cls: "core" });
 core.style.background = "radial-gradient(circle, #ffffff 0%, #ffffff 14%, rgba(143,211,255,.85) 34%, rgba(92,157,255,.35) 58%, rgba(92,157,255,0) 72%)";
 [arms, rings, core].forEach((e) => (e.style.opacity = 0));
 
@@ -333,24 +348,28 @@ const corner = (x, align, lb, label, vb, cb) => ({
   v: L.text({ x, base: vb, s: 100, c: "white", txt: "", align }),
   c: L.text({ x, base: cb, s: 36, c: "lilac", txt: "", align }),
 });
-const cAp = corner(MX, "l", 400, "Aperture", base0(1), base0(2));
-const cDist = corner(MR, "r", 400, "Subspace Distortion", base0(1), base0(2));
-const cNext = corner(MX, "l", base1(1), "Next Transit", base1(3), base1(4));
-const cMouth = corner(MR, "r", base1(1), "Mouth", base1(3), base1(4));
+// upright: two by two in the right column, over the sweep
+const cAp = UP ? corner(RX, "l", 470, "Aperture", 600, 660) : corner(MX, "l", 400, "Aperture", base0(1), base0(2));
+const cDist = UP ? corner(RR, "r", 470, "Subspace Distortion", 600, 660) : corner(MR, "r", 400, "Subspace Distortion", base0(1), base0(2));
+const cNext = UP ? corner(RX, "l", 740, "Next Transit", 870, 930) : corner(MX, "l", base1(1), "Next Transit", base1(3), base1(4));
+const cMouth = UP ? corner(RR, "r", 740, "Mouth", 870, 930) : corner(MR, "r", base1(1), "Mouth", base1(3), base1(4));
 L.set(cAp.c, "Kilometers");
 L.set(cDist.c, "Millicochranes");
 
 // ---------------- subspace distortion: a ten-minute sweep under the mouth ----------------
 {
-  const lw = Math.ceil(L.textWidth("Subspace Distortion  ·  Ten Minutes", 28) + 88);
+  const lab = `Subspace Distortion  ·  ${UP ? "Five" : UW ? "Eighteen" : "Ten"} Minutes`;
+  const hx = UP ? RX : UW ? 1140 : MX, hr = UP ? RR : UW ? 3900 : MR, hy = UP ? 970 : 1620;
+  const lw = Math.ceil(L.textWidth(lab, 28) + 88);
   const LG = [["Outbound", "lilac"], ["Inbound", "sky"]].map(([t, c]) => [t, c, Math.ceil(L.textWidth(t, 28) + 60)]);
   const lgw = LG.reduce((a, l) => a + l[2] + L.GAP, 0);
-  L.header({ x: MX, y: 1620, w: MR - MX - lgw, label: "Subspace Distortion  ·  Ten Minutes", c1: "sky", c2: "plum", h: 48, lw });
-  let x = MR - lgw + L.GAP;
-  LG.forEach(([t, c, w], i) => { L.box({ x, y: 1620, w, h: 48, c, label: t, fs: 28, r: i === LG.length - 1 ? "r" : null }); x += w + L.GAP; });
+  L.header({ x: hx, y: hy, w: hr - hx - lgw, label: lab, c1: "sky", c2: "plum", h: 48, lw });
+  let x = hr - lgw + L.GAP;
+  LG.forEach(([t, c, w], i) => { L.box({ x, y: hy, w, h: 48, c, label: t, fs: 28, r: i === LG.length - 1 ? "r" : null }); x += w + L.GAP; });
 }
-const CHX = 1236, CHY = 1692, CHW = MR - CHX, CHH = 312, WIN = 600;
-const PY0 = 18, PY1 = 300, VMAX = 800;                           // plot: 800 at the top, 0 at the bottom (design px in the chart)
+const CHX = UP ? RX + 124 : UW ? 1236 : 1236, CHY = UP ? 1042 : 1692, CHW = (UP ? RR : UW ? 3900 : MR) - CHX, CHH = UP ? 234 : 312,
+      WIN = UP ? 300 : UW ? 1080 : 600;                            // seconds across: the same px per second in every shape
+const PY0 = 18, PY1 = UP ? 222 : 300, VMAX = 800;                           // plot: 800 at the top, 0 at the bottom (design px in the chart)
 for (let v = 0; v <= VMAX; v += 200) L.text({ x: CHX - 24, base: CHY + PY1 - (v / VMAX) * (PY1 - PY0) + 11.5, s: 32, c: "sky", txt: String(v), align: "r", legend: true });
 const chart = L.canvas({ x: CHX, y: CHY, w: CHW, h: CHH });
 const cursor = L.layer({ x: CHX, y: CHY, w: 4, h: CHH });
@@ -359,6 +378,7 @@ const COL = { out: ["#4a3a5c", "#c7a0d8"], in: ["#1e3a66", "#8fd3ff"], idle: "#7
 let NC = 1, KX = 1, drawnTo = -1;
 const colTime = (X, t) => {                                      // the time a device column shows, as of t
   const sweep0 = t - mod(t, WIN), tc = sweep0 + ((X + 0.5) / NC) * WIN;
+  if (UP || UW) return X <= curCol(t) ? tc : tc - WIN;          // current once the cursor has entered the column
   return tc <= t ? tc : tc - WIN;
 };
 const vy = (v) => (PY0 + (PY1 - PY0) * (1 - L.clamp(v / VMAX))) * KX;
@@ -474,7 +494,7 @@ L.every(1000, (t) => {
   showBar(belt[2], ed / 8); L.set(belt[2].v, `${ed} / 8`);
   const dl = 0.384 + 0.006 * Math.sin(t * 0.041);
   showBar(belt[4], dl); L.set(belt[4].v, (dl * 100).toFixed(1) + "%");
-  const rs = 0.974 + 0.004 * Math.sin(t * 0.037);
+  const rs = relaySignal(t);
   showBar(gamma[0], rs); L.set(gamma[0].v, (rs * 100).toFixed(1) + "%");
   const lag = 0.42 + 0.02 * Math.sin(t * 0.019);
   showBar(gamma[1], lag); L.set(gamma[1].v, lag.toFixed(2) + " s");
@@ -487,5 +507,65 @@ L.every(1000, (t) => {
   showBar(openTime, ot); L.set(openTime.v, (ot * 100).toFixed(1) + "%");
   showBar(corridor, 11 / 16); L.set(corridor.v, "11 / 16");
 }, 0);
+
+// ---------------- ultrawide: a column either side of the mouth ----------------
+if (UW) {
+  const AX = 1140, AR = 1680, BXc = 3360, BR = 3900, NB = 180, NR = 130;   // bars 180 in, 130 short
+  const row = (x, r, base, name, c) => {
+    const n = L.text({ x, base, s: 40, c: "lilac", txt: name });
+    L.rect({ x: x + NB, y: base - 26, w: r - NR - (x + NB), h: 26, c: TRACK });
+    return { n, bar: fill(x + NB, base - 26, r - NR - (x + NB), 26, c), v: L.text({ x: r, base, s: 52, c: "white", txt: "", align: "r" }), u: -1 };
+  };
+  // the transit cycle: each phase fills as it runs
+  L.header({ x: AX, y: 280, w: AR - AX, label: "Transit Cycle", c1: "sky", c2: "lilac" });
+  L.text({ x: AX, base: 400, s: 36, c: "sky", txt: "One Transit Every 34 Seconds" });
+  const PH = [["Cleared", "cleared", 0, OPEN, "sky"], ["Opening", "opening", OPEN, FULL, "ice"], ["Transit", "transit", FULL, DONE, "ice"],
+              ["Closing", "closing", DONE, SHUT, "sky"], ["Closed", "closed", SHUT, P, "lilac"]];
+  const phRows = PH.map(([n, , a, b, c], i) => row(AX, AR, base0(i), n, c));
+  const secs = (s) => `0:${D2(Math.floor(s))}`;                    // time run, as the bars show it
+  const cyc = row(AX, AR, base0(5), "Cycle", "plum");
+  // the verteron array: as many nodes lit as the terminus reports
+  L.header({ x: AX, y: 1000, w: AR - AX, label: "Verteron Array", c1: "lilac", c2: "plum" });
+  const nodesSub = L.text({ x: AX, base: 1120, s: 36, c: "sky", txt: "" });
+  const cells = [];
+  for (let j = 0; j < 8; j++) for (let i = 0; i < 8; i++) {
+    const x = AX + Math.round((i * 480) / 7), y = 1148 + j * 53;
+    L.rect({ x, y, w: 60, h: 45, c: TRACK, free: true });
+    const f = fill(x, y, 60, 45, (i + j) % 3 ? "lilac" : "violet"); f.style.opacity = 0; cells.push(f);
+  }
+  // the current transit
+  L.header({ x: BXc, y: 280, w: BR - BXc, label: "Current Transit", c1: "lilac", c2: "sky" });
+  L.text({ x: BXc, base: 400, s: 36, c: "sky", txt: "Deep Space 9  ·  Traffic Control" });
+  const CT = ["Vessel", "Class", "Direction", "From", "Phase", "Phase Ends"].map((n, i) => {
+    L.text({ x: BXc, base: base0(i), s: 40, c: "lilac", txt: n });
+    return L.text({ x: BR, base: base0(i), s: 52, c: "white", txt: "", align: "r" });
+  });
+  // the relay chain through to the Gamma terminus
+  L.header({ x: BXc, y: 1000, w: BR - BXc, label: "Relay Chain", c1: "sky", c2: "plum" });
+  L.text({ x: BXc, base: 1120, s: 36, c: "sky", txt: "Five Relays  ·  Bajor to the Idran Terminus" });
+  const relays = [["Relay 1", "sky"], ["Relay 2", "lilac"], ["Relay 3", "ice"], ["Relay 4", "lilac"], ["Relay 5", "sky"]]
+    .map(([n, c], i) => ({ ...row(BXc, BR, base1(i), n, c), k: (4 - i) * 0.005 }));
+  L.every(250, (t) => {
+    const { k, u } = cycle(t), ph = phaseOf(u), v = vessel(k), a = aperture(t);
+    PH.forEach(([, id], i) => fg(phRows[i].n, id === ph ? "ice" : "lilac"));
+    PH.forEach(([, , p0, p1], i) => L.set(phRows[i].v, secs(L.clamp(u - p0, 0, p1 - p0))));
+    L.set(cyc.v, secs(u));
+    const nodes = Math.round(4 + 60 * a);
+    cells.forEach((c, i) => op(c, i < nodes ? 1 : 0));
+    L.set(nodesSub, `${nodes} of 64 Nodes Active`);
+    L.set(CT[0], v.n); L.set(CT[1], v.log);
+    L.set(CT[2], isOut(k) ? "Outbound" : "Inbound"); fg(CT[2], isOut(k) ? "lilac" : "sky");
+    L.set(CT[3], isOut(k) ? "Bajor" : "Gamma");
+    L.set(CT[4], PH.find(([, id]) => id === ph)[0]); fg(CT[4], ph === "opening" || ph === "transit" ? "ice" : "white");
+    const end = PH.find(([, id]) => id === ph)[3];
+    L.set(CT[5], mmss(end - u));
+  }, 0);
+  L.tick((t) => {                                             // the cycle bars run smoothly; each empties as the cycle restarts
+    const { u } = cycle(t);
+    PH.forEach(([, , p0, p1], i) => showBar(phRows[i], (u - p0) / (p1 - p0)));
+    showBar(cyc, u / P);
+  });
+  L.every(1000, (t) => relays.forEach((r) => { const s = relaySignal(t) + r.k; showBar(r, s); L.set(r.v, (s * 100).toFixed(1) + "%"); }), 0);
+}
 });
 </script></body></html>

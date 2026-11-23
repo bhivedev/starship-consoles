@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Command Codes</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .clip { position: absolute; overflow: hidden; }
@@ -13,17 +14,32 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: sidebar left, title top right ----------------
-L.frame({ type: "A", title: "Command Authorization  •  Codes", c: "red", c2: "sand", accent: "peach", foot: "Authorization",
+const FB = L.frame({ type: "A", title: "Command Authorization  •  Codes", c: "red", c2: "sand", accent: "peach", foot: "Authorization",
   side: [[140, "sand", "Auth 01"], [70, "peach", "Voice"], [420, "red", "Command"], [70, "butter", "4747"],
          [300, "sand", "Codes"], [70, "peach", "Level 10"], [216, "red", "Security"]] });
 
 // A wall of nine monitors on a four-column grid (834 wide, 50 apart): three rows, each a header
 // and a dark screen. Inside a row, every line of text sits on one grid of baselines.
+// The data, readings and motion are written once; only positions and sizes differ by shape.
+// upright (2160 × 3120, content 330–2136, rows 280–2970): five bands 40 apart —
+//   voiceprint full width (readouts in a block right of the traces) · retinal scan | biometrics
+//   (878 each, the eye drawn at 0.88) · authorization code full width · clearance | codes on file |
+//   station access (506 · 560 · 640) · access log | code history (1116 · 640, on the same gutter).
+// ultrawide (5040 × 2160): wide's wall unchanged, plus a fifth column 3866–5016 on the same three
+//   rows: the authorization sequence, recent authorizations, and access requests by result.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
 const COL = [330, 1214, 2098, 2982], CW = 834, WIDE = 2 * CW + 50, P = 32;
+const FULL = FB.x1 - COL[0];                              // upright: a full-width monitor
+const PILLX = UP ? FB.x1 - 300 : UW ? FB.x1 - 400 : 3416;
 const BODY = "#1c100d", DIM = "#3d241e", TRACK = "#2e1a16";
 const R1 = (k) => 412 + 71 * k;                           // row 1: 412 … 909
 const R2 = (k) => 1132 + 66 * k;                          // row 2: 1132 … 1528
 const R3 = (k) => 1740 + 48 * k;                          // row 3: 1740 … 1980
+// the small panels' grids in upright: retina and biometrics (60 apart), clearance, codes on file and
+// stations (54 apart), log and history (48 apart, as wide); wide and ultrawide keep R1, R2, R3
+const R1s = (k) => (UP ? 960 + 60 * k : R1(k));
+const R2s = (k) => (UP ? 2174 + 54 * k : R2(k));
+const R3s = (k) => (UP ? 2700 + 48 * k : R3(k));
 const monitor = (x, w, y, bottom, label, c1, c2, h = 56) => {
   L.header({ x, y, w, label, c1, c2, h });
   L.rect({ x, y: y + h + 16, w, h: bottom - (y + h + 16), c: BODY, panel: true });
@@ -86,22 +102,24 @@ OFFICERS.forEach((o, i) => {
 const whoBig = L.text({ x: COL[0], cap: 150, s: 100, c: "sand", txt: "", cls: "fd" });
 const whoSub = L.text({ x: 0, base: 222, s: 38, c: "peach", txt: "", cls: "fd" });
 const subFor = (o, q) => `${q[0]}  ·  ${q[1]}  ·  Requires Level ${q[3]}`;
-const state = L.box({ x: 3416, y: 150, w: 400, h: 72, c: "sand", label: "Standing By", r: "lr", fs: 36, cls: "sw" });
+const state = L.box({ x: PILLX, y: 150, w: UP ? 300 : 400, h: 72, c: "sand", label: "Standing By", r: "lr", fs: 36, cls: "sw" });
 state.style.willChange = "opacity";
 
 // =====================================================================================
 // ROW 1 — the identity checks
 // =====================================================================================
 // ---------------- voiceprint analysis ----------------
-const A = monitor(COL[0], WIDE, 280, 950, "Voiceprint Analysis", "red", "sand");
-const NB = 110, BW = 9, BP = (A.r - A.l - BW) / (NB - 1);
-const REF = { c: 505, h: 140 }, LIVE = { c: 718, h: 140 };
+const A = monitor(COL[0], UP ? FULL : WIDE, 280, UP ? 792 : 950, "Voiceprint Analysis", "red", "sand");
+const WR = UP ? A.r - 520 : A.r;                           // the traces' right edge (upright: readouts beside them)
+const V3 = UP ? 615 : R1(3);                               // the live sample's line
+const NB = 110, BW = 9, BP = (WR - A.l - BW) / (NB - 1);
+const REF = { c: UP ? 495 : 505, h: UP ? 120 : 140 }, LIVE = { c: UP ? 700 : 718, h: UP ? 120 : 140 };
 const refInfo = L.text({ x: A.l, base: R1(0), s: 36, c: "sand", txt: "" });
-const refWho = L.text({ x: A.r, base: R1(0), s: 36, c: "tan", txt: "", align: "r" });
-L.text({ x: A.l, base: R1(3), s: 36, c: "sand", txt: "Live Sample" });
-const phrase = L.text({ x: A.l + L.textWidth("Live Sample", 36) + 32, base: R1(3), s: 40, c: "white", txt: "" });
-const voiceState = L.text({ x: A.r, base: R1(3), s: 36, c: "butter", txt: "", align: "r" });
-for (const b of [REF, LIVE]) L.rect({ x: A.l, y: b.c - 1, w: A.r - A.l, h: 2, c: DIM, free: true });
+const refWho = L.text({ x: WR, base: R1(0), s: 36, c: "tan", txt: "", align: "r" });
+L.text({ x: A.l, base: V3, s: 36, c: "sand", txt: "Live Sample" });
+const phrase = L.text({ x: A.l + L.textWidth("Live Sample", 36) + 32, base: V3, s: 40, c: "white", txt: "" });
+const voiceState = L.text({ x: WR, base: V3, s: 36, c: "butter", txt: "", align: "r" });
+for (const b of [REF, LIVE]) L.rect({ x: A.l, y: b.c - 1, w: WR - A.l, h: 2, c: DIM, free: true });
 const refG = L.svg("g", { class: "boot fd" });
 const refBars = Array.from({ length: NB }, (_, i) => L.svg("rect", { x: (A.l + i * BP).toFixed(1), y: REF.c - 2, width: BW, height: 4, fill: "var(--tan)" }, refG));
 // the live sample: drawn once, redrawn only while the officer speaks (a few seconds in forty)
@@ -110,14 +128,21 @@ const live = Array.from({ length: NB }, (_, i) => ({ v: 0.03, shown: -1,
   f: L.svg("rect", { x: (A.l + i * BP).toFixed(1), y: LIVE.c - 2, width: BW, height: 4, fill: "var(--red)" }, liveG) }));
 const playhead = L.layer({ x: A.l, y: LIVE.c - LIVE.h / 2 - 8, w: 4, h: LIVE.h + 16, cls: "fd" });
 playhead.style.background = "var(--butter)"; playhead.style.opacity = 0;
-// the four readouts share their columns with the authorization code below
-const QX = [A.l, A.l + 574, A.l + 1148];
+// the four readouts share their columns with the authorization code below (its three groups of cells;
+// upright: 362, 980, 1598 on the 1742-wide code panel)
+const QX = UP ? [362, 980, 1598] : [A.l, A.l + 574, A.l + 1148];
 const readouts = (base, labels) => labels.map((txt, i) => {
   const right = i === 3;
   L.text({ x: right ? A.r : QX[i], base, s: 36, c: "sand", txt, align: right ? "r" : "l" });
   return L.text({ x: right ? A.r : QX[i], base: base + (base < 1000 ? 71 : 66), s: 52, c: "white", txt: "", align: right ? "r" : "l" });
 });
-const [vMatch, vPitch, vStress, vLen] = readouts(R1(6), ["Match", "Pitch", "Voice Stress", "Sample Length"]);
+const [vMatch, vPitch, vStress, vLen] = UP
+  ? [["Match", 0, R1(0)], ["Pitch", 1, R1(0)], ["Voice Stress", 0, V3], ["Sample Length", 1, V3]].map(([txt, i, base]) => {
+      const x = WR + 100 + i * 260;                        // a 2 × 2 block right of the traces, on their two lines
+      L.text({ x, base, s: 36, c: "sand", txt });
+      return L.text({ x, base: base + 71, s: 52, c: "white", txt: "" });
+    })
+  : readouts(R1(6), ["Match", "Pitch", "Voice Stress", "Sample Length"]);
 
 // an officer's voice on file: the words of the code as syllable bursts across the strip
 const voiceprint = (o) => {
@@ -140,92 +165,95 @@ const voiceprint = (o) => {
 };
 
 // ---------------- retinal scan ----------------
-const B = monitor(COL[2], CW, 280, 950, "Retinal Scan", "sand", "red");
-const RC = { x: B.l + 252, y: 651 };
+const B = monitor(UP ? COL[0] : COL[2], UP ? 878 : CW, UP ? 832 : 280, UP ? 1426 : 950, "Retinal Scan", "sand", "red");
+const RS = UP ? 0.88 : 1;                                  // the eye's drawn size (upright: 0.88)
+const RC = { x: B.l + (UP ? 222 : 252), y: UP ? 1165 : 651 };
 const RINGS = [[72, 112, 12], [124, 172, 20], [184, 240, 30]];
-L.svg("circle", { cx: RC.x, cy: RC.y, r: 250, fill: "none", stroke: DIM, "stroke-width": 3, class: "boot" });
-L.svg("circle", { cx: RC.x, cy: RC.y, r: 58, fill: "none", stroke: "var(--tan)", "stroke-width": 4, class: "boot" });
+L.svg("circle", { cx: RC.x, cy: RC.y, r: 250 * RS, fill: "none", stroke: DIM, "stroke-width": 3, class: "boot" });
+L.svg("circle", { cx: RC.x, cy: RC.y, r: 58 * RS, fill: "none", stroke: "var(--tan)", "stroke-width": 4, class: "boot" });
 for (const [dx, dy, w, h] of [[-2, -276, 4, 18], [-2, 258, 4, 18], [-276, -2, 18, 4], [258, -2, 18, 4]])
-  L.rect({ x: RC.x + dx, y: RC.y + dy, w, h, c: "tan", free: true });
+  if (UP) L.rect({ x: RC.x + (w > 4 ? dx * RS : dx), y: RC.y + (h > 4 ? dy * RS : dy), w: w > 4 ? w * RS : w, h: h > 4 ? h * RS : h, c: "tan", free: true });
+  else L.rect({ x: RC.x + dx, y: RC.y + dy, w, h, c: "tan", free: true });
 const segs = [];
 RINGS.forEach(([r1, r2, n], ri) => {
   for (let k = 0; k < n; k++) {
     const a0 = (360 / n) * k + 1.2, a1 = (360 / n) * (k + 1) - 1.2;
-    const p = L.svg("path", { d: L.arc(RC.x, RC.y, r1, r2, a0, a1), fill: DIM, class: "boot sf" });
+    const p = L.svg("path", { d: L.arc(RC.x, RC.y, r1 * RS, r2 * RS, a0, a1), fill: DIM, class: "boot sf" });
     segs.push({ p, mid: (a0 + a1) / 2, ri, lit: false });
   }
 });
-const sweep = L.layer({ x: RC.x - 250, y: RC.y - 250, w: 500, h: 500, cls: "fd" });
+const sweep = L.layer({ x: RC.x - 250 * RS, y: RC.y - 250 * RS, w: 500 * RS, h: 500 * RS, cls: "fd" });
 sweep.style.opacity = 0;
 {
-  const s = L.svg("svg", { width: 500, height: 500, viewBox: "0 0 500 500" }, sweep);
+  const s = L.svg("svg", { width: 500 * RS, height: 500 * RS, viewBox: "0 0 500 500" }, sweep);
   L.svg("path", { d: L.arc(250, 250, 60, 248, -28, 0), fill: "var(--butter)", opacity: 0.22 }, s);
   L.svg("path", { d: L.arc(250, 250, 60, 248, -1.2, 0.8), fill: "var(--butter)" }, s);
 }
-const RX = B.l + 552;                                      // the readouts, right of the eye
+const RX = B.l + (UP ? 500 : 552);                         // the readouts, right of the eye
 const retina = [["Subject", 0], ["Scan", 2], ["Iris Points", 4], ["Match", 6]].map(([label, k]) => {
-  L.text({ x: RX, base: R1(k), s: 36, c: "sand", txt: label });
-  return L.text({ x: RX, base: R1(k + 1), s: 52, c: "white", txt: "" });
+  L.text({ x: RX, base: R1s(k), s: 36, c: "sand", txt: label });
+  return L.text({ x: RX, base: R1s(k + 1), s: 52, c: "white", txt: "" });
 });
 
 // ---------------- biometric verification ----------------
-const C = monitor(COL[3], CW, 280, 950, "Biometric Verification", "peach", "sand");
-const BC = { name: C.l, bar: C.l + 300, barW: 222, pill: C.r - 216 };
-[["Measure", BC.name], ["Scan", BC.bar], ["Status", BC.pill]].forEach(([txt, x]) => L.text({ x, base: R1(0), s: 36, c: "sand", txt }));
+const C = monitor(UP ? 1258 : COL[3], UP ? 878 : CW, UP ? 832 : 280, UP ? 1426 : 950, "Biometric Verification", "peach", "sand");
+const BC = { name: C.l, bar: C.l + 300, barW: UP ? C.r - 216 - 64 - (C.l + 300) : 222, pill: C.r - 216 };
+[["Measure", BC.name], ["Scan", BC.bar], ["Status", BC.pill]].forEach(([txt, x]) => L.text({ x, base: R1s(0), s: 36, c: "sand", txt }));
 const bio = Array.from({ length: 6 }, (_, i) => {
-  const base = R1(1 + i);
+  const base = R1s(1 + i);
   const name = L.text({ x: BC.name, base, s: 40, c: "peach", txt: "" });
   L.rect({ x: BC.bar, y: base - 26, w: BC.barW, h: 22, c: TRACK });
   const f = L.layer({ x: BC.bar, y: base - 26, w: BC.barW, h: 22 });
   f.style.background = "var(--sand)"; f.style.transformOrigin = "0 0"; f.style.transform = "scaleX(0)";
-  const pill = L.box({ x: BC.pill, y: base - 38, w: C.r - BC.pill, h: 48, c: DIM, label: "", fs: 28, r: "lr", cls: "sw" });
+  const pill = L.box({ x: BC.pill, y: base - 38, w: C.r - BC.pill, h: UP ? 44 : 48, c: DIM, label: "", fs: 28, r: "lr", cls: "sw" });
   return { name, f, pill, u: -1 };
 });
-L.text({ x: C.l, base: R1(7), s: 36, c: "sand", txt: "Verified" });
-const bioCount = L.text({ x: C.r, base: R1(7), s: 52, c: "white", txt: "", align: "r" });
+L.text({ x: C.l, base: R1s(7), s: 36, c: "sand", txt: "Verified" });
+const bioCount = L.text({ x: C.r, base: R1s(7), s: 52, c: "white", txt: "", align: "r" });
 
 // =====================================================================================
 // ROW 2 — the code itself
 // =====================================================================================
 // ---------------- authorization code ----------------
-const D = monitor(COL[0], WIDE, 1000, 1570, "Authorization Code", "sand", "peach");
+const D = monitor(COL[0], UP ? FULL : WIDE, UP ? 1466 : 1000, UP ? 2006 : 1570, "Authorization Code", "sand", "peach");
+const DL = UP ? [1594, 1652, 1688, 1906] : [R2(0), R2(1), 1240, R2(5)];   // spoken, request, cells' top, readouts
 const VX = D.l + Math.max(L.textWidth("Spoken Code", 36), L.textWidth("Request", 36)) + 32;
-L.text({ x: D.l, base: R2(0), s: 36, c: "sand", txt: "Spoken Code" });
-const spoken = L.text({ x: VX, base: R2(0), s: 40, c: "white", txt: "" });
-const session = L.text({ x: D.r, base: R2(0), s: 36, c: "tan", txt: "", align: "r" });
-L.text({ x: D.l, base: R2(1), s: 36, c: "sand", txt: "Request" });
-const reqTxt = L.text({ x: VX, base: R2(1), s: 40, c: "butter", txt: "" });
-const reqLvl = L.text({ x: D.r, base: R2(1), s: 36, c: "peach", txt: "", align: "r" });
+L.text({ x: D.l, base: DL[0], s: 36, c: "sand", txt: "Spoken Code" });
+const spoken = L.text({ x: VX, base: DL[0], s: 40, c: "white", txt: "" });
+const session = L.text({ x: D.r, base: DL[0], s: 36, c: "tan", txt: "", align: "r" });
+L.text({ x: D.l, base: DL[1], s: 36, c: "sand", txt: "Request" });
+const reqTxt = L.text({ x: VX, base: DL[1], s: 40, c: "butter", txt: "" });
+const reqLvl = L.text({ x: D.r, base: DL[1], s: 36, c: "peach", txt: "", align: "r" });
 // twelve cells in three groups of four: the spoken code, then the eight-digit command key
 const CELL = 116, CG = 14, GROUP = 4 * CELL + 3 * CG, GG = (D.r - D.l - 3 * GROUP) / 2;
 const cells = Array.from({ length: 12 }, (_, i) => {
   const g = Math.floor(i / 4), x = Math.round(D.l + g * (GROUP + GG) + (i % 4) * (CELL + CG));
-  return L.box({ x, y: 1240, w: CELL, h: 160, c: DIM, label: "", fs: 120, cls: "c sw" });
+  return L.box({ x, y: DL[2], w: CELL, h: 160, c: DIM, label: "", fs: 120, cls: "c sw" });
 });
-const [cDone, cSet, cTerm, cTime] = readouts(R2(5), ["Digits Verified", "Code Set", "Terminal", "Elapsed"]);
+const [cDone, cSet, cTerm, cTime] = readouts(DL[3], ["Digits Verified", "Code Set", "Terminal", "Elapsed"]);
 
 // ---------------- clearance level ----------------
-const E = monitor(COL[2], CW, 1000, 1570, "Clearance Level", "red", "sand");
-L.text({ x: E.l, base: R2(0), s: 36, c: "sand", txt: "Required" });
-const needTxt = L.text({ x: E.l + L.textWidth("Required", 36) + 24, base: R2(0), s: 40, c: "butter", txt: "" });
-const HX = E.l + 420;
-L.text({ x: HX, base: R2(0), s: 36, c: "sand", txt: "Held" });
-const heldTxt = L.text({ x: HX + L.textWidth("Held", 36) + 24, base: R2(0), s: 40, c: "white", txt: "" });
-const LB = 1476, LBW = 64, LBP = (E.r - E.l - LBW) / 9;
+const E = monitor(UP ? 330 : COL[2], UP ? 506 : CW, UP ? 2046 : 1000, UP ? 2540 : 1570, "Clearance Level", "red", "sand");
+L.text({ x: E.l, base: R2s(0), s: 36, c: "sand", txt: "Required" });
+const needTxt = L.text({ x: E.l + L.textWidth("Required", 36) + 24, base: R2s(0), s: 40, c: "butter", txt: "" });
+const HX = E.l + (UP ? 250 : 420);
+L.text({ x: HX, base: R2s(0), s: 36, c: "sand", txt: "Held" });
+const heldTxt = L.text({ x: HX + L.textWidth("Held", 36) + 24, base: R2s(0), s: 40, c: "white", txt: "" });
+const LB = UP ? 2446 : 1476, LBW = UP ? 34 : 64, LBP = (E.r - E.l - LBW) / 9;
 const levels = Array.from({ length: 10 }, (_, k) => {
-  const x = Math.round(E.l + k * LBP), h = Math.round(30.6 * (k + 1));
+  const x = Math.round(E.l + k * LBP), h = Math.round((UP ? 24 : 30.6) * (k + 1));
   const r = L.rect({ x, y: LB - h, w: LBW, h, c: DIM });
   r.classList.add("sf");
-  const n = L.text({ x: x + LBW / 2, base: R2(6), s: 36, c: "sand", txt: String(k + 1), align: "c", w: 80, cls: "sw" });
+  const n = L.text({ x: x + LBW / 2, base: R2s(6), s: 36, c: "sand", txt: String(k + 1), align: "c", w: UP ? 44 : 80, cls: "sw" });
   return { r, n, lit: null };
 });
 
 // ---------------- command codes on file ----------------
-const F = monitor(COL[3], CW, 1000, 1570, "Command Codes on File", "butter", "red");
-const FL = F.l + 470;
-[["Officer", F.l, "l"], ["Level", FL, "r"], ["Last Used", F.r, "r"]].forEach(([txt, x, align]) => L.text({ x, base: R2(0), s: 36, c: "sand", txt, align }));
+const F = monitor(UP ? 886 : COL[3], UP ? 560 : CW, UP ? 2046 : 1000, UP ? 2540 : 1570, "Command Codes on File", "butter", "red");
+const FL = F.l + (UP ? 320 : 470);
+[["Officer", F.l, "l"], ["Level", FL, "r"], ["Last Used", F.r, "r"]].forEach(([txt, x, align]) => L.text({ x, base: R2s(0), s: 36, c: "sand", txt, align }));
 const onFile = OFFICERS.map((o, i) => {
-  const base = R2(1 + i);
+  const base = R2s(1 + i);
   return { o, name: L.text({ x: F.l, base, s: 40, c: "peach", txt: o.file, cls: "sw" }),
            lvl: L.text({ x: FL, base, s: 40, c: "white", txt: String(o.level), align: "r" }),
            used: L.text({ x: F.r, base, s: 36, c: "tan", txt: "", align: "r", cls: "sw" }) };
@@ -235,9 +263,9 @@ const onFile = OFFICERS.map((o, i) => {
 // ROW 3 — the record
 // =====================================================================================
 // ---------------- access log: six rows that slide up as a request is logged ----------------
-const G = monitor(COL[0], WIDE, 1620, 2010, "Access Log", "red", "peach", 48);
-const GC = { sd: 0, who: 170, term: 520, req: 860 };
-const logClip = L.el("div", "clip", L.stage, { left: G.l + "px", top: R3(0) - 40 + "px", width: G.r - G.l + "px", height: 6 * 48 + 4 + "px" });
+const G = monitor(COL[0], UP ? 1116 : WIDE, UP ? 2580 : 1620, UP ? 2970 : 2010, "Access Log", "red", "peach", 48);
+const GC = UP ? { sd: 0, who: 130, term: 366, req: 560 } : { sd: 0, who: 170, term: 520, req: 860 };
+const logClip = L.el("div", "clip", L.stage, { left: G.l + "px", top: R3s(0) - 40 + "px", width: G.r - G.l + "px", height: 6 * 48 + 4 + "px" });
 const logRows = Array.from({ length: 6 }, (_, i) => {
   const e = L.layer({ x: 0, y: 0, w: G.r - G.l, h: 48 }, logClip);
   const r = { e, slot: i,
@@ -254,7 +282,7 @@ const logRows = Array.from({ length: 6 }, (_, i) => {
   L.move(e, 0, i * 48);
   return r;
 });
-let logT0 = -1, logPending = null, logLanded = null, logT1 = 0;
+let logT0 = -1, logPending = null, logLanded = null, logT1 = 0, onLog = null;   // onLog: ultrawide counts what lands
 const logQueue = [];
 const pushLog = (d) => logQueue.push(d);
 L.tick((t) => {
@@ -267,6 +295,7 @@ L.tick((t) => {
     if (k < 1) return;
     logRows.forEach((r) => (r.slot = r.slot === 0 ? 5 : r.slot - 1));
     top.fill(logPending); L.move(top.e, 0, 5 * 48); logLanded = top; logT1 = t;
+    if (onLog) onLog(logPending);
   } else {
     const a = L.clamp((t - logT1) / 0.8);
     logLanded.e.style.opacity = a.toFixed(3);
@@ -291,33 +320,41 @@ const TRAFFIC = [
   ["Chief O'Brien", "Transporter 3", "Pattern buffer override", "Granted"],
 ];
 let trafficDeck = [];
+const seeded = [];                                         // the rows the log starts with
 const traffic = (sd) => { if (!trafficDeck.length) trafficDeck = TRAFFIC.slice().sort(() => Math.random() - 0.5); return [sd, ...trafficDeck.pop()]; };
 {
   const now = stardate();
-  for (let i = 0; i < 6; i++) logRows[i].fill(traffic(now - (6 - i) * 0.05));
+  for (let i = 0; i < 6; i++) { const d = traffic(now - (6 - i) * 0.05); seeded.push(d); logRows[i].fill(d); }
 }
 
 // ---------------- station access: what the officer's code unlocks ----------------
-const H = monitor(COL[2], CW, 1620, 2010, "Station Access", "sand", "red", 48);
+const H = monitor(UP ? 1496 : COL[2], UP ? 640 : CW, UP ? 2046 : 1620, UP ? 2540 : 2010, "Station Access", "sand", "red", UP ? 56 : 48);
 const STATIONS = [["Conn", 6], ["Ops", 6], ["Tactical", 7], ["Science 1", 5], ["Engineering", 7], ["Environment", 5],
                   ["Transporters", 5], ["Sickbay", 7], ["Security", 7], ["Computer Core", 8], ["Battle Bridge", 9], ["Ready Room", 10]];
-const SPW = (H.r - H.l - 3 * 14) / 4;
+const SPW = UP ? (H.r - H.l - 14) / 2 : (H.r - H.l - 3 * 14) / 4;   // upright: two across, one row per officer row
 const stations = STATIONS.map(([name, lvl], i) => ({ name, lvl,
-  e: L.box({ x: Math.round(H.l + (i % 4) * (SPW + 14)), y: 1743 + Math.floor(i / 4) * 76, w: Math.round(SPW), h: 56, c: DIM, label: name, fs: 28, r: "lr", cls: "sw" }) }));
+  e: UP ? L.box({ x: Math.round(H.l + (i % 2) * (SPW + 14)), y: R2s(1 + Math.floor(i / 2)) - 36, w: Math.round(SPW), h: 44, c: DIM, label: name, fs: 28, r: "lr", cls: "sw" })
+        : L.box({ x: Math.round(H.l + (i % 4) * (SPW + 14)), y: 1743 + Math.floor(i / 4) * 76, w: Math.round(SPW), h: 56, c: DIM, label: name, fs: 28, r: "lr", cls: "sw" }) }));
 const paintStation = (s, st) => {                     // locked · open · in use
+  s.st = st;
   s.e.style.background = col(st === "use" ? "butter" : st === "open" ? "sand" : DIM);
   s.e.style.color = st === "locked" ? "var(--tan)" : "#000";
 };
 stations.forEach((s) => paintStation(s, "locked"));
+if (UP) {                                             // upright: the count of open stations heads the panel
+  L.text({ x: H.l, base: R2s(0), s: 36, c: "sand", txt: "Stations Open" });
+  const nOpen = L.text({ x: H.r, base: R2s(0), s: 40, c: "white", txt: "", align: "r" });
+  L.every(250, () => L.set(nOpen, `${stations.filter((s) => s.st !== "locked").length} of ${stations.length}`), 0);
+}
 
 // ---------------- code history ----------------
-const I = monitor(COL[3], CW, 1620, 2010, "Code History", "peach", "red", 48);
+const I = monitor(UP ? 1496 : COL[3], UP ? 640 : CW, UP ? 2580 : 1620, UP ? 2970 : 2010, "Code History", "peach", "red", 48);
 [["43989.1", "Command codes revised  ·  Locutus"], ["44085.7", "Bridge lockout  ·  Lt. Cmdr. Data"],
  ["44769.2", "Inquiry records sealed  ·  Adm. Satie"], ["46192.3", "Flight recorder sealed  ·  Nova Squadron"],
  ["46357.4", "Codes transferred  ·  Capt. Jellico"], ["47634.4", "Code set 14 in force  ·  Starfleet"]]
   .forEach(([sd, txt], i) => {
-    L.text({ x: I.l, base: R3(i), s: 36, c: i === 5 ? "butter" : "peach", txt: sd });
-    L.text({ x: I.l + 150, base: R3(i), s: 36, c: i === 5 ? "white" : "sand", txt });
+    L.text({ x: I.l, base: R3s(i), s: 36, c: i === 5 ? "butter" : "peach", txt: sd });
+    L.text({ x: I.l + 150, base: R3s(i), s: 36, c: i === 5 ? "white" : "sand", txt });
   });
 
 // =====================================================================================
@@ -370,7 +407,7 @@ L.tick((t) => {
   once("speak", u, T.speak, () => { L.set(voiceState, "Recording"); voiceState.style.color = "var(--butter)"; playhead.style.opacity = 1; });
   once("said", u, T.said, () => { L.set(voiceState, "Analyzing"); playhead.style.opacity = 0; });
   once("voice", u, T.voice, () => { L.set(voiceState, "Match Confirmed"); voiceState.style.color = "var(--sand)"; });
-  if (u < T.said + 0.1) L.move(playhead, say * (A.r - A.l - 4), 0);
+  if (u < T.said + 0.1) L.move(playhead, say * (WR - A.l - 4), 0);
   live.forEach((b, k) => {
     const heard = u >= T.speak && k / NB < say;
     const goal = heard ? vp.env[k] * (0.94 + 0.06 * Math.sin(k * 2.3 + o.i)) : 0.03;
@@ -464,14 +501,140 @@ L.every(200, (t) => {
   }
 }, 0);
 
+// =====================================================================================
+// ULTRAWIDE — a fifth column on the same three rows (3866–5016)
+// =====================================================================================
+if (UW) {
+  const UX = 3866, UWD = FB.x1 - UX;
+  // ---------------- authorization sequence: the session's six steps, timed from T ----------------
+  const J = monitor(UX, UWD, 280, 950, "Authorization Sequence", "butter", "sand");
+  const JC = { start: J.l + 330, time: J.l + 480, bar: J.l + 560, pill: J.r - 216 };
+  const STEPS = [["Voiceprint", T.speak, T.voice], ["Retinal Scan", T.eye, T.eyeDone], ["Biometrics", T.bio, T.bio + 6 * T.bioStep],
+                 ["Command Code", T.code, T.code + 12 * T.codeStep], ["Clearance", T.clear, T.held], ["Authorization", T.held, T.ok]];
+  [["Step", J.l, "l"], ["Start", JC.start, "r"], ["Time", JC.time, "r"], ["Progress", JC.bar, "l"], ["Status", JC.pill, "l"]]
+    .forEach(([txt, x, align]) => L.text({ x, base: R1(0), s: 36, c: "sand", txt, align }));
+  const barW = JC.pill - 64 - JC.bar;
+  const steps = STEPS.map(([name, st, en], i) => {
+    const base = R1(1 + i);
+    L.text({ x: J.l, base, s: 40, c: "peach", txt: name });
+    L.text({ x: JC.start, base, s: 36, c: "tan", txt: `+${st.toFixed(1)} s`, align: "r" });
+    L.text({ x: JC.time, base, s: 36, c: "tan", txt: `${(en - st).toFixed(1)} s`, align: "r" });
+    L.rect({ x: JC.bar, y: base - 26, w: barW, h: 22, c: TRACK });
+    const f = L.layer({ x: JC.bar, y: base - 26, w: barW, h: 22 });
+    f.style.background = "var(--butter)"; f.style.transformOrigin = "0 0"; f.style.transform = "scaleX(0)";
+    const pill = L.box({ x: JC.pill, y: base - 38, w: J.r - JC.pill, h: 48, c: DIM, label: "Pending", fs: 28, r: "lr", cls: "sw" });
+    return { st, en, f, pill, v: -1, word: "" };
+  });
+  L.text({ x: J.l, base: R1(7), s: 36, c: "sand", txt: "Steps Complete" });
+  const stepCount = L.text({ x: J.r, base: R1(7), s: 52, c: "white", txt: "", align: "r" });
+  L.tick((t) => {
+    if (!o) return;
+    const u = t - s0;
+    let n = 0;
+    steps.forEach((k) => {
+      const v = L.clamp((u - k.st) / (k.en - k.st));
+      if (v !== k.v) { k.v = v; k.f.style.transform = `scaleX(${L.ease(v).toFixed(4)})`; }
+      const word = u < k.st ? "Pending" : v < 1 ? "Running" : "Complete";
+      if (word === "Complete") n++;
+      if (word !== k.word) {
+        k.word = word; L.set(k.pill, word);
+        k.pill.style.background = word === "Pending" ? DIM : `var(--${word === "Running" ? "peach" : "sand"})`;
+        k.pill.style.color = word === "Pending" ? "var(--tan)" : "#000";
+      }
+    });
+    L.set(stepCount, `${n} / ${steps.length}`);
+  });
+
+  // ---------------- recent authorizations: each officer's last use (agrees with Last Used), newest first ----------------
+  const K = monitor(UX, UWD, 1000, 1570, "Recent Authorizations", "peach", "red");
+  const KC = { who: K.l + 150, term: K.l + 410, what: K.l + 640 };
+  [["Stardate", K.l, "l"], ["Officer", KC.who, "l"], ["Terminal", KC.term, "l"], ["Authorized", KC.what, "l"], ["Level", K.r, "r"]]
+    .forEach(([txt, x, align]) => L.text({ x, base: R2(0), s: 36, c: "sand", txt, align }));
+  const pr = rng(2207);                                    // what each officer last authorized: the same every time
+  const recent = OFFICERS.map((f) => ({ sd: f.used, o: f, q: f.req[Math.floor(pr() * f.req.length)] })).sort((a, b) => b.sd - a.sd);
+  const kRows = Array.from({ length: 6 }, (_, i) => {
+    const base = R2(1 + i);
+    return [L.text({ x: K.l, base, s: 36, c: "peach", txt: "", cls: "fd" }), L.text({ x: KC.who, base, s: 36, c: "white", txt: "", cls: "fd" }),
+            L.text({ x: KC.term, base, s: 36, c: "tan", txt: "", cls: "fd" }), L.text({ x: KC.what, base, s: 36, c: "sand", txt: "", cls: "fd" }),
+            L.text({ x: K.r, base, s: 36, c: "white", txt: "", align: "r", cls: "fd" })];
+  });
+  const fillRecent = () => kRows.forEach((r, i) => {
+    const e = recent[i];
+    [e.sd.toFixed(1), e.o.log, e.q[0], e.q[2], `Level ${e.q[3]}`].forEach((v, k) => L.set(r[k], v));
+    r[1].style.color = i === 0 && e.fresh ? "var(--butter)" : "var(--white)";
+  });
+  fillRecent();
+
+  // ---------------- access requests: what the log has handled this watch, by result ----------------
+  const M = monitor(UX, UWD, 1620, 2010, "Access Requests  ·  This Watch", "sand", "peach", 48);
+  const MC = { bar: M.l + 330, pct: M.r - 150 };
+  // the watches: eight hours of ship time (the Mac's clock), changing at 0000, 0800 and 1600. The
+  // counts before we arrived are a full watch's worth scaled to how far into this one we are.
+  const WATCH = 480, watchOf = () => { const d = new Date(); return d.getDate() * 3 + Math.floor(minutes() / WATCH); };
+  const into = (minutes() % WATCH) / WATCH, watch0 = stardate() - into * WATCH / 1440 * 2.74;
+  let watchN = watchOf();
+  const cr = rng(1701);
+  const count = { Granted: Math.round((30 + Math.floor(cr() * 9)) * into), Denied: Math.round((2 + Math.floor(cr() * 3)) * into),
+                  Accepted: recent.filter((e) => e.sd >= watch0).length };
+  let lastDenied = null;
+  const deniedTraffic = TRAFFIC.filter((d) => d[3] === "Denied");
+  lastDenied = deniedTraffic[Math.floor(cr() * deniedTraffic.length)];
+  seeded.forEach((d) => { if (count[d[4]] !== undefined && d[0] >= watch0) count[d[4]]++; if (d[4] === "Denied") lastDenied = d.slice(1); });
+  [["Result", M.l, "l"], ["Share", MC.bar, "l"], ["Count", M.r, "r"]].forEach(([txt, x, align]) => L.text({ x, base: R3(0), s: 36, c: "sand", txt, align }));
+  const mBarW = MC.pct - 64 - MC.bar;                     // the share bars run up to their percentages
+  const results = [["Granted", "Granted", "sand"], ["Denied", "Denied", "mars"], ["Command Codes", "Accepted", "butter"]].map(([label, key, c], i) => {
+    const base = R3(1 + i);
+    L.text({ x: M.l, base, s: 36, c, txt: label });
+    L.rect({ x: MC.bar, y: base - 24, w: mBarW, h: 20, c: TRACK });
+    const f = L.layer({ x: MC.bar, y: base - 24, w: mBarW, h: 20 });
+    f.style.background = `var(--${c})`; f.style.transformOrigin = "0 0"; f.style.transition = "transform .8s ease";
+    return { key, f, pct: L.text({ x: MC.pct, base, s: 36, c: "tan", txt: "", align: "r" }), n: L.text({ x: M.r, base, s: 36, c: "white", txt: "", align: "r" }) };
+  });
+  L.text({ x: M.l, base: R3(4), s: 36, c: "sand", txt: "Total Requests" });
+  const total = L.text({ x: M.r, base: R3(4), s: 36, c: "white", txt: "", align: "r" });
+  L.text({ x: M.l, base: R3(5), s: 36, c: "sand", txt: "Last Denied" });
+  const denied = L.text({ x: M.r, base: R3(5), s: 36, c: "mars", txt: "", align: "r" });
+  const showCounts = () => {
+    const all = count.Granted + count.Denied + count.Accepted;
+    results.forEach((r) => {
+      const k = all ? count[r.key] / all : 0;
+      r.f.style.transform = `scaleX(${k.toFixed(4)})`;
+      L.set(r.pct, `${Math.round(100 * k)}%`); L.set(r.n, String(count[r.key]));
+    });
+    L.set(total, String(all));
+    L.set(denied, `${lastDenied[0]}  ·  ${lastDenied[1]}  ·  ${lastDenied[2]}`);
+  };
+  showCounts();
+  onLog = (d) => {
+    if (watchOf() !== watchN) { watchN = watchOf(); count.Granted = count.Denied = count.Accepted = 0; }   // a new watch
+    if (count[d[4]] !== undefined) count[d[4]]++;
+    if (d[4] === "Denied") lastDenied = d.slice(1);
+    if (d[4] === "Accepted") {                             // the session's own entry: it heads the recent list
+      kRows.forEach((r) => r.forEach((e) => (e.style.opacity = 0)));
+      const who = OFFICERS.find((f) => f.log === d[1]), what = who.req.find((r) => r[0] === d[2] && r[2] === d[3]);
+      setTimeout(() => {
+        recent.splice(recent.findIndex((e) => e.o === who), 1);   // one row per officer: their last use, as on file
+        recent.forEach((e) => (e.fresh = false)); recent.unshift({ sd: d[0], o: who, q: what, fresh: true });
+        fillRecent(); kRows.forEach((r) => r.forEach((e) => (e.style.opacity = 1)));
+      }, 650);
+    }
+    showCounts();
+  };
+  // guards for the new column
+  STEPS.forEach(([n]) => fits(n, 40, JC.start - 160 - J.l, "step"));
+  OFFICERS.forEach((f) => { fits(f.log, 36, KC.term - 40 - KC.who, "recent officer");
+    f.req.forEach((r) => { fits(r[0], 36, KC.what - 40 - KC.term, "recent terminal"); fits(r[2], 36, K.r - 160 - KC.what, "recent request"); }); });
+  TRAFFIC.forEach((d) => fits(`${d[0]}  ·  ${d[1]}  ·  ${d[2]}`, 36, M.r - M.l - 240, "last denied"));
+}
+
 // ---------------- a guard: every line of words fits its place ----------------
 OFFICERS.forEach((o) => {
   fits(o.file, 40, FL - 60 - F.l, "on file");
   o.bio.forEach((b) => fits(b, 40, BC.bar - 24 - BC.name, "measure"));
   fits(o.sur, 52, B.r - RX, "subject"); fits(o.eye, 52, B.r - RX, "scan");
   fits(`${o.sur}  ${o.code.join("  ")}`, 40, D.r - VX - 260, "spoken");
-  fits(`Voiceprint on File  ·  Recorded ${o.since.toFixed(1)}`, 36, D.r - D.l - L.textWidth(o.file, 36) - 60, "ref");
-  fits([o.sur, ...o.code].join(" "), 40, A.r - (A.l + L.textWidth("Live Sample", 36) + 32) - L.textWidth("Match Confirmed", 36) - 60, "phrase");
+  fits(`Voiceprint on File  ·  Recorded ${o.since.toFixed(1)}`, 36, WR - A.l - L.textWidth(o.file, 36) - 60, "ref");
+  fits([o.sur, ...o.code].join(" "), 40, WR - (A.l + L.textWidth("Live Sample", 36) + 32) - L.textWidth("Match Confirmed", 36) - 60, "phrase");
   o.req.forEach((q) => {
     fits(q[1], 40, D.r - VX - L.textWidth("Requires Level 10", 36) - 60, "request");
     fits(q[2], 36, G.r - G.l - GC.req - L.textWidth("Accepted", 36) - 40, "log request");
@@ -479,8 +642,8 @@ OFFICERS.forEach((o) => {
     if (!STATIONS.some(([n]) => n === q[0])) bad.push(`terminal not a station: ${q[0]}`);
     // the subtitle: clear of the state pill, and never nearly lined up with a header edge below it
     const x0 = COL[0] + L.textWidth(o.big, 100) + 40, x1 = x0 + L.textWidth(subFor(o, q), 38);
-    if (x1 > 3416 - 40) bad.push(`subtitle too long: ${subFor(o, q)}`);
-    for (const e of [330, 2048, 2098, 2932, 2982, 3816]) for (const x of [x0, x1]) if (Math.abs(e - x) > 4 && Math.abs(e - x) <= 124) bad.push(`subtitle edge ${Math.round(x)} near ${e}: ${o.big}`);
+    if (x1 > PILLX - 40) bad.push(`subtitle too long: ${subFor(o, q)}`);
+    for (const e of (UP ? [330, 2136] : UW ? [330, 2048, 2098, 2932, 2982, 3816, 3866, 5016] : [330, 2048, 2098, 2932, 2982, 3816])) for (const x of [x0, x1]) if (Math.abs(e - x) > 4 && Math.abs(e - x) <= 124) bad.push(`subtitle edge ${Math.round(x)} near ${e}: ${o.big}`);
   });
   fits(o.log, 36, GC.term - GC.who - 40, "log officer");
 });

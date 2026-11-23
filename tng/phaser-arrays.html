@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Phaser Arrays</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* emitter segments: plain blocks whose color steps (a color transition repaints every frame); offset bars ease by transform */
@@ -12,7 +13,7 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: a bracket, title centred ----------------
-L.frame({ type: "C", title: "Phaser Arrays  •  Calibration", c: "orange", c2: "red", accent: "peach", foot: "Tactical",
+const B = L.frame({ type: "C", title: "Phaser Arrays  •  Calibration", c: "orange", c2: "red", accent: "peach", foot: "Tactical",
   side: [[140, "red", "Phasers"], [70, "peach", "0451"], [420, "orange", "Arrays"], [70, "red", "06"],
          [300, "peach", "Segments"], [70, "orange", "208"], [216, "red", "Tactical"]],
   side2: [[140, "orange", "Ph Ctl"], [70, "red", "D25"], [420, "peach", "Test Fire"], [70, "orange", "L2"],
@@ -25,10 +26,20 @@ const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
 const gauss = () => (Math.random() + Math.random() + Math.random() - 1.5) / 0.5;   // roughly unit spread
 const fill = (x, y, w, h, c) => { const f = L.layer({ x, y, w, h }); f.style.background = colr(c); f.style.transformOrigin = "0 0"; return f; };
 
-// ---------------- the grid ----------------
-// Columns: arrays 220–2380 (names 220–520, segments 560–1994, readings 2040–2380), test fire 2440–3620.
-// Upper rows: one array every 192 (two text lines on a 96 grid from 428); the bottom strip on 54 from 1734.
-const AX = 220, NX = 520, SX = 560, SW = 1434, RX = 2040, AR = 2380, CX = 2440, CR = 3620;
+// ---------------- the grid, per shape ----------------
+// The data, readings and motion are written once; only these positions differ by shape.
+// wide (3840 × 2160): arrays 220–2380 (names 220–520, segments 560–1994, readings 2040–2380), test fire
+//   2440–3620. Upper rows: one array every 192 (two text lines on a 96 grid from 428); the bottom strip
+//   (log | power | firing sequence) on 54 from 1734.
+// upright (2160 × 3120): the arrays at full width (segments 560–1554, readings 1600–1940); below them two
+//   columns: test fire over its discharge readings (220–1000), and log, power and firing sequence stacked
+//   (1060–1940, headers 1620 / 2090 / 2560).
+// ultrawide (5040 × 2160): the wide layout, plus a fourth column (3680–4820): each array's test history
+//   beside its row, and the frequency rotation table in the bottom strip.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const AX = 220, NX = 520, SX = 560, SW = UP ? 994 : 1434, RX = UP ? 1600 : 2040, AR = UP ? B.x1 : 2380, CX = UP ? 220 : 2440, CR = UP ? 1000 : 3620;
+const TY = UP ? 1340 : 0;                                     // upright: the test fire column starts at 1620, under the arrays
+const RC = UP ? 1060 : 0;                                     // upright: the right-hand column of strip panels
 const LINE = (k) => 428 + k * 96 + 52.5;                     // baselines shared by both columns
 const ROWY = (i) => 428 + i * 192;
 const STRIP = (i) => 1734 + i * 54;
@@ -53,8 +64,11 @@ const WORDS = ["Calibrating", "Test Fire", "Verifying"];
 const SUBX = AX + Math.ceil(Math.max(...WORDS.map((w) => L.textWidth(w, 100))) / 10) * 10 + 56;
 const state = L.text({ x: AX, cap: 150, s: 100, c: "orange", txt: "" });
 const stateSub = L.text({ x: SUBX, base: 222, s: 38, c: "peach", txt: "" });
-L.box({ x: CX, y: 158, w: 520, h: 64, c: "orange", label: "Phaser Control  ·  Deck 25", fs: 32, r: "l" });
-L.box({ x: CX + 520 + L.GAP, y: 158, w: CR - (CX + 520 + L.GAP), h: 64, c: "red", label: "Level 3 Diagnostic", fs: 32, r: "r" });
+if (UP) L.box({ x: RX, y: 158, w: AR - RX, h: 64, c: "red", label: "Level 3 Diagnostic", fs: 32, r: "lr" });   // over the readings column
+else {
+  L.box({ x: CX, y: 158, w: 520, h: 64, c: "orange", label: "Phaser Control  ·  Deck 25", fs: 32, r: "l" });
+  L.box({ x: CX + 520 + L.GAP, y: 158, w: (UW ? B.x1 : CR) - (CX + 520 + L.GAP), h: 64, c: "red", label: "Level 3 Diagnostic", fs: 32, r: "r" });
+}
 
 // ---------------- emitter arrays: segments and their calibration offsets ----------------
 L.header({ x: AX, y: 280, w: AR - AX, label: "Emitter Arrays  ·  Segment Calibration", c1: "orange", c2: "peach" });
@@ -117,9 +131,10 @@ const readArray = (a) => {
 };
 
 // ---------------- test fire: the beam profile ----------------
-const CY = 428, CHH = 296, PADT = 76, PADB = 18;
-L.header({ x: CX, y: 280, w: CR - CX, label: "Test Fire", c1: "red", c2: "orange" });
-const fireHead = L.text({ x: CX, base: 400, s: 36, c: "sunset", txt: "" });
+const CY = 428 + TY, CHH = UP ? 340 : 296, PADT = 76, PADB = 18;
+const DY = UP ? 44 : 0;                                       // upright: the taller chart pushes what is under it down
+L.header({ x: CX, y: 280 + TY, w: CR - CX, label: "Test Fire", c1: "red", c2: "orange" });
+const fireHead = L.text({ x: CX, base: 400 + TY, s: 36, c: "sunset", txt: "" });
 const chart = L.canvas({ x: CX, y: CY, w: CR - CX, h: CHH, panel: true });
 const KEYS = [["Prefire Charge", "#ff9c1a"], ["Beam Output", "#ffcc66"]];
 { let kx = CX + 24;
@@ -132,7 +147,7 @@ const CW = CR - CX, tx = (t) => (t / FIRE_LEN) * CW, vy = (v) => CHH - PADB - v 
 // the phases, named under their spans; the one under way is lit
 const phaseLbl = FIRE.map(([name], j) => {
   const [t0, t1] = FT[j];
-  return L.text({ x: CX + tx((t0 + t1) / 2), base: LINE(3) + 8, s: 30, c: "sunset", txt: name, align: "c", w: tx(t1 - t0), legend: true });
+  return L.text({ x: CX + tx((t0 + t1) / 2), base: LINE(3) + 8 + TY + DY, s: 30, c: "sunset", txt: name, align: "c", w: tx(t1 - t0), legend: true });
 });
 const cursor = fill(CX, CY + PADT - 20, 3, CHH - PADT + 20 - PADB, "white");
 cursor.style.opacity = 0;
@@ -169,21 +184,22 @@ const redraw = () => { drawGrid(); for (let i = 1; i < shot.samples.length; i++)
 chart.onResize = redraw;
 
 // ---------------- discharge readings ----------------
-L.header({ x: CX, y: ROWY(2), w: CR - CX, label: "Discharge Readings", c1: "peach", c2: "red", h: 64 });
+L.header({ x: CX, y: ROWY(2) + TY + DY, w: CR - CX, label: "Discharge Readings", c1: "peach", c2: "red", h: 64 });
 // three columns: the reading, its value, and a graphic of it against its range
-const VR = 3060, GX = 3120, GW = CR - GX;
+const VR = UP ? 590 : 3060, GX = UP ? 640 : 3120, GW = CR - GX;
+const RL = (j) => LINE(5 + j) + TY + DY + (UP ? 4 * j : 0);   // upright: rows on 100, so the last ends level with the firing sequence                           // the readings' baselines
 const READ = ["Emitter Point", "Power Level", "Prefire Charge", "Peak Output", "Beam Coherence", "Modulation", "Result"].map((name, j) => {
-  L.text({ x: CX, base: LINE(5 + j), s: 40, c: "peach", txt: name });
-  return L.text({ x: VR, base: LINE(5 + j), s: 52, c: "white", txt: "", align: "r" });
+  L.text({ x: CX, base: RL(j), s: 40, c: "peach", txt: name });
+  return L.text({ x: VR, base: RL(j), s: 52, c: "white", txt: "", align: "r" });
 });
 const [rEmit, rLevel, rCharge, rPeak, rCoh, rMod, rResult] = READ;
-const gTrack = (j, c = "#2c1a0e") => L.rect({ x: GX, y: LINE(5 + j) - 26, w: GW, h: 26, c });
-const gFill = (j, c) => { const f = fill(GX, LINE(5 + j) - 26, GW, 26, c); tf(f, "scaleX(0)"); return f; };
+const gTrack = (j, c = "#2c1a0e") => L.rect({ x: GX, y: RL(j) - 26, w: GW, h: 26, c });
+const gFill = (j, c) => { const f = fill(GX, RL(j) - 26, GW, 26, c); tf(f, "scaleX(0)"); return f; };
 const gBlocks = (j) => Array.from({ length: 16 }, (_, k) =>
-  L.rect({ x: GX + k * ((GW + 6) / 16), y: LINE(5 + j) - 26, w: (GW + 6) / 16 - 6, h: 26, c: "#2c1a0e", noalign: true }));
+  L.rect({ x: GX + k * ((GW + 6) / 16), y: RL(j) - 26, w: (GW + 6) / 16 - 6, h: 26, c: "#2c1a0e", noalign: true }));
 // the emitter's place along the array
 gTrack(0, "#6a3a12");
-const gEmit = fill(GX, LINE(5) - 38, 12, 50, "white");
+const gEmit = fill(GX, RL(0) - 38, 12, 50, "white");
 // power level and modulation band: sixteen settings each
 const gLevel = gBlocks(1), gBand = gBlocks(5);
 const lightBlocks = (bl, f) => bl.forEach((b, k) => { const c = f(k); if (b._c !== c) { b._c = c; b.setAttribute("fill", c); } });
@@ -191,22 +207,22 @@ lightBlocks(gLevel, (k) => (k < 2 ? "var(--butter)" : "#2c1a0e"));
 // charge, output and coherence (99 to 100 %, the minimum marked)
 gTrack(2); gTrack(3); gTrack(4);
 const gCharge = gFill(2, "orange"), gPeak = gFill(3, "butter"), gCoh = gFill(4, "peach");
-L.rect({ x: GX + GW / 2 - 2, y: LINE(9) - 38, w: 4, h: 50, c: "white", free: true });
+L.rect({ x: GX + GW / 2 - 2, y: RL(4) - 38, w: 4, h: 50, c: "white", free: true });
 // the result: three checks that pass one by one
 const CHECKS = ["Charge", "Output", "Coherence"].map((label, k) => {
   const w = (GW - 2 * 16) / 3;
-  return L.box({ x: GX + k * (w + 16), y: LINE(11) - 40, w, h: 44, c: "#3a2214", label, fs: 24, r: k === 0 ? "l" : k === 2 ? "r" : null });
+  return L.box({ x: GX + k * (w + 16), y: RL(6) - 40, w, h: 44, c: "#3a2214", label, fs: 24, r: k === 0 ? "l" : k === 2 ? "r" : null });
 });
 const setCheck = (k, on) => { bg(CHECKS[k], on ? "orange" : "#3a2214"); ink(CHECKS[k], on ? "#000" : "sunset"); };
 const cohFrac = (c) => L.clamp(c - 99);
 let band = L.irand(1, 16);
 
 // ---------------- calibration log ----------------
-const LR = 1260;
-L.header({ x: AX, y: 1620, w: LR - AX, label: "Calibration Log", c1: "orange", c2: "red", h: 48 });
+const LR = UP ? B.x1 : 1260, LX = UP ? RC : AX;
+L.header({ x: LX, y: 1620, w: LR - LX, label: "Calibration Log", c1: "orange", c2: "red", h: 48 });
 const logRows = Array.from({ length: 6 }, (_, i) => ({
-  sd: L.text({ x: AX, base: STRIP(i), s: 36, c: "orange", txt: "" }),
-  tx: L.text({ x: AX + 170, base: STRIP(i), s: 36, c: "peach", txt: "" }),
+  sd: L.text({ x: LX, base: STRIP(i), s: 36, c: "orange", txt: "" }),
+  tx: L.text({ x: LX + 170, base: STRIP(i), s: 36, c: "peach", txt: "" }),
   ar: L.text({ x: LR, base: STRIP(i), s: 36, c: "sunset", txt: "", align: "r" }) }));
 let stardate = 47614.18;
 const logged = [];
@@ -218,10 +234,10 @@ const log = (txt, where) => {
 };
 
 // ---------------- array power ----------------
-const PX = 1320, BX0 = 1600, BX1 = 2200;
-L.header({ x: PX, y: 1620, w: AR - PX, label: "Array Power  ·  EPS Reserve", c1: "peach", c2: "orange", h: 48 });
+const PX = UP ? RC : 1320, BX0 = UP ? 1360 : 1600, BX1 = UP ? 1780 : 2200, PY = UP ? 2090 : 1620;
+L.header({ x: PX, y: PY, w: AR - PX, label: "Array Power  ·  EPS Reserve", c1: "peach", c2: "orange", h: 48 });
 ARRAYS.forEach((a) => {
-  const base = STRIP(a.i);
+  const base = STRIP(a.i) + (PY - 1620);
   L.text({ x: PX, base, s: 36, c: "peach", txt: a.name });
   L.rect({ x: BX0, y: base - 24, w: BX1 - BX0, h: 24, c: "#2c1a0e" });
   a.pbar = fill(BX0, base - 24, BX1 - BX0, 24, a.i % 2 ? "peach" : "orange");
@@ -229,14 +245,16 @@ ARRAYS.forEach((a) => {
 });
 
 // ---------------- firing sequence ----------------
-L.header({ x: CX, y: 1620, w: CR - CX, label: "Firing Sequence", c1: "red", c2: "peach", h: 48 });
+const QX = UP ? RC : CX, QR = UP ? B.x1 : CR, QY = UP ? 2560 : 1620, QGX = UP ? 1560 : GX, QGW = UP ? 220 : 360;
+const QROW = (i) => STRIP(i) + (QY - 1620);
+L.header({ x: QX, y: QY, w: QR - QX, label: "Firing Sequence", c1: "red", c2: "peach", h: 48 });
 const STEPS = ["Calibrate Segments", "Charge Prefire Chambers", "Converge to Emitter", "Test Discharge", "Verify Coherence", "Log Results"];
 const seq = STEPS.map((name, i) => {
-  const m = L.box({ x: CX, y: STRIP(i) - 40, w: 100, h: 44, c: "#3a2214", label: String(i + 1).padStart(2, "0"), fs: 24, r: "l" });
-  const n = L.text({ x: CX + 124, base: STRIP(i), s: 36, c: "sunset", txt: name });
-  const v = L.text({ x: CR, base: STRIP(i), s: 36, c: "sunset", txt: "", align: "r" });
-  L.rect({ x: GX, y: STRIP(i) - 36, w: 360, h: 36, c: "#2c1a0e" });          // under the readings' graphic column
-  const b = fill(GX, STRIP(i) - 36, 360, 36, "orange");
+  const m = L.box({ x: QX, y: QROW(i) - 40, w: 100, h: 44, c: "#3a2214", label: String(i + 1).padStart(2, "0"), fs: 24, r: "l" });
+  const n = L.text({ x: QX + 124, base: QROW(i), s: 36, c: "sunset", txt: name });
+  const v = L.text({ x: QR, base: QROW(i), s: 36, c: "sunset", txt: "", align: "r" });
+  L.rect({ x: QGX, y: QROW(i) - 36, w: QGW, h: 36, c: "#2c1a0e" });          // under the readings' graphic column
+  const b = fill(QGX, QROW(i) - 36, QGW, 36, "orange");
   b.style.transition = "transform .25s linear";
   return { m, n, v, b };
 });
@@ -258,6 +276,75 @@ const showSeq = (t) => {
   });
 };
 
+// ---------------- ultrawide only: each array's test history, and the frequency rotation ----------------
+let hist = null, rot = null;                                  // hooks the cycle calls; null in the other shapes
+if (UW) {
+  const HX = 3680, HR = B.x1, HB = 4400, HV = 4460, HN = 12, BH = 168, PASS = 99.5;
+  const fr = (i, k) => { const s = Math.sin(i * 12.9898 + k * 78.233) * 43758.5453; return s - Math.floor(s); };
+  L.header({ x: HX, y: 280, w: HR - HX, label: "Test History  ·  Beam Coherence", c1: "red", c2: "peach" });
+  L.text({ x: HX, base: 400, s: 36, c: "sunset", txt: "Last 12 Test Fires  ·  99 to 100%" });
+  L.text({ x: HB, base: 400, s: 36, c: "sunset", txt: "Pass 99.50%", align: "r" });
+  L.text({ x: HV, base: 400, s: 36, c: "sunset", txt: "Latest" });
+  const p = (HB - HX + 8) / HN, w = p - 8;
+  ARRAYS.forEach((a) => {
+    const y = ROWY(a.i);
+    L.rect({ x: HX, y, w: HB - HX, h: BH, c: "#1c1008", free: true });
+    L.rect({ x: HX, y: y + BH / 2 - 1, w: HB - HX, h: 2, c: "#6e3c18", free: true });     // the pass line
+    // earlier cycles' results (fixed, no random draws): mostly passes, the odd failure, never the newest
+    a.hist = Array.from({ length: HN }, (_, k) => ((a.i * 7 + k * 5) % 13 === 4 && k < HN - 1 ? 99.3 + 0.14 * fr(a.i, k) : 99.58 + 0.38 * fr(a.i, k)));
+    a.hbars = a.hist.map((_, k) => {
+      const f = fill(HX + k * p, y, w, BH, "orange");
+      f.style.transformOrigin = "0 100%"; f.style.transition = "transform .6s ease";
+      return f;
+    });
+    L.text({ x: HV, base: LINE(2 * a.i), s: 40, c: "peach", txt: "Last Test" });
+    a.hlast = L.text({ x: HR, base: LINE(2 * a.i), s: 52, c: "white", txt: "", align: "r" });
+    L.text({ x: HV, base: LINE(2 * a.i + 1), s: 40, c: "peach", txt: "Passed" });
+    a.hpass = L.text({ x: HR, base: LINE(2 * a.i + 1), s: 52, c: "white", txt: "", align: "r" });
+  });
+  const paintHist = (a) => {
+    a.hist.forEach((v, k) => {
+      bg(a.hbars[k], v < PASS ? "red" : k === HN - 1 ? "butter" : "orange");
+      tf(a.hbars[k], `scaleY(${L.clamp(v - 99, 0.04, 1).toFixed(3)})`);
+    });
+    const last = a.hist[HN - 1];
+    L.set(a.hlast, last.toFixed(2) + "%"); ink(a.hlast, last < PASS ? "red" : "white");
+    L.set(a.hpass, `${a.hist.filter((v) => v >= PASS).length} / ${HN}`);
+  };
+  hist = (a, c) => { a.hist.push(c); a.hist.shift(); paintHist(a); };
+  ARRAYS.forEach(paintHist);
+
+  // the modulation bands the arrays rotate through; the one in use is lit, with how long it has held
+  // (a band holds from one test discharge to the next) over the hold planned for each band
+  L.header({ x: HX, y: 1620, w: HR - HX, label: "Frequency Rotation  ·  Wolf 359 Protocol", c1: "peach", c2: "red", h: 48 });
+  const RF = 4240, DX = 4300, DW = 396, FREQ = (b) => (212.4 + ((b * 7) % 16) * 11.65).toFixed(2) + " MHz";
+  const rows = Array.from({ length: 6 }, (_, i) => ({
+    m: L.box({ x: HX, y: STRIP(i) - 40, w: 100, h: 44, c: "#3a2214", label: String(i + 1).padStart(2, "0"), fs: 24, r: "l" }),
+    n: L.text({ x: HX + 124, base: STRIP(i), s: 36, c: "sunset", txt: "" }),
+    f: L.text({ x: RF, base: STRIP(i), s: 36, c: "sunset", txt: "", align: "r" }),
+    t: L.rect({ x: DX, y: STRIP(i) - 36, w: DW, h: 36, c: "#2c1a0e" }),
+    p: fill(DX, STRIP(i) - 36, DW, 36, "#5a3218"),           // how long the band is planned to hold (the track is the longest hold)
+    d: i === 0 ? fill(DX, STRIP(i) - 36, DW, 36, "butter") : null,
+    s: L.text({ x: HR, base: STRIP(i), s: 36, c: "sunset", txt: "", align: "r" }) }));
+  // a band holds through one test fire and the next array's calibration; row i serves the arrays after
+  const HOLD = (k) => FIRE_LEN + ARRAYS[k % ARRAYS.length].n * STEP, HMAX = FIRE_LEN + 48 * STEP;
+  let bandT0 = 0, bandLen = 1;
+  rot = () => {
+    const now = L.t || 0, base = cyc.phase === "fire" ? cyc.a + 1 : cyc.a;
+    bandT0 = cyc.phase === "fire" ? now : now - FIRE_LEN;     // before the first array: the last cycle's band, its test fire done
+    bandLen = HOLD(base);
+    rows.forEach((r, i) => {
+    tf(r.p, `scaleX(${(HOLD(base + i) / HMAX).toFixed(4)})`);
+    const b = ((band - 1 + i) % 16) + 1, st = i === 0 ? "Active" : i === 1 ? "Next" : "Queued";
+    bg(r.m, i === 0 ? "butter" : i === 1 ? "orange" : "#3a2214"); ink(r.m, i < 2 ? "#000" : "sunset");
+    L.set(r.n, `Modulation Band ${String(b).padStart(2, "0")}`); ink(r.n, i === 0 ? "white" : i === 1 ? "peach" : "sunset");
+    L.set(r.f, FREQ(b)); ink(r.f, i === 0 ? "white" : i === 1 ? "peach" : "sunset");
+    L.set(r.s, st); ink(r.s, i === 0 ? "butter" : i === 1 ? "orange" : "sunset");
+    });
+  };
+  L.tick((t) => tf(rows[0].d, `scaleX(${(L.clamp((t - bandT0) / bandLen) * bandLen / HMAX).toFixed(4)})`));   // per frame: no transition to run backwards on a new band
+}
+
 // ---------------- running it ----------------
 const describeFire = (a) => {
   L.set(fireHead, `Array ${a.i + 1}  ·  ${a.name}  ·  Power Level 2 of 16`);
@@ -266,6 +353,7 @@ const describeFire = (a) => {
   L.set(rLevel, "Level 2");
   L.set(rMod, `Band ${String(band).padStart(2, "0")}`);
   lightBlocks(gBand, (k) => (k === band - 1 ? "var(--butter)" : k < band - 1 ? "var(--orange)" : "#2c1a0e"));
+  if (rot) rot();
 };
 const setSub = () => {
   const a = ARRAYS[cyc.a], head = `Array ${a.i + 1}  ·  ${a.name}`;
@@ -341,6 +429,7 @@ L.tick((t) => {
         tf(gCoh, `scaleX(${cohFrac(c).toFixed(4)})`); setCheck(2, c >= 99.5);
         const ok = c >= 99.5;
         L.set(rResult, ok ? "Passed" : "Recalibrate"); ink(rResult, ok ? "orange" : "red");
+        if (hist) hist(a, c);
         log(`Beam coherence ${c.toFixed(2)}%  ·  ${ok ? "passed" : "failed"}`, `Array ${a.i + 1}`);
       }
       if (f >= 1) setCheck(0, true);                         // the chambers reached full charge
@@ -411,6 +500,7 @@ L.every(250, (t) => { ARRAYS.forEach((a) => L.set(a.pval, Math.floor(a.shown) + 
   L.set(rCoh, Math.min(99.9, c).toFixed(2) + "%"); L.set(rResult, "Passed"); ink(rResult, "orange");
   tf(gPeak, `scaleX(${shot.peak.toFixed(4)})`); tf(gCoh, `scaleX(${cohFrac(Math.min(99.9, c)).toFixed(4)})`);
   [0, 1, 2].forEach((k) => setCheck(k, true));
+  if (hist) hist(prev, Math.min(99.9, c));
   [["Calibration cycle 1 begun  ·  6 arrays  ·  208 segments", "Phaser Ctl"],
    ["Frequency rotation table loaded  ·  Wolf 359 protocol", "Tactical"],
    ["Prefire chambers charged  ·  standby", "Phaser Ctl"],

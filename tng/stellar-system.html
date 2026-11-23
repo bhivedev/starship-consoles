@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Stellar System</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .disc { position: absolute; border-radius: 50%; }
@@ -22,21 +23,42 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: sidebar left, title top right ----------------
-const BAR = 64;
-const titleLeft = L.title({ x: 3700, y: 40, h: BAR, c: "sky", txt: "Corvanis System  •  FGC-8813" });
-L.box({ x: 3724, y: 40, w: 92, h: BAR, c: "sky", r: "r" });
-L.elbow({ corner: "tl", x: 40, y: 40, w: 1360, h: 250, bw: 240, bh: BAR, R: 150, r: 60, c: "sky" });
-L.box({ x: 1400 + L.GAP, y: 40, w: 300, h: BAR, c: "ice", label: "47-8813" });
-L.box({ x: 1724 + L.GAP, y: 40, w: 200, h: BAR, c: "butter", label: "02" });
-L.rect({ x: 1948 + L.GAP, y: 40, w: titleLeft - L.GAP - (1948 + L.GAP), h: BAR, c: "blue" });
-[[298, 140, "ice", "01-8813"], [446, 70, "butter", "02"], [524, 420, "sky", "03-1104"], [952, 70, "orange", "04"],
- [1030, 300, "lilac", "05-2290"], [1338, 70, "ice", "06"], [1416, 216, "sky", "07-4471"]]
-  .forEach(([y, h, c, label]) => L.box({ x: 40, y, w: 240, h, c, label }));
-L.elbow({ corner: "bl", x: 40, y: 1640, w: 1500, h: 480, bw: 240, bh: BAR, R: 150, r: 60, c: "blue" });
-L.text({ x: 258, base: 1712, s: 40, c: "#000", txt: "Survey", align: "r", on: true });
-[[1540 + L.GAP, 600, "ice"], [2164 + L.GAP, 900, "lilac"], [3088 + L.GAP, 3700 - (3088 + L.GAP), "sky"]]
-  .forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
-L.box({ x: 3724, y: 2056, w: 92, h: BAR, c: "sky", r: "r" });
+// wide keeps its hand-built frame; upright and ultrawide use the kit's type A in the same colours
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+let B;
+if (L.shape === "wide") {
+  const BAR = 64;
+  const titleLeft = L.title({ x: 3700, y: 40, h: BAR, c: "sky", txt: "Corvanis System  •  FGC-8813" });
+  L.box({ x: 3724, y: 40, w: 92, h: BAR, c: "sky", r: "r" });
+  L.elbow({ corner: "tl", x: 40, y: 40, w: 1360, h: 250, bw: 240, bh: BAR, R: 150, r: 60, c: "sky" });
+  L.box({ x: 1400 + L.GAP, y: 40, w: 300, h: BAR, c: "ice", label: "47-8813" });
+  L.box({ x: 1724 + L.GAP, y: 40, w: 200, h: BAR, c: "butter", label: "02" });
+  L.rect({ x: 1948 + L.GAP, y: 40, w: titleLeft - L.GAP - (1948 + L.GAP), h: BAR, c: "blue" });
+  [[298, 140, "ice", "01-8813"], [446, 70, "butter", "02"], [524, 420, "sky", "03-1104"], [952, 70, "orange", "04"],
+   [1030, 300, "lilac", "05-2290"], [1338, 70, "ice", "06"], [1416, 216, "sky", "07-4471"]]
+    .forEach(([y, h, c, label]) => L.box({ x: 40, y, w: 240, h, c, label }));
+  L.elbow({ corner: "bl", x: 40, y: 1640, w: 1500, h: 480, bw: 240, bh: BAR, R: 150, r: 60, c: "blue" });
+  L.text({ x: 258, base: 1712, s: 40, c: "#000", txt: "Survey", align: "r", on: true });
+  [[1540 + L.GAP, 600, "ice"], [2164 + L.GAP, 900, "lilac"], [3088 + L.GAP, 3700 - (3088 + L.GAP), "sky"]]
+    .forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
+  L.box({ x: 3724, y: 2056, w: 92, h: BAR, c: "sky", r: "r" });
+  B = { x0: 330, x1: 3816, y0: 140, y1: 2010 };
+} else B = L.frame({ type: "A", title: "Corvanis System  •  FGC-8813", c: "sky", c2: "blue", accent: "ice", foot: "Survey",
+  side: [[140, "ice", "01-8813"], [70, "butter", "02"], [420, "sky", "03-1104"], [70, "orange", "04"],
+         [300, "lilac", "05-2290"], [70, "ice", "06"], [216, "sky", "07-4471"]] });
+
+// ---------------- the grid, per shape ----------------
+// The data, readings and motion are written once; only these positions differ by shape.
+// wide (3840 × 2160): the chart on 330–2700 over the planet track; planetary data, the primary and
+//   sensor telemetry in a column at 2760–3816.
+// upright (2160 × 3120): the chart across the full width (drawn smaller, tilted more), then planetary
+//   data (330–1386) beside sensor telemetry over the primary (1446–2136), then the planet track.
+// ultrawide (5040 × 2160): the wide layout unchanged, plus a third column at 3876–5016: the system
+//   catalog on the planetary data's rows, the comet's orbit on the primary's, a survey log on the strip.
+const X0 = B.x0, X1 = B.x1;
+const CR = UP ? X1 : 2700;                                   // the chart's and the track's right edge
+const PY = UP ? 1600 : 280;                                  // the planetary data header
+const TH = UP ? 2580 : 1620;                                 // the planet track header
 
 const header = (x, y, w, label, c1, c2, h = 56, fs = 32) => {
   const lw = Math.round((L.textWidth(label, fs) + 64) / 10) * 10;
@@ -63,16 +85,17 @@ P.forEach((p, i) => { p.i = i; p.name = "Corvanis " + p.n; p.years = Math.sqrt(p
 const BELT = [2.1, 3.3];
 
 // ---------------- status line ----------------
-L.text({ x: 330, cap: 150, s: 100, c: "ice", txt: "Stellar Survey" });
-L.text({ x: 330 + L.textWidth("Stellar Survey", 100) + 40, base: 222, s: 38, c: "sky",
-         txt: "Corvanis A  ·  Class G2 V main sequence  ·  7 planets  ·  1 asteroid belt  ·  1 comet  ·  Stellar Cartography" });
-const lock = L.box({ x: 3416, y: 150, w: 400, h: 72, c: "sky", label: "Sensors Locked", r: "lr", fs: 36 });
+L.text({ x: X0, cap: 150, s: 100, c: "ice", txt: "Stellar Survey" });
+L.text({ x: X0 + L.textWidth("Stellar Survey", 100) + 40, base: 222, s: 38, c: "sky",
+         txt: UP ? "Corvanis A  ·  G2 V main sequence  ·  7 planets  ·  1 asteroid belt  ·  1 comet" : "Corvanis A  ·  Class G2 V main sequence  ·  7 planets  ·  1 asteroid belt  ·  1 comet  ·  Stellar Cartography" });
+const lock = L.box({ x: X1 - 400, y: 150, w: 400, h: 72, c: "sky", label: "Sensors Locked", r: "lr", fs: 36 });
 lock.style.willChange = "opacity";
 L.tick((t) => { lock.style.opacity = (0.8 + 0.2 * Math.sin(t * 1.1)).toFixed(3); });
 
 // ---------------- the chart: a tilted orbital plane, drawn once ----------------
-header(330, 280, 2370, "System Chart  ·  Orbital Plane", "sky", "blue");
-const CX = 1515, CY = 1000, TILT = 0.34, ROUT = 1080;
+header(X0, 280, CR - X0, "System Chart  ·  Orbital Plane", "sky", "blue");
+const CX = UP ? (X0 + X1) / 2 : 1515, CY = 1000, TILT = UP ? 0.44 : 0.34, ROUT = UP ? 800 : 1080;
+const KC = UP ? ROUT / 1080 : 1;                             // the comet's orbit, drawn to the chart's scale
 const rOf = (a) => 150 + ((Math.log(a) + 1.17) / 4.23) * (ROUT - 150);     // logarithmic in AU
 P.forEach((p) => (p.r = rOf(p.a)));
 const plane = (r, th) => [CX + r * Math.cos(th), CY + r * Math.sin(th) * TILT];
@@ -106,7 +129,7 @@ P.forEach((p) => {
 });
 
 // the comet: a steeply inclined, eccentric orbit with the star at one focus
-const COMET = { a: 500, e: 0.84, tilt: 30, au: 26.2, inc: 61.3, P: 300 };
+const COMET = { a: 500 * KC, e: 0.84, tilt: 30, au: 26.2, inc: 61.3, P: 300 };
 COMET.b = COMET.a * Math.sqrt(1 - COMET.e ** 2);
 const cu = [Math.cos((COMET.tilt * Math.PI) / 180), Math.sin((COMET.tilt * Math.PI) / 180)];   // towards perihelion
 const cv = [-cu[1], cu[0]];
@@ -176,9 +199,9 @@ const cornerNums = (x, y, rows, o) => {
   legends.push({ e, x, y, w, h, op: 1 });
   return L.numbers(Object.assign({ x: 0, y: 0, s: 36, rows, c: "sky" }, o), e);
 };
-nums.push(cornerNums(330, 380, 4, { rowColors: ["sky", "ice", "sky", "lilac"], cols: [{ w: dw(4), n: 4 }, { w: 110, n: 3 }, { w: 130, n: 5 }] }));
+nums.push(cornerNums(X0, 380, 4, { rowColors: ["sky", "ice", "sky", "lilac"], cols: [{ w: dw(4), n: 4 }, { w: 110, n: 3 }, { w: 130, n: 5 }] }));
 const urW = 130 + 110 + 150;
-nums.push(cornerNums(2700 - urW, 380, 3, { rowColors: ["ice", "sky", "butter"], cols: [{ w: 130, n: 5 }, { w: 110, n: 2 }, { w: 150, n: 6 }] }));
+nums.push(cornerNums(CR - urW, 380, 3, { rowColors: ["ice", "sky", "butter"], cols: [{ w: 130, n: 5 }, { w: 110, n: 2 }, { w: 150, n: 6 }] }));
 
 // below the plane: the comet, and the survey
 const pair = (x, base, label, c, align = "l") => {
@@ -190,13 +213,14 @@ const pair = (x, base, label, c, align = "l") => {
   const lab = L.text({ x, base, s: 40, c, txt: label, align: "r" });
   return { v, lab, place: (txt) => { v.textContent = txt; lab.style.right = L.W - (x - L.textWidth(txt, 52) - 24) + "px"; } };
 };
-L.text({ x: 330, base: 1470, s: 40, c: "lilac", txt: "Comet 8813-Q" });
-L.text({ x: 330 + L.textWidth("Comet 8813-Q", 40) + 24, base: 1470, s: 36, c: "sky",
+const CB = UP ? 1450 : 1470;                                 // the comet's line; its readings 70 below
+L.text({ x: X0, base: CB, s: 40, c: "lilac", txt: "Comet 8813-Q" });
+L.text({ x: X0 + L.textWidth("Comet 8813-Q", 40) + 24, base: CB, s: 36, c: "sky",
          txt: `Period ${Math.sqrt(COMET.au ** 3 / STAR_MASS).toFixed(1)} years  ·  e ${COMET.e.toFixed(2)}  ·  Inclination ${COMET.inc}°` });
-const cDist = pair(330, 1540, "Distance", "lilac");
-const cVel = pair(800, 1540, "Velocity", "lilac");
-const survey = pair(2700, 1540, "Survey Complete", "sky", "r");
-L.text({ x: 2700, base: 1470, s: 36, c: "sky", align: "r", txt: "Reference plane  ·  Corvanis III  ·  Scale logarithmic, AU" });
+const cDist = pair(X0, CB + 70, "Distance", "lilac");
+const cVel = pair(X0 + 470, CB + 70, "Velocity", "lilac");
+const survey = pair(CR, CB + 70, "Survey Complete", "sky", "r");
+L.text({ x: CR, base: CB, s: 36, c: "sky", align: "r", txt: "Reference plane  ·  Corvanis III  ·  Scale logarithmic, AU" });
 
 // ---------------- planets: layers that ride their orbits ----------------
 // everything that moves lives in one wrapper, which fades in as the frame finishes booting
@@ -256,24 +280,24 @@ const align = L.layer({ x: 0, y: 0, w: 1000, h: 3, cls: "align" }, moving);
 align.style.zIndex = 5;
 
 // ---------------- planetary data ----------------
-const RX = 2760, RW = 1056, RR = RX + RW;
-header(RX, 280, RW, "Planetary Data", "butter", "sky");
-const pName = L.text({ x: RX, cap: 384, s: 100, c: "ice", txt: "" });
-const pClass = L.box({ x: RR - 260, y: 384, w: 260, h: 72, c: "butter", label: "", r: "lr", fs: 36 });
-const pSub = L.text({ x: RX, base: 530, s: 38, c: "sky", txt: "" });
+const RX = UP ? X0 : 2760, RW = 1056, RR = RX + RW;
+header(RX, PY, RW, "Planetary Data", "butter", "sky");
+const pName = L.text({ x: RX, cap: PY + 104, s: 100, c: "ice", txt: "" });
+const pClass = L.box({ x: RR - 260, y: PY + 104, w: 260, h: 72, c: "butter", label: "", r: "lr", fs: 36 });
+const pSub = L.text({ x: RX, base: PY + 250, s: 38, c: "sky", txt: "" });
 const SELW = (RW - 6 * 16) / 7;
-const sel = P.map((p, i) => L.box({ x: RX + i * (SELW + 16), y: 572, w: SELW, h: 56, c: "slate", label: p.n, fs: 32, cls: "c",
+const sel = P.map((p, i) => L.box({ x: RX + i * (SELW + 16), y: PY + 292, w: SELW, h: 56, c: "slate", label: p.n, fs: 32, cls: "c",
   r: i === 0 ? "l" : i === 6 ? "r" : null }));
 const ROWS = ["Orbital Period", "Semi-Major Axis", "Eccentricity", "Inclination", "Mass  ·  Earth = 1", "Moons", "Mean Temperature", "Orbital Position"];
 const rowV = ROWS.map((label, i) => {
-  const base = 700 + i * 72;
+  const base = PY + 420 + i * 72;
   L.text({ x: RX, base, s: 40, c: i === 7 ? "butter" : "sky", txt: label });
   return L.text({ x: RR, base, s: 52, c: "white", txt: "", align: "r" });
 });
 // beside each reading, where this planet stands in the system
 const BX = RX + 2 * (SELW + 16), BW = 3 * SELW + 2 * 16;           // under the III – V selectors
 const bars = ROWS.map((_, i) => {
-  const base = 700 + i * 72;
+  const base = PY + 420 + i * 72;
   L.rect({ x: BX, y: base - 26, w: BW, h: 26, c: "#0d1a3a" });
   const f = L.layer({ x: BX, y: base - 26, w: BW, h: 26 });
   f.style.transformOrigin = "0 0"; f.style.background = "var(--sky)";
@@ -282,15 +306,17 @@ const bars = ROWS.map((_, i) => {
 const lg = Math.log10;
 const FRAC = [(p) => (lg(p.years) + 1) / 3.1, (p) => (Math.log(p.a) + 1.17) / 4.23, (p) => p.ecc / 0.1, (p) => p.inc / 5,
   (p) => (lg(parseFloat(p.mass)) + 1.5) / 4, (p) => Math.sqrt(p.moons / 41), (p) => p.temp / 800];
-header(RX, 1256, RW, "Primary  ·  Corvanis A", "sky", "ice");
+// the primary: under the planetary data, or (upright) beside it, its rows on the last three planetary rows
+const QX = UP ? RR + 60 : RX, QR = UP ? X1 : RR, QY = UP ? PY + 656 : 1256;
+header(QX, QY, QR - QX, "Primary  ·  Corvanis A", "sky", "ice");
 [["Spectral Class", "G2 V"], ["Mass  ·  Luminosity", "1.04  ·  1.12 Sol"], ["Surface Temperature", "5,840 K"]].forEach(([label, v], i) => {
-  const base = 1380 + i * 72;
-  L.text({ x: RX, base, s: 40, c: "sky", txt: label });
-  L.text({ x: RR, base, s: 52, c: "white", txt: v, align: "r" });
+  const base = QY + 124 + i * 72;
+  L.text({ x: QX, base, s: 40, c: "sky", txt: label });
+  L.text({ x: QR, base, s: 52, c: "white", txt: v, align: "r" });
 });
 
 const period = (y) => (y < 2 ? `${(y * 365.25).toFixed(1)} days` : `${y.toFixed(2)} years`);
-let cur = 2, prev = 2, selT0 = -9;
+let cur = 2, prev = 2, selT0 = -9, catHook = null;
 const showPlanet = (p) => {
   pName.textContent = p.name;
   pClass.textContent = "Class " + p.cls;
@@ -310,21 +336,23 @@ const showPlanet = (p) => {
     q.orbit.setAttribute("stroke-width", q === p ? 5 : 3);
     q.orbit.setAttribute("opacity", q === p ? 1 : 0.75);
   });
+  if (catHook) catHook(p);
 };
 showPlanet(P[cur]);
 sizeRet(2 * P[cur].rad + 32);
 
 // ---------------- planet track ----------------
-header(330, 1620, 2370, "Planet Track", "ice", "sky", 48, 28);
-const TX0 = 400, TY0 = 1885, AMP = 95, TT = 1740, TB = 2004;
-const tx = (r) => 640 + ((r - 150) / (ROUT - 150)) * 2000;
+header(X0, TH, CR - X0, "Planet Track", "ice", "sky", 48, 28);
+const TX0 = 400, TY0 = TH + 265, AMP = 95, TT = TH + 120, TB = TH + 384;
+const TXW = UP ? CR - 60 - 640 : 2000;                       // the outermost planet 60 in from the end
+const tx = (r) => 640 + ((r - 150) / (ROUT - 150)) * TXW;
 const track = L.svg("g", { class: "boot" });
-L.svg("line", { x1: TX0, y1: TY0, x2: 2700, y2: TY0, stroke: "#5c9dff", "stroke-width": 2, "stroke-dasharray": "14 12", opacity: 0.6 }, track);
+L.svg("line", { x1: TX0, y1: TY0, x2: CR, y2: TY0, stroke: "#5c9dff", "stroke-width": 2, "stroke-dasharray": "14 12", opacity: 0.6 }, track);
 { // the belt, as a speckled column
   const x1 = tx(rOf(BELT[0])), x2 = tx(rOf(BELT[1]));
   for (let k = 0; k < 260; k++) L.svg("circle", { cx: L.rand(x1, x2).toFixed(1), cy: L.rand(TT, TB).toFixed(1), r: (0.9 + Math.random() ** 3 * 2.2).toFixed(2),
     fill: L.pick(["#8fd3ff", "#c7a0d8", "#5c9dff", "#bdb497"]), opacity: (0.35 + Math.random() * 0.5).toFixed(2) }, track);
-  L.text({ x: (x1 + x2) / 2, base: 1716, s: 36, c: "lilac", txt: "Belt  ·  2.1 – 3.3", align: "c", w: 400 });
+  L.text({ x: (x1 + x2) / 2, base: TH + 96, s: 36, c: "lilac", txt: "Belt  ·  2.1 – 3.3", align: "c", w: 400 });
 }
 L.svg("circle", { cx: TX0, cy: TY0, r: 44, fill: "url(#sysHalo)" }, track);
 L.svg("polygon", { points: `${TX0 - 70},${TY0} ${TX0},${TY0 - 3} ${TX0 + 70},${TY0} ${TX0},${TY0 + 3}`, fill: "url(#sysGlH)" }, track);
@@ -333,8 +361,8 @@ L.svg("circle", { cx: TX0, cy: TY0, r: 12, fill: "url(#sysCore)" }, track);
 P.forEach((p) => {
   p.tx = tx(p.r);
   L.svg("line", { x1: p.tx, y1: TT, x2: p.tx, y2: TB, stroke: `var(--${p.c})`, "stroke-width": 3, "stroke-dasharray": "10 10", opacity: 0.8 }, track);
-  if (p.i === 6) L.text({ x: 2700, base: 1716, s: 36, c: p.c, txt: `${p.n}  ·  ${p.a.toFixed(2)}`, align: "r" });   // flush with the strip's end
-  else L.text({ x: p.tx, base: 1716, s: 36, c: p.c, txt: `${p.n}  ·  ${p.a.toFixed(2)}`, align: "c", w: 300 });
+  if (p.i === 6) L.text({ x: CR, base: TH + 96, s: 36, c: p.c, txt: `${p.n}  ·  ${p.a.toFixed(2)}`, align: "r" });   // flush with the strip's end
+  else L.text({ x: p.tx, base: TH + 96, s: 36, c: p.c, txt: `${p.n}  ·  ${p.a.toFixed(2)}`, align: "c", w: 300 });
   p.tline = L.layer({ x: 0, y: 0, w: 1000, h: 2, cls: "tline" }, moving);
   p.tline.style.background = `var(--${p.c})`; p.tline.style.opacity = 0.55;
   p.tdot = L.layer({ x: 0, y: 0, w: 24, h: 24, cls: "tdot" }, moving);
@@ -342,9 +370,14 @@ P.forEach((p) => {
 });
 
 // ---------------- sensor telemetry ----------------
-header(RX, 1620, RW, "Sensor Telemetry", "sky", "lilac", 48, 28);
-nums.push(L.numbers({ x: RX, y: 1700, s: 36, rows: 7, c: "sky", rowColors: ["sky", "ice", "sky", "lilac", "sky", "ice", "butter"],
-  cols: [{ w: dw(4), n: 4 }, { w: 126, n: 3 }, { w: 170, n: 6 }, { w: 120, n: 2 }, { w: 170, n: 5 }, { w: 150, n: 4 }, { w: RW - dw(4) - 736, n: 6 }] }));
+// upright: above the primary, beside the planetary data: a full header level with its header, and the
+//   first row's capitals level with the planet's name
+const SX = UP ? QX : RX, SW = UP ? QR - QX : RW, SY = UP ? PY : 1620;
+if (UP) header(SX, SY, SW, "Sensor Telemetry", "sky", "lilac");
+else header(SX, SY, SW, "Sensor Telemetry", "sky", "lilac", 48, 28);
+nums.push(L.numbers({ x: SX, y: UP ? SY + 97 : SY + 80, s: 36, rows: UP ? 11 : 7, c: "sky", rowColors: ["sky", "ice", "sky", "lilac", "sky", "ice", "butter"],
+  cols: UP ? [{ w: dw(4), n: 4 }, { w: 126, n: 3 }, { w: 170, n: 6 }, { w: 120, n: 2 }, { w: SW - dw(4) - 416, n: 6 }]
+           : [{ w: dw(4), n: 4 }, { w: 126, n: 3 }, { w: 170, n: 6 }, { w: 120, n: 2 }, { w: 170, n: 5 }, { w: 150, n: 4 }, { w: RW - dw(4) - 736, n: 6 }] }));
 L.every(450, () => nums.forEach((n) => n.tick(1)), 0.3);
 
 // ---------------- motion ----------------
@@ -456,5 +489,71 @@ L.every(400, (t) => {
 }, 0);
 L.every(3000, () => { surveyPct = Math.min(99.9, surveyPct + 0.1); survey.place(surveyPct.toFixed(1) + "%"); }, 0);
 survey.place(surveyPct.toFixed(1) + "%");
+
+// ---------------- ultrawide only: a third column ----------------
+if (UW) {
+  const KX = 3876, KR = X1, KW = KR - KX;
+  // the system at a glance, on the planet name's and subtitle's baselines
+  header(KX, 280, KW, "System Catalog", "lilac", "sky");
+  const glance = (x, base, label, v) => (pair(x, base, label, "lilac").textContent = v);
+  glance(KX, 456, "Moons Charted", String(P.reduce((a, p) => a + p.moons, 0)));
+  pair(KR, 456, "Distance from Sol", "lilac", "r").place("247.3 ly");
+  glance(KX, 530, "Habitable Zone", "1.01 – 1.45 AU");
+  pair(KR, 530, "System Age", "lilac", "r").place("4.6 billion years");
+  // the planets, one to a row on the planetary data's rows; the selected one lit
+  const KCOL = { name: 0, cls: 260, a: 640, per: 880, moons: 1000, temp: KW };
+  [["Planet", KCOL.name, "l"], ["Class", KCOL.cls, "l"], ["Axis  ·  AU", KCOL.a, "r"], ["Period", KCOL.per, "r"], ["Moons", KCOL.moons, "r"], ["Temp  ·  K", KCOL.temp, "r"]]
+    .forEach(([txt, x, a]) => L.text({ x: KX + x, base: 628, s: 36, c: "lilac", txt, align: a === "r" ? "r" : undefined }));
+  const catRows = P.map((p, i) => {
+    const base = 700 + i * 72, r = (x, txt, c) => L.text({ x: KX + x, base, s: 36, c, txt, align: "r" });
+    const name = L.text({ x: KX + KCOL.name, base, s: 36, c: "white", txt: p.name });
+    L.text({ x: KX + KCOL.cls, base, s: 36, c: p.c, txt: `${p.cls}  ·  ${CLASS[p.cls]}` });
+    r(KCOL.a, p.a.toFixed(2), "white"); r(KCOL.per, period(p.years), "white"); r(KCOL.moons, String(p.moons), "white"); r(KCOL.temp, String(p.temp), "white");
+    return name;
+  });
+  {
+    const base = 700 + 7 * 72;
+    L.text({ x: KX + KCOL.name, base, s: 36, c: "lilac", txt: "Asteroid Belt" });
+    L.text({ x: KX + KCOL.cls, base, s: 36, c: "lilac", txt: "Carbonaceous" });
+    L.text({ x: KX + KCOL.a, base, s: 36, c: "white", txt: `${BELT[0].toFixed(1)} – ${BELT[1].toFixed(1)}`, align: "r" });
+    L.text({ x: KX + KCOL.per, base, s: 36, c: "white", txt: BELT.map((a) => Math.sqrt(a ** 3 / STAR_MASS).toFixed(1)).join(" – ") + " years", align: "r" });
+    L.text({ x: KX + KCOL.moons, base, s: 36, c: "white", txt: "–", align: "r" });
+    // equilibrium temperature at the belt's middle, from the star's luminosity (1.12 Sol)
+    L.text({ x: KX + KCOL.temp, base, s: 36, c: "white", txt: String(Math.round((278 * 1.12 ** 0.25) / Math.sqrt((BELT[0] + BELT[1]) / 2))), align: "r" });
+  }
+  catHook = (p) => catRows.forEach((e, i) => (e.style.color = i === p.i ? "var(--butter)" : "var(--white)"));
+  catHook(P[cur]);
+
+  // the comet's orbit, on the primary's rows; the time to perihelion from its place on the chart
+  header(KX, 1256, KW, "Comet 8813-Q  ·  Orbit", "lilac", "ice");
+  const crow = (i, label, v) => {
+    L.text({ x: KX, base: 1380 + i * 72, s: 40, c: "lilac", txt: label });
+    return L.text({ x: KR, base: 1380 + i * 72, s: 52, c: "white", txt: v, align: "r" });
+  };
+  crow(0, "Perihelion  ·  Aphelion", `${(COMET.au * (1 - COMET.e)).toFixed(2)}  ·  ${(COMET.au * (1 + COMET.e)).toFixed(2)} AU`);
+  const cPer = crow(1, "Orbital Period", `${Math.sqrt(COMET.au ** 3 / STAR_MASS).toFixed(1)} years`);
+  const cNext = crow(2, "Next Perihelion", "");
+  L.every(1000, () => {
+    const E = ((comet.E % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI), M = E - COMET.e * Math.sin(E);
+    L.set(cNext, `${((1 - M / (2 * Math.PI)) * Math.sqrt(COMET.au ** 3 / STAR_MASS)).toFixed(1)} years`);
+  }, 0);
+
+  // the survey so far, oldest first, on the telemetry's rows beside it; the survey's progress after each
+  //   entry, short of the live figure under the chart
+  header(KX, 1620, KW, "Survey Log", "lilac", "sky", 48, 28);
+  [["47634.2", "Long-range sweep  ·  Corvanis system charted", "Long-Range Sensors", 0.21],
+   ["47634.9", "Corvanis V  ·  41 moons catalogued", "Lateral Array", 0.34],
+   ["47635.4", "Corvanis III  ·  Class M confirmed, 2 moons", "Class 1 Probe", 0.48],
+   ["47636.1", "Comet 8813-Q  ·  orbit fixed, e 0.84", "Stellar Cartography", 0.6],
+   ["47636.8", "Asteroid belt  ·  dilithium traces at 2.6 AU", "Class 1 Probe", 0.73],
+   ["47637.3", "Corvanis VI  ·  ring system mapped", "Lateral Array", 0.86],
+   ["47637.9", "Corvanis VII  ·  Class P, ice sheets mapped", "Class 1 Probe", 0.97]].forEach(([sd, txt, src, f], i) => {
+    const base = 1700 + 0.92 * 36 + i * 36 * 1.18;           // the telemetry block's baselines
+    L.text({ x: KX, base, s: 36, c: "orange", txt: sd });
+    L.text({ x: KX + 150, base, s: 36, c: "white", txt });
+    L.text({ x: KX + 700, base, s: 36, c: "lilac", txt: src });
+    L.text({ x: KR, base, s: 36, c: "sky", txt: (surveyPct * f).toFixed(1) + "%", align: "r" });
+  });
+}
 });
 </script></body></html>

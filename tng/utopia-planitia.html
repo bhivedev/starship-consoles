@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Utopia Planitia</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .sw { transition: background-color .9s ease, color .9s ease; }
@@ -15,14 +16,26 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: wide, no sidebars — the slips are the screen ----------------
-L.frame({ type: "D", title: "Utopia Planitia  •  Fleet Yards", c: "orange", c2: "sky", accent: "peach" });
+const B = L.frame({ type: "D", title: "Utopia Planitia  •  Fleet Yards", c: "orange", c2: "sky", accent: "peach" });
 
 // Two columns, 64 apart: slips 40–2668 | tables 2732–3816. Every line in the upper part sits on
 // one grid of baselines, 64 apart from 460, so each slip's three lines and the tables beside
 // them share their baselines. Bottom strip on a 54 grid from 1776.
-const LX = 40, LR = 2668, RX = 2732, RR = 3816;
+//
+// Shapes. The data, readings and motion are written once; only these positions differ.
+// upright (2160 × 3120): the six slips keep their rows across the full width, their sections on a
+//   32px pitch (40 in wide) so slip, hull, sections and progress still sit side by side
+//   (40–2136). Below, two columns 64 apart (40–1056 | 1120–2136): Yard Resources over the Yard
+//   Log, and the Launch Schedule, Slip Sequence and Deliveries stacked on a 54 grid.
+// ultrawide (5040 × 2160): the wide screen as it is, plus a fourth column (3880–5016): each
+//   hull's trade fronts beside its slip, on the slips' own baselines, and the structural survey
+//   in the bottom strip beside the deliveries.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const LX = 40, LR = UP ? 2136 : 2668, RX = UP ? 1120 : 2732, RR = UP ? 2136 : 3816;
+const NX0 = 3880, NX1 = B.x1;                                 // ultrawide: the fourth column
 const G = (k) => 460 + 64 * k;
-const DX0 = 620, DX1 = 2080, CX0 = 640, PX0 = 2140;          // the slip (rails), its cells, the progress readings
+const DX0 = 620, DX1 = UP ? 1792 : 2080, CX0 = 640, PX0 = UP ? 1852 : 2140;   // the slip (rails), its cells, the progress readings
+const CP = UP ? 32 : 40;                                     // the sections' pitch along the hull
 const SLIPY = (i) => 416 + 192 * i, SH = 184;
 const RAIL = "#6e4316", BAY = "#120a04", TRACK = "#2e1d0c", EMPTY = "#4a3216", DIMBOX = "#5a3c1a";
 const col = (c) => (c.startsWith("#") ? c : `var(--${c})`);
@@ -101,9 +114,11 @@ const WORDS = ["Launch Sequence", "Launch", "Hull Launched", "Slip Clear", "Keel
 const SUBX = LX + Math.ceil(widest(WORDS, 100) / 10) * 10 + 56;
 const stateTxt = L.text({ x: LX, cap: 150, s: 100, c: "orange", txt: "" });
 const stateSub = L.text({ x: SUBX, base: 222, s: 38, c: "sky", txt: "" });
-L.text({ x: RX, base: 222, s: 40, c: "peach", txt: "Stardate" });
-const sdVal = L.text({ x: RX + L.textWidth("Stardate", 40) + 24, base: 222, s: 52, c: "white", txt: "" });
-const pill = L.box({ x: RR - 400, y: 150, w: 400, h: 72, c: "sky", label: "", r: "lr", fs: 36, cls: "sw" });
+// upright: the stardate sits 24 short of the pill (not 56), which leaves the longest subtitle its 60
+const SDX = UP ? Math.floor(B.x1 - 400 - 24 - widest(["00000.0"], 52) - 24 - L.textWidth("Stardate", 40)) : UW ? NX0 : RX;
+L.text({ x: SDX, base: 222, s: 40, c: "peach", txt: "Stardate" });
+const sdVal = L.text({ x: SDX + L.textWidth("Stardate", 40) + 24, base: 222, s: 52, c: "white", txt: "" });
+const pill = L.box({ x: B.x1 - 400, y: 150, w: 400, h: 72, c: "sky", label: "", r: "lr", fs: 36, cls: "sw" });
 
 // ================= the construction slips =================
 L.header({ x: LX, y: 280, w: LR - LX, label: "Construction Slips", c1: "orange", c2: "sky" });
@@ -111,7 +126,8 @@ L.text({ x: LX, base: 396, s: 36, c: "sky", txt: "Slip" });
 L.text({ x: 264, base: 396, s: 36, c: "sky", txt: "Hull" });
 L.text({ x: DX0, base: 396, s: 36, c: "sky", txt: "Hull Sections  ·  Frame Stations by Tier" });
 L.text({ x: PX0, base: 396, s: 36, c: "sky", txt: "Progress" });
-// the legend: what each section's colour means
+// the legend: what each section's colour means (upright: 40 between entries, not 48, to clear its caption)
+const LGAP = UP ? 40 : 48;
 {
   let x = DX1;
   [["Fitted Out", "ice"], ["Systems", "sky"], ["Plated", "orange"], ["Spaceframe", null]].forEach(([txt, c]) => {
@@ -119,7 +135,7 @@ L.text({ x: PX0, base: 396, s: 36, c: "sky", txt: "Progress" });
     x -= Math.ceil(L.textWidth(txt, 36)) + 16 + 32;
     if (c) L.rect({ x, y: 396 - 22, w: 32, h: 22, rx: 3, c, free: true });
     else L.svg("rect", { x: x + 1.5, y: 396 - 22 + 1.5, width: 29, height: 19, rx: 3, fill: "none", stroke: "var(--orange)", "stroke-width": 3 });
-    x -= 48;
+    x -= LGAP;
   });
 }
 
@@ -146,10 +162,10 @@ const SLIPS = HULLS.map((h, i) => {
   // the docking clamps, on the rails over the hull
   S.clamps = L.layer({ x: DX0, y: ty, w: DX1 - DX0, h: SH });
   // the hull itself: a layer, so a launch can carry it out of the slip without repainting
-  S.layer = L.layer({ x: CX0, y: ty + 21, w: 1440, h: 142 });
-  S.svg = L.svg("svg", { width: 1440, height: 142, viewBox: "0 0 1440 142" }, S.layer);
+  S.layer = L.layer({ x: CX0, y: ty + 21, w: UP ? 1152 : 1440, h: 142 });
+  S.svg = L.svg("svg", UP ? { width: 1152, height: 142, viewBox: "0 0 1152 142" } : { width: 1440, height: 142, viewBox: "0 0 1440 142" }, S.layer);
   S.svg.style.position = "absolute"; S.svg.style.left = "0"; S.svg.style.top = "0";
-  S.bees = [0, 1, 2, 3].map(() => { const b = L.el("div", "bee", S.layer, { width: "40px", height: "30px", top: "56px", display: "none" }); return b; });
+  S.bees = [0, 1, 2, 3].map(() => { const b = L.el("div", "bee", S.layer, { width: UP ? "32px" : "40px", height: "30px", top: "56px", display: "none" }); return b; });
   // progress
   L.text({ x: PX0, base: G(3 * i), s: 40, c: "orange", txt: "Complete" });
   S.pct = L.text({ x: LR, base: G(3 * i), s: 52, c: "white", txt: "", align: "r" });
@@ -167,12 +183,12 @@ const setHull = (S, h) => {
   S.cells = [];
   if (!h) { S.clamps.innerHTML = ""; return; }
   for (let r = 0; r < 5; r++) for (let c = 0; c < h.N; c++) {
-    const e = L.svg("rect", { x: 40 * c + 1.5, y: 30 * r + 1.5, width: 29, height: 19, rx: 3, "stroke-width": 3 }, S.svg);
+    const e = L.svg("rect", { x: CP * c + 1.5, y: 30 * r + 1.5, width: CP - 11, height: 19, rx: 3, "stroke-width": 3 }, S.svg);
     S.cells.push({ e, c, r, k: -1 });
   }
   S.clamps.innerHTML = "";
   CLAMPS.filter((c) => c < h.N).forEach((c) => {
-    for (const y of [0, SH - 12]) L.el("div", "clamp", S.clamps, { left: 20 + 40 * c - 4 + "px", top: y + "px", width: "40px", height: "12px" });
+    for (const y of [0, SH - 12]) L.el("div", "clamp", S.clamps, { left: CP / 2 + CP * c - 4 + "px", top: y + "px", width: CP + "px", height: "12px" });
   });
   S.drawn = null;
 };
@@ -199,34 +215,36 @@ const placeBees = (S, p, working) => {
     const c = h ? Math.floor(f[k]) : -1, on = working && h && p < 1 && c >= 0 && c < h.N;
     const v = on ? "block" : "none";
     if (b._d !== v) { b._d = v; b.style.display = v; }
-    if (on && b._c !== c) { b._c = c; b.style.left = 40 * c - 4 + "px"; }
+    if (on && b._c !== c) { b._c = c; b.style.left = CP * c - 4 + "px"; }
   });
 };
 SLIPS.forEach((S) => setHull(S, S.h));
 
 // ================= launch schedule (top right) =================
-L.header({ x: RX, y: 280, w: RR - RX, label: "Launch Schedule", c1: "sky", c2: "orange" });
+const SCHY = UP ? 1620 : 280, SCAPB = UP ? 1716 : 396, SROW = (i) => (UP ? 1776 + 54 * i : G(i));
+L.header({ x: RX, y: SCHY, w: RR - RX, label: "Launch Schedule", c1: "sky", c2: "orange", ...(UP ? { h: 48 } : {}) });
 const SCAP = ["Slip", "Hull", "Class", "Status", "Launch"];
 const SAL = ["l", "l", "l", "l", "r"];
 const SW = [widest(["Slip", "00"], 40), widest(["Hull", "NCC-00000"], 40), widest(["Class", "Intrepid", "Galaxy", "Nebula"], 40),
   widest(["Status", "6 Days Behind", "4 Days Ahead", "Launch Today", "Launched", NEXT_STATUS, "On Schedule"], 40), widest(["Launch", "00000.0"], 40)];
 const scols = columns(RX, RR, SW);
 const sx = (j) => (SAL[j] === "l" ? scols[j][0] : scols[j][1]);
-SCAP.forEach((txt, j) => L.text({ x: sx(j), base: 396, s: 36, c: "sky", txt, align: SAL[j] }));
-const srows = Array.from({ length: 6 }, (_, i) => SCAP.map((_, j) => L.text({ x: sx(j), base: G(i), s: 40, c: "orange", txt: "", align: SAL[j], cls: "sw" })));
+SCAP.forEach((txt, j) => L.text({ x: sx(j), base: SCAPB, s: 36, c: "sky", txt, align: SAL[j] }));
+const srows = Array.from({ length: 6 }, (_, i) => SCAP.map((_, j) => L.text({ x: sx(j), base: SROW(i), s: 40, c: "orange", txt: "", align: SAL[j], cls: "sw" })));
 
 // ================= yard resources (right, lower) =================
-L.header({ x: RX, y: 832, w: RR - RX, label: "Yard Resources", c1: "peach", c2: "sky" });
+const QX0 = UP ? LX : RX, QX1 = UP ? 1056 : RR, QY = UP ? 1620 : 832, QROW = (i) => (UP ? 1776 + 78 * i : G(8 + i));
+L.header({ x: QX0, y: QY, w: QX1 - QX0, label: "Yard Resources", c1: "peach", c2: "sky", ...(UP ? { h: 48 } : {}) });
 const RES = ["Hulls in Work", "Work Bees", "Construction Crew", "Tractor Pylons", "Industrial Replicators",
   "Duranium Stores", "Tritanium Stores", "Verterium Cortenide", "Yard Power", "Cargo Docks"];
 const RLW = widest(RES, 40), RVW = widest(["4,000 / 4,000", "120 / 120"], 52);
-const RB0 = RX + RLW + 32, RB1 = RR - RVW - 32;
+const RB0 = QX0 + RLW + 32, RB1 = QX1 - RVW - 32;
 const res = RES.map((label, i) => {
-  const base = G(8 + i);
-  L.text({ x: RX, base, s: 40, c: "orange", txt: label });
+  const base = QROW(i);
+  L.text({ x: QX0, base, s: 40, c: "orange", txt: label });
   L.rect({ x: RB0, y: base - 20, w: RB1 - RB0, h: 20, c: TRACK });
   return { fill: grow(RB0, base - 20, RB1 - RB0, 20, ["sky", "orange", "peach"][i % 3]),
-           val: L.text({ x: RR, base, s: 52, c: "white", txt: "", align: "r" }), shown: -1 };
+           val: L.text({ x: QX1, base, s: 52, c: "white", txt: "", align: "r" }), shown: -1 };
 });
 const setRes = (i, v, of, txt) => {
   L.set(res[i].val, txt);
@@ -238,13 +256,14 @@ const USE = { dur: 0.0011, tri: 0.0009, vc: 0.0004 };      // % of stores per wo
 let replicators = 13, crewBase = 380;
 
 // ================= yard log (bottom left) =================
-const AX0 = LX, AX1 = 1396, BX0 = 1460, BX1 = LR, CX = RX, CX1 = RR;
-L.header({ x: AX0, y: 1620, w: AX1 - AX0, label: "Yard Log", c1: "sky", c2: "orange", h: 48 });
+const AX0 = LX, AX1 = UP ? 1056 : 1396, BX0 = UP ? 1120 : 1460, BX1 = LR, CX = RX, CX1 = RR;
+const LOGY = UP ? 2546 : 1620, SEQY = UP ? 2106 : 1620, DELY = UP ? 2546 : 1620;   // each panel's header line
+L.header({ x: AX0, y: LOGY, w: AX1 - AX0, label: "Yard Log", c1: "sky", c2: "orange", h: 48 });
 const LOGX = [AX0, AX0 + widest(["Ship Time", "00:00:00"], 36) + 48];
 LOGX.push(LOGX[1] + widest(["Slip", "Yard", "00"], 36) + 48);
-["Ship Time", "Slip", "Event"].forEach((txt, j) => L.text({ x: LOGX[j], base: 1716, s: 36, c: "sky", txt }));
+["Ship Time", "Slip", "Event"].forEach((txt, j) => L.text({ x: LOGX[j], base: LOGY + 96, s: 36, c: "sky", txt }));
 const LOGN = 5, LP = 54;
-const logClip = L.el("div", "clip", L.stage, { left: AX0 + "px", top: 1776 - 46 + "px", width: AX1 - AX0 + "px", height: LOGN * LP + 4 + "px" });
+const logClip = L.el("div", "clip", L.stage, { left: AX0 + "px", top: LOGY + 156 - 46 + "px", width: AX1 - AX0 + "px", height: LOGN * LP + 4 + "px" });
 const logRows = Array.from({ length: LOGN + 1 }, (_, i) => {
   const e = L.layer({ x: 0, y: 0, w: AX1 - AX0, h: LP }, logClip);
   const cells = LOGX.map((x, j) => L.text({ x: x - AX0, base: 46, s: 36, c: ["peach", "orange", "white"][j], txt: "" }, e));
@@ -280,21 +299,21 @@ const TRADE_DONE = ["Spaceframe erected", "Plating complete", "Systems installed
 // ================= slip sequence (bottom middle) =================
 const SEQ_LABELS = ["Launch Sequence", "Keel Arrival"];
 const SLW = Math.ceil(widest(SEQ_LABELS, 28) + 88);
-const seqBox = L.box({ x: BX0, y: 1620, w: SLW, h: 48, c: "butter", label: SEQ_LABELS[0], fs: 28, r: "l", cls: "sw" });
-L.rect({ x: BX0 + SLW + L.GAP, y: 1620, w: BX1 - BX0 - SLW - L.GAP, h: 48, c: "peach" });
-const qCap = L.text({ x: BX0, base: 1716, s: 36, c: "butter", txt: "" });
-const qRight = L.text({ x: BX1, base: 1716, s: 36, c: "peach", txt: "", align: "r" });
+const seqBox = L.box({ x: BX0, y: SEQY, w: SLW, h: 48, c: "butter", label: SEQ_LABELS[0], fs: 28, r: "l", cls: "sw" });
+L.rect({ x: BX0 + SLW + L.GAP, y: SEQY, w: BX1 - BX0 - SLW - L.GAP, h: 48, c: "peach" });
+const qCap = L.text({ x: BX0, base: SEQY + 96, s: 36, c: "butter", txt: "" });
+const qRight = L.text({ x: BX1, base: SEQY + 96, s: 36, c: "peach", txt: "", align: "r" });
 const QNW = widest([...LSEQ, ...KSEQ].map((s) => s[0]), 36), QRW = widest(["In Progress", "Complete", "Pending"], 36);
 const QB0 = BX0 + QNW + 32, QB1 = BX1 - QRW - 32;
 const steps = [0, 1, 2, 3, 4].map((i) => {
-  const base = 1776 + LP * i;
+  const base = SEQY + 156 + LP * i;
   const name = L.text({ x: BX0, base, s: 36, c: "peach", txt: "" });
   L.rect({ x: QB0, y: base - 28, w: QB1 - QB0, h: 28, c: TRACK });
   return { name, fill: grow(QB0, base - 28, QB1 - QB0, 28, "butter"), res: L.text({ x: BX1, base, s: 36, c: "peach", txt: "", align: "r" }), k: -1 };
 });
 
 // ================= deliveries inbound (bottom right) =================
-L.header({ x: CX, y: 1620, w: CX1 - CX, label: "Deliveries Inbound", c1: "orange", c2: "sky", h: 48 });
+L.header({ x: CX, y: DELY, w: CX1 - CX, label: "Deliveries Inbound", c1: "orange", c2: "sky", h: 48 });
 const CARGO = [
   ["Earth Station McKinley", "Warp Coil Segments", "vc"], ["40 Eridani A Yards", "Duranium Plating", "dur"],
   ["Planitia Ground Station", "Tritanium Frames", "tri"], ["Starbase 74", "Bussard Collectors", null],
@@ -308,8 +327,8 @@ const DAL = ["l", "l", "r"];
 const DW = [widest(["Origin", ...CARGO.map((c) => c[0])], 36), widest(["Cargo", ...CARGO.map((c) => c[1])], 36), widest(["Arrival", "Unloading", "Docking", "00:00"], 36)];
 const dcols = columns(CX, CX1, DW);
 const dx = (j) => (DAL[j] === "l" ? dcols[j][0] : dcols[j][1]);
-DCAP.forEach((txt, j) => L.text({ x: dx(j), base: 1716, s: 36, c: "sky", txt, align: DAL[j] }));
-const drows = [0, 1, 2, 3, 4].map((i) => DCAP.map((_, j) => L.text({ x: dx(j), base: 1776 + LP * i, s: 36, c: ["orange", "peach", "white"][j], txt: "", align: DAL[j] })));
+DCAP.forEach((txt, j) => L.text({ x: dx(j), base: DELY + 96, s: 36, c: "sky", txt, align: DAL[j] }));
+const drows = [0, 1, 2, 3, 4].map((i) => DCAP.map((_, j) => L.text({ x: dx(j), base: DELY + 156 + LP * i, s: 36, c: ["orange", "peach", "white"][j], txt: "", align: DAL[j] })));
 const DOCK = 15, UNLOAD = 25;
 let deliveries = [], lastPick = [];
 const pickCargo = () => {
@@ -354,7 +373,7 @@ L.tick((t) => {
   }
   const Sv = SLIPS[sv.i];
   if (!Sv.h || !working(Sv, t)) { op(sweep, 0); return; }
-  const k = L.clamp(u / SVD), ext = 40 * Sv.h.N - 8;
+  const k = L.clamp(u / SVD), ext = CP * Sv.h.N - 8;
   L.move(sweep, CX0 - 2 + ext * k, Sv.ty + 6);
   op(sweep, u > SVD ? 0 : 0.85 * Math.min(1, u / 1.2, (SVD - u) / 1.2));
 });
@@ -525,6 +544,89 @@ L.every(53000, (t) => { if (t < 5) return; const r = replicators + L.pick([-1, 1
 }
 update(0);
 
+// ================= ultrawide: trade fronts and the structural survey (fourth column) =================
+if (UW) {
+  // each hull's four trades, on its slip's three baselines: the station each has reached, a bar, and its state
+  L.header({ x: NX0, y: 280, w: NX1 - NX0, label: "Trade Fronts", c1: "peach", c2: "orange" });
+  const TRADES = ["Spaceframe", "Plating", "Systems", "Fitting Out"], TC = ["peach", "orange", "sky", "ice"];
+  const TW = Math.floor((NX1 - NX0 - 3 * 48) / 4), tcols = columns(NX0, NX1, [TW, TW, TW, TW]);
+  TRADES.forEach((txt, k) => L.text({ x: tcols[k][0], base: 396, s: 36, c: "sky", txt }));
+  // like the Progress column beside the slips: the state and the station count on the slip's first
+  // line, the bar on its second; the third stays clear, so each slip's group reads as one
+  const fr = SLIPS.map((S, i) => tcols.map(([x0, x1], k) => {
+    L.rect({ x: x0, y: G(3 * i + 1) - 20, w: x1 - x0, h: 20, c: TRACK });
+    return { val: L.text({ x: x1, base: G(3 * i), s: 52, c: "white", txt: "", align: "r" }),
+             fill: grow(x0, G(3 * i + 1) - 20, x1 - x0, 20, TC[k]),
+             st: L.text({ x: x0, base: G(3 * i), s: 40, c: "peach", txt: "" }), k: -1 };
+  }));
+  if (widest(["Complete", "At Work", "Waiting", "Holding", "Slip Clear"], 40) + widest(["00 / 36"], 52) + 32 > TW) bad.push("trade front: state meets count");
+  // the survey: the sweep now running, and the hulls it has passed over, the latest at the foot
+  L.header({ x: NX0, y: 1620, w: NX1 - NX0, label: "Structural Survey", c1: "sky", c2: "peach", h: 48 });
+  const svCap = L.text({ x: NX0, base: 1716, s: 36, c: "sky", txt: "" });
+  const svRight = L.text({ x: NX1, base: 1716, s: 36, c: "butter", txt: "", align: "r" });
+  const VCAP = ["Ship Time", "Slip", "Hull", "Sections", "Result"], VAL = ["l", "l", "l", "l", "r"];
+  const VW = [widest(["00:00:00"], 36), widest(["00"], 36), widest(["NCC-00000"], 36), widest(["000 Sections"], 36), widest(["Within Tolerance", "Nominal"], 36)];
+  const svW = 280;                                           // the sweep track sub-column
+  const vcols = columns(NX0 + svW + 64, NX1, VW);
+  const vx = (j) => (VAL[j] === "l" ? vcols[j][0] : vcols[j][1]);
+  const vrows = [0, 1, 2, 3, 4].map((r) => VCAP.map((_, j) => L.text({ x: vx(j), base: 1776 + LP * r, s: 36, c: ["peach", "orange", "white", "peach", "sky"][j], txt: "", align: VAL[j] })));
+  // the sweep's track along the hull, beside the records
+  // label and value share a line, so neither reads as part of the records beside them
+  L.text({ x: NX0, base: 1776, s: 36, c: "peach", txt: "Sweep Track" });
+  const svPct = L.text({ x: NX0 + svW, base: 1776, s: 36, c: "white", txt: "", align: "r" });
+  L.rect({ x: NX0, y: 1776 + LP - 28, w: svW, h: 28, c: TRACK });
+  const svFill = grow(NX0, 1776 + LP - 28, svW, 28, "sky");
+  L.text({ x: NX0, base: 1776 + 3 * LP, s: 36, c: "peach", txt: "Surveys" });
+  const svCount = L.text({ x: NX0 + svW, base: 1776 + 3 * LP, s: 36, c: "white", txt: "", align: "r" });
+  L.text({ x: NX0, base: 1776 + 4 * LP, s: 36, c: "peach", txt: "In Tolerance" });
+  const svTol = L.text({ x: NX0 + svW, base: 1776 + 4 * LP, s: 36, c: "white", txt: "", align: "r" });
+  for (const [a, b] of [["Sweep Track", "100%"], ["Surveys", "0000"], ["In Tolerance", "0000"]]) fits(a, 36, svW - 32 - L.textWidth(b, 36), "survey label");
+  const RESULT = (n) => (n % 5 === 3 ? "Within Tolerance" : "Nominal");
+  let surveys = 212;
+  const recs = [];
+  { let t0 = sv.t0;
+    [5, 3, 2, 1, 0].forEach((i) => { t0 -= SVD + 2; const h = SLIPS[i].h;
+      recs.push([shipTime(wall(t0 + SVD)), pad2(i + 1), h.reg, `${h.N * 5} Sections`, RESULT(surveys - recs.length)]); }); }
+  const showRecs = () => recs.forEach((v, r) => v.forEach((x, j) => L.set(vrows[4 - r][j], x)));   // oldest at the top, like the log
+  showRecs();
+  let cur = null;
+  L.every(250, (t) => {
+    // trade fronts
+    SLIPS.forEach((S, i) => {
+      const h = S.h, p = h ? progress(h, t) : 0, f = h ? fronts(h, p) : null, w = h && working(S, t);
+      fr[i].forEach((c, k) => {
+        if (!h) { L.set(c.val, "—"); L.set(c.st, "Slip Clear"); fg(c.st, "orange");
+          if (c.k !== 0) { c.k = 0; c.fill.style.transform = "scaleX(0)"; } return; }
+        const n = L.clamp(Math.floor(f[k]), 0, h.N), at = Math.floor(f[k]);
+        const st = n >= h.N ? "Complete" : !w ? "Holding" : p < 1 && at >= 0 && at < h.N ? "At Work" : "Waiting";
+        L.set(c.val, `${pad2(n)} / ${h.N}`);
+        L.set(c.st, st); fg(c.st, st === "Complete" ? "sky" : st === "At Work" ? "butter" : "peach");
+        const q = n / h.N;
+        if (Math.abs(q - c.k) > 0.0005) { c.k = q; c.fill.style.transform = `scaleX(${q.toFixed(4)})`; }
+      });
+    });
+    // the survey: a sweep that ran its course goes in the records
+    const Sv = SLIPS[sv.i], on = Sv.h && working(Sv, t);
+    if (cur && cur.sv !== sv) {
+      if (cur.done) { surveys++; recs.unshift([shipTime(wall(cur.sv.t0 + SVD)), pad2(cur.i + 1), cur.h.reg, `${cur.h.N * 5} Sections`, RESULT(surveys)]); recs.pop(); showRecs(); }
+      cur = null;
+    }
+    const u = t - sv.t0, k = L.clamp(u / SVD);
+    if (on && !cur) cur = { sv, i: sv.i, h: Sv.h, done: false };
+    if (cur && u >= SVD) cur.done = true;
+    if (on) {
+      L.set(svCap, `Surveying  ·  Slip ${pad2(sv.i + 1)}  ·  ${Sv.h.reg}  ·  ${Sv.h.cls} Class`);
+      L.set(svRight, u >= SVD ? "Survey Complete" : `Station ${pad2(Math.min(Sv.h.N, Math.floor(k * Sv.h.N) + 1))} of ${Sv.h.N}`);
+      fg(svRight, u >= SVD ? "sky" : "butter");
+    }
+    tf(svFill, `scaleX(${on ? k.toFixed(4) : 0})`);
+    L.set(svPct, `${Math.round(on ? k * 100 : 0)}%`);
+    L.set(svCount, String(surveys));
+    L.set(svTol, String(Math.floor((surveys + 2) / 5)));       // the surveys that came back "Within Tolerance"
+  }, 0);
+  fits("Surveying  ·  Slip 06  ·  NCC-75417  ·  Intrepid Class", 36, NX1 - NX0 - L.textWidth("Survey Complete", 36) - 60, "survey caption");
+}
+
 // ---------------- a guard: every line fits its place ----------------
 for (const w of WORDS) if (L.textWidth(w, 100) > SUBX - LX - 40) bad.push("state word");
 const subs = [`Slip 05  ·  NCC-73210 Nebula Class  ·  launch in 00:00  ·  docking clamps released`,
@@ -535,9 +637,12 @@ HULLS.forEach((h) => fits(h.name ? `${h.reg}  ·  ${h.name}` : h.reg, 52, INFO_W
 fits("Systems Integration", 40, INFO_W, "phase"); fits("Fitting Out Complete", 40, INFO_W, "phase"); fits("Awaiting Keel Module", 40, INFO_W, "phase");
 fits("100.00%", 52, LR - PX0 - L.textWidth("Complete", 40) - 40, "complete");
 fits(`Slip 05  ·  NCC-73210  ·  Nebula Class`, 36, BX1 - BX0 - L.textWidth("Step 0 of 5", 36) - 60, "sequence caption");
-const legendLeft = DX1 - [["Fitted Out"], ["Systems"], ["Plated"], ["Spaceframe"]].reduce((a, [t]) => a + Math.ceil(L.textWidth(t, 36)) + 96, 0);
+const legendLeft = DX1 - [["Fitted Out"], ["Systems"], ["Plated"], ["Spaceframe"]].reduce((a, [t]) => a + Math.ceil(L.textWidth(t, 36)) + 48 + LGAP, 0);
 if (legendLeft < DX0 + L.textWidth("Hull Sections  ·  Frame Stations by Tier", 36) + 60) bad.push("legend crowds its caption");
 for (const c of CARGO) { fits(c[0], 36, dcols[0][1] - dcols[0][0] + 1, "origin"); }
+if (UP) for (const s of subs) if (SUBX + L.textWidth(s, 38) > SDX - 60) bad.push(`subtitle meets the stardate: ${s}`);
+if (UP) for (const c of CARGO) for (const e of [`${c[1]} received from ${c[0]}`, `NCC-73210 clear of slip, launched stardate 47930.7`])
+  if (LOGX[2] + L.textWidth(e, 36) > AX1 - 24) bad.push(`log line: ${e}`);
 if (bad.length) setTimeout(() => { throw new Error("utopia-planitia: " + bad.join(" | ")); });
 });
 </script></body></html>

@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Battle Bridge</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* colors change slowly; swapped text fades; .boot (the start-up cascade) always wins */
@@ -14,7 +15,7 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: a bracket, title centred ----------------
-L.frame({ type: "C", title: "Battle Bridge  •  Stardrive Command", c: "mars", c2: "sand", accent: "tan", foot: "Deck 8",
+const B = L.frame({ type: "C", title: "Battle Bridge  •  Stardrive Command", c: "mars", c2: "sand", accent: "tan", foot: "Deck 8",
   side: [[140, "sand", "BB 08"], [70, "mars", "Conn"], [420, "tan", "Stations"], [70, "sand", "08"],
          [300, "mars", "Weapons"], [70, "tan", "Sep"], [216, "sand", "Command"]],
   side2: [[140, "sand", "BB 12"], [70, "mars", "Tac"], [420, "tan", "Monitors"], [70, "sand", "06"],
@@ -54,17 +55,29 @@ L.tick((t) => {
   }
 });
 
-// ---------------- the grid ----------------
-// Three columns, 1096 wide, 56 apart. Two rows of station monitors, then the bottom strip.
-const COLS = [220, 1372, 2524], CW = 1096;
-const ROWS = [280, 950];                       // a monitor: header, display + readings, crew line (584 tall)
-const PW = 520, PH = 388;                      // the display panel
-const RX = PW + 48;                            // readings start here
+// ---------------- the grid, per shape ----------------
+// The data, readings and motion are written once; only positions and sizes differ by shape.
+// wide (3840 × 2160): three columns, 1096 wide, 56 apart. Two rows of station monitors, then the
+//   bottom strip.
+// upright (2160 × 3120): two columns, 832 wide, 56 apart (220–1052 | 1108–1940). The six monitors
+//   two by three, their displays narrower (392) so the four readings keep their two columns;
+//   then the strip as two rows of two panels: weapons beside separation, then the handover
+//   beside a Drill Sequence panel. 31–32 px between bands, the last row on the content floor.
+// ultrawide (5040 × 2160): four columns, 1108 wide, 56 apart (220–4820). The monitors and strip
+//   on columns 1–3 as in wide; column 4 carries a Drill Log over the two monitor rows and the
+//   Drill Sequence in the strip.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide", WIDE = !UP && !UW;
+const COLS = UP ? [220, 1108] : UW ? [220, 1384, 2548, 3712] : [220, 1372, 2524], CW = UP ? 832 : UW ? 1108 : 1096;
+const ROWS = UP ? [342, 952, 1562] : [280, 950];   // a monitor: header, display + readings, crew line (584 tall; upright 578)
+const NC = UP ? 2 : 3;                         // monitors to a row
+const PW = UP ? 392 : 520, PH = 388;           // the display panel
+const RX = PW + (UP ? 40 : 48);                // readings start here
+const CREWY = UP ? 514 : 520, CREWW = UP ? 160 : 240, CPILLW = UP ? 224 : 260;
 
 // ---------------- status line ----------------
 const stateTxt = cls(L.text({ x: 220, cap: 150, s: 100, c: "mars", txt: "Battle Bridge Standby" }), "sw");
-const stateSub = cls(L.text({ x: COLS[1], base: 222, s: 38, c: "sand", txt: "" }), "sw");
-const cond = L.box({ x: 3620 - 400, y: 150, w: 400, h: 72, c: "sand", label: "Condition Green", r: "lr", fs: 36, cls: "pill" });
+const stateSub = cls(L.text({ x: UP ? 220 : COLS[1], base: UP ? 278 : 222, s: 38, c: "sand", txt: "" }), "sw");
+const cond = L.box({ x: B.x1 - 400, y: 150, w: 400, h: 72, c: "sand", label: "Condition Green", r: "lr", fs: 36, cls: "pill" });
 
 // ---------------- the stations ----------------
 const STATIONS = [
@@ -86,7 +99,7 @@ const HLW = Math.ceil(Math.max(...STATIONS.map((s) => L.textWidth(s.name, 32))))
 const CHECKW = Math.ceil(Math.max(L.textWidth("Passed", 52), L.textWidth("100%", 52)));
 
 STATIONS.forEach((st, i) => {
-  const x0 = COLS[i % 3], Y = ROWS[Math.floor(i / 3)], py = Y + 88;
+  const x0 = COLS[i % NC], Y = ROWS[Math.floor(i / NC)], py = Y + 88;
   st.x0 = x0; st.px = x0; st.py = py;
   L.header({ x: x0, y: Y, w: CW, label: st.name, c1: st.c1, c2: st.c2, lw: HLW });
   L.rect({ x: x0, y: py, w: PW, h: PH, c: PANEL, panel: true });
@@ -98,14 +111,14 @@ STATIONS.forEach((st, i) => {
     return cls(L.text({ x, base: cap + 100, s: 52, c: "white", txt: v, align }), "sw");
   });
   L.text({ x: x0 + RX, cap: py + 288, s: 40, c: "tan", txt: "Station Check" });
-  const gx = x0 + RX, gw = CW - RX - CHECKW - 32;
+  const gx = x0 + RX, gw = CW - RX - CHECKW - (UP ? 24 : 32);
   st.check = gauge(gx, py + PH - 26, gw, 26, "tan", { v: 1 });
   st.checkVal = L.text({ x: x0 + CW, base: py + PH, s: 52, c: "white", txt: "Passed", align: "r" });
   // who is at the station
-  const cy = Y + 520;
-  st.crewBox = L.box({ x: x0, y: cy, w: 240, h: 64, c: "sand", label: "Crewed", fs: 32, r: "l", cls: "pill" });
-  st.crewTxt = cls(L.text({ x: x0 + 264, base: cy + 52.5, s: 40, c: "white", txt: "" }), "sw");
-  st.pill = L.box({ x: x0 + CW - 260, y: cy, w: 260, h: 64, c: "tan", label: "Standby", fs: 32, r: "lr", cls: "pill" });
+  const cy = Y + CREWY;
+  st.crewBox = L.box({ x: x0, y: cy, w: CREWW, h: 64, c: "sand", label: "Crewed", fs: 32, r: "l", cls: "pill" });
+  st.crewTxt = cls(L.text({ x: x0 + CREWW + 24, base: cy + 52.5, s: 40, c: "white", txt: "" }), "sw");
+  st.pill = L.box({ x: x0 + CW - CPILLW, y: cy, w: CPILLW, h: 64, c: "tan", label: "Standby", fs: 32, r: "lr", cls: "pill" });
   st.state = "Standby";
 });
 const showCrew = (st) => {
@@ -127,27 +140,29 @@ const [HELM, OPS, TAC, ENG, COM, SCI] = STATIONS;
 // ---------------- the displays ----------------
 // Helm: the compass, with the course marked and the heading holding on it
 {
-  const { px, py } = HELM, cx = px + PW / 2, cy = py + PH / 2;
-  L.svg("circle", { cx, cy, r: 160, fill: "none", stroke: colr("tan"), "stroke-width": 4, class: "boot" });
-  L.svg("circle", { cx, cy, r: 96, fill: "none", stroke: RING, "stroke-width": 3, class: "boot" });
+  // upright: the compass at 0.8 (the narrower display), its figures moved in, the inner ring smaller
+  const { px, py } = HELM, cx = px + PW / 2, cy = py + PH / 2, K = UP ? 0.8 : 1, LR = UP ? 80 : 112;
+  const WX = UP ? 24 : 36, MX = UP ? 40 : 52;   // the warp and mark gauges, in from each side
+  L.svg("circle", { cx, cy, r: 160 * K, fill: "none", stroke: colr("tan"), "stroke-width": 4, class: "boot" });
+  L.svg("circle", { cx, cy, r: UP ? 44 : 96, fill: "none", stroke: RING, "stroke-width": 3, class: "boot" });
   for (let a = 0; a < 360; a += 10) {
-    const r0 = a % 30 ? 146 : 134, s = Math.sin((a * Math.PI) / 180), c = Math.cos((a * Math.PI) / 180);
-    L.svg("line", { x1: cx + r0 * s, y1: cy - r0 * c, x2: cx + 158 * s, y2: cy - 158 * c, stroke: colr(a % 90 ? "tan" : "sand"), "stroke-width": a % 30 ? 2 : 4, class: "boot" });
+    const r0 = (a % 30 ? 146 : 134) * K, s = Math.sin((a * Math.PI) / 180), c = Math.cos((a * Math.PI) / 180);
+    L.svg("line", { x1: cx + r0 * s, y1: cy - r0 * c, x2: cx + 158 * K * s, y2: cy - 158 * K * c, stroke: colr(a % 90 ? "tan" : "sand"), "stroke-width": a % 30 ? 2 : 4, class: "boot" });
   }
   [["000", 0, -1], ["090", 1, 0], ["180", 0, 1], ["270", -1, 0]].forEach(([txt, sx, sy]) =>
-    L.text({ x: cx + 112 * sx, base: cy + 112 * sy + 10.8, s: 30, c: "sand", txt, align: "c", w: 80, legend: true }));
-  L.svg("path", { d: `M${cx},${cy - 166} l-14,-22 h28 z`, fill: colr("butter"), transform: `rotate(214 ${cx} ${cy})`, class: "boot" });
-  const needle = L.layer({ x: cx - 4, y: cy - 150, w: 8, h: 150 });
+    L.text({ x: cx + LR * sx, base: cy + LR * sy + 10.8, s: 30, c: "sand", txt, align: "c", w: 80, legend: true }));
+  L.svg("path", { d: `M${cx},${cy - 166 * K} l${-14 * K},${-22 * K} h${28 * K} z`, fill: colr("butter"), transform: `rotate(214 ${cx} ${cy})`, class: "boot" });
+  const needle = L.layer({ x: cx - 4, y: cy - 150 * K, w: 8, h: 150 * K });
   needle.style.background = colr("mars"); needle.style.transformOrigin = "50% 100%"; needle.style.borderRadius = "4px";
   L.svg("circle", { cx, cy, r: 14, fill: colr("mars"), class: "boot" });
   // warp factor on the left, the mark on the right
-  const warp = gauge(px + 36, py + 44, 16, 300, "peach", { vertical: true, shape: false, v: 5 / 9.6 });
-  L.text({ x: px + 44, base: py + PH - 20, s: 30, c: "sand", txt: "W", align: "c", w: 40, legend: true });
-  svgRect(px + PW - 52, py + 44, 16, 300, TRACK);
-  svgRect(px + PW - 60, py + 194 - 1, 32, 2, "tan");
-  const mark = L.layer({ x: px + PW - 60, y: py + 194 - 7 / 90 * 150 - 5, w: 32, h: 10 });
+  const warp = gauge(px + WX, py + 44, 16, 300, "peach", { vertical: true, shape: false, v: 5 / 9.6 });
+  L.text({ x: px + WX + 8, base: py + PH - 20, s: 30, c: "sand", txt: "W", align: "c", w: 40, legend: true });
+  svgRect(px + PW - MX, py + 44, 16, 300, TRACK);
+  svgRect(px + PW - MX - 8, py + 194 - 1, 32, 2, "tan");
+  const mark = L.layer({ x: px + PW - MX - 8, y: py + 194 - 7 / 90 * 150 - 5, w: 32, h: 10 });
   mark.style.background = colr("butter");
-  L.text({ x: px + PW - 44, base: py + PH - 20, s: 30, c: "sand", txt: "M", align: "c", w: 40, legend: true });
+  L.text({ x: px + PW - MX + 8, base: py + PH - 20, s: 30, c: "sand", txt: "M", align: "c", w: 40, legend: true });
   L.tick((t) => tf(needle, `rotate(${(214 + 1.1 * Math.sin(t * 0.21) + 0.45 * Math.sin(t * 0.57 + 1)).toFixed(2)}deg)`));
   void warp;
 }
@@ -155,7 +170,7 @@ const [HELM, OPS, TAC, ENG, COM, SCI] = STATIONS;
 // Operations: EPS taps, each drawing a little more or less
 const EPS = [];
 {
-  const { px, py } = OPS, bw = 40, gap = 18, x0 = px + (PW - (8 * bw + 7 * gap)) / 2;
+  const { px, py } = OPS, bw = UP ? 32 : 40, gap = UP ? 12 : 18, x0 = px + (PW - (8 * bw + 7 * gap)) / 2;
   L.text({ x: x0, cap: py + 20, s: 30, c: "sand", txt: "EPS Taps  ·  Stardrive", legend: true });
   for (let i = 0; i < 8; i++) {
     const x = x0 + i * (bw + gap);
@@ -194,7 +209,7 @@ const EPS = [];
 // Engineering: the stardrive's warp core pulsing to its centre, and the three impulse reactors
 const CORE = [];
 {
-  const { px, py } = ENG, n = 11, top = py + 66, span = 264, pitch = span / n, cx0 = px + 56, cw = 168;
+  const { px, py } = ENG, n = 11, top = py + 66, span = 264, pitch = span / n, cx0 = px + (UP ? 40 : 56), cw = UP ? 136 : 168;
   L.text({ x: cx0, cap: py + 20, s: 30, c: "sand", txt: "Warp Core", legend: true });
   for (let i = 0; i < n; i++) {
     const y = top + i * pitch + 3;
@@ -204,12 +219,12 @@ const CORE = [];
     CORE.push({ e, d: Math.abs(i - (n - 1) / 2) / ((n - 1) / 2) });
   }
   L.text({ x: cx0, base: py + PH - 20, s: 30, c: "sand", txt: "Intermix 1 : 1", legend: true });
-  const ix0 = px + 300;
+  const ix0 = px + (UP ? 212 : 300), IP = UP ? 56 : 64, IW = UP ? 40 : 44;
   L.text({ x: ix0, cap: py + 20, s: 30, c: "sand", txt: "Impulse", legend: true });
   const IMP = [0, 1, 2].map((k) => {
-    const g = gauge(ix0 + k * 64, py + 66, 44, 264, k === 1 ? "sand" : "peach", { vertical: true, shape: false, v: 0.3 });
+    const g = gauge(ix0 + k * IP, py + 66, IW, 264, k === 1 ? "sand" : "peach", { vertical: true, shape: false, v: 0.3 });
     g.base = [0.32, 0.36, 0.3][k]; g.ph = k * 2;
-    L.text({ x: ix0 + k * 64 + 22, base: py + PH - 20, s: 30, c: "sand", txt: String(k + 1), align: "c", w: 40, legend: true });
+    L.text({ x: ix0 + k * IP + IW / 2, base: py + PH - 20, s: 30, c: "sand", txt: String(k + 1), align: "c", w: 40, legend: true });
     return g;
   });
   L.tick((t) => {
@@ -261,27 +276,31 @@ const CH = [];
 }
 
 // ---------------- the bottom strip: weapons, separation, command ----------------
-const SY = 1620, R0 = 1700, RP = 64, rowY = (j) => R0 + j * RP;
+// each panel's header line and column: wide and ultrawide on one line (1620); upright two rows, the
+// second ending on the content floor (2586 + 384 = 2970)
+const SY = 1620, RP = 64, rowY = (sy, j) => sy + 80 + j * RP;
+const WP = { x: COLS[0], y: UP ? 2171 : SY }, SP = { x: COLS[1], y: UP ? 2171 : SY },
+      HP = { x: UP ? COLS[0] : COLS[2], y: UP ? 2586 : SY }, QP = UP ? { x: COLS[1], y: 2586 } : UW ? { x: COLS[3], y: SY } : null;
 const SLW = Math.ceil(Math.max(...["Weapons Readiness", "Saucer Separation", "Command Handover"].map((t) => L.textWidth(t, 28)))) + 88;
-L.header({ x: COLS[0], y: SY, w: CW, label: "Weapons Readiness", c1: "mars", c2: "sand", h: 48, lw: SLW });
-L.header({ x: COLS[1], y: SY, w: CW, label: "Saucer Separation", c1: "sand", c2: "tan", h: 48, lw: SLW });
-L.header({ x: COLS[2], y: SY, w: CW, label: "Command Handover", c1: "tan", c2: "mars", h: 48, lw: SLW });
+L.header({ x: WP.x, y: WP.y, w: CW, label: "Weapons Readiness", c1: "mars", c2: "sand", h: 48, lw: SLW });
+L.header({ x: SP.x, y: SP.y, w: CW, label: "Saucer Separation", c1: "sand", c2: "tan", h: 48, lw: SLW });
+L.header({ x: HP.x, y: HP.y, w: CW, label: "Command Handover", c1: "tan", c2: "mars", h: 48, lw: SLW });
 
 const WEAPONS = [["Dorsal Phaser Array", 0.2], ["Ventral Phaser Array", 0.2], ["Forward Torpedo Launcher", 0.35],
                  ["Aft Torpedo Launcher", 0.35], ["Shield Generators", 0.25]];
 const SEP = [["Docking Latches", 48], ["Umbilical Connectors", 22], ["Turbolift Interlocks", 6], ["Bulkhead Seals", 31], ["Impulse Feeds", 4]];
 const LABW = Math.ceil(Math.max(...[...WEAPONS, ...SEP].map(([n]) => L.textWidth(n, 36)))) + 40;
 const VALW = Math.ceil(L.textWidth("48 / 48", 36)), PILLW = 200;
-const row = (x0, j, name, c, v, pillTxt, pillC) => {
-  const y = rowY(j);
+const row = (x0, sy, j, name, c, v, pillTxt, pillC) => {
+  const y = rowY(sy, j);
   L.text({ x: x0, base: y + 37, s: 36, c: "tan", txt: name });
   const g = gauge(x0 + LABW, y + 14, CW - LABW - PILLW - VALW - 48, 20, c, { v });
   const val = L.text({ x: x0 + CW - PILLW - 24, base: y + 37, s: 36, c: "white", txt: "", align: "r" });
   const pill = L.box({ x: x0 + CW - PILLW, y, w: PILLW, h: 48, c: pillC, label: pillTxt, fs: 28, r: "lr", cls: "pill" });
   return { g, val, pill };
 };
-const W = WEAPONS.map(([name, v], j) => Object.assign(row(COLS[0], j, name, "tan", v, "Standby", "tan"), { rest: v }));
-const S = SEP.map(([name, n], j) => Object.assign(row(COLS[1], j, name, "tan", 1, "Secured", "tan"), { n, got: n }));
+const W = WEAPONS.map(([name, v], j) => Object.assign(row(WP.x, WP.y, j, name, "tan", v, "Standby", "tan"), { rest: v }));
+const S = SEP.map(([name, n], j) => Object.assign(row(SP.x, SP.y, j, name, "tan", 1, "Secured", "tan"), { n, got: n }));
 L.every(250, () => {
   W.forEach((w) => L.set(w.val, Math.round(w.g.v * 100) + "%"));
   S.forEach((s) => L.set(s.val, `${s.run ? Math.floor(s.g.v * s.n) : s.got} / ${s.n}`));   // while verifying, the count follows the bar
@@ -289,11 +308,11 @@ L.every(250, () => {
 }, 0);
 
 // command handover: a table — what, who or what state, and where
-const HX = COLS[2], HV = HX + 400;
+const HX = HP.x, HV = HX + (UP ? 340 : 400);
 const HAND = [["Command Authority", "Main Bridge", "Deck 1"], ["Watch Officer", "Lt. Cmdr. Hale", "Deck 8"],
               ["Stations Crewed", "", ""], ["Readiness Drill", "", ""], ["Last Separation", "44001.4  ·  Borg engagement", "Sector 001"]]
   .map(([label, v, where], j) => {
-    const y = rowY(j);
+    const y = rowY(HP.y, j);
     L.text({ x: HX, base: y + 37, s: 36, c: "tan", txt: label });
     return { v: cls(L.text({ x: HV, base: y + 37, s: 40, c: "white", txt: v }), "sw"),
              w: cls(L.text({ x: HX + CW, base: y + 37, s: 36, c: "sand", txt: where, align: "r" }), "sw") };
@@ -370,5 +389,92 @@ L.every(500, (t) => {
   L.set(HAND[3].v, mode === "drill" ? `Running  ·  ${mmss(t - drillT0)}` : `Next in ${mmss(Math.max(0, nextDrill - t))}`);
   L.set(HAND[3].w, mode === "drill" ? "All Stations" : "Stardrive");
 }, 0);
+
+// ---------------- upright and ultrawide only: the drill, followed step by step ----------------
+// Drill Sequence (upright: beside the handover; ultrawide: column 4 of the strip) and, in ultrawide,
+// a Drill Log down column 4. Both read the drill's own state (the pills, the crew, the condition);
+// nothing here runs in wide.
+if (!WIDE) {
+  const OFF = STATIONS.filter((st) => !st.manned);        // the off-watch stations, called in by the drill
+  // the log keeps ship's time (14:26:40 when the page starts), so one drill's lines never read as
+  // earlier than the last's
+  const SHIP0 = 14 * 3600 + 26 * 60 + 40;
+  const clock = (t) => { const s = Math.floor(SHIP0 + t); return `${pad2(Math.floor(s / 3600) % 24)}:${pad2(Math.floor(s / 60) % 60)}:${pad2(s % 60)}`; };
+  let ho = 0, down = false;                               // handover steps this drill; stood down yet
+  const entries = [];                                     // the log, newest first
+  let showLog = () => {};
+  // what kind of system each line is about
+  const kind = (sys) => STATIONS.some((st) => st.name === sys) ? "Station" : WEAPONS.some(([n]) => n === sys) ? "Weapons"
+    : SEP.some(([n]) => n === sys) ? "Separation" : "Command";
+  const note = (sys, what) => { entries.unshift([clock(L.t), sys, what, kind(sys)]); entries.length = Math.min(entries.length, 40); showLog(); };
+
+  if (UW) {
+    // the log: beside each monitor row, seven lines on that row's baselines (its four readings, the
+    // station check and the crew line), newest first; the lower block, under its own header, the earlier lines
+    const LX = COLS[3], BASES = ROWS.flatMap((Y) => [28.8, 100, 172.8, 244, 316.8, 388, 484.5].map((d) => Y + 88 + d));
+    const SX = LX + Math.ceil(L.textWidth("00:00:00", 36)) + 40;   // system, after the time
+    const EX = Math.max(LX + 560, SX + Math.ceil(Math.max(...["Forward Torpedo Launcher", "Umbilical Connectors", "Command Authority"].map((n) => L.textWidth(n, 36)))) + 40);
+    L.header({ x: LX, y: ROWS[0], w: CW, label: "Drill Log", c1: "tan", c2: "sand", lw: HLW });
+    L.header({ x: LX, y: ROWS[1], w: CW, label: "Earlier", c1: "sand", c2: "tan", lw: HLW });
+    const rows = BASES.map((base) => {
+      return [L.text({ x: LX, base, s: 36, c: "sand", txt: "" }), L.text({ x: SX, base, s: 36, c: "tan", txt: "" }),
+              L.text({ x: EX, base, s: 40, c: "white", txt: "" }), L.text({ x: LX + CW, base, s: 36, c: "sand", txt: "", align: "r" })];
+    });
+    showLog = () => rows.forEach((r, k) => { const e = entries[k] || ["", "", "", ""]; r.forEach((el, i) => L.set(el, e[i])); });
+    // the last drill, which took 2 m 44 s (the status line says so): the same steps, slower; it began
+    // five minutes before the page did, and stood down a minute before
+    const f = 164 / 37, P0 = -300;
+    [[0, "Battle Bridge", "Drill Begun"], ...OFF.map((st, k) => [1.5 + k * 1.6, st.name, "Crewed"]),
+     ...STATIONS.map((st, i) => [10.2 + i * 4.5, st.name, "Ready"]), ...WEAPONS.map(([n], j) => [11.8 + j * 4, n, "Ready"]),
+     ...SEP.map(([n], j) => [14.2 + j * 4.5, n, "Verified"]), [34.6, "Command Authority", "To Battle Bridge"],
+     [37, "Battle Bridge", "All Stations Ready"], [43.6, "Command Authority", "To Main Bridge"], [47, "Battle Bridge", "Stood Down"],
+     ...OFF.map((st, k) => [50 + k * 1.8, st.name, "Slaved to Main Bridge"])]
+      .sort((p, q) => p[0] - q[0]).forEach(([u, sys, what]) => entries.unshift([clock(P0 + u * f), sys, what, kind(sys)]));
+    showLog();
+  }
+
+  // the sequence: five steps, each a count, its bar and a pill; between drills, the last drill's result
+  const STEPS = [["Off-Watch Crew Called", 1.5, () => OFF.filter((st) => st.manned).length, OFF.length],
+                 ["Station Checks", 6, () => STATIONS.filter((st) => st.state === "Ready").length, STATIONS.length],
+                 ["Weapons to Readiness", 8, () => W.filter((w) => w.pill.textContent === "Ready").length, W.length],
+                 ["Separation Systems", 10, () => S.filter((x) => x.pill.textContent === "Verified").length, S.length],
+                 ["Handover and Return", 34, () => ho, 2]];
+  L.header({ x: QP.x, y: QP.y, w: CW, label: "Drill Sequence", c1: "sand", c2: "mars", h: 48, lw: SLW });
+  const Q = STEPS.map(([name, start, count, tot], j) => Object.assign(row(QP.x, QP.y, j, name, "sand", 1, "Passed", "sand"), { start, count, tot, n: tot, st: "Passed" }));
+  const PILLC = { Passed: "sand", Pending: "tan", Running: "butter", Complete: "mars" };
+
+  // follow the drill four times a second
+  const snap = { cond: cond.textContent, hand: HAND[0].v.textContent, st: STATIONS.map((st) => st.state), man: STATIONS.map((st) => st.manned),
+                 w: W.map((w) => w.pill.textContent), s: S.map((x) => x.pill.textContent) };
+  L.every(250, (t) => {
+    const c = cond.textContent;
+    if (c !== snap.cond) {
+      snap.cond = c;
+      if (c === "Drill in Progress") { ho = 0; down = false; note("Battle Bridge", "Drill Begun"); }
+      else if (c === "Drill Complete") note("Battle Bridge", "All Stations Ready");
+      else if (c === "Condition Green") { down = true; note("Battle Bridge", "Stood Down"); }
+    }
+    STATIONS.forEach((st, i) => {
+      if (st.manned !== snap.man[i]) { snap.man[i] = st.manned; note(st.name, st.manned ? "Crewed" : "Slaved to Main Bridge"); }
+      if (st.state !== snap.st[i]) { snap.st[i] = st.state; if (st.state === "Ready") note(st.name, "Ready"); }
+    });
+    W.forEach((w, j) => { const p = w.pill.textContent; if (p !== snap.w[j]) { snap.w[j] = p; if (p === "Ready") note(WEAPONS[j][0], "Ready"); } });
+    S.forEach((x, j) => { const p = x.pill.textContent; if (p !== snap.s[j]) { snap.s[j] = p; if (p === "Verified") note(SEP[j][0], "Verified"); } });
+    const h = HAND[0].v.textContent;
+    if (h !== snap.hand) {
+      snap.hand = h;
+      if (h.startsWith("Battle Bridge")) { ho = 1; note("Command Authority", "To Battle Bridge"); }
+      else if (h === "Main Bridge" && ho === 1) { ho = 2; note("Command Authority", "To Main Bridge"); }
+    }
+    const live = mode === "drill" && !down, u = t - drillT0;
+    for (const q of Q) {
+      const n = live ? q.count() : q.tot;
+      const st = !live ? "Passed" : n === q.tot ? "Complete" : u >= q.start ? "Running" : "Pending";
+      if (n !== q.n) { q.n = n; q.g.go(n / q.tot, 0.8); }
+      if (st !== q.st) { q.st = st; L.set(q.pill, st); bg(q.pill, PILLC[st]); q.g.color(PILLC[st]); }
+      L.set(q.val, `${Math.round(q.g.v * q.tot)} / ${q.tot}`);   // the count follows the bar
+    }
+  }, 0);
+}
 });
 </script></body></html>

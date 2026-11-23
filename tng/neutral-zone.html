@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Neutral Zone</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .ml .t { text-shadow: 0 0 6px #000, 0 0 3px #000, 0 0 2px #000; }
@@ -20,6 +21,17 @@
 const L = LCARS;
 L.ready(() => {
 
+// ---------------- shapes ----------------
+// wide (3840 × 2160): the map 40–2200 with the log and treaty under it; the grid, outposts and sensors
+//   down the right (2280–3520). The frame is drawn by hand.
+// upright (2160 × 3120): the map across the full width (1800 × 1172, the zone re-placed so the Federation
+//   side keeps its room), then two columns 868 wide: the grid over the outposts, and the log, treaty
+//   and sensors; every row on one 54 px grid ending on the content box's floor.
+// ultrawide (5040 × 2160): the wide columns unchanged, and a fourth column (3600–4720): helm (the ship's
+//   place along the border, its range to each outpost), the contact record, the border patrol group.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+let b;
+if (L.shape === "wide") {
 // ---------------- the frame, mirrored: sidebar on the right, title at top left ----------------
 const BAR = 64, TS = BAR / (L.BASELINE - L.CAP_TOP);
 L.box({ x: 40, y: 40, w: 92, h: BAR, c: "sky", r: "l" });
@@ -36,6 +48,13 @@ L.text({ x: 3794, base: 1712, s: 40, c: "#000", txt: "Border", align: "r", on: t
 L.box({ x: 40, y: 2056, w: 92, h: BAR, c: "olive", r: "l" });
 [[132 + L.GAP, 700, "ice"], [132 + L.GAP + 700 + L.GAP, 900, "sand"]].forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
 L.rect({ x: 132 + 3 * L.GAP + 1600, y: 2056, w: 2600 - L.GAP - (132 + 3 * L.GAP + 1600), h: BAR, c: "olive" });
+b = { x0: 40, x1: 3520, y0: 140, y1: 2010 };
+} else {
+  // the same frame, drawn by the kit for this shape: type B, the same colours and sidebar labels
+  b = L.frame({ type: "B", title: "Romulan Neutral Zone  •  Border Patrol", c: "sky", c2: "olive", accent: "ice", foot: "Border",
+    side: [[140, "ice", "NZ 01"], [70, "olive", "Grid"], [420, "sky", "Outposts"], [70, "sand", "Algeron"],
+           [300, "ice", "Patrol"], [70, "olive", "Tachyon"], [216, "sky", "Sensors"]] });
+}
 
 const header = (x, y, w, label, c1, c2, h = 56, fs = 32) => {
   const lw = Math.round((L.textWidth(label, fs) + 64) / 10) * 10;
@@ -57,14 +76,23 @@ const DARK = "#1a2030";
 const seeded = (s) => () => { s = (s + 0x6d2b79f5) | 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 
 // columns: the map 40–2200; the right column 2280–3520. The bottom strip: log 40–1340, treaty 1400–2200, sensors 2280–3520
-const MX = 40, MY = 360, MW = 2160, MH = 1184, RX = 2280, RR = 3520;
+const MX = 40, MY = 360, MW = UP ? 1800 : 2160, MH = UP ? 1172 : 1184, RX = 2280, RR = 3520;
+// each panel's left and right edges and header line, per shape (wide: today's numbers)
+const GX0 = UP ? 40 : RX, GX1 = UP ? 908 : RR, GH = UP ? 1608 : 280;          // tachyon grid
+const OX0 = UP ? 40 : RX, OX1 = UP ? 908 : RR, OH = UP ? 2420 : 1000;         // outpost status
+const LX0 = UP ? 972 : 40, LX1 = UP ? 1840 : 1340, LH = UP ? 1608 : 1620;     // patrol log
+const TX0 = UP ? 972 : 1400, TX1 = UP ? 1840 : 2200, TH = UP ? 2094 : 1620;   // treaty
+const SX0 = UP ? 972 : RX, SX1 = UP ? 1840 : RR, SH = UP ? 2580 : 1620;       // sensors
+// the map's zone and places (upright: the zone 90 further west, the Romulan side narrower)
+const ZC = UP ? 1060 : 1150, LIM = UP ? 170 : 290;
 
 // ---------------- status line ----------------
 const STATES = ["Border Secure", "Contact in Zone"];
 const stateTxt = L.text({ x: 40, cap: 150, s: 100, c: "ice", txt: STATES[0] });
 const subX = 40 + Math.max(...STATES.map((s) => L.textWidth(s, 100))) + 40;
 const stateSub = L.text({ x: subX, base: 222, s: 38, c: "sky", txt: "" });
-const pill = L.box({ x: 3120, y: 150, w: 400, h: 72, c: "sand", label: "Treaty In Force", r: "lr", fs: 36, cls: "pill" });
+const PW = UP ? 320 : 400;
+const pill = L.box({ x: b.x1 - PW, y: 150, w: PW, h: 72, c: "sand", label: "Treaty In Force", r: "lr", fs: 36, cls: "pill" });
 pill.style.willChange = "opacity";
 L.tick((t) => { pill.style.opacity = (0.82 + 0.18 * Math.sin(t * 1.1)).toFixed(3); });
 let stardate = 45852.4;
@@ -76,7 +104,7 @@ header(MX, 280, MW, "Strategic Display  ·  Sectors 3-Delta to 3-Kappa", "sky", 
 L.rect({ x: MX, y: MY, w: MW, h: MH, c: "#000206", panel: true });
 // the zone: a band 340 wide, curving gently down the map
 const ZW = 340;
-const zc = (y) => 1150 + 46 * Math.sin((y / MH) * Math.PI * 1.25 + 0.4) - 0.05 * y;
+const zc = (y) => ZC + 46 * Math.sin((y / MH) * Math.PI * 1.25 + 0.4) - 0.05 * y;
 const zl = (y) => zc(y) - ZW / 2, zr = (y) => zc(y) + ZW / 2;
 const edge = (f, y0, y1, n = 48) => Array.from({ length: n + 1 }, (_, i) => { const y = y0 + ((y1 - y0) * i) / n; return `${f(y).toFixed(1)},${y.toFixed(1)}`; });
 const map = L.svg("g", { class: "boot", transform: `translate(${MX},${MY})` });
@@ -85,8 +113,8 @@ const grad = (id, attrs, stops, tag = "linearGradient") => {
   const g = L.svg(tag, Object.assign({ id }, attrs), defs);
   stops.forEach(([o, c, op]) => L.svg("stop", { offset: o, "stop-color": c, "stop-opacity": op }, g));
 };
-grad("nzFed", { gradientUnits: "userSpaceOnUse", x1: 0, y1: 0, x2: 1100, y2: 0 }, [[0, "#3a6fff", 0.03], [0.6, "#3a6fff", 0.09], [1, "#5c9dff", 0.26]]);
-grad("nzRom", { gradientUnits: "userSpaceOnUse", x1: 1150, y1: 0, x2: MW, y2: 0 }, [[0, "#a99a3a", 0.30], [0.4, "#a99a3a", 0.11], [1, "#a99a3a", 0.04]]);
+grad("nzFed", { gradientUnits: "userSpaceOnUse", x1: 0, y1: 0, x2: ZC - 50, y2: 0 }, [[0, "#3a6fff", 0.03], [0.6, "#3a6fff", 0.09], [1, "#5c9dff", 0.26]]);
+grad("nzRom", { gradientUnits: "userSpaceOnUse", x1: ZC, y1: 0, x2: MW, y2: 0 }, [[0, "#a99a3a", 0.30], [0.4, "#a99a3a", 0.11], [1, "#a99a3a", 0.04]]);
 L.svg("clipPath", { id: "nzClip" }, defs).appendChild(L.svg("rect", { x: 0, y: 0, width: MW, height: MH }, defs));
 const soft = L.svg("filter", { id: "nzSoft", x: "-10%", y: "-10%", width: "120%", height: "120%" }, defs);
 L.svg("feGaussianBlur", { stdDeviation: 14 }, soft);
@@ -137,17 +165,18 @@ mlab(zc(MH - 28), MH - 28, "Neutral Zone", "sand", 36, "c");
 
 // how far the outposts' sensors reach into Romulan space
 {
-  const lim = (y) => zr(y) + 290;
+  const lim = (y) => zr(y) + LIM;
   L.svg("path", { d: `M${edge(lim, -60, MH + 60).join(" L")}`, stroke: "var(--olive)", "stroke-width": 3, "stroke-dasharray": "4 14", fill: "none", opacity: 0.9 }, inner);
   mlab(lim(64) + 24, 64, "Sensor Limit", "olive", 36);
 }
 // places: starbases, worlds, the way to Romulus
+const PX = UP ? [230, 120, 100, 1480, 1470] : [230, 300, 150, 1760, 1660];
 const PLACES = [
-  { x: 230, y: 250, name: "Starbase 234", sub: "Sector 3-Beta", c: "ice", kind: "base" },
-  { x: 300, y: 880, name: "Starbase 39-Sierra", sub: "Sector 3-Gamma", c: "ice", kind: "base" },
-  { x: 150, y: 565, name: "Galorndon Core", sub: "Class M  ·  Uninhabited", c: "sky", kind: "world" },
-  { x: 1760, y: 250, name: "Nelvana III", sub: "Romulan  ·  Restricted", c: "olive", kind: "world" },
-  { x: 1660, y: 900, name: "Warbird  ·  Last Seen", sub: "D'deridex class  ·  45790", c: "olive", kind: "ghost" },
+  { x: PX[0], y: 250, name: "Starbase 234", sub: "Sector 3-Beta", c: "ice", kind: "base" },
+  { x: PX[1], y: 880, name: "Starbase 39-Sierra", sub: "Sector 3-Gamma", c: "ice", kind: "base" },
+  { x: PX[2], y: 565, name: "Galorndon Core", sub: "Class M  ·  Uninhabited", c: "sky", kind: "world" },
+  { x: PX[3], y: 250, name: "Nelvana III", sub: "Romulan  ·  Restricted", c: "olive", kind: "world" },
+  { x: PX[4], y: 900, name: "Warbird  ·  Last Seen", sub: "D'deridex class  ·  45790", c: "olive", kind: "ghost" },
 ];
 PLACES.forEach((p) => {
   if (p.kind === "base") {
@@ -259,6 +288,7 @@ const shipLabs = ["right", "left"].map((ta) => {
   [...e.children].forEach((t) => { t.style.width = SLW + "px"; t.style.textAlign = ta; });
   return { e, op: ta === "right" ? 1 : 0, sub: e.children[1] };
 });
+const SLT = Math.ceil(Math.max(...["U.S.S. Enterprise", "Patrol  ·  Warp 2", "Tracking  ·  Warp 2"].map((x) => L.textWidth(x, 36)))) + 8;   // the words' own width
 const shipSub = { set: (txt, c) => shipLabs.forEach((l) => { put(l.sub, txt); css(l.sub, "color", `var(--${c})`); }) };
 const SPEED = 7.5, S0 = Math.random() * route.total;
 const shipAt = (t) => {
@@ -279,18 +309,21 @@ const cSub = L.text({ x: 0, cap: 56, s: 36, c: "sand", txt: "" }, cLab);
 [cRing, cCore, cLab].forEach((e) => (e.style.opacity = 0));
 
 // ---------------- tachyon detection grid ----------------
-header(RX, 280, RR - RX, "Tachyon Detection Grid", "olive", "sand");
-L.text({ x: RX, base: 400, s: 36, c: "sand", txt: "Emitter Array  ·  Outposts 1 – 8" });
-const cycleTxt = L.text({ x: RR, base: 400, s: 36, c: "sand", txt: "Scan Cycle  ·  16 s", align: "r" });
-const NY = 482, NR = 24, NSP = (RR - RX - 2 * NR) / 7;
-const nodeX = (i) => RX + NR + i * NSP;
+// its rows: upright puts them on the 54 px grid of the log beside it
+const GY = UP ? { sub: 1722, ny: 1794, num: 1884, fb: 1922, fh: 258, rd: 2262, rdy: 54 }
+              : { sub: 400, ny: 482, num: 572, fb: 610, fh: 170, rd: 862, rdy: 56 };
+header(GX0, GH, GX1 - GX0, "Tachyon Detection Grid", "olive", "sand");
+L.text({ x: GX0, base: GY.sub, s: 36, c: "sand", txt: "Emitter Array  ·  Outposts 1 – 8" });
+const cycleTxt = L.text({ x: GX1, base: GY.sub, s: 36, c: "sand", txt: "Scan Cycle  ·  16 s", align: "r" });
+const NY = GY.ny, NR = 24, NSP = (GX1 - GX0 - 2 * NR) / 7;
+const nodeX = (i) => GX0 + NR + i * NSP;
 const grid = L.svg("g", { class: "boot" });
 L.svg("path", { d: `M${nodeX(0)},${NY} H${nodeX(7)}`, stroke: "#8fd3ff", "stroke-width": 14, opacity: 0.22, filter: "url(#nzGlow)" }, grid);
 L.svg("path", { d: `M${nodeX(0)},${NY} H${nodeX(7)}`, stroke: "#8fd3ff", "stroke-width": 4 }, grid);
 const nodes = OUT.map((o, i) => {
   L.svg("circle", { cx: nodeX(i), cy: NY, r: NR + 10, fill: "none", stroke: "var(--sky)", "stroke-width": 2, opacity: 0.6 }, grid);
   const c = L.svg("circle", { cx: nodeX(i), cy: NY, r: NR, fill: "var(--ice)" }, grid);
-  L.text({ x: nodeX(i), base: 572, s: 36, c: "ice", txt: String(i + 1).padStart(2, "0"), align: "c", w: 80 });
+  L.text({ x: nodeX(i), base: GY.num, s: 36, c: "ice", txt: String(i + 1).padStart(2, "0"), align: "c", w: 80 });
   return c;
 });
 const pSegs = Array.from({ length: 7 }, (_, i) => {
@@ -301,8 +334,8 @@ const pSegs = Array.from({ length: 7 }, (_, i) => {
 const blob = L.layer({ x: 0, y: NY - 16, w: 90, h: 32, cls: "blob" });
 blob.style.opacity = 0;
 // tachyon flux along each segment: five bars apiece
-const FB = 610, FH = 170, BWD = 16, BG = 9;
-L.svg("path", { d: `M${RX},${FB + FH + 0.5} H${RR}`, stroke: "#4e5d6c", "stroke-width": 2 }, grid);
+const FB = GY.fb, FH = GY.fh, BWD = UP ? 12 : 16, BG = UP ? 7 : 9;
+L.svg("path", { d: `M${GX0},${FB + FH + 0.5} H${GX1}`, stroke: "#4e5d6c", "stroke-width": 2 }, grid);
 const flux = [];
 for (let i = 0; i < 7; i++) {
   const cx = (nodeX(i) + nodeX(i + 1)) / 2;
@@ -315,28 +348,30 @@ for (let i = 0; i < 7; i++) {
     flux.push({ e, seg: i, v });
   }
 }
-const GRID_READ = [["Grid Coherence", RX, RX + 580], ["Emitters Online", RX + 640, RR], ["Tachyon Count", RX, RX + 580], ["Anomalies", RX + 640, RR]];
+const GC = UP ? [GX0 + 404, GX0 + 464] : [RX + 580, RX + 640];
+const GRID_READ = [["Grid Coherence", GX0, GC[0]], ["Emitters Online", GC[1], GX1], ["Tachyon Count", GX0, GC[0]], ["Anomalies", GC[1], GX1]];
 const gridVals = GRID_READ.map(([label, x, xr], i) => {
-  const base = 862 + Math.floor(i / 2) * 56;
+  const base = GY.rd + Math.floor(i / 2) * GY.rdy;
   L.text({ x, base, s: 36, c: "sand", txt: label });
   return L.text({ x: xr, base, s: 36, c: "white", txt: "", align: "r" });
 });
 
 // ---------------- outpost status ----------------
-header(RX, 1000, RR - RX, "Outpost Status", "sky", "ice");
-const OC = { pow: 2540, powW: 300, pct: 2990, last: 3260 };
-L.text({ x: RX, base: 1112, s: 36, c: "sky", txt: "Outpost" });
-L.text({ x: OC.pow, base: 1112, s: 36, c: "sky", txt: "Emitter Power" });
-L.text({ x: OC.last, base: 1112, s: 36, c: "sky", txt: "Last Contact", align: "r" });
-L.text({ x: RR, base: 1112, s: 36, c: "sky", txt: "Status", align: "r" });
+header(OX0, OH, OX1 - OX0, "Outpost Status", "sky", "ice");
+// upright: the power bar exactly as wide as its heading
+const OC = UP ? { pow: 290, powW: Math.round(L.textWidth("Emitter Power", 36)), pct: 610, last: 760 } : { pow: 2540, powW: 300, pct: 2990, last: 3260 };
+L.text({ x: OX0, base: OH + 112, s: 36, c: "sky", txt: "Outpost" });
+L.text({ x: OC.pow, base: OH + 112, s: 36, c: "sky", txt: "Emitter Power" });
+L.text({ x: OC.last, base: OH + 112, s: 36, c: "sky", txt: "Last Contact", align: "r" });
+L.text({ x: OX1, base: OH + 112, s: 36, c: "sky", txt: "Status", align: "r" });
 OUT.forEach((o, i) => {
-  const base = 1166 + i * 54;
-  o.box = L.box({ x: RX, y: base - 29, w: 200, h: 40, c: "ice", label: `Outpost ${o.n}`, fs: 30, r: "l", cls: "pill" });
+  const base = OH + 166 + i * 54;
+  o.box = L.box({ x: OX0, y: base - 29, w: 200, h: 40, c: "ice", label: `Outpost ${o.n}`, fs: 30, r: "l", cls: "pill" });
   L.rect({ x: OC.pow, y: base - 26, w: OC.powW, h: 26, c: DARK });
   o.bar = fill(OC.pow, base - 26, OC.powW, 26, "sky");
   o.pct = L.text({ x: OC.pct, base, s: 36, c: "white", txt: "", align: "r" });
   o.lastE = L.text({ x: OC.last, base, s: 36, c: "white", txt: "", align: "r" });
-  o.stE = L.text({ x: RR, base, s: 36, c: "sand", txt: "", align: "r" });
+  o.stE = L.text({ x: OX1, base, s: 36, c: "sand", txt: "", align: "r" });
   o.pow = o.goal = L.rand(0.93, 0.985); o.drawn = false;
   o.last = -L.rand(5, 150);                              // seconds since its last check-in, at the start
   o.status = "Nominal";
@@ -356,11 +391,11 @@ L.tick(() => OUT.forEach((o) => {
 }));
 
 // ---------------- patrol log ----------------
-header(40, 1620, 1300, "Patrol Log", "ice", "sky", 48, 28);
+header(LX0, LH, LX1 - LX0, "Patrol Log", "ice", "sky", 48, 28);
 const logRows = Array.from({ length: 6 }, (_, i) => {
-  const base = 1734 + i * 54;
-  return { sd: L.text({ x: 40, base, s: 36, c: "sky", txt: "" }), what: L.text({ x: 220, base, s: 36, c: "white", txt: "" }),
-           who: L.text({ x: 1340, base, s: 36, c: "sand", txt: "", align: "r" }) };
+  const base = LH + 114 + i * 54;
+  return { sd: L.text({ x: LX0, base, s: 36, c: "sky", txt: "" }), what: L.text({ x: UP ? LX0 + 124 : 220, base, s: 36, c: "white", txt: "" }),
+           who: L.text({ x: LX1, base, s: 36, c: "sand", txt: "", align: "r" }) };
 });
 const logged = [];
 const log = (what, who, c = "white") => {
@@ -391,18 +426,18 @@ log("Outpost 4 check-in  ·  all systems nominal", "Outpost 4");
 routine();
 
 // ---------------- treaty ----------------
-header(1400, 1620, 800, "Treaty of Algeron", "olive", "sand", 48, 28);
+header(TX0, TH, TX1 - TX0, "Treaty of Algeron", "olive", "sand", 48, 28);
 [["Signed", "Algeron  ·  2311"], ["Parties", "Federation  ·  Romulan Star Empire"], ["Neutral Zone", "Inviolate"],
  ["Unannounced Entry", "Act of War"], ["Cloaking Devices", "Prohibited to Starfleet"], ["In Force", "57 Years"]]
   .forEach(([label, v], i) => {
-    const base = 1734 + i * 54;
-    L.text({ x: 1400, base, s: 36, c: "sand", txt: label });
-    L.text({ x: 2200, base, s: 36, c: i === 3 ? "butter" : "white", txt: v, align: "r" });
+    const base = TH + 114 + i * 54;
+    L.text({ x: TX0, base, s: 36, c: "sand", txt: label });
+    L.text({ x: TX1, base, s: 36, c: i === 3 ? "butter" : "white", txt: v, align: "r" });
   });
 
 // ---------------- sensors ----------------
-header(RX, 1620, RR - RX, "Sensor Readings", "sky", "olive", 48, 28);
-const SB = { x: 2700, w: 520 };
+header(SX0, SH, SX1 - SX0, "Sensor Readings", "sky", "olive", 48, 28);
+const SB = UP ? { x: SX0 + 420, w: 300 } : { x: 2700, w: 520 };
 const SENS = [
   { name: "Sensor Resolution", c: "sky", v: 0.968, f: (v) => (v * 100).toFixed(1) + "%" },
   { name: "Long Range Scan", c: "sky", v: 0.93, f: (v) => (v * 20).toFixed(1) + " ly" },
@@ -411,11 +446,11 @@ const SENS = [
   { name: "Warp Signatures", c: "sky", v: 0.2, f: (v) => String(Math.round(v * 10)) },
   { name: "Cloak Residue", c: "olive", v: 0.03, f: (v) => (v < 0.08 ? "None" : v < 0.4 ? "Faint" : "Trace") },
 ].map((s, i) => {
-  const base = 1734 + i * 54;
-  L.text({ x: RX, base, s: 36, c: "sand", txt: s.name });
+  const base = SH + 114 + i * 54;
+  L.text({ x: SX0, base, s: 36, c: "sand", txt: s.name });
   L.rect({ x: SB.x, y: base - 26, w: SB.w, h: 26, c: DARK });
   s.bar = fill(SB.x, base - 26, SB.w, 26, s.c);
-  s.val = L.text({ x: RR, base, s: 36, c: "white", txt: "", align: "r" });
+  s.val = L.text({ x: SX1, base, s: 36, c: "white", txt: "", align: "r" });
   s.u = s.v; s.goal = s.v; s.base = s.v; s.drawn = false;
   return s;
 });
@@ -440,6 +475,7 @@ const EVENTS = [
 let evI = L.irand(0, EVENTS.length - 1);
 const hit = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 let settled = false;
+const watch = {};                                        // hooks: the ultrawide contact record listens here
 
 const startContact = (k, t) => {
   const ev = EVENTS[evI++ % EVENTS.length];
@@ -459,6 +495,7 @@ const startContact = (k, t) => {
   SENS[2].goal = 0.34; SENS[3].goal = 0.71; SENS[5].goal = 0.45; SENS[0].goal = 0.91;
   flux.forEach((b) => { if (b.seg === k) { b.e.style.background = "var(--mars)"; b.v = L.rand(0.6, 0.95); b.e.style.transform = `scaleY(${b.v.toFixed(3)})`; } });
   showGrid();
+  if (watch.start) watch.start(contact);
 };
 const endContact = () => {
   const c = contact;
@@ -471,6 +508,7 @@ const endContact = () => {
   SENS.forEach((s) => (s.goal = s.base));
   flux.forEach((b) => { if (b.seg === c.k) { b.e.style.background = "var(--sky)"; b.v = L.rand(0.12, 0.34); b.e.style.transform = `scaleY(${b.v.toFixed(3)})`; } });
   showGrid();
+  if (watch.end) watch.end(c);
 };
 
 L.tick((t) => {
@@ -516,7 +554,8 @@ L.tick((t) => {
     const lx2 = X + 60 * sc + 28;                        // clear of the ring as it closes
     L.move(cLab, lx2, Y - 46);
     cLab.style.opacity = vis.toFixed(3);
-    cr = { x: lx2, y: Y - 46, w: CLW, h: 92 };
+    // upright: the hit box only as wide as the words, so the narrower map's labels step back only when truly covered
+    cr = { x: lx2, y: Y - 46, w: UP ? Math.ceil(Math.max(L.textWidth(cName.textContent, 36), L.textWidth(cSub.textContent, 36))) + 8 : CLW, h: 92 };
     const dx = X - sx, dy = Y - sy;
     bear.style.transform = `translate3d(${s.x}px,${s.y - 1.5}px,0) rotate(${Math.atan2(dy, dx).toFixed(4)}rad) scaleX(${(Math.hypot(dx, dy) / 1000).toFixed(4)})`;
     bear.style.opacity = (vis * (c.phase ? 0.4 : 0.9)).toFixed(3);
@@ -538,7 +577,7 @@ L.tick((t) => {
   }
 
   // map labels step back under the ship's name, the ship, or the contact's name
-  const sr = { x: lx, y: ly + 4, w: SLW, h: 84 }, shr = { x: sx - 30, y: sy - 30, w: 60, h: 60 };
+  const sr = UP ? { x: south ? sx - 46 - SLT : sx + 46, y: ly + 4, w: SLT, h: 84 } : { x: lx, y: ly + 4, w: SLW, h: 84 }, shr = { x: sx - 30, y: sy - 30, w: 60, h: 60 };
   for (const g of mlabs) {
     const under = hit(g, sr) || hit(g, shr) || (cr && hit(g, cr));
     const goal = under ? 0 : 1;
@@ -583,5 +622,85 @@ later(700, () => {
 }, 0.3);
 L.every(500, () => SENS.forEach((s) => put(s.val, s.f(s.u))), 0);
 later(11000, () => { if (!contact) routine(); }, 0.35);
+
+// ---------------- ultrawide: a fourth column, built from the model above (no new random numbers) ----------------
+if (UW) {
+  const NX0 = 3600, NX1 = b.x1;
+  // the status line's own reading over this column, so the row is not half empty
+  const condE = L.text({ x: NX0, base: 222, s: 38, c: "sky", txt: "Alert Status  ·  Condition Green" });
+  // helm: the ship's place along the border (Outpost 1 to 8, north to south) and its range to each outpost
+  header(NX0, 280, NX1 - NX0, "Helm  ·  Patrol Pattern", "ice", "sky");
+  L.text({ x: NX0, base: 400, s: 36, c: "sky", txt: "Position along the Border  ·  Outposts 1 – 8" });
+  const lapE = L.text({ x: NX1, base: 400, s: 36, c: "sky", txt: "", align: "r" });
+  const HSP = (NX1 - NX0 - 2 * NR) / 7, hx = (i) => NX0 + NR + i * HSP;
+  const helm = L.svg("g", { class: "boot" });
+  L.svg("path", { d: `M${hx(0)},${NY} H${hx(7)}`, stroke: "var(--sky)", "stroke-width": 4, opacity: 0.7 }, helm);
+  L.svg("path", { d: `M${NX0},${FB + FH + 0.5} H${NX1}`, stroke: "#4e5d6c", "stroke-width": 2 }, helm);
+  const rbars = OUT.map((o, i) => {
+    L.svg("circle", { cx: hx(i), cy: NY, r: 14, fill: "var(--ice)" }, helm);
+    L.text({ x: hx(i), base: 572, s: 36, c: "ice", txt: String(i + 1).padStart(2, "0"), align: "c", w: 80 });
+    L.svg("rect", { x: hx(i) - 24, y: FB, width: 48, height: FH, fill: DARK }, helm);
+    return fill(hx(i) - 24, FB, 48, FH, "ice", "50% 100%", "flux");
+  });
+  const hmark = L.layer({ x: 0, y: NY - 26, w: 52, h: 52 });
+  hmark.appendChild(ship.firstChild.cloneNode(true));
+  const HR = [["Heading", NX0, NX0 + 524], ["Speed", NX0 + 584, NX1], ["Nearest Outpost", NX0, NX0 + 524], ["Range", NX0 + 584, NX1]];
+  const hv = HR.map(([label, x, xr], i) => {
+    const base = 862 + Math.floor(i / 2) * 56;
+    L.text({ x, base, s: 36, c: "sand", txt: label });
+    return L.text({ x: xr, base, s: 36, c: "white", txt: "", align: "r" });
+  });
+  const LYP = 0.004;                                     // light-years per map pixel: the map spans about 8.6 ly
+  const along = (s) => L.clamp((s.y - OUT[0].y) / (OUT[7].y - OUT[0].y));
+  L.tick((t) => { const s = shipAt(t); L.move(hmark, hx(0) + along(s) * 7 * HSP - 26, 0, (s.h * 180) / Math.PI + 90); });
+  L.every(500, (t) => {
+    const s = shipAt(t), r = OUT.map((o) => Math.hypot(s.x - o.x, s.y - o.y) * LYP);
+    rbars.forEach((e, i) => css(e, "transform", `scaleY(${L.clamp(r[i] / 4.4, 0.02, 1).toFixed(2)})`));
+    let k = 0; r.forEach((v, i) => { if (v < r[k]) k = i; });
+    put(hv[0], `${String(Math.round(((((s.h * 180) / Math.PI + 90) % 360) + 360) % 360) % 360).padStart(3, "0")} mark 0`);
+    put(hv[1], "Warp 2");
+    put(hv[2], `Outpost ${k + 1}`);
+    put(hv[3], r[k].toFixed(2) + " ly");
+    put(lapE, `Pattern  ·  ${Math.floor((((S0 + SPEED * t) % route.total) / route.total) * 100)}% Complete`);
+  }, 0);
+
+  // the contact record: the last eight contacts, newest first; a new one is added as the grid finds it
+  header(NX0, 1000, NX1 - NX0, "Contact Record", "olive", "sand");
+  const CC = [NX0, NX0 + 300, NX0 + 560];
+  [["Contact", CC[0]], ["Segment", CC[1]], ["Stardate", CC[2]]].forEach(([h, x]) => L.text({ x, base: 1112, s: 36, c: "sky", txt: h }));
+  L.text({ x: NX1, base: 1112, s: 36, c: "sky", txt: "Outcome", align: "r" });
+  const recRows = Array.from({ length: 8 }, (_, i) => {
+    const base = 1166 + i * 54;
+    return [L.text({ x: CC[0], base, s: 36, c: "white", txt: "" }), L.text({ x: CC[1], base, s: 36, c: "white", txt: "" }),
+            L.text({ x: CC[2], base, s: 36, c: "sky", txt: "" }), L.text({ x: NX1, base, s: 36, c: "sand", txt: "", align: "r" })];
+  });
+  const rnd = seeded(9117), rec = [];
+  for (let j = 1, sd = stardate; j <= 8; j++) {
+    sd -= 1.1 + rnd() * 1.4;
+    rec.push({ id: `NZ-${4400 + contactN - j}`, k: Math.floor(rnd() * 7), sd: sd.toFixed(1), out: EVENTS[(((evI - j) % 4) + 4) % 4].lab, c: "sand" });
+  }
+  const showRec = () => recRows.forEach((r, i) => {
+    const e = rec[i];
+    put(r[0], e.id); put(r[1], `${e.k + 1} – ${e.k + 2}`); put(r[2], e.sd); put(r[3], e.out);
+    css(r[0], "color", e.c === "mars" ? "var(--mars)" : "var(--white)"); css(r[3], "color", `var(--${e.c})`);
+  });
+  showRec();
+
+  // the border patrol group: the ships on this stretch of the border
+  header(NX0, 1620, NX1 - NX0, "Border Patrol Group", "sky", "ice", 48, 28);
+  const FLEET = [["U.S.S. Enterprise", "Galaxy Class", "Sector 3-Delta", "Patrol"], ["U.S.S. Hood", "Excelsior Class", "Sector 3-Beta", "Patrol"],
+    ["U.S.S. Excalibur", "Ambassador Class", "Starbase 234", "Resupply"], ["U.S.S. Bozeman", "Soyuz Class", "Sector 3-Gamma", "Survey"],
+    ["U.S.S. Phoenix", "Nebula Class", "Starbase 39-Sierra", "Refit"], ["U.S.S. Victory", "Constellation Class", "Sector 3-Kappa", "Patrol"]];
+  const fleetSt = FLEET.map(([name, cls, where, st], i) => {
+    const base = 1734 + i * 54;
+    L.text({ x: NX0, base, s: 36, c: i ? "white" : "ice", txt: name });
+    L.text({ x: NX0 + 300, base, s: 36, c: "sky", txt: cls });
+    L.text({ x: NX0 + 620, base, s: 36, c: "sand", txt: where });
+    return L.text({ x: NX1, base, s: 36, c: "sand", txt: st, align: "r" });
+  });
+  const ent = (txt, c) => { put(fleetSt[0], txt); css(fleetSt[0], "color", `var(--${c})`); };
+  watch.start = (c) => { rec.forEach((e) => { if (e.c === "butter") e.c = "sand"; }); rec.unshift({ id: c.id, k: c.k, sd: stardate.toFixed(1), out: "Tracking", c: "mars" }); rec.length = 8; showRec(); ent("Tracking", "mars"); put(condE, "Alert Status  ·  Condition Yellow"); css(condE, "color", "var(--butter)"); };
+  watch.end = (c) => { const e = rec.find((x) => x.id === c.id); if (e) { e.out = c.ev.lab; e.c = "butter"; showRec(); } ent("Patrol", "sand"); put(condE, "Alert Status  ·  Condition Green"); css(condE, "color", "var(--sky)"); };
+}
 });
 </script></body></html>

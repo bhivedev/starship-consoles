@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Security</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .pill { transition: background-color 1.2s ease; }
@@ -18,7 +19,17 @@
 const L = LCARS;
 L.ready(() => {
 
+// Three layouts. Wide (3840 × 2160) is the original, hand-placed: sweep | plan | fields and teams over
+// log | alert | locker. Upright (2160 × 3120) splits the page into two 873 columns (330–1203 | 1263–2136):
+// the sweep list beside the deck plan; then fields over teams beside log, locker and alert, stacked.
+// Ultrawide (5040 × 2160) keeps the three wide columns where they are and adds a fourth (3876–5016):
+// life signs by deck as bars, over the same counts by section. Data and motion are written once.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+let occ = null;                                            // ultrawide: the occupancy column redraws here
+
 // ---------------- the frame: sidebar on the left, title at top right ----------------
+let b;
+if (L.shape === "wide") {
 const BAR = 64;
 const titleLeft = L.title({ x: 3700, y: 40, h: BAR, c: "red", txt: "Security  •  Internal Sensors" });
 L.box({ x: 3724, y: 40, w: 92, h: BAR, c: "red", r: "r" });
@@ -33,6 +44,13 @@ L.text({ x: 258, base: 1712, s: 40, c: "#000", txt: "Security", align: "r", on: 
 [[1540 + L.GAP, 600, "red"], [2164 + L.GAP, 900, "tan"], [3088 + L.GAP, 3700 - (3088 + L.GAP), "sand"]]
   .forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
 L.box({ x: 3724, y: 2056, w: 92, h: BAR, c: "sand", r: "r" });
+b = { x0: 330, x1: 3816, y0: 140, y1: 2010 };
+} else {
+  // the same frame, drawn by the kit for this shape: type A, the same colours and sidebar labels
+  b = L.frame({ type: "A", title: "Security  •  Internal Sensors", c: "red", c2: "sand", accent: "tan", foot: "Security",
+    side: [[140, "sand", "Sec 01"], [70, "mars", "Brig"], [420, "red", "Sensors"], [70, "sand", "Level 3"],
+           [300, "tan", "Teams"], [70, "mars", "Arms"], [216, "red", "Access"]] });
+}
 
 const header = (x, y, w, label, lw, c1, c2, h = 56, fs = 32) => {
   L.box({ x, y, w: lw, h, c: c1, label, fs, r: "l" });
@@ -48,7 +66,11 @@ const D2 = (d) => String(d).padStart(2, "0");
 const fmt = (n) => n.toLocaleString("en");
 const DIM = "#8796a5", DARK = "#2a2420";
 // three columns: sensor sweep 330–1490, deck plan 1550–2650, fields and teams 2710–3816
-const C1 = 330, C1R = 1490, C2 = 1550, C2R = 2650, C3 = 2710, C3R = 3816;
+// (upright: sweep 330–1203 and plan 1263–2136 side by side; fields and teams under the sweep, 330–1203)
+const C1 = 330, C1R = UP ? 1203 : 1490, C2 = UP ? 1263 : 1550, C2R = UP ? 2136 : 2650, C3 = UP ? 330 : 2710, C3R = UP ? 1203 : 3816;
+// the bottom strip's panels: log, alert, locker (upright: stacked down the right column, 1263–2136)
+const LX0 = UP ? 1263 : C1, LX1 = UP ? 2136 : C1R, AX0 = UP ? 1263 : C2, AX1 = UP ? 2136 : C2R, KX0 = UP ? 1263 : C3, KX1 = UP ? 2136 : C3R;
+const TOP = UP ? 330 : 280;                                // the sweep's and the plan's headers
 
 // ---------------- the decks ----------------
 // [section, how many usually there]
@@ -84,22 +106,22 @@ later(4000, () => {                                       // people move about t
 
 // ---------------- status line ----------------
 const stateTxt = L.text({ x: C1, cap: 150, s: 100, c: "sand", txt: "All Decks Secure" });
-const stateSub = L.text({ x: C2, base: 222, s: 38, c: "mars", txt: "" });
-const pill = L.box({ x: 3416, y: 150, w: 400, h: 72, c: "sand", label: "No Intruders Detected", r: "lr", fs: 36, cls: "pill" });
+const stateSub = L.text({ x: UP ? C1 : C2, base: UP ? 284 : 222, s: 38, c: "mars", txt: "" });   // upright: under the state
+const pill = L.box({ x: UP || UW ? b.x1 - 400 : 3416, y: 150, w: 400, h: 72, c: "sand", label: "No Intruders Detected", r: "lr", fs: 36, cls: "pill" });
 pill.style.willChange = "opacity";
 L.tick((t) => { pill.style.opacity = (0.88 + 0.12 * Math.sin(t * 1.1)).toFixed(3); });
 
 // ---------------- internal sensor sweep: decks 1–42, two columns of 21 ----------------
-header(C1, 280, C1R - C1, "Internal Sensor Sweep", 420, "red", "sand");
-const COLX = [C1, 940], COLW = 550, ROWB = 460, RP = 54;
+header(C1, TOP, C1R - C1, "Internal Sensor Sweep", 420, "red", "sand");
+const COLX = UP ? [C1, 797] : [C1, 940], COLW = UP ? 406 : 550, ROWB = UP ? 510 : 460, RP = 54;
 const rowBase = (d) => ROWB + ((d - 1) % 21) * RP;
 const colOf = (d) => COLX[d > 21 ? 1 : 0];
 // the sweep: a band moving down the list, one deck every 1.5 s; one band per column
 const PER = 1.5;
 const bands = COLX.map((x) => { const b = L.layer({ x: x - 12, y: 0, w: COLW + 24, h: 50, cls: "band" }); b.style.opacity = 0; return b; });
 COLX.forEach((x) => {
-  L.text({ x: x + 124, base: 400, s: 36, c: "mars", txt: "Section" });
-  L.text({ x: x + COLW, base: 400, s: 36, c: "mars", txt: "Life Signs", align: "r" });
+  L.text({ x: x + 124, base: UP ? 450 : 400, s: 36, c: "mars", txt: "Section" });
+  L.text({ x: x + COLW, base: UP ? 450 : 400, s: 36, c: "mars", txt: "Life Signs", align: "r" });
 });
 const list = [null];
 for (let d = 1; d <= 42; d++) {
@@ -150,13 +172,14 @@ const paintList = () => {
 const showSweep = () => {
   stateSub.textContent = `Sweep ${fmt(sweepN)}  ·  Deck ${D2(lastDeck)}  ·  ${fmt(ABOARD)} life signs aboard  ·  ${unknowns} unidentified`;
   showReadings();
+  if (occ) occ();
 };
 
 // ---------------- the deck plan: an abstract section grid, life signs moving along its corridors ----------------
-header(C2, 280, C2R - C2, "Deck Plan", 260, "sand", "red");
-const planTitle = L.text({ x: C2, base: 400, s: 40, c: "white", txt: "" });
-const planCount = L.text({ x: C2R, base: 400, s: 40, c: "sand", txt: "", align: "r" });
-const PX = C2, PY = 436, PW = C2R - C2, PH = 1030;
+header(C2, TOP, C2R - C2, "Deck Plan", 260, "sand", "red");
+const planTitle = L.text({ x: C2, base: UP ? 450 : 400, s: 40, c: "white", txt: "" });
+const planCount = L.text({ x: C2R, base: UP ? 450 : 400, s: 40, c: "sand", txt: "", align: "r" });
+const PX = C2, PY = UP ? 486 : 436, PW = C2R - C2, PH = 1030;
 const planBox = L.layer({ x: PX, y: PY, w: PW, h: PH });
 planBox.style.transition = "opacity .9s ease";
 // when the sweep reaches the deck on the plan, its band crosses the plan too
@@ -299,9 +322,9 @@ L.tick((t) => {
   }
 });
 // the key under the plan
-const KEYB = 1540;
+const KEYB = UP ? 1590 : 1540;
 const keyVals = {};
-[["crew", "Crew", "white", C2], ["sec", "Security", "mars", C2 + 300], ["civ", "Civilians", "sand", C2 + 640]].forEach(([k, name, c, x]) => {
+[["crew", "Crew", "white", C2], ["sec", "Security", "mars", C2 + (UP ? 220 : 300)], ["civ", "Civilians", "sand", C2 + (UP ? 460 : 640)]].forEach(([k, name, c, x]) => {
   L.rect({ x, y: KEYB - 25, w: 20, h: 20, rx: 10, c });
   L.text({ x: x + 40, base: KEYB, s: 40, c: "sand", txt: name });
   keyVals[k] = L.text({ x: x + 40 + L.textWidth(name, 40) + 20, base: KEYB, s: 40, c: "white", txt: "" });
@@ -309,15 +332,18 @@ const keyVals = {};
 const sectionsTxt = L.text({ x: C2R, base: KEYB, s: 40, c: DIM, txt: "", align: "r" });
 
 // ---------------- forcefields ----------------
-header(C3, 280, C3R - C3, "Forcefields", 280, "mars", "sand");
-const FC = { deck: 3060, bar: 3100, barW: 380, pct: 3650 };
-L.text({ x: C3, base: 400, s: 36, c: "mars", txt: "Field" });
-L.text({ x: FC.deck, base: 400, s: 36, c: "mars", txt: "Deck", align: "r" });
-L.text({ x: FC.bar, base: 400, s: 36, c: "mars", txt: "Emitter Power" });
-L.text({ x: C3R, base: 400, s: 36, c: "mars", txt: "Status", align: "r" });
+// upright: under the sweep, rows a little further apart so the teams' last row meets the alert's
+header(C3, UP ? 1670 : 280, C3R - C3, "Forcefields", 280, "mars", "sand");
+const FC = UP ? { deck: 680, bar: 710, barW: 220, pct: 1040 } : { deck: 3060, bar: 3100, barW: 380, pct: 3650 };
+const FH = UP ? 1784 : 400;
+L.text({ x: C3, base: FH, s: 36, c: "mars", txt: "Field" });
+L.text({ x: FC.deck, base: FH, s: 36, c: "mars", txt: "Deck", align: "r" });
+L.text(UP ? { x: FC.bar + FC.barW / 2, w: FC.barW, align: "c", base: FH, s: 36, c: "mars", txt: "Emitter Power" }   // upright: centred on its short bars
+       : { x: FC.bar, base: FH, s: 36, c: "mars", txt: "Emitter Power" });
+L.text({ x: C3R, base: FH, s: 36, c: "mars", txt: "Status", align: "r" });
 const FIELDS = [["Brig Cell 1", 8, true], ["Brig Cell 2", 8, false], ["Brig Cell 3", 8, true], ["Brig Cell 4", 8, false],
   ["Armory", 8, true], ["Shuttlebay 2", 13, false], ["Main Engineering", 36, false]].map(([name, deck, up], i) => {
-  const base = 468 + i * 76;
+  const base = UP ? 1852 + i * 84 : 468 + i * 76;
   const box = L.box({ x: C3, y: base - 41, w: 280, h: 52, c: up ? "mars" : "tan", label: name, fs: 30, r: "l", cls: "pill" });
   L.text({ x: FC.deck, base, s: 40, c: "white", txt: D2(deck), align: "r" });
   L.rect({ x: FC.bar, y: base - 26, w: FC.barW, h: 26, c: DARK });
@@ -344,13 +370,14 @@ L.every(400, () => FIELDS.forEach((fd) => (fd.pct.textContent = (fd.v * 100).toF
 later(5000, () => { const fd = L.pick(FIELDS.filter((f) => f.up)); fd.goal = L.rand(0.955, 0.99); }, 0.3);   // a raised field drifts a little
 
 // ---------------- security teams ----------------
-header(C3, 1000, C3R - C3, "Security Teams", 340, "red", "sand");
-const TC = { lead: 2904, job: 3170, deck: 3560 };
-L.text({ x: C3, base: 1112, s: 36, c: "mars", txt: "Team" });
-L.text({ x: TC.lead, base: 1112, s: 36, c: "mars", txt: "Leader" });
-L.text({ x: TC.job, base: 1112, s: 36, c: "mars", txt: "Assignment" });
-L.text({ x: TC.deck, base: 1112, s: 36, c: "mars", txt: "Deck", align: "r" });
-L.text({ x: C3R, base: 1112, s: 36, c: "mars", txt: "Status", align: "r" });
+header(C3, UP ? 2426 : 1000, C3R - C3, "Security Teams", 340, "red", "sand");
+const TC = UP ? { lead: 530, job: 740, deck: 1050 } : { lead: 2904, job: 3170, deck: 3560 };
+const TH = UP ? 2538 : 1112;
+L.text({ x: C3, base: TH, s: 36, c: "mars", txt: "Team" });
+L.text({ x: TC.lead, base: TH, s: 36, c: "mars", txt: "Leader" });
+L.text({ x: TC.job, base: TH, s: 36, c: "mars", txt: "Assignment" });
+L.text({ x: TC.deck, base: TH, s: 36, c: "mars", txt: "Deck", align: "r" });
+L.text({ x: C3R, base: TH, s: 36, c: "mars", txt: "Status", align: "r" });
 const TEAMS = [
   { name: "Team 1", lead: "Lt. T. Vance", job: "Brig Detail", deck: 8, size: 2, home: 8, c: "mars" },
   { name: "Team 2", lead: "Ens. R. Okafor", job: "Patrol", deck: 9, size: 3, lo: 2, hi: 15, c: "sand" },
@@ -359,7 +386,7 @@ const TEAMS = [
   { name: "Chief", lead: "Lt. Worf", job: "Main Bridge", deck: 1, size: 1, home: 1, c: "red" },
 ];
 TEAMS.forEach((tm, i) => {
-  const base = 1196 + i * 86;
+  const base = (UP ? 2622 : 1196) + i * 86;
   L.box({ x: C3, y: base - 41, w: 170, h: 52, c: tm.c, label: tm.name, fs: 30, r: "l" });
   tm.leadE = L.text({ x: TC.lead, base, s: 40, c: "white", txt: tm.lead });
   tm.jobE = L.text({ x: TC.job, base, s: 36, c: "sand", txt: "" });
@@ -382,13 +409,16 @@ later(14000, () => {                                       // patrols move on, a
 }, 0.3);
 
 // ---------------- security log ----------------
-const LG = { who: 480, where: 760, lvl: 1140 };
-header(C1, 1620, C1R - C1, "Security Log", 300, "sand", "red", 48, 28);
+// upright: the right column's first panel, its headers the full 56 like the fields' beside it
+const HS = UP ? [56, 32] : [48, 28];
+// upright: 873 is tight for five columns at 36; the gaps are balanced for the longest name, door and result
+const LG = UP ? { who: 1387, where: 1608, lvl: 1935 } : { who: 480, where: 760, lvl: 1140 }, LS = 36;
+header(LX0, UP ? 1670 : 1620, LX1 - LX0, "Security Log", 300, "sand", "red", ...HS);
 const logRows = Array.from({ length: 6 }, (_, i) => {
-  const base = 1734 + i * 54;
-  return { sd: L.text({ x: C1, base, s: 36, c: "mars", txt: "" }), who: L.text({ x: LG.who, base, s: 36, c: "white", txt: "" }),
-           where: L.text({ x: LG.where, base, s: 36, c: "sand", txt: "" }), lvl: L.text({ x: LG.lvl, base, s: 36, c: "sand", txt: "" }),
-           res: L.text({ x: C1R, base, s: 36, c: "sand", txt: "", align: "r" }) };
+  const base = (UP ? 1784 : 1734) + i * 54;
+  return { sd: L.text({ x: LX0, base, s: LS, c: "mars", txt: "" }), who: L.text({ x: LG.who, base, s: LS, c: "white", txt: "" }),
+           where: L.text({ x: LG.where, base, s: LS, c: "sand", txt: "" }), lvl: L.text({ x: LG.lvl, base, s: LS, c: "sand", txt: "" }),
+           res: L.text({ x: LX1, base, s: LS, c: "sand", txt: "", align: "r" }) };
 });
 let stardate = 47772.0;
 const logged = [];
@@ -418,14 +448,14 @@ for (let i = 0; i < 6; i++) access();
 later(7500, () => { if (!alert || Math.random() < 0.5) access(); }, 0.35);
 
 // ---------------- weapons locker ----------------
-header(C3, 1620, C3R - C3, "Weapons Locker", 320, "mars", "sand", 48, 28);
-const WL = { slots: 3040, slotsR: 3640 };
+header(KX0, UP ? 2126 : 1620, KX1 - KX0, "Weapons Locker", 320, "mars", "sand", ...HS);
+const WL = UP ? { slots: 1523, slotsR: 2036 } : { slots: 3040, slotsR: 3640 };
 const KIT = [["Type-2 Phaser", 24], ["Type-1 Phaser", 24], ["Type-3 Phaser Rifle", 12], ["Phaser Power Cell", 24], ["Tricorder", 12], ["Field Medical Kit", 12]];
 const locker = KIT.map(([name, n], i) => {
-  const base = 1734 + i * 54, pitch = (WL.slotsR - WL.slots + 6) / n;
-  L.text({ x: C3, base, s: 36, c: "sand", txt: name });
+  const base = (UP ? 2240 : 1734) + i * 54, pitch = (WL.slotsR - WL.slots + 6) / n;
+  L.text({ x: KX0, base, s: 36, c: "sand", txt: name });
   const slots = Array.from({ length: n }, (_, k) => L.rect({ x: WL.slots + k * pitch, y: base - 28, w: pitch - 6, h: 28, c: "sand", noalign: true }));
-  const cnt = L.text({ x: C3R, base, s: 36, c: "white", txt: "", align: "r" });
+  const cnt = L.text({ x: KX1, base, s: 36, c: "white", txt: "", align: "r" });
   return { name, n, slots, cnt, out: 0 };
 });
 const issued = { 0: 0, 2: 0, 4: 0 };
@@ -442,17 +472,17 @@ const showLocker = () => {
 showLocker();
 
 // ---------------- intruder alert: the condition ladder and what security is watching ----------------
-header(C2, 1620, C2R - C2, "Intruder Alert", 300, "red", "sand", 48, 28);
+header(AX0, UP ? 2582 : 1620, AX1 - AX0, "Intruder Alert", 300, "red", "sand", ...HS);
 const LADDER = [["Normal", "sand"], ["Security Check", "mars"], ["Intruder Alert", "red"], ["Lockdown", "red"]];
-const LW = (C2R - C2 - 3 * 16) / 4;
-const ladder = LADDER.map(([name, c], i) => L.box({ x: C2 + i * (LW + 16), y: 1697, w: LW, h: 48, c: DARK, label: name, fs: 28, r: i === 0 ? "l" : i === 3 ? "r" : null, cls: "pill" }));
+const LW = (AX1 - AX0 - 3 * 16) / 4;
+const ladder = LADDER.map(([name, c], i) => L.box({ x: AX0 + i * (LW + 16), y: UP ? 2659 : 1697, w: LW, h: 48, c: DARK, label: name, fs: 28, r: i === 0 ? "l" : i === 3 ? "r" : null, cls: "pill" }));
 const showLadder = (k) => ladder.forEach((b, i) => {
   b.style.background = i === k ? `var(--${LADDER[i][1]})` : DARK;
   b.style.color = i === k ? "#000" : `var(--${LADDER[i][1]})`;
 });
 showLadder(0);
-const finding = L.text({ x: C2, base: 2004, s: 36, c: "sand", txt: "" });
-const AX = [C2, C2 + 580], AV = 290;                      // two columns of readings
+const finding = L.text({ x: AX0, base: UP ? 2966 : 2004, s: 36, c: "sand", txt: "" });
+const AX = UP ? [AX0, AX0 + 436] : [C2, C2 + 580], AV = UP ? 230 : 290;                      // two columns of readings
 const READ = [["Intruders", () => (alert && alert.what === "Unknown Life Sign" && alert.phase < 2 ? "1 Unverified" : "None")],
   ["Unidentified", () => String(unknowns)],
   ["Fields Raised", () => `${FIELDS.filter((f) => f.up).length} of ${FIELDS.length}`],
@@ -460,7 +490,7 @@ const READ = [["Intruders", () => (alert && alert.what === "Unknown Life Sign" &
   ["Sweep", () => fmt(sweepN)],
   ["Sweep Cycle", () => `${Math.round(42 * PER)} s`]];
 const readings = READ.map(([name, f], i) => {
-  const x = AX[Math.floor(i / 3)], base = 1842 + (i % 3) * 54;
+  const x = AX[Math.floor(i / 3)], base = (UP ? 2804 : 1842) + (i % 3) * 54;
   L.text({ x, base, s: 36, c: "sand", txt: name });
   return { f, e: L.text({ x: x + AV, base, s: 36, c: "white", txt: "" }) };
 });
@@ -522,6 +552,85 @@ const settle = (t) => {
 };
 later(1000, settle, 0);
 later(80000, (t) => { if (!alert && t > 20) raise(t); }, 0.25);
+
+// ---------------- ultrawide: a fourth column, life signs by deck and by section ----------------
+// The same counts the sweep list shows (seen[]), redrawn when the sweep moves on, so bars and numbers agree.
+if (UW) {
+  const X = 3876, XR = b.x1;                               // 3876–5016
+  header(X, 280, XR - X, "Life Signs by Deck", 360, "sand", "red");
+  const hdTxt = L.text({ x: X, base: 400, s: 40, c: "white", txt: "" });
+  const hdN = L.text({ x: XR, base: 400, s: 40, c: "sand", txt: "", align: "r" });
+  const busy = L.text({ x: X, base: 222, s: 38, c: "mars", txt: "" });   // on the status line
+  // the chart: 42 bars standing on the plan's floor, a scale at the left in tens. It tops out at 70, just above
+  // the busiest deck, and steps up ten at a time only if a deck outgrows it (back down once well clear),
+  // so the bars fill the chart and always agree with their counts.
+  const HX = X + 84, HY = 436, HH = 1030, HP = (XR - HX) / 42;
+  let MAXN = 0;
+  const hY = (n) => HY + HH * (1 - n / MAXN);
+  L.rect({ x: HX, y: HY + HH - 2, w: XR - HX, h: 2, c: "#5a4638", free: true });
+  L.text({ x: X + 60, base: HY + HH, s: 30, c: "mars", txt: "0", align: "r", legend: true });
+  const grid = Array.from({ length: 12 }, (_, i) => ({ n: (i + 1) * 10,
+    line: L.rect({ x: HX, y: HY, w: XR - HX, h: 4, c: "#3e322a", free: true }),
+    lab: L.text({ x: X + 60, cap: HY, s: 30, c: "mars", txt: String((i + 1) * 10), align: "r", legend: true }) }));
+  const scaleTo = (m) => {
+    if (m === MAXN) return;
+    MAXN = m;
+    grid.forEach((g) => {
+      const on = g.n <= m, top = g.n === m;
+      g.line.style.display = g.lab.style.display = on ? "" : "none";
+      if (!on) return;
+      g.line.setAttribute("y", hY(g.n) - (top ? 0 : 2));
+      g.lab.style.top = (top ? HY - L.CAP_TOP * 30 : hY(g.n) + 0.36 * 30 - L.BASELINE * 30) + "px";
+    });
+  };
+  const fitScale = () => {
+    let hi = 0; for (let d = 1; d <= 42; d++) hi = Math.max(hi, seen[d]);
+    if (hi > MAXN) scaleTo(Math.min(120, Math.max(70, Math.ceil(hi / 10) * 10)));
+    else if (MAXN > 70 && hi <= MAXN - 15) scaleTo(Math.max(70, Math.ceil(hi / 10) * 10));
+  };
+  fitScale();
+  const bars = [null];
+  for (let d = 1; d <= 42; d++) {
+    const f = fill(Math.round(HX + (d - 1) * HP + 3), HY, Math.round(HP - 6), HH - 2, "sand", "0 100%");
+    f.style.transition = "transform .8s ease, background-color .6s ease";
+    bars.push(f);
+  }
+  // deck numbers under the bars, on round numbers, on the key's and the list's last baseline
+  [1, 10, 20, 30, 40].forEach((d) => L.text({ x: HX + (d - 0.5) * HP, w: 80, base: 1540, s: 36, c: "mars", txt: D2(d), align: "c" }));
+  // by section: six groups of seven decks, each with its busiest deck and a bar of its total
+  header(X, 1620, XR - X, "Life Signs by Section", 380, "red", "sand", 48, 28);
+  const GB0 = X + 540, GB1 = XR - 84, GMAX = 300;           // the bar runs up to its total (three figures, 24 clear)
+  const groups = Array.from({ length: 6 }, (_, i) => {
+    const base = 1734 + i * 54, a = i * 7 + 1;
+    L.text({ x: X, base, s: 36, c: "sand", txt: `Decks ${D2(a)} – ${D2(a + 6)}` });
+    L.rect({ x: GB0, y: base - 26, w: GB1 - GB0, h: 26, c: DARK, noalign: true });
+    return { a, top: L.text({ x: X + 210, base, s: 36, c: "white", txt: "" }), f: fill(GB0, base - 26, GB1 - GB0, 26, "tan"),
+             n: L.text({ x: XR, base, s: 36, c: "white", txt: "", align: "r" }) };
+  });
+  const most = (a, b) => { let m = a; for (let d = a; d <= b; d++) if (seen[d] > seen[m]) m = d; return m; };
+  occ = () => {
+    fitScale();
+    const p = sweepPos(L.t), cur = Math.floor(p) + 1;
+    for (let d = 1; d <= 42; d++) {
+      const age = (p - (d - 1) + 42) % 42, warn = !!(alert && alert.phase < 2 && alert.deck === d);
+      const c = warn ? "var(--mars)" : d === cur ? "var(--white)" : age < 21 ? "var(--sand)" : "var(--tan)";
+      if (bars[d]._c !== c) { bars[d]._c = c; bars[d].style.background = c; }
+      const v = L.clamp(seen[d] / MAXN).toFixed(4);   // MAXN is fitted first: never clipped
+      if (bars[d]._v !== v) { bars[d]._v = v; bars[d].style.transform = `scaleY(${v})`; }
+    }
+    L.set(hdTxt, `Sweeping  ·  Deck ${D2(cur)}  ·  ${DECKS[cur][0]}`);
+    L.set(hdN, `${seen[cur]} life signs`);
+    groups.forEach((g) => {
+      let n = 0; for (let d = g.a; d < g.a + 7; d++) n += seen[d];
+      const m = most(g.a, g.a + 6);
+      L.set(g.top, `${D2(m)}  ·  ${DECKS[m][0]}`);
+      L.set(g.n, n);
+      g.f.style.transform = `scaleX(${L.clamp(n / GMAX).toFixed(4)})`;
+    });
+    const m = most(1, 42);
+    L.set(busy, `Busiest  ·  Deck ${D2(m)}  ·  ${DECKS[m][0]}  ·  ${seen[m]} life signs`);
+  };
+}
 
 // the plan changes deck now and then: the decks security watches most, or wherever a check is
 const WATCH = [8, 12, 10, 36, 1, 13, 21, 42, 22, 6];

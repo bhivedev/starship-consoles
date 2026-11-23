@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Operations</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .now { width: 0; height: 0; border-left: 14px solid transparent; border-right: 14px solid transparent; border-top: 18px solid var(--white); }
@@ -11,22 +12,52 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame, mirrored: sidebar on the right, title at top left ----------------
-const BAR = 64, TS = BAR / (L.BASELINE - L.CAP_TOP);
-L.box({ x: 40, y: 40, w: 92, h: BAR, c: "peach", r: "l" });
-const TITLE = "Operations  •  Ship Status";
-L.text({ x: 132 + L.GAP, cap: 40, s: TS, c: "peach", txt: TITLE });
-const afterTitle = 132 + L.GAP + L.textWidth(TITLE, TS) + L.GAP;
-L.rect({ x: afterTitle, y: 40, w: 320, h: BAR, c: "lilac" });
-L.rect({ x: afterTitle + 320 + L.GAP, y: 40, w: 2600 - L.GAP - (afterTitle + 320 + L.GAP), h: BAR, c: "peach" });
-L.elbow({ corner: "tr", x: 2600, y: 40, w: 1216, h: 250, bw: 240, bh: BAR, R: 150, r: 60, c: "peach" });
-[[298, 140, "tan", "Ops 01"], [446, 70, "lilac", "Shift"], [524, 420, "peach", "Departments"], [952, 70, "butter", "1014"],
- [1030, 300, "tan", "Crew"], [1338, 70, "orange", "Tasks"], [1416, 216, "peach", "Systems"]]
-  .forEach(([y, h, c, label]) => L.box({ x: 3576, y, w: 240, h, c, label }));
-L.elbow({ corner: "br", x: 2600, y: 1640, w: 1216, h: 480, bw: 240, bh: BAR, R: 150, r: 60, c: "tan" });
-L.text({ x: 3794, base: 1712, s: 40, c: "#000", txt: "Operations", align: "r", on: true });
-L.box({ x: 40, y: 2056, w: 92, h: BAR, c: "tan", r: "l" });
-[[132 + L.GAP, 700, "lilac"], [132 + L.GAP + 700 + L.GAP, 900, "peach"]].forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
-L.rect({ x: 132 + 3 * L.GAP + 1600, y: 2056, w: 2600 - L.GAP - (132 + 3 * L.GAP + 1600), h: BAR, c: "tan" });
+// wide: the hand-built frame, exactly as it was; upright and ultrawide: the kit's type B, which it matches
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+let B;
+if (L.shape === "wide") {
+  const BAR = 64, TS = BAR / (L.BASELINE - L.CAP_TOP);
+  L.box({ x: 40, y: 40, w: 92, h: BAR, c: "peach", r: "l" });
+  const TITLE = "Operations  •  Ship Status";
+  L.text({ x: 132 + L.GAP, cap: 40, s: TS, c: "peach", txt: TITLE });
+  const afterTitle = 132 + L.GAP + L.textWidth(TITLE, TS) + L.GAP;
+  L.rect({ x: afterTitle, y: 40, w: 320, h: BAR, c: "lilac" });
+  L.rect({ x: afterTitle + 320 + L.GAP, y: 40, w: 2600 - L.GAP - (afterTitle + 320 + L.GAP), h: BAR, c: "peach" });
+  L.elbow({ corner: "tr", x: 2600, y: 40, w: 1216, h: 250, bw: 240, bh: BAR, R: 150, r: 60, c: "peach" });
+  [[298, 140, "tan", "Ops 01"], [446, 70, "lilac", "Shift"], [524, 420, "peach", "Departments"], [952, 70, "butter", "1014"],
+   [1030, 300, "tan", "Crew"], [1338, 70, "orange", "Tasks"], [1416, 216, "peach", "Systems"]]
+    .forEach(([y, h, c, label]) => L.box({ x: 3576, y, w: 240, h, c, label }));
+  L.elbow({ corner: "br", x: 2600, y: 1640, w: 1216, h: 480, bw: 240, bh: BAR, R: 150, r: 60, c: "tan" });
+  L.text({ x: 3794, base: 1712, s: 40, c: "#000", txt: "Operations", align: "r", on: true });
+  L.box({ x: 40, y: 2056, w: 92, h: BAR, c: "tan", r: "l" });
+  [[132 + L.GAP, 700, "lilac"], [132 + L.GAP + 700 + L.GAP, 900, "peach"]].forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
+  L.rect({ x: 132 + 3 * L.GAP + 1600, y: 2056, w: 2600 - L.GAP - (132 + 3 * L.GAP + 1600), h: BAR, c: "tan" });
+  B = { x0: 40, x1: 3520, y0: 140, y1: 2010 };
+} else B = L.frame({ type: "B", title: "Operations  •  Ship Status", c: "peach", c2: "tan", accent: "lilac", foot: "Operations",
+  side: [[140, "tan", "Ops 01"], [70, "lilac", "Shift"], [420, "peach", "Departments"], [70, "butter", "1014"],
+         [300, "tan", "Crew"], [70, "orange", "Tasks"], [216, "peach", "Systems"]] });
+const X1 = B.x1;
+
+// ---------------- the grid, per shape ----------------
+// The data, readings and motion are written once; only these positions differ by shape.
+// wide (3840 × 2160): three bands. Department status | resource allocation | priority tasks on one
+//   88 px row grid; duty shifts (2304 timeline) | crew deployment; log | deck occupancy | ship systems.
+// upright (2160 × 3120): department status at full width; two 870 columns (40–910 | 970–1840) carry
+//   resource allocation | priority tasks; the duty timeline at full width (1536); then deck occupancy |
+//   crew deployment (legend in two columns), and the log | ship systems. Tables run on a 72 px grid.
+// ultrawide (5040 × 2160): a watch roster (each department's strength on each watch) joins the top band
+//   between resource allocation and tasks, on the department rows; the duty timeline runs 3504 long, hourly labels; the deck
+//   chart runs 2628 long with every deck numbered and a key. Tasks, crew and systems move out 1200.
+const PITCH = UP ? 72 : 88, RH = UP ? 56 : 64;           // the tables' row pitch and row height
+const T0 = UP ? 900 : 280;                               // top of the band with resource allocation and tasks
+const ROW1 = T0 + 148;                                   // its first row (wide: 428, the same grid as departments)
+const rowB = (i) => ROW1 + i * PITCH + (RH - 11.5);      // a row's label baseline in that band
+const RX = UP ? 40 : 1760, RW = UP ? 870 : 840;          // resource allocation
+const RBX = UP ? 264 : 230, RBW = UP ? 490 : 450;                    //   its bars: offset and width (upright: up to the loads)
+const COL3 = UP ? 970 : UW ? 3860 : 2660, C3W = UP ? 870 : 860;      // tasks, crew, systems
+const DY = UP ? 1520 : 1000;                                         // duty shifts
+const CY = UP ? 2096 : 1000;                                         // crew deployment
+const SY = UP ? 2584 : 1620;                                         // log and ship systems
 
 const header = (x, y, w, label, c1, c2, h = 56, fs = 32) => {
   const lw = Math.round((L.textWidth(label, fs) + 64) / 10) * 10;
@@ -61,7 +92,7 @@ const slotValue = (k) => {
 const stateTxt = L.text({ x: 40, cap: 150, s: 100, c: "lilac", txt: "Alpha Shift" });
 const stateSub = L.text({ x: 0, base: 222, s: 38, c: "peach", txt: "" });
 const placeSub = () => { stateSub.style.left = 40 + L.textWidth(stateTxt.textContent, 100) + 40 + "px"; };
-const cond = L.box({ x: 3120, y: 150, w: 400, h: 72, c: "tan", label: "Condition Green", r: "lr", fs: 36 });
+const cond = L.box({ x: X1 - 400, y: 150, w: 400, h: 72, c: "tan", label: "Condition Green", r: "lr", fs: 36 });
 cond.style.willChange = "opacity";
 L.tick((t) => { cond.style.opacity = (0.8 + 0.2 * Math.sin(t * 1.1)).toFixed(3); });
 
@@ -79,23 +110,26 @@ const DEPTS = [
 const onDutyNow = () => slotValue(Math.floor(clock() / 30)) - crew.away;
 
 // ---------------- department status ----------------
-const ROW0 = 428, PITCH = 88;                            // rows of 64 on an 88 grid, shared by the three upper panels
-const rowBase = (i) => ROW0 + i * PITCH + 52.5;          // the baseline of a button's label
-header(40, 280, 1660, "Department Status", "peach", "tan");
-[["Department", 40, "l"], ["Station", 364, "l"], ["On Duty", 880, "r"], ["Staffing", 920, "l"], ["Status", 1400, "l"]]
+const ROW0 = 428;                                        // rows of 64 on an 88 grid, shared by the three upper panels (upright: 56 on 72)
+const rowBase = (i) => ROW0 + i * PITCH + (RH - 11.5);   // the baseline of a button's label
+// upright: the staffing bars start on the right-hand column's edge, the status pills end on the frame's
+const DUTYR = UP ? 910 : 880, STAFX = UP ? 970 : 920, STAFW = UP ? 510 : 420, STATX = UP ? 1540 : 1400;
+header(40, 280, UP ? 1800 : 1660, "Department Status", "peach", "tan");
+[["Department", 40, "l"], ["Station", 364, "l"], ["On Duty", DUTYR, "r"], ["Staffing", STAFX, "l"], ["Status", STATX, "l"]]
   .forEach(([txt, x, align]) => L.text({ x, base: 400, s: 36, c: "lilac", txt, align }));
 const STATUS = { Nominal: "tan", Standby: "lilac", Drill: "butter", Diagnostic: "butter", Survey: "ice", Briefing: "lilac", Transfer: "butter", Triage: "pink" };
 const ALT = { Command: "Briefing", Engineering: "Diagnostic", Science: "Survey", Medical: "Triage", Security: "Drill", Operations: "Transfer" };
 DEPTS.forEach((d, i) => {
   const y = ROW0 + i * PITCH, base = rowBase(i);
-  L.box({ x: 40, y, w: 300, h: 64, c: d.c, label: d.name, fs: 32, r: "l" });
+  L.box({ x: 40, y, w: 300, h: RH, c: d.c, label: d.name, fs: 32, r: "l" });
   L.text({ x: 364, base, s: 40, c: "tan", txt: d.station });
-  d.val = L.text({ x: 880, base, s: 52, c: "white", txt: "", align: "r" });
-  L.rect({ x: 920, y: base - 26, w: 420, h: 26, c: "#2a2016" });
-  d.bar = fill(920, base - 26, 420, 26, d.c);
-  d.pill = L.box({ x: 1400, y, w: 300, h: 64, c: "tan", label: "Nominal", fs: 32, r: "lr", cls: "pill" });
+  d.val = L.text({ x: DUTYR, base, s: 52, c: "white", txt: "", align: "r" });
+  L.rect({ x: STAFX, y: base - 26, w: STAFW, h: 26, c: "#2a2016" });
+  d.bar = fill(STAFX, base - 26, STAFW, 26, d.c);
+  d.pill = L.box({ x: STATX, y, w: 300, h: RH, c: "tan", label: "Nominal", fs: 32, r: "lr", cls: "pill" });
   d.status = "Nominal"; d.u = 0; d.goal = 0; d.n = 0;
 });
+let onShare = null, onShift = null;                     // hooks for the ultrawide roster
 // on-duty personnel shared among the departments by largest remainder, so the column always adds up
 const shareDuty = () => {
   const total = onDutyNow(), sumW = DEPTS.reduce((a, d) => a + d.w, 0);
@@ -103,6 +137,7 @@ const shareDuty = () => {
   let left = total - n.reduce((a, b) => a + b, 0);
   raw.map((r, i) => [r - n[i], i]).sort((a, b) => b[0] - a[0]).forEach(([, i]) => { if (left-- > 0) n[i]++; });
   DEPTS.forEach((d, i) => { d.n = n[i]; d.goal = Math.min(1, n[i] / d.roster); d.val.textContent = n[i]; });
+  if (onShare) onShare();                                // ultrawide: the watch roster follows
 };
 L.tick(() => DEPTS.forEach((d) => {
   if (Math.abs(d.goal - d.u) < 0.0005 && d.drawn) return;
@@ -122,15 +157,50 @@ later(17000, () => {                                    // a department goes to 
   logEvent(d.status === "Nominal" ? `${d.name} resumed normal operations` : `${d.name}: ${d.status.toLowerCase()} in progress`, d.name);
 }, 0.3);
 
+// ---------------- ultrawide: the watch roster, each department's strength on each watch ----------------
+// Each watch's complement (SHIFT_STRENGTH) shared among the departments as the on-duty column is, by
+// largest remainder, so a watch's column adds up to its complement; a bar is that number against the
+// department's roster. The watch on duty is lit. On the department rows, so each line reads across.
+// Each column's head ends where its numbers end.
+if (UW) {
+  const WX = 2660, WCOL = 400, WBAR = 250, WVAL = 340;        // bars run up to their numbers: 60 clear, as the next column
+  header(WX, 280, 1140, "Watch Complement", "tan", "lilac");
+  const heads = SHIFTS.map(([name, h0], s) =>
+    L.text({ x: WX + s * WCOL + WVAL, base: 400, s: 36, c: "lilac", txt: `${name}  ·  ${pad2(h0)}00`, align: "r" }));
+  const cells = DEPTS.map((d, i) => SHIFTS.map((_, s) => {
+    const base = rowBase(i), x = WX + s * WCOL;
+    L.rect({ x, y: base - 26, w: WBAR, h: 26, c: "#2a2016" });
+    return { f: fill(x, base - 26, WBAR, 26, d.c), v: L.text({ x: x + WVAL, base, s: 52, c: "tan", txt: "", align: "r" }), u: 0, goal: 0 };
+  }));
+  const share = (total) => {
+    const sumW = DEPTS.reduce((a, d) => a + d.w, 0), raw = DEPTS.map((d) => (total * d.w) / sumW), n = raw.map(Math.floor);
+    let left = total - n.reduce((a, b) => a + b, 0);
+    raw.map((r, i) => [r - n[i], i]).sort((a, b) => b[0] - a[0]).forEach(([, i]) => { if (left-- > 0) n[i]++; });
+    return n;
+  };
+  onShare = () => SHIFTS.forEach((_, s) => share(SHIFT_STRENGTH[s]).forEach((n, i) => {
+    const c = cells[i][s]; L.set(c.v, n); c.goal = Math.min(1, n / DEPTS[i].roster);
+  }));
+  onShift = (on) => {
+    heads.forEach((h, s) => (h.style.color = s === on ? "var(--white)" : "var(--lilac)"));
+    cells.forEach((row) => row.forEach((c, s) => { c.v.style.color = s === on ? "var(--white)" : "var(--tan)"; c.f.style.opacity = s === on ? "1" : "0.55"; }));
+  };
+  L.tick(() => cells.forEach((row) => row.forEach((c) => {
+    if (Math.abs(c.goal - c.u) < 0.0005 && c.drawn) return;
+    c.u += (c.goal - c.u) * 0.04; c.drawn = true;
+    c.f.style.transform = `scaleX(${c.u.toFixed(4)})`;
+  })));
+}
+
 // ---------------- resource allocation ----------------
-header(1760, 280, 840, "Resource Allocation", "lilac", "peach");
-[["Subsystem", 1760, "l"], ["Allocation", 1990, "l"], ["Load", 2600, "r"]].forEach(([txt, x, align]) => L.text({ x, base: 400, s: 36, c: "lilac", txt, align }));
+header(RX, T0, RW, "Resource Allocation", "lilac", "peach");
+[["Subsystem", RX, "l"], ["Allocation", RX + RBX, "l"], ["Load", RX + RW, "r"]].forEach(([txt, x, align]) => L.text({ x, base: T0 + 120, s: 36, c: "lilac", txt, align }));
 const RES = [["EPS Power", 0.74, "peach"], ["Sensors", 0.58, "lilac"], ["Computer", 0.66, "tan"], ["Life Support", 0.82, "peach"],
              ["Replicators", 0.41, "lilac"], ["Holodecks", 0.27, "tan"]].map(([name, v, c], i) => {
-  const base = rowBase(i);
-  L.text({ x: 1760, base, s: 40, c: "tan", txt: name });
-  L.rect({ x: 1990, y: base - 26, w: 450, h: 26, c: "#2a2016" });
-  return { name, v, from: v, to: v, f: fill(1990, base - 26, 450, 26, c), e: L.text({ x: 2600, base, s: 52, c: "white", txt: "", align: "r" }) };
+  const base = rowB(i);
+  L.text({ x: RX, base, s: 40, c: "tan", txt: name });
+  L.rect({ x: RX + RBX, y: base - 26, w: RBW, h: 26, c: "#2a2016" });
+  return { name, v, from: v, to: v, f: fill(RX + RBX, base - 26, RBW, 26, c), e: L.text({ x: RX + RW, base, s: 52, c: "white", txt: "", align: "r" }) };
 });
 let resT0 = -99;
 later(13000, (t) => {                                   // power is shifted from one subsystem to another
@@ -148,9 +218,9 @@ L.tick((t) => {
 L.every(300, () => RES.forEach((r) => (r.e.textContent = Math.round(r.v * 100) + "%")), 0);
 
 // ---------------- priority tasks: a queue that advances ----------------
-const QX = 2660, QW = 860, QN = 6, QBOX = 140;
-header(QX, 280, QW, "Priority Tasks", "orange", "peach");
-const queueInfo = L.text({ x: QX, base: 400, s: 36, c: "lilac", txt: "" });
+const QX = COL3, QW = C3W, QN = 6, QBOX = 140;
+header(QX, T0, QW, "Priority Tasks", "orange", "peach");
+const queueInfo = L.text({ x: QX, base: T0 + 120, s: 36, c: "lilac", txt: "" });
 const TASKS = [["Level 2 diagnostic", "Deck 14"], ["Cargo transfer", "Cargo Bay 4"], ["EPS conduit inspection", "Deck 22"],
   ["Replicator recalibration", "Deck 10"], ["Turbolift servicing", "Shaft 7"], ["Shuttle prelaunch check", "Shuttlebay 2"],
   ["Environmental scrub", "Deck 31"], ["Holodeck safety audit", "Holodeck 3"], ["Quarters reassignment", "Deck 8"],
@@ -160,13 +230,13 @@ const TASKS = [["Level 2 diagnostic", "Deck 14"], ["Cargo transfer", "Cargo Bay 
 let taskDeck = [], workOrder = 4471, doneThisShift = 3;
 const nextTask = () => { if (!taskDeck.length) taskDeck = TASKS.slice().sort(() => Math.random() - 0.5); return [workOrder++, ...taskDeck.pop()]; };
 // the row tracks stay still; the rows themselves are layers that slide up when a task is done
-for (let i = 0; i < QN; i++) L.rect({ x: QX + QBOX + L.GAP, y: ROW0 + i * PITCH, w: QW - QBOX - L.GAP, h: 64, c: "#2a2016", panel: true });
-const progress = fill(QX + QBOX + L.GAP, ROW0, QW - QBOX - L.GAP, 64, "#74491a");
+for (let i = 0; i < QN; i++) L.rect({ x: QX + QBOX + L.GAP, y: ROW1 + i * PITCH, w: QW - QBOX - L.GAP, h: RH, c: "#2a2016", panel: true });
+const progress = fill(QX + QBOX + L.GAP, ROW1, QW - QBOX - L.GAP, RH, "#74491a");
 const rows = Array.from({ length: QN }, (_, i) => {
-  const e = L.layer({ x: QX, y: ROW0, w: QW, h: 64 });
-  const box = L.box({ x: 0, y: 0, w: QBOX, h: 64, c: "tan", label: "", fs: 32, r: "l" }, e);
-  const name = L.text({ x: QBOX + 2 * L.GAP, base: 52.5, s: 40, c: "white", txt: "" }, e);
-  const where = L.text({ x: L.W - 2 * L.GAP, base: 52.5, s: 36, c: "tan", txt: "", align: "r" }, e);   // right edge: 48 in from the row's end
+  const e = L.layer({ x: QX, y: ROW1, w: QW, h: RH });
+  const box = L.box({ x: 0, y: 0, w: QBOX, h: RH, c: "tan", label: "", fs: 32, r: "l" }, e);
+  const name = L.text({ x: QBOX + 2 * L.GAP, base: RH - 11.5, s: 40, c: "white", txt: "" }, e);
+  const where = L.text({ x: L.W - 2 * L.GAP, base: RH - 11.5, s: 36, c: "tan", txt: "", align: "r" }, e);   // right edge: 48 in from the row's end
   const r = { e, box, name, where, slot: i };
   const set = ([wo, task, loc]) => { r.task = [wo, task, loc]; box.textContent = wo; name.textContent = task; where.textContent = loc; };
   r.set = set; set(nextTask());
@@ -218,15 +288,16 @@ L.tick((t) => {
 });
 
 // ---------------- duty shifts: 24 hours, and now ----------------
-const TX = 296, TW = 2304, HOUR = TW / 24, BY = 1132, HY = 1220, HB = 1440, HMAX = 560;
-header(40, 1000, 2560, "Duty Shifts", "tan", "lilac");
-for (let h = 0; h <= 24; h += 2) {                        // the ends sit flush with the timeline's edges
+const TX = UP ? 304 : 296, TW = UP ? 1536 : UW ? 3504 : 2304, HOUR = TW / 24, HMAX = 560;
+const BY = DY + 132, HY = DY + 220, HB = DY + 440, WATCH = UP || UW ? TW / 3 : 768;   // wide: 1132, 1220, 1440
+header(40, DY, UP ? 1800 : UW ? 3760 : 2560, "Duty Shifts", "tan", "lilac");
+for (let h = 0; h <= 24; h += UW ? 1 : 2) {               // the ends sit flush with the timeline's edges
   const x = TX + h * HOUR, align = h === 0 ? "l" : h === 24 ? "r" : "c";
-  L.text({ x, base: 1104, s: 34, c: "lilac", txt: pad2(h) + "00", align, w: 120, legend: true });
+  L.text({ x, base: DY + 104, s: 34, c: "lilac", txt: pad2(h) + "00", align, w: 120, legend: true });
 }
 L.text({ x: 40, base: BY + 52.5, s: 40, c: "tan", txt: "Watch" });
 const bands = SHIFTS.map(([name, h0, c], i) => {
-  const x = TX + i * 768 + (i ? 6 : 0), w = 768 - (i ? 6 : 0) - (i < 2 ? 6 : 0);
+  const x = TX + i * WATCH + (i ? 6 : 0), w = WATCH - (i ? 6 : 0) - (i < 2 ? 6 : 0);
   return L.box({ x, y: BY, w, h: 64, c, label: `${name} Shift  ·  ${pad2(h0)}00 – ${pad2(h0 + 8)}00`, fs: 32 });
 });
 // a faint scale behind the histogram
@@ -236,15 +307,17 @@ const slots = Array.from({ length: 48 }, (_, k) => {
   const v = slotValue(k), h = (v / HMAX) * (HB - HY);
   return L.rect({ x: TX + k * SP, y: HB - h, w: SP - 6, h, c: "tan", noalign: true });   // flush with both ends
 });
-L.text({ x: 40, base: 1262, s: 40, c: "tan", txt: "On Duty" });
-const dutyBig = L.text({ x: 40, base: 1360, s: 80, c: "white", txt: "" });
-L.text({ x: 40, base: 1416, s: 36, c: "lilac", txt: "Aboard ship" });
+L.text({ x: 40, base: DY + 262, s: 40, c: "tan", txt: "On Duty" });
+const dutyBig = L.text({ x: 40, base: DY + 360, s: 80, c: "white", txt: "" });
+L.text({ x: 40, base: DY + 416, s: 36, c: "lilac", txt: "Aboard ship" });
 const nowLine = fill(0, HY - 6, 4, HB - HY + 6, "white");
 const nowTip = L.layer({ x: 0, y: BY + 64 + 3, cls: "now" });
 // readouts, set under the shift boundaries above them
-const readouts = [[40, "Ship's Time"], [TX + 768, "Shift Elapsed"], [TX + 1536, "Next Watch"]].map(([x, label]) => {
-  L.text({ x, base: 1544, s: 40, c: "tan", txt: label });
-  return L.text({ x: x + L.textWidth(label, 40) + 28, base: 1544, s: 52, c: "white", txt: "" });
+const RDY = UP ? HB + 80 : 1544;                          // upright: a little closer under the histogram
+// upright: on the column grid below (next watch on the right-hand column's edge) rather than the watch edges
+const readouts = [[40, "Ship's Time"], [UP ? 440 : TX + (UW ? WATCH : 768), "Shift Elapsed"], [UP ? 970 : TX + (UW ? 2 * WATCH : 1536), "Next Watch"]].map(([x, label]) => {
+  L.text({ x, base: RDY, s: 40, c: "tan", txt: label });
+  return L.text({ x: x + L.textWidth(label, 40) + 28, base: RDY, s: 52, c: "white", txt: "" });
 });
 let lastSlot = -1, lastShift = -1;
 const showClock = () => {
@@ -261,6 +334,7 @@ const showClock = () => {
     shareDuty(); updateCrew();
   }
   if (s !== lastShift) {
+    if (onShift) onShift(s);
     if (lastShift >= 0) { doneThisShift = 0; showQueue(); logEvent(`${SHIFTS[s][0]} shift has the watch`, "Command"); }
     lastShift = s;
     bands.forEach((b, i) => {                              // the watch on duty is lit; the others are dark, named in their colour
@@ -274,18 +348,20 @@ const showClock = () => {
 };
 
 // ---------------- crew deployment ----------------
-const CX0 = 2660, CW = 860;
-header(CX0, 1000, CW, "Crew Deployment", "peach", "tan");
-L.text({ x: CX0, base: 1140, s: 52, c: "peach", txt: "Persons Aboard" });
-L.text({ x: CX0, base: 1200, s: 36, c: "tan", txt: "U.S.S. Enterprise  ·  NCC-1701-D" });
-L.text({ x: CX0 + CW, base: 1200, s: 140, c: "butter", txt: fmt(STARFLEET + CIVILIANS), align: "r" });
+const CX0 = COL3, CW = C3W;
+header(CX0, CY, CW, "Crew Deployment", "peach", "tan");
+L.text({ x: CX0, base: CY + 140, s: 52, c: "peach", txt: "Persons Aboard" });
+L.text({ x: CX0, base: CY + 200, s: 36, c: "tan", txt: "U.S.S. Enterprise  ·  NCC-1701-D" });
+L.text({ x: CX0 + CW, base: CY + 200, s: 140, c: "butter", txt: fmt(STARFLEET + CIVILIANS), align: "r" });
+// upright: the key in two columns (three rows, then two), each 405 wide, each name in its segment's colour
+const LGW = (CW - 60) / 2;
 const CATS = [["On Duty", "peach"], ["Off Duty", "tan"], ["Civilians", "lilac"], ["Away Teams", "butter"], ["In Sickbay", "pink"]].map(([name, c], i) => {
-  const base = 1320 + i * 56;
-  L.rect({ x: CX0, y: base - 36, w: 36, h: 36, c });
-  L.text({ x: CX0 + 60, base, s: 40, c: "tan", txt: name });
-  const pct = L.text({ x: CX0 + 720, base, s: 40, c: "lilac", txt: "", align: "r" });
-  const val = L.text({ x: CX0 + CW, base, s: 52, c: "white", txt: "", align: "r" });
-  const seg = fill(CX0, 1224, CW, 36, c);
+  const base = CY + 320 + (UP ? i % 3 : i) * 56, cx = UP && i >= 3 ? CX0 + LGW + 60 : CX0;
+  if (!UP) L.rect({ x: cx, y: base - 36, w: 36, h: 36, c });
+  L.text({ x: UP ? cx : cx + 60, base, s: 40, c: UP ? c : "tan", txt: name });
+  const pct = L.text({ x: UP ? cx + 290 : CX0 + 720, base, s: 40, c: "lilac", txt: "", align: "r" });
+  const val = L.text({ x: UP ? cx + LGW : CX0 + CW, base, s: 52, c: "white", txt: "", align: "r" });
+  const seg = fill(CX0, CY + 224, CW, 36, c);
   return { name, pct, val, seg, n: 0, shown: 0 };
 });
 const updateCrew = () => {
@@ -328,12 +404,13 @@ later(23000, () => {
 }, 0.3);
 
 // ---------------- operations log ----------------
-const LOGR = TX + 768 - 60;                               // the strip splits under the Alpha watch's left edge
-L.box({ x: 40, y: 1620, w: 340, h: 48, c: "tan", label: "Operations Log", fs: 28, r: "l" });
-L.rect({ x: 40 + 340 + L.GAP, y: 1620, w: LOGR - (40 + 340 + L.GAP), h: 48, c: "lilac" });
+// wide: the strip splits under the Alpha watch's left edge; ultrawide: under 0600; upright: the left column
+const LOGR = UP ? 910 : UW ? TX + 6 * HOUR - 60 : TX + 768 - 60;
+L.box({ x: 40, y: SY, w: 340, h: 48, c: "tan", label: "Operations Log", fs: 28, r: "l" });
+L.rect({ x: 40 + 340 + L.GAP, y: SY, w: LOGR - (40 + 340 + L.GAP), h: 48, c: "lilac" });
 const logRows = Array.from({ length: 6 }, (_, i) => {
-  const base = 1734 + i * 54;
-  return { sd: L.text({ x: 40, base, s: 36, c: "orange", txt: "" }), tx: L.text({ x: 230, base, s: 36, c: "peach", txt: "" }),
+  const base = SY + 114 + i * 54;
+  return { sd: L.text({ x: 40, base, s: 36, c: "orange", txt: "" }), tx: L.text({ x: UP ? 190 : 230, base, s: 36, c: "peach", txt: "" }),
            dp: L.text({ x: LOGR, base, s: 36, c: "lilac", txt: "", align: "r" }) };
 });
 let stardate = 47771.0, logged = [], logReady = false;
@@ -355,13 +432,19 @@ logReady = true; showLog();
 later(11000, routine, 0.3);
 
 // ---------------- deck occupancy ----------------
-const DX = LOGR + 60, DW = 2600 - DX, DECKS = 42, DB = 2004, DH = 210;
-L.box({ x: DX, y: 1620, w: 340, h: 48, c: "lilac", label: "Deck Occupancy", fs: 28, r: "l" });
-L.rect({ x: DX + 340 + L.GAP, y: 1620, w: DW - 340 - L.GAP, h: 48, c: "peach" });
-L.text({ x: DX, base: 1734, s: 40, c: "tan", txt: "Decks 1 – 42" });
+// upright: the left column, beside crew deployment, its bars ending on the crew key's last baseline;
+// ultrawide: to the duty header's end, every deck numbered under its bar
+const DX = UP ? 40 : LOGR + 60, DW = UP ? 870 : (UW ? 3800 : 2600) - DX, DECKS = 42;
+const DB = UP ? CY + 432 : UW ? 1956 : 2004, DH = UP ? 256 : UW ? 184 : 210, DT = UP ? CY + 140 : 1734;
+if (UP) header(DX, CY, DW, "Deck Occupancy", "lilac", "peach");
+else {
+  L.box({ x: DX, y: 1620, w: 340, h: 48, c: "lilac", label: "Deck Occupancy", fs: 28, r: "l" });
+  L.rect({ x: DX + 340 + L.GAP, y: 1620, w: DW - 340 - L.GAP, h: 48, c: "peach" });
+}
+L.text({ x: DX, base: DT, s: 40, c: "tan", txt: "Decks 1 – 42" });
 const BX = DX + L.textWidth("Decks 1 – 42", 40) + 64;
-L.text({ x: BX, base: 1734, s: 40, c: "tan", txt: "Busiest" });
-const busiest = L.text({ x: BX + L.textWidth("Busiest", 40) + 24, base: 1734, s: 44, c: "white", txt: "" });
+L.text({ x: BX, base: DT, s: 40, c: "tan", txt: "Busiest" });
+const busiest = L.text({ x: BX + L.textWidth("Busiest", 40) + 24, base: DT, s: 44, c: "white", txt: "" });
 // residential decks fill up off watch; working decks on it
 const WORK = new Set([1, 2, 4, 8, 10, 12, 14, 19, 22, 29, 34, 36, 37, 39, 42]);
 const decks = Array.from({ length: DECKS }, (_, i) => {
@@ -377,6 +460,14 @@ const deckGoals = () => {
   if (d10) d10.goal = Math.max(d10.goal, 0.85);          // Ten Forward
 };
 const d10 = decks[9];
+if (UW) {                                                  // every deck numbered, and a key to the colours
+  decks.forEach((d) => L.text({ x: DX + (d.n - 0.5) * (DW / DECKS), base: 2004, s: 30, c: "lilac", txt: d.n, align: "c", w: DW / DECKS, legend: true }));
+  let kx = DX + DW;                                        // the key: each word in its bars' colour
+  [["Task in Progress", "butter"], ["Residential", "lilac"], ["Working Decks", "tan"]].forEach(([name, c]) => {
+    L.text({ x: kx, base: DT, s: 40, c, txt: name, align: "r" });
+    kx -= L.textWidth(name, 40) + 64;
+  });
+}
 deckGoals(); decks.forEach((d) => (d.v = d.goal));
 later(7000, deckGoals, 0.3);
 let litDeck = -2;                                          // -1: the task is not on a numbered deck
@@ -393,22 +484,22 @@ L.tick(() => {
 L.every(1000, () => { busiest.textContent = `Deck ${decks.reduce((a, d) => (d.goal > a.goal ? d : a)).n}`; }, 0);
 
 // ---------------- ship systems ----------------
-const SX0 = 2660, SW = 860;
-L.box({ x: SX0, y: 1620, w: 300, h: 48, c: "peach", label: "Ship Systems", fs: 28, r: "l" });
-L.rect({ x: SX0 + 300 + L.GAP, y: 1620, w: SW - 300 - L.GAP, h: 48, c: "tan" });
+const SX0 = COL3, SW = C3W;
+L.box({ x: SX0, y: SY, w: 300, h: 48, c: "peach", label: "Ship Systems", fs: 28, r: "l" });
+L.rect({ x: SX0 + 300 + L.GAP, y: SY, w: SW - 300 - L.GAP, h: 48, c: "tan" });
 // the key: what a pill's colour means
 let kx = SX0;
 [["Nominal", "tan"], ["Standby", "lilac"], ["Maintenance", "butter"]].forEach(([name, c]) => {
   const w = Math.round((L.textWidth(name, 28) + 56) / 10) * 10;
-  L.box({ x: kx, y: 1700, w, h: 48, c, label: name, fs: 28, r: kx === SX0 ? "l" : null });
+  L.box({ x: kx, y: SY + 80, w, h: 48, c, label: name, fs: 28, r: kx === SX0 ? "l" : null });
   kx += w + 16;
 });
-const sysCount = L.text({ x: SX0 + SW, base: 1734, s: 36, c: "white", txt: "", align: "r" });
+const sysCount = L.text({ x: SX0 + SW, base: SY + 114, s: 36, c: "white", txt: "", align: "r" });
 const SYS = ["Warp Drive", "Impulse", "Deflector", "Shields", "Sensors", "Comms", "Computer", "Life Support",
              "Replicators", "Transporters", "Turbolifts", "Holodecks"];
 const PW = (SW - 3 * 16) / 4;
 const pills = SYS.map((name, i) => {
-  const e = L.box({ x: SX0 + (i % 4) * (PW + 16), y: 1780 + Math.floor(i / 4) * 80, w: PW, h: 64, c: "tan", label: name, fs: 28, r: "lr", cls: "pill" });
+  const e = L.box({ x: SX0 + (i % 4) * (PW + 16), y: SY + 160 + Math.floor(i / 4) * 80, w: PW, h: 64, c: "tan", label: name, fs: 28, r: "lr", cls: "pill" });
   return { name, e, state: name === "Holodecks" ? "Standby" : "Nominal" };
 });
 const SYSC = { Nominal: "tan", Standby: "lilac", Maintenance: "butter" };

@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Galactic Cartography</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .nm { text-shadow: 0 0 6px #07061a, 0 0 6px #07061a, 0 0 12px #07061a; }   /* names stand off the chart behind them */
@@ -20,6 +21,18 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: sidebar left, title top right ----------------
+// Shapes. wide (3840 × 2160) is the hand-built frame and the layout as it always was. The other two
+// use L.frame type A in the same colours (the title is set back to lilac) and re-plan the panels:
+// upright (2160 × 3120): two columns throughout. Row 1: the explored-space chart (940) beside the
+//   major powers table (806) with the relations states under it as a 3 × 2 grid. Row 2: the galaxy
+//   (1080) beside the course plot over the power profile (666). Row 3: quadrant statistics (1080)
+//   beside subspace traffic (666). The chart is drawn at 1.12 px per light-year instead of 1.32.
+// ultrawide (5040 × 2160): the galaxy, the chart and the course plot keep their wide places; the
+//   major powers table runs across columns 3 and 4 with Government and Species added; the power
+//   profile (with its relations states) moves up beside the course plot, row for row; the bottom
+//   strip is quadrant statistics under the two maps and subspace traffic under the right columns.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide", WIDE = !UP && !UW;
+if (WIDE) {
 const BAR = 64;
 L.title({ x: 3700, y: 40, h: BAR, c: "lilac", txt: "Galactic Cartography  •  Alpha and Beta Quadrants" });
 // (L.title measures with a canvas, which sets this line ~11px wider than the page draws it; use the page's own width)
@@ -36,6 +49,18 @@ L.text({ x: 258, base: 1712, s: 40, c: "#000", txt: "Cartography", align: "r", o
 [[1540 + L.GAP, 600, "plum"], [2164 + L.GAP, 900, "gold"], [3088 + L.GAP, 3700 - (3088 + L.GAP), "violet"]]
   .forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
 L.box({ x: 3724, y: 2056, w: 92, h: BAR, c: "lilac", r: "r" });
+
+} else {
+  L.frame({ type: "A", title: "Galactic Cartography  •  Alpha and Beta Quadrants", c: "violet", c2: "lilac", accent: "gold", foot: "Cartography",
+    side: [[140, "lilac", "Carto 01"], [70, "gold", "Grid"], [420, "violet", "Galaxy"], [70, "butter", "47"],
+           [300, "plum", "Powers"], [70, "gold", "Range"], [216, "lilac", "Survey"]] });
+  const t = document.querySelector("[data-title]");
+  t.style.color = "var(--lilac)";
+  // upright: the title is too long for the accent bar, so the elbow's arm runs on to one gap before it
+  if (UP) L.rect({ x: 680, y: 40, w: 2020 - t.offsetWidth - L.GAP - 680, h: 64, c: "violet" });
+}
+const TOP = 280;                                                    // the first row of headers
+const UW4 = 3876;                                                   // ultrawide's fourth column: 3876 → 5016
 
 const header = (x, y, w, label, c1, c2, h = 56, fs = 32) => {
   const lw = Math.round((L.textWidth(label, fs) + 64) / 10) * 10;
@@ -112,22 +137,22 @@ const REL_C = { Member: "sky", Allied: "ice", Hostile: "mars", Treaty: "peach", 
 
 // ---------------- status line ----------------
 const stateTxt = L.text({ x: 330, cap: 150, s: 100, c: "butter", txt: "" });
-const stateSub = L.text({ x: 1470, base: 222, s: 38, c: "lilac", txt: "" });          // on the chart column's line
-const pill = L.box({ x: 3416, y: 150, w: 400, h: 72, c: "lilac", label: "", r: "lr", fs: 36 });
+const stateSub = L.text({ x: UP ? 1696 : 1470, base: 222, s: 38, c: "lilac", txt: "", align: UP ? "r" : undefined });   // on the chart column's line (upright: up to the pill)
+const pill = L.box({ x: UP ? 1736 : UW ? 4616 : 3416, y: 150, w: 400, h: 72, c: "lilac", label: "", r: "lr", fs: 36 });
 pill.style.willChange = "opacity";
 
 // =============================================================================================
 // ---------------- the galaxy, face on: four quadrants ----------------
 // =============================================================================================
-header(330, 280, 1080, "Milky Way  ·  Galactic Plane", "lilac", "violet");
-const AX0 = 330, AY0 = 360, AW = 1080, AH = 1200;
-const GX = 870, GY = 960, GR = 470, LYG = 50000 / GR;              // 50,000 light-years to the rim
+header(330, UP ? 1410 : 280, 1080, "Milky Way  ·  Galactic Plane", "lilac", "violet");
+const AX0 = 330, AY0 = UP ? 1490 : 360, AW = 1080, AH = UP ? 1030 : 1200;
+const GX = 870, GY = UP ? 2005 : 960, GDY = GY - 960, GR = 470, LYG = 50000 / GR;              // 50,000 light-years to the rim
 const SOL = [GX, GY + 0.52 * GR];                                   // 26,000 ly out, on the Alpha / Beta line
-const IDRAN = [626, 786], FOUNDERS = [560, 712], UNIMATRIX = [1124, 742];
-const DOMB = [574, 728, 84, 70, 101], BORGB = [1112, 758, 112, 94, 131];
+const IDRAN = [626, 786 + GDY], FOUNDERS = [560, 712 + GDY], UNIMATRIX = [1124, 742 + GDY];   // GDY: 0 in wide
+const DOMB = [574, 728 + GDY, 84, 70, 101], BORGB = [1112, 758 + GDY, 112, 94, 131];
 L.rect({ x: AX0, y: AY0, w: AW, h: AH, c: "#07061a", panel: true });
 const gal = L.canvas({ x: AX0, y: AY0, w: AW, h: AH, panel: true });
-const WORM = `M${SOL[0] - 26},${SOL[1] - 8} Q620,1120 ${IDRAN[0]},${IDRAN[1]}`;
+const WORM = `M${SOL[0] - 26},${SOL[1] - 8} Q620,${1120 + GDY} ${IDRAN[0]},${IDRAN[1]}`;
 {
   const r = rng(90210), dots = [];
   const ARM = ["#c7a0d8", "#e8dcff", "#9c84e0", "#8fd3ff", "#f2f2ff", "#b8a8e8"];
@@ -211,7 +236,7 @@ const [domHi, domSvg] = svgLayer(DOMB[0] - DOMB[2] * 1.2, DOMB[1] - DOMB[3] * 1.
 L.svg("path", { d: blob(...DOMB), fill: rgba("#b48cf0", 0.34), stroke: "#b48cf0", "stroke-width": 4 }, domSvg);
 const [borgHi, borgSvg] = svgLayer(BORGB[0] - BORGB[2] * 1.2, BORGB[1] - BORGB[3] * 1.2, BORGB[2] * 2.4, BORGB[3] * 2.4);
 L.svg("path", { d: blob(...BORGB), fill: rgba("#7fd0b8", 0.3), stroke: "#7fd0b8", "stroke-width": 4 }, borgSvg);
-const [wormHi, wormSvg] = svgLayer(580, 780, SOL[0] - 570, SOL[1] - 770);
+const [wormHi, wormSvg] = svgLayer(580, 780 + GDY, SOL[0] - 570, SOL[1] - (770 + GDY));
 L.svg("path", { d: WORM, fill: "none", stroke: "#ffcc66", "stroke-width": 5, "stroke-linecap": "round" }, wormSvg);
 const gRoute = L.layer({ x: 0, y: 0, w: 100, h: 4, cls: "route" }), gTip = L.layer({ x: 0, y: 0, w: 36, h: 36, cls: "tip" });
 const gRipple = L.layer({ x: 0, y: 0, w: 100, h: 100, cls: "ripple" });
@@ -227,14 +252,14 @@ L.text({ x: GX + 30, base: GY - 26, s: 36, c: "butter", txt: "Galactic Core", cl
 L.text({ x: SOL[0] + 44, base: SOL[1] + 13, s: 36, c: "butter", txt: "Sol  ·  Sector 001", cls: "nm" });
 const domLab = L.text({ x: DOMB[0], base: DOMB[1] + DOMB[3] + 58, s: 36, c: "lilac", txt: "Dominion", align: "c", w: 300, cls: "nm" });
 const borgLab = L.text({ x: BORGB[0], base: BORGB[1] - BORGB[3] - 26, s: 36, c: "lilac", txt: "Borg Collective", align: "c", w: 360, cls: "nm" });
-L.text({ x: 640, base: 1092, s: 36, c: "butter", txt: "Bajoran Wormhole", align: "r", cls: "nm" });
+L.text({ x: 640, base: 1092 + GDY, s: 36, c: "butter", txt: "Bajoran Wormhole", align: "r", cls: "nm" });
 
 // =============================================================================================
 // ---------------- explored space: the Alpha / Beta border, Sol at the centre ----------------
 // =============================================================================================
-header(1470, 280, 1360, "Explored Space  ·  Alpha / Beta Border", "gold", "plum");
-const BX0 = 1470, BY0 = 360, BW = 1360, BH = 1200;
-const S = 1.32, SX = 2143, SY = 975;                                // px per light-year; Sol on the chart
+const BX0 = UP ? 330 : 1470, BY0 = 360, BW = UP ? 940 : 1360, BH = UP ? 990 : 1200;
+header(BX0, TOP, BW, "Explored Space  ·  Alpha / Beta Border", "gold", "plum");
+const S = UP ? 1.12 : 1.32, SX = UP ? 796 : 2143, SY = UP ? 888 : 975;                                // px per light-year; Sol on the chart
 const P = ([x, y]) => [SX + x * S, SY - y * S];
 const lyTo = (a) => Math.hypot(a[0], a[1]);
 L.rect({ x: BX0, y: BY0, w: BW, h: BH, c: "#07061a", panel: true });
@@ -255,7 +280,9 @@ for (const p of POWERS) {
     g.clearRect(0, 0, BW, BH);
     g.save(); g.translate(-BX0, -BY0);
     // the Orion Arm, a soft band across the chart
-    for (const [x, y, rr, a] of [[1640, 1380, 520, 0.12], [2000, 1050, 560, 0.09], [2400, 720, 600, 0.11], [2760, 420, 420, 0.08]]) {
+    const ARMS = [[1640, 1380, 520, 0.12], [2000, 1050, 560, 0.09], [2400, 720, 600, 0.11], [2760, 420, 420, 0.08]];
+    const k = S / 1.32;                                                // upright draws the arm at the chart's own scale
+    for (const [x, y, rr, a] of UP ? ARMS.map(([x, y, rr, a]) => [SX + (x - 2143) * k, SY + (y - 975) * k, rr * k, a]) : ARMS) {
       const n = g.createRadialGradient(x, y, 0, x, y, rr);
       n.addColorStop(0, `rgba(107,86,216,${a})`); n.addColorStop(0.5, `rgba(156,111,180,${a * 0.45})`); n.addColorStop(1, "rgba(156,111,180,0)");
       g.fillStyle = n; g.fillRect(x - rr, y - rr, 2 * rr, 2 * rr);
@@ -328,7 +355,7 @@ const bRipple = L.layer({ x: 0, y: 0, w: 100, h: 100, cls: "ripple" });
 // names: the powers, their capitals
 for (const p of POWERS) {
   if (!p.label) continue;
-  const [x, y] = P(p.label);
+  const [x, y] = P(UP && p === POWERS[0] ? [-40, 50] : p.label);   // upright: the Federation's name above Sol, clear of Bajor
   p.lab = L.text({ x, base: y + 14, s: 40, c: p.c, txt: p.short, align: "c", w: 420, cls: "nm" });
   const [cx, cy] = P(p.at), l = p.capSide === "l";
   p.capLab = L.text({ x: cx + (l ? -28 : 28), base: cy + 13, s: 36, c: "white", txt: p.cap, align: l ? "r" : undefined, cls: "nm" });
@@ -348,7 +375,7 @@ const RA = (330 * Math.PI) / 180;
 [100, 200, 300].forEach((R) => L.text({ x: SX + R * S * Math.sin(R < 300 ? RA : RA - Math.PI) + (R < 300 ? -12 : 12), base: SY - R * S * Math.cos(R < 300 ? RA : RA - Math.PI) + (R < 300 ? -12 : 34), align: R < 300 ? "r" : undefined, s: 30, c: "plum", txt: R + " LY", legend: true }));
 // a scale bar, top right
 {
-  const x1 = BX0 + BW - 76, x0 = x1 - 200 * S, y = BY0 + 92;
+  const x1 = BX0 + BW - (UP ? 48 : 76), x0 = x1 - 200 * S, y = BY0 + 92;
   [[0, "lilac"], [1, "plum"]].forEach(([i, c]) => L.rect({ x: x0 + i * 100 * S, y, w: 100 * S, h: 14, c, free: true }));
   [0, 100, 200].forEach((d, i) => {
     L.rect({ x: x0 + d * S - 1.5, y: y - 8, w: 3, h: 22, c: "lilac", free: true });
@@ -359,12 +386,14 @@ const RA = (330 * Math.PI) / 180;
 // =============================================================================================
 // ---------------- major powers ----------------
 // =============================================================================================
-const CX = 2890, CR = 3816;
-header(CX, 280, CR - CX, "Major Powers", "butter", "violet");
-const PC = { name: CX + 48, cap: 3330 };
-[["Power", CX], ["Capital", PC.cap]].forEach(([h, x]) => L.text({ x, base: 404, s: 36, c: "lilac", txt: h }));
-L.text({ x: CR, base: 404, s: 36, c: "lilac", txt: "Relations", align: "r" });
-const rowBase = (i) => 470 + i * 66;
+// CX → CR: the major powers table (upright 1330 → 2136; ultrawide across columns 3 and 4)
+const CX = UP ? 1330 : 2890, CR = UP ? 2136 : UW ? 5016 : 3816;
+header(CX, TOP, CR - CX, "Major Powers", "butter", "violet");
+const PC = { name: CX + 48, cap: UP ? 1750 : UW ? 3402 : 3330, gov: 3785, species: 4330 };   // gov, species: ultrawide only
+[["Power", CX], ["Capital", PC.cap]].forEach(([h, x]) => L.text({ x, base: TOP + 124, s: 36, c: "lilac", txt: h }));
+if (UW) [["Government", PC.gov], ["Species", PC.species]].forEach(([h, x]) => L.text({ x, base: TOP + 124, s: 36, c: "lilac", txt: h }));
+L.text({ x: CR, base: TOP + 124, s: 36, c: "lilac", txt: "Relations", align: "r" });
+const rowBase = UP ? (i) => 470 + i * 72 : (i) => 470 + i * 66;
 const band = L.layer({ x: CX, y: 0, w: CR - CX, h: 58, cls: "band" });
 let bandY = rowBase(0) - 44, bandGoal = bandY;
 POWERS.forEach((p, i) => {
@@ -372,53 +401,68 @@ POWERS.forEach((p, i) => {
   L.rect({ x: CX, y: base - 40, w: 24, h: 48, c: p.c });
   p.row = [L.text({ x: PC.name, base, s: 40, c: "white", txt: p.name }), L.text({ x: PC.cap, base, s: 40, c: "lilac", txt: p.cap }),
            L.text({ x: CR, base, s: 40, c: REL_C[p.rel], txt: p.rel, align: "r" })];
+  if (UW) { L.text({ x: PC.gov, base, s: 40, c: "lilac", txt: p.gov }); L.text({ x: PC.species, base, s: 40, c: "lilac", txt: p.species }); }
 });
 
 // ---------------- course plot ----------------
-header(CX, 1060, CR - CX, "Course Plot  ·  From Earth", "lilac", "plum");
+// KX → KR: the course plot (upright: beside the galaxy; ultrawide: its wide place, column 3)
+const KX = UP ? 1470 : 2890, KR = UP ? 2136 : 3816;
+header(KX, UP ? 1410 : 1060, KR - KX, "Course Plot  ·  From Earth", "lilac", "plum");
 const PLOT = ["Destination", "Distance", "Bearing", "At Warp 6", "At Warp 9", "Route"];
 const plotVals = PLOT.map((name, i) => {
-  const base = 1172 + i * 76;
-  L.text({ x: CX, base, s: 40, c: "lilac", txt: name });
-  return cls(L.text({ x: CR, base, s: i === 0 ? 52 : 48, c: i === 0 ? "butter" : "white", txt: "", align: "r" }), "fade");
+  const base = UP ? 1522 + i * 81 : 1172 + i * 76;
+  L.text({ x: KX, base, s: 40, c: "lilac", txt: name });
+  return cls(L.text({ x: KR, base, s: i === 0 ? 52 : 48, c: i === 0 ? "butter" : "white", txt: "", align: "r" }), "fade");
 });
 
 // =============================================================================================
 // ---------------- the bottom strip ----------------
 // =============================================================================================
-header(330, 1620, 1080, "Power Profile", "lilac", "violet", 48, 28);
+// the power profile: wide, bottom left; upright, under the course plot (values right-aligned);
+// ultrawide, beside the course plot on its rows
+const FX = UP ? 1470 : UW ? UW4 : 330, FR = UP ? 2136 : UW ? 5016 : 1410;
+if (UP) header(FX, 1989, FR - FX, "Power Profile", "lilac", "violet");
+else if (UW) header(FX, 1060, FR - FX, "Power Profile", "lilac", "violet");
+else header(330, 1620, 1080, "Power Profile", "lilac", "violet", 48, 28);
 const PROF = [["Capital", (p) => p.cap], ["Government", (p) => p.gov], ["Founded", (p) => p.founded], ["Species", (p) => p.species],
   ["Borders", (p) => p.borders], ["Relations", (p) => p.relLong]];
-const PV = 580, GAUGE = 1110;                                       // the values' column; the relations gauge
+const PV = UW ? FX + 250 : 580, GAUGE = UW ? 4639 : 1110;            // the values' column; the relations gauge
+const profBase = UP ? (i) => 2101 + i * 81 : UW ? (i) => 1172 + i * 76 : (i) => 1734 + i * 54;
 const profVals = PROF.map(([name], i) => {
-  const base = 1734 + i * 54;
-  L.text({ x: 330, base, s: 40, c: "lilac", txt: name });
-  return cls(L.text({ x: PV, base, s: 40, c: "white", txt: "" }), "fade");
+  const base = profBase(i);
+  L.text({ x: FX, base, s: 40, c: "lilac", txt: name });
+  return cls(UP ? L.text({ x: FR, base, s: 40, c: "white", txt: "", align: "r" }) : L.text({ x: PV, base, s: 40, c: "white", txt: "" }), "fade");
 });
 // relations with the Federation, as a column of states: the power's own lights
 const STATES = [["Member", "Member  ·  Ally", "sky"], ["Treaty", "Treaty", "peach"], ["Trade", "Trade", "butter"],
   ["Neutral", "Neutral", "lilac"], ["Wary", "Wary", "orange"], ["Hostile", "Hostile", "mars"]];
+// upright: a 3 × 2 grid of states under the major powers table, with its own header, its foot on the chart's
+if (UP) header(CX, 1108, CR - CX, "Relations  ·  Federation", "lilac", "plum");
 const gauge = STATES.map(([key, label, c], i) => {
-  const y = 1734 + i * 54 - 36;
-  L.box({ x: GAUGE, y, w: 1410 - GAUGE, h: 44, c: "#1a1438", r: "r" });
-  const lit = L.layer({ x: GAUGE, y, w: 1410 - GAUGE, h: 44 });
-  lit.style.background = `var(--${c})`; lit.style.borderRadius = "0 22px 22px 0"; lit.style.opacity = 0;
-  const b = L.box({ x: GAUGE, y, w: 1410 - GAUGE, h: 44, c: "#00000000", label, fs: 28, r: "r" });
+  const gx = UP ? CX + (i % 3) * 277 : GAUGE, gw = UP ? 252 : (UW ? 5016 : 1410) - GAUGE;
+  const y = UP ? 1238 + Math.floor(i / 3) * 64 : UW ? profBase(i) - 36 : 1734 + i * 54 - 36, gh = UP ? 48 : 44;
+  L.box({ x: gx, y, w: gw, h: gh, c: "#1a1438", r: "r" });
+  const lit = L.layer({ x: gx, y, w: gw, h: gh });
+  lit.style.background = `var(--${c})`; lit.style.borderRadius = `0 ${gh / 2}px ${gh / 2}px 0`; lit.style.opacity = 0;
+  const b = L.box({ x: gx, y, w: gw, h: gh, c: "#00000000", label, fs: 28, r: "r" });
   b.style.color = "var(--lilac)"; b.style.transition = "color .6s ease";
   return { key, lit, b, v: 0, shown: -1 };
 });
 const stateOf = (p) => (p.rel === "Allied" ? "Member" : p.rel);
 
-header(1470, 1620, 1360, "Quadrant Statistics", "gold", "plum", 48, 28);
-const QC = { name: 1470, bar: 1760, barR: 2140, pct: 2300, sys: 2560, sb: 2830 };
-L.text({ x: QC.name, base: 1734, s: 36, c: "lilac", txt: "Quadrant" });
-L.text({ x: QC.bar, base: 1734, s: 36, c: "lilac", txt: "Charted" });
-L.text({ x: QC.sys, base: 1734, s: 36, c: "lilac", txt: "Systems", align: "r" });
-L.text({ x: QC.sb, base: 1734, s: 36, c: "lilac", txt: "Starbases", align: "r" });
+const SY0 = UP ? 2580 : 1620;                                      // the bottom strip's headers
+const QC = UP ? { name: 330, bar: 620, barR: 880, pct: 1030, sys: 1240, sb: 1410 }
+         : UW ? { name: 330, bar: 620, barR: 2140, pct: 2300, sys: 2560, sb: 2830 }
+         : { name: 1470, bar: 1760, barR: 2140, pct: 2300, sys: 2560, sb: 2830 };
+header(QC.name, SY0, QC.sb - QC.name, "Quadrant Statistics", "gold", "plum", 48, 28);
+L.text({ x: QC.name, base: SY0 + 114, s: 36, c: "lilac", txt: "Quadrant" });
+L.text({ x: QC.bar, base: SY0 + 114, s: 36, c: "lilac", txt: "Charted" });
+L.text({ x: QC.sys, base: SY0 + 114, s: 36, c: "lilac", txt: "Systems", align: "r" });
+L.text({ x: QC.sb, base: SY0 + 114, s: 36, c: "lilac", txt: "Starbases", align: "r" });
 const QSTAT = [["Alpha", 26.82, 18240, 112], ["Beta", 15.37, 11906, 61], ["Gamma", 1.29, 642, 0], ["Delta", 0.52, 213, 0]]
   .map(([q, pct, sys, sb]) => ({ q, pct, sys, sb }));
 const qRows = [...QSTAT, { q: "Galaxy" }].map((s, i) => {
-  const base = 1788 + i * 54;
+  const base = SY0 + 168 + i * 54;
   L.rect({ x: QC.bar, y: base - 28, w: QC.barR - QC.bar, h: 26, c: "#1a1438" });
   const bar = L.layer({ x: QC.bar, y: base - 28, w: QC.barR - QC.bar, h: 26 });
   bar.style.background = i === 4 ? "var(--gold)" : "var(--violet)"; bar.style.transformOrigin = "0 0";
@@ -431,17 +475,18 @@ const galaxy = () => {
   return t;
 };
 
-header(CX, 1620, CR - CX, "Subspace Traffic", "pink", "plum", 48, 28);
+const TX = UP ? 1470 : 2890, TR = UP ? 2136 : UW ? 5016 : 3816;   // subspace traffic
+header(TX, SY0, TR - TX, "Subspace Traffic", "pink", "plum", 48, 28);
 let ships = 2416, relay = 71.4, transits = 37;
 const TRAFFIC = [["Starships in Transit  ·  Alpha and Beta", () => fmt(ships), () => ships / 4000],
   ["Subspace Relay Load", () => relay.toFixed(1) + "%", () => relay / 100],
   ["Wormhole Transits  ·  Today", () => String(transits), () => transits / 60]];
 const traffic = TRAFFIC.map(([name], i) => {
-  const base = 1734 + i * 108;
-  L.text({ x: CX, base, s: 40, c: "lilac", txt: name });
-  const v = L.text({ x: CR, base, s: 40, c: "white", txt: "", align: "r" });
-  L.rect({ x: CX, y: base + 18, w: CR - CX, h: 22, c: "#1a1438" });
-  const bar = L.layer({ x: CX, y: base + 18, w: CR - CX, h: 22 });
+  const base = SY0 + 114 + i * 108;
+  L.text({ x: TX, base, s: 40, c: "lilac", txt: name });
+  const v = L.text({ x: TR, base, s: 40, c: "white", txt: "", align: "r" });
+  L.rect({ x: TX, y: base + 18, w: TR - TX, h: 22, c: "#1a1438" });
+  const bar = L.layer({ x: TX, y: base + 18, w: TR - TX, h: 22 });
   bar.style.background = i === 2 ? "var(--gold)" : "var(--lilac)"; bar.style.transformOrigin = "0 0";
   return { v, bar, u: 0 };
 });
@@ -451,10 +496,12 @@ const traffic = TRAFFIC.map(([name], i) => {
   const bad = [];
   const fits = (txt, s, w, where) => { if (L.textWidth(txt, s) > w) bad.push(`${where}: "${txt}"`); };
   for (const p of POWERS) {
-    fits(p.name, 40, PC.cap - PC.name - 40, "power"); fits(p.cap, 40, CR - PC.cap - 200, "capital");
-    fits(p.short, 100, 1410 - 330 - 140, "status");
-    for (const [, f] of PROF) fits(f(p), 40, GAUGE - PV - 40, "profile");
-    fits(p.cap, 52, CR - CX - 260, "destination"); fits(p.route, 48, CR - CX - 200, "route");
+    fits(p.name, 40, PC.cap - PC.name - 40, "power");
+    fits(p.cap, 40, UP ? CR - PC.cap - 88 - 40 : UW ? PC.gov - PC.cap - 40 : CR - PC.cap - 200, "capital");   // upright: beside the widest relation
+    if (UW) { fits(p.gov, 40, PC.species - PC.gov - 40, "government"); fits(p.species, 40, CR - PC.species - 88 - 40, "species"); }
+    fits(p.short, 100, UP ? 1736 - 330 - 140 : 1410 - 330 - 140, "status");
+    for (const [, f] of PROF) fits(f(p), 40, UP ? FR - FX - 135 - 40 : GAUGE - PV - 40, "profile");   // upright: beside "Government"
+    fits(p.cap, 52, KR - KX - 260, "destination"); fits(p.route, 48, KR - KX - 200, "route");
   }
   if (bad.length) setTimeout(() => { throw new Error("galactic-map: " + bad.join(" | ")); });
 }
@@ -477,6 +524,11 @@ for (const p of POWERS) {
   p.hv = 0; p.hshown = -1;
 }
 const distText = (p, k) => (p.gamma ? fmt(p.ly * k, 1) + " LY  ·  Bajor" : p.delta ? "~ " + fmt(p.ly * k) + " LY" : p.ly ? fmt(p.ly * k, 1) + " LY" : "0.0 LY");
+if (UP) {                                                           // upright: the status word and the subtitle share a line
+  const bad = POWERS.filter((p) => 330 + L.textWidth(p.short, 100) + 60 > 1696 - L.textWidth(p.ly
+    ? `${p.cap}  ·  ${p.quads[0]} Quadrant  ·  Plotting course  ·  ${distText(p, 1)}` : `${p.cap}  ·  Sector 001  ·  Seat of the Federation Council`, 38));
+  if (bad.length) setTimeout(() => { throw new Error("galactic-map: status line: " + bad.map((p) => p.short).join(", ")); });
+}
 let cur = -1, act = POWERS[0], plotK = 0, swapAt = -1;
 const aim = (line, tip, from, to) => {                              // a course line from one point to another
   const dx = to[0] - from[0], dy = to[1] - from[1];

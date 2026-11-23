@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>First Contact</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* swapped text dips and comes back; colors change slowly; .boot (the start-up cascade) always wins */
@@ -14,7 +15,7 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: a bracket, title centred ----------------
-L.frame({ type: "C", title: "First Contact  •  Protocol", c: "lilac", c2: "pink", accent: "plum", foot: "Contact",
+const B = L.frame({ type: "C", title: "First Contact  •  Protocol", c: "lilac", c2: "pink", accent: "plum", foot: "Contact",
   side: [[140, "pink", "Survey 03"], [70, "plum", "4439"], [420, "lilac", "Malcor"], [70, "pink", "03"], [300, "plum", "Culture"],
          [70, "pink", "A3"], [216, "lilac", "Team"]],
   side2: [[140, "pink", "Contact 04"], [70, "plum", "1284"], [420, "lilac", "Language"], [70, "pink", "47"], [300, "plum", "Directive"],
@@ -34,18 +35,36 @@ const fg = (e, c) => { if (e._fg !== c) { e._fg = c; e.style.color = c.startsWit
 const swap = (els, f) => { els.forEach((e) => e.classList.add("out")); setTimeout(() => { f(); els.forEach((e) => e.classList.remove("out")); }, 460); };
 const fmt = (n) => Math.round(n).toLocaleString("en");
 
-// Columns below the timeline: 220–1300, 1380–2460, 2540–3620. The timeline above: four phases across.
-const LX = 220, LR = 1300, MX = 1380, MR = 2460, RX = 2540, RR = 3620;
+// ---------------- the grid, per shape ----------------
+// The data, readings and motion below are written once; only these positions differ by shape.
+// wide (3840 × 2160): the four phases across the top; three 1080 columns under them (220–1300 |
+//   1380–2460 | 2540–3620): cultural analysis, linguistics and the prime directive on one row grid,
+//   then the contact team, the Tamarian metaphors and the contact log on the strip.
+// upright (2160 × 3120): the subtitle drops to a second line; the four phases stay across the top,
+//   382 wide and 64 apart, each finding on two lines (name, then value). Below, two 828 columns on
+//   the same 64 gutter (220–1048 | 1112–1940): cultural analysis beside the prime directive,
+//   linguistics beside a nine-line contact log, the team beside the metaphors, ending on the floor.
+// ultrawide (5040 × 2160): the wide layout where it is, and a fourth column, 3700–4820, on the same
+//   rows: the covert survey beside the timeline, findings by phase, the Malcorian leadership.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const LX = 220, LR = UP ? 1048 : 1300, MX = UP ? 1112 : 1380, MR = UP ? 1940 : 2460, RX = UP ? 1112 : 2540, RR = UP ? 1940 : 3620;
+const NX = 3700, NR = B.x1;                                  // ultrawide's fourth column
+const GXL = UP ? LX : MX, GXR = UP ? LR : MR;                // linguistics: the middle column, or upright's left
 const BX = 300, BRW = 220;                                   // gauges start 300 in, stop 220 short of the column's edge
-const ROW0 = 428, ROW1 = 1148, PITCH = 88;
-const base0 = (i) => ROW0 + i * PITCH + 52.5, base1 = (i) => ROW1 + i * PITCH + 52.5;
-const STRIP = (i) => 1734 + i * 54;
+const TH = UP ? 338 : 280;                                   // the timeline's header
+const HA = UP ? 1290 : 1000, HL = UP ? 1932 : 1000;          // headers: cultural / directive, linguistics
+const HG = UP ? HL : 1620, HS = UP ? 2586 : 1620;            // headers: the log, the team / metaphors
+const ROW0 = UP ? 534 : 428, ROW1 = HA + 148, ROWL = HL + 148, PITCH = 88;
+const base0 = (i) => ROW0 + i * PITCH + 52.5, base1 = (i) => ROW1 + i * PITCH + 52.5, baseL = (i) => ROWL + i * PITCH + 52.5;
+const STRIP = (i) => HS + 114 + i * 54;
+const LOGB = UP ? (i) => HL + 120 + i * 54 : STRIP;          // upright: the log on linguistics' caption line
+const RU = (j) => 770 + j * 124;                             // upright: a finding's name line (its value 58 under)
 
 // a reading: name | gauge | value, on one baseline
-const gaugeRow = (x, r, base, name, c, h = 26) => {
+const gaugeRow = (x, r, base, name, c, h = 26, brw = BRW) => {
   L.text({ x, base, s: 40, c: "lilac", txt: name });
-  L.rect({ x: x + BX, y: base - h, w: r - BRW - (x + BX), h, c: TRACK });
-  return { bar: fill(x + BX, base - h, r - BRW - (x + BX), h, c), v: L.text({ x: r, base, s: 52, c: "white", txt: "", align: "r" }), u: -1, k: 0 };
+  L.rect({ x: x + BX, y: base - h, w: r - brw - (x + BX), h, c: TRACK });
+  return { bar: fill(x + BX, base - h, r - brw - (x + BX), h, c), v: L.text({ x: r, base, s: 52, c: "white", txt: "", align: "r" }), u: -1, k: 0 };
 };
 const showBar = (g, k) => { k = L.clamp(k); if (Math.abs(k - g.u) > 0.0005) { g.u = k; tf(g.bar, `scaleX(${k.toFixed(4)})`); } };
 
@@ -77,25 +96,28 @@ const RESOLVE = [0.15, 0.4, 0.65, 0.9];                      // how far into its
 
 // ---------------- status line ----------------
 const state = cls(L.text({ x: LX, cap: 150, s: 100, c: "pink", txt: "" }), "sw");
-const stateSub = cls(L.text({ x: MX, base: 222, s: 38, c: "lilac", txt: "" }), "sw");
+const stateSub = cls(L.text({ x: UP ? LX : MX, base: UP ? 280 : 222, s: 38, c: "lilac", txt: "" }), "sw");
 const pill = cls(L.box({ x: RR - 400, y: 150, w: 400, h: 72, c: "lilac", label: "", r: "lr", fs: 36 }), "sw");
 pill.style.willChange = "opacity";
+// ultrawide: a second pill over the fourth column, for the observers
+const pill2 = UW ? cls(L.box({ x: NR - 400, y: 150, w: 400, h: 72, c: "lilac", label: "", r: "lr", fs: 36 }), "sw") : null;
 
 // ---------------- the timeline ----------------
-L.header({ x: LX, y: 280, w: RR - LX, label: "Contact Protocol  ·  Malcor III", c1: "lilac", c2: "pink" });
-const PG = 72, PW = (RR - LX - 3 * PG) / 4, px = (i) => LX + i * (PW + PG);   // phases stand apart: each a column of its own
+L.header({ x: LX, y: TH, w: RR - LX, label: "Contact Protocol  ·  Malcor III", c1: "lilac", c2: "pink" });
+const PG = UP ? 64 : 72, PW = (RR - LX - 3 * PG) / 4, px = (i) => LX + i * (PW + PG);   // phases stand apart: each a column of its own
 const TY = base0(1) - 26;                                     // the progress track, on the second row's baseline
 PHASES.forEach((p, i) => {
   const x = px(i);
-  p.capT = L.text({ x, base: 400, s: 36, c: "lilac", txt: p.cap });
-  p.stT = cls(L.text({ x: x + PW, base: 400, s: 36, c: "white", txt: "", align: "r" }), "sw");
+  p.capT = L.text({ x, base: TH + 120, s: 36, c: "lilac", txt: p.cap });
+  p.stT = cls(L.text(UP ? { x, base: 506, s: 36, c: "white", txt: "" } : { x: x + PW, base: 400, s: 36, c: "white", txt: "", align: "r" }), "sw");
   p.box = cls(L.box({ x, y: ROW0, w: PW, h: 64, c: DIM, label: p.name, fs: 32, r: i === 0 ? "l" : i === 3 ? "r" : null }), "sw");
   L.rect({ x, y: TY, w: PW, h: 26, c: TRACK });
   p.fill = fill(x, TY, PW, 26, "pink");
   tf(p.fill, "scaleX(0)");
   p.cells = p.rows.map(([name, val], j) => ({
-    name: L.text({ x, base: base0(j + 2), s: 40, c: "lilac", txt: name }),
-    v: cls(L.text({ x: x + PW, base: base0(j + 2), s: 52, c: "plum", txt: "Pending", align: "r" }), "sw"),
+    name: L.text({ x, base: UP ? RU(j) : base0(j + 2), s: 40, c: "lilac", txt: name }),
+    v: cls(L.text(UP ? { x, base: RU(j) + 58, s: 52, c: "plum", txt: "Pending" }
+                     : { x: x + PW, base: base0(j + 2), s: 52, c: "plum", txt: "Pending", align: "r" }), "sw"),
     val, done: false,
   }));
   p.state = -1;
@@ -104,35 +126,35 @@ const nowLine = fill(0, TY - 8, 4, 42, "white");
 const nowTip = L.layer({ x: 0, y: ROW0 + 64 + 6, cls: "now" });
 
 // ---------------- cultural analysis ----------------
-L.header({ x: LX, y: 1000, w: LR - LX, label: "Cultural Analysis", c1: "lilac", c2: "pink" });
-const confT = L.text({ x: LX, base: 1120, s: 36, c: "pink", txt: "" });
+L.header({ x: LX, y: HA, w: LR - LX, label: "Cultural Analysis", c1: "lilac", c2: "pink" });
+const confT = L.text({ x: LX, base: HA + 120, s: 36, c: "pink", txt: "" });
 const CULT = [["Technology", "lilac", (P) => 0.86], ["Social Cohesion", "pink", (P) => 0.61],
               ["Xenophobia", "plum", (P) => 0.24 - 0.04 * L.clamp(P - 2)], ["Scientific Openness", "lilac", (P) => 0.72 + 0.04 * L.clamp(P - 2)],
               ["Contact Readiness", "pink", (P) => 0.38 + 0.12 * L.clamp(P - 1) + 0.24 * L.clamp(P - 2)]]
   .map(([n, c, f], i) => Object.assign(gaugeRow(LX, LR, base1(i), n, c), { f, seed: i * 1.7 }));
 
 // ---------------- linguistic decipherment: the Tamarian case ----------------
-L.header({ x: MX, y: 1000, w: MR - MX, label: "Linguistic Decipherment", c1: "pink", c2: "lilac" });
-const lingT = L.text({ x: MX, base: 1120, s: 36, c: "pink", txt: "" });
+L.header({ x: GXL, y: HL, w: GXR - GXL, label: "Linguistic Decipherment", c1: "pink", c2: "lilac" });
+const lingT = L.text({ x: GXL, base: HL + 120, s: 36, c: "pink", txt: "" });
 const TOTAL = 1284;
 let resolved = 731;
-const lex = gaugeRow(MX, MR, base1(0), "Lexicon", "lilac", 22);
-const met = gaugeRow(MX, MR, base1(1), "Metaphor Index", "pink", 22);
+const lex = gaugeRow(GXL, GXR, baseL(0), "Lexicon", "lilac", 22);
+const met = gaugeRow(GXL, GXR, baseL(1), "Metaphor Index", "pink", 22);
 // every Tamarian story cycle the translator has met: dark, partly read, understood
-const GC = 30, GR = 6, GG = 8, GY = ROW1 + 2 * PITCH, GH = ROW1 + 4 * PITCH + 64 - GY;
-const cw = (MR - MX - (GC - 1) * GG) / GC, ch = (GH - (GR - 1) * GG) / GR;
+const GC = 30, GR = 6, GG = UP ? 6 : 8, GY = ROWL + 2 * PITCH, GH = ROWL + 4 * PITCH + 64 - GY;
+const cw = (GXR - GXL - (GC - 1) * GG) / GC, ch = (GH - (GR - 1) * GG) / GR;
 const CELLC = ["#3a2444", "var(--plum)", "var(--lilac)"];
 const cells = [];
 for (let r = 0; r < GR; r++) for (let c = 0; c < GC; c++) {
   const s = Math.random() < 0.52 ? 2 : Math.random() < 0.55 ? 1 : 0;
-  const e = L.rect({ x: MX + c * (cw + GG), y: GY + r * (ch + GG), w: cw, h: ch, c: CELLC[s].startsWith("#") ? CELLC[s] : CELLC[s].slice(6, -1), noalign: true });
+  const e = L.rect({ x: GXL + c * (cw + GG), y: GY + r * (ch + GG), w: cw, h: ch, c: CELLC[s].startsWith("#") ? CELLC[s] : CELLC[s].slice(6, -1), noalign: true });
   e.classList.add("cell");
   cells.push({ e, s });
 }
 
 // ---------------- prime directive ----------------
-L.header({ x: RX, y: 1000, w: RR - RX, label: "Prime Directive", c1: "pink", c2: "lilac" });
-L.text({ x: RX, base: 1120, s: 36, c: "pink", txt: "General Order 1  ·  Starfleet Command" });
+L.header({ x: RX, y: HA, w: RR - RX, label: "Prime Directive", c1: "pink", c2: "lilac" });
+L.text({ x: RX, base: HA + 120, s: 36, c: "pink", txt: "General Order 1  ·  Starfleet Command" });
 const PILLC = { "In Force": "lilac", "Active": "pink", "Pending": "plum", "Granted": "butter", "Lifted": "tan", "Withdrawn": "tan", "None Detected": "lilac" };
 const DIRECTIVE = [
   ["Non-Interference", () => "In Force"],
@@ -146,7 +168,7 @@ const DIRECTIVE = [
 });
 
 // ---------------- contact team ----------------
-L.header({ x: LX, y: 1620, w: LR - LX, label: "Contact Team", c1: "lilac", c2: "plum", h: 48 });
+L.header({ x: LX, y: HS, w: LR - LX, label: "Contact Team", c1: "lilac", c2: "plum", h: 48 });
 const TEAM = [
   ["Capt. Picard", "Contact Lead", (P) => (P >= 3 ? "Science Ministry" : "Ready Room")],
   ["Cmdr. Riker", "Field Observer", (P) => (P < 2.6 ? "Malcor III" : P < 3 ? "Recalled" : "Aboard")],
@@ -161,7 +183,7 @@ const TEAM = [
 });
 
 // ---------------- tamarian metaphors ----------------
-L.header({ x: MX, y: 1620, w: MR - MX, label: "Tamarian Metaphors", c1: "pink", c2: "plum", h: 48 });
+L.header({ x: MX, y: HS, w: MR - MX, label: "Tamarian Metaphors", c1: "pink", c2: "plum", h: 48 });
 const METAPHORS = [
   ["Darmok and Jalad at Tanagra", "Cooperation in shared danger"], ["Shaka, when the walls fell", "Failure"],
   ["Temba, his arms wide", "Giving  ·  an offer"], ["Sokath, his eyes uncovered", "Understanding"],
@@ -171,6 +193,9 @@ const METAPHORS = [
   ["Kadir beneath Mo Moteh", "Not understanding"], ["Darmok on the ocean", "Alone"],
   ["Picard and Dathon at El-Adrel", "Strangers made friends"],
 ];
+// upright and ultrawide keep more log lines on screen: there the log tells apart references that share a name
+const REF = { "Darmok and Jalad at Tanagra": "Darmok at Tanagra", "Darmok on the ocean": "Darmok on the ocean",
+  "Uzani, his army with fists open": "Uzani, fists open", "Uzani, his army with fists closed": "Uzani, fists closed" };
 let mDeck = [], mShown = [];
 const nextM = () => { if (!mDeck.length) mDeck = METAPHORS.filter((m) => !mShown.includes(m)).sort(() => Math.random() - 0.5); return mDeck.pop(); };
 for (let i = 0; i < 6; i++) mShown.push(nextM());
@@ -181,11 +206,11 @@ const showM = () => mRows.forEach((r, i) => { L.set(r.p, mShown[i][0]); L.set(r.
 showM();
 
 // ---------------- contact log ----------------
-L.header({ x: RX, y: 1620, w: RR - RX, label: "Contact Log", c1: "lilac", c2: "plum", h: 48 });
-const logRows = Array.from({ length: 6 }, (_, i) => ({
-  sd: L.text({ x: RX, base: STRIP(i), s: 36, c: "pink", txt: "" }),
-  tx: L.text({ x: RX + 160, base: STRIP(i), s: 36, c: "lilac", txt: "" }),
-  by: L.text({ x: RR, base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }) }));
+L.header({ x: RX, y: HG, w: RR - RX, label: "Contact Log", c1: "lilac", c2: "plum", h: UP ? 56 : 48 });
+const logRows = Array.from({ length: UP ? 9 : 6 }, (_, i) => ({
+  sd: L.text({ x: RX, base: LOGB(i), s: 36, c: "pink", txt: "" }),
+  tx: L.text({ x: RX + 160, base: LOGB(i), s: 36, c: "lilac", txt: "" }),
+  by: L.text({ x: RR, base: LOGB(i), s: 36, c: "white", txt: "", align: "r" }) }));
 let stardate = SD0 + Math.floor(OFFSET / 10) / 10;
 const logged = [];
 const logLine = (txt, by) => {
@@ -193,15 +218,25 @@ const logLine = (txt, by) => {
   logged.push([stardate.toFixed(1), txt, by]); if (logged.length > logRows.length) logged.shift();
   logRows.forEach((r, i) => { const e = logged[i] || ["", "", ""]; L.set(r.sd, e[0]); L.set(r.tx, e[1]); L.set(r.by, e[2]); });
 };
-[["Survey orbit established, Malcor III", "Riker"], ["Observers cleared for the surface", "Crusher"], ["Tamarian corpus loaded for comparison", "Data"],
- ["Subspace emissions logged, northern site", "Data"], ["Malcorian broadcasts indexed", "Troi"], ["General Order 1 reviewed with team", "Picard"]]
+const SEED = [["Survey orbit established, Malcor III", "Riker"], ["Observers cleared for the surface", "Crusher"], ["Tamarian corpus loaded for comparison", "Data"],
+ ["Subspace emissions logged, northern site", "Data"], ["Malcorian broadcasts indexed", "Troi"], ["General Order 1 reviewed with team", "Picard"]];
+// upright's log is nine lines long: three earlier entries fill it from the start
+(UP ? [["Starfleet orders a survey of Malcor III", "Picard"], ["Malcorian warp research flagged for review", "Data"],
+       ["Duck blind protocol briefed to observers", "Riker"]].concat(SEED) : SEED)
   .forEach(([a, b]) => logLine(a, b));
 
 const ROUTINE = [["Broadcast traffic indexed", "Data"], ["Observer check-in received", "Riker"], ["Sensor sweep of the capital complete", "Data"],
   ["Tamarian syntax model refined", "Data"], ["Public sentiment sampled", "Troi"], ["Transporter lock on observers confirmed", "Worf"],
   ["No sign the survey has been detected", "Worf"], ["Warp test site under watch", "La Forge"]];
-let rDeck = [];
-const routine = () => { if (!rDeck.length) rDeck = ROUTINE.slice().sort(() => Math.random() - 0.5); logLine(...rDeck.pop()); };
+let rDeck = [], rLast = null;
+const routine = () => {
+  if (!rDeck.length) {
+    rDeck = ROUTINE.slice().sort(() => Math.random() - 0.5);
+    // upright and ultrawide: a new deck never opens with the entry just logged (no draw from the random stream)
+    if ((UP || UW) && rDeck[rDeck.length - 1] === rLast) [rDeck[0], rDeck[rDeck.length - 1]] = [rDeck[rDeck.length - 1], rDeck[0]];
+  }
+  logLine(...(rLast = rDeck.pop()));
+};
 const FINDINGS = [
   ["Orbital survey complete", "Observers placed, three of three", "Sensor coverage of the capital achieved", "Detection risk assessed"],
   ["Prototype vessel found fueled", "Warp field strength measured", "Warp test date confirmed", "Malcorians at the warp threshold"],
@@ -209,6 +244,48 @@ const FINDINGS = [
   ["Captain Picard meets the Science Minister", "Chancellor Durken receives the captain", "Mirasta Yale named envoy", "Chancellor asks for time; relations deferred"],
 ];
 const BY = [["Data", "Riker", "Data", "Worf"], ["La Forge", "Data", "Riker", "Picard"], ["Troi", "Troi", "Troi", "Picard"], ["Picard", "Picard", "Troi", "Picard"]];
+
+// ---------------- ultrawide's fourth column: covert survey, findings by phase, Malcorian leaders ----------------
+// Built only for ultrawide, from the same model: no new random numbers.
+const nextFinding = (Pc) => { for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) if (Pc < i + RESOLVE[j]) return [PHASES[i].rows[j][0], BY[i][j]]; return null; };
+const observers = (Pc) => (Pc < RESOLVE[1] ? 1 : Pc < 2.6 ? 3 : 0);    // Riker first (the team has him on Malcor III), all three with the second finding, recalled with him
+let PROG = null, SURV = null, BYPH = null, NEXT = null;
+const LEAD = [];
+if (UW) {
+  // the covert survey: progress through the protocol as one long track, then the survey's sensors
+  L.header({ x: NX, y: 280, w: NR - NX, label: "Covert Survey", c1: "lilac", c2: "pink" });
+  L.text({ x: NX, base: 400, s: 36, c: "lilac", txt: "Surgically Altered Observers  ·  Duck Blind Protocol" });
+  L.text({ x: NX, base: base0(0), s: 40, c: "lilac", txt: "Protocol Progress" });
+  const NBRW = BRW - 24;                                   // this column's gauges run 24 further, up to its narrower figures
+  L.rect({ x: NX, y: TY, w: NR - NBRW - NX, h: 26, c: TRACK });
+  PROG = { ph: L.text({ x: NR, base: base0(0), s: 52, c: "white", txt: "", align: "r" }), bar: fill(NX, TY, NR - NBRW - NX, 26, "pink"),
+           v: L.text({ x: NR, base: base0(1), s: 52, c: "white", txt: "", align: "r" }), u: -1 };
+  SURV = [["Sensor Coverage", "lilac"], ["Survey Concealment", "pink"], ["Observers on Surface", "plum"], ["Warp 1 Threshold", "lilac"]]
+    .map(([n, c], i) => gaugeRow(NX, NR, base0(i + 2), n, c, 26, NBRW));
+  // findings by phase: four lamps a phase, lit as each finding comes in; the count agrees with the lamps
+  L.header({ x: NX, y: 1000, w: NR - NX, label: "Findings by Phase", c1: "pink", c2: "lilac" });
+  L.text({ x: NX, base: 1120, s: 36, c: "pink", txt: "Contact Protocol  ·  Four Findings a Phase" });
+  const LG = 16, LW = (NR - NBRW - (NX + BX) - 3 * LG) / 4;
+  BYPH = PHASES.map((p, i) => {
+    L.text({ x: NX, base: base1(i), s: 40, c: "lilac", txt: p.name });
+    const lamps = RESOLVE.map((r, j) => { const e = L.rect({ x: NX + BX + j * (LW + LG), y: base1(i) - 26, w: LW, h: 26, c: TRACK }); e.classList.add("cell"); return e; });
+    return { lamps, v: L.text({ x: NR, base: base1(i), s: 52, c: "white", txt: "", align: "r" }), k: -1 };
+  });
+  L.text({ x: NX, base: base1(4), s: 40, c: "lilac", txt: "Next Finding" });
+  NEXT = L.text({ x: NR, base: base1(4), s: 52, c: "white", txt: "", align: "r" });
+  L.header({ x: NX, y: 1620, w: NR - NX, label: "Malcorian Leadership", c1: "lilac", c2: "plum", h: 48 });
+  [["Chancellor Durken", "Head of State", (P) => (P < 3.4 ? "Unaware" : P < 3.9 ? "Briefed" : "Asks for Time")],
+   ["Mirasta Yale", "Minister of Science", (P) => (P < 3.15 ? "Unaware" : P < 3.65 ? "Briefed" : "Named Envoy")],
+   ["Krola", "Minister of Security", (P) => (P < 3.4 ? "Unaware" : "Opposed")],
+   ["Warp Program", "Science Ministry", (P) => (P < 1 + RESOLVE[2] ? "Under Study" : P < 3.9 ? "Test in 12 Days" : "Postponed")],
+   ["Malcorian Public", "Capital and Provinces", () => "Unaware"],
+   ["Planetary Media", "Broadcast Networks", (P) => (P < 2.6 ? "No Reports" : "Story Contained")],
+  ].forEach(([n, role, f], i) => {
+    L.text({ x: NX, base: STRIP(i), s: 36, c: "pink", txt: n });
+    L.text({ x: NX + 300, base: STRIP(i), s: 36, c: "lilac", txt: role });
+    LEAD.push({ f, v: cls(L.text({ x: NR, base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }), "sw") });
+  });
+}
 
 // ---------------- the clock ----------------
 let lastPhase = -2, lastHold = null, booted = false;
@@ -250,6 +327,12 @@ const update = (t, quiet) => {
   });
   DIRECTIVE.forEach((d) => { const v = d.f(hold ? 3.5 : P); if (v !== d.s) { d.s = v; const f = () => { L.set(d.b, v); bg(d.b, PILLC[v]); }; quiet ? f() : swap([d.b], f); } });
   TEAM.forEach((m) => { const v = m.f(hold ? 3.5 : P); if (v !== m.v.textContent) quiet ? L.set(m.v, v) : swap([m.v], () => L.set(m.v, v)); });
+  LEAD.forEach((m) => { const v = m.f(hold ? 4 : P); if (v !== m.v.textContent) quiet ? L.set(m.v, v) : swap([m.v], () => L.set(m.v, v)); });
+  if (pill2) {
+    const on = observers(hold ? 4 : P) > 0, v = on ? "Observers on Surface" : "Observers Aboard";
+    const f = () => { L.set(pill2, v); bg(pill2, on ? "pink" : "lilac"); };
+    if (v !== pill2.textContent) quiet ? f() : swap([pill2], f);
+  }
 };
 
 // the timeline moves every frame; on a new survey it winds back smoothly
@@ -261,7 +344,8 @@ L.tick((t) => {
   const FILL = 0.97, at = (i) => (i === 3 ? 1 : FILL);
   PHASES.forEach((p, i) => tf(p.fill, `scaleX(${L.clamp((P - i) / at(i)).toFixed(4)})`));
   const i = Math.min(3, Math.floor(P)), f = P - i;
-  const x = f < at(i) ? px(i) + (f / at(i)) * PW : px(i) + PW + L.ease((f - FILL) / (1 - FILL)) * PG;
+  let x = f < at(i) ? px(i) + (f / at(i)) * PW : px(i) + PW + L.ease((f - FILL) / (1 - FILL)) * PG;
+  if (UP || UW) x = Math.min(x, px(3) + PW - 2);             // in the hold the marker rests flush with the timeline's end, not past it
   tf(nowLine, `translate3d(${(x - 2).toFixed(1)}px,0,0)`); tf(nowTip, `translate3d(${(x - 14).toFixed(1)}px,0,0)`);
   op(pill, 0.82 + 0.18 * Math.sin(t * 1.1));
 });
@@ -275,6 +359,24 @@ L.every(1000, (t) => {
   showBar(lex, lx); L.set(lex.v, (lx * 100).toFixed(2) + "%");
   showBar(met, resolved / TOTAL); L.set(met.v, (resolved / TOTAL * 100).toFixed(1) + "%");
   L.set(lingT, `Tamarian  ·  El-Adrel IV  ·  ${fmt(resolved)} of ${fmt(TOTAL)} References Resolved`);
+  if (UW) {
+    const nx = nextFinding(Pc), ob = observers(Pc), k = Math.abs(Pc / 4 - PROG.u) > 0.0005;
+    if (k) { PROG.u = Pc / 4; tf(PROG.bar, `scaleX(${PROG.u.toFixed(4)})`); }
+    L.set(PROG.ph, hold ? "Complete" : `Phase ${Math.floor(Pc) + 1} of 4`); L.set(PROG.v, (Pc / 4 * 100).toFixed(1) + "%");
+    // each sensor reads only once the timeline has its finding (coverage, detection risk, field strength)
+    const sv = [[RESOLVE[2], live.cover / 100, live.cover.toFixed(1) + "%"], [RESOLVE[3], 1 - live.risk / 100, (100 - live.risk).toFixed(2) + "%"],
+                [0, ob / 3, `${ob} / 3`], [1 + RESOLVE[1], live.field, (live.field * 100).toFixed(1) + "%"]];
+    SURV.forEach((g, i) => { const on = Pc >= sv[i][0]; showBar(g, on ? sv[i][1] : 0); L.set(g.v, on ? sv[i][2] : "Pending"); fg(g.v, on ? "white" : "plum"); });
+    // these bars change in steps (a reading comes in, the observers go down, a new survey begins): ease them,
+    // but only once their first reading is drawn, so they never sweep in from full when the screen starts
+    if (!PROG.eased) { PROG.eased = true; setTimeout(() => { PROG.bar.style.transition = "transform 3s ease"; SURV.forEach((g) => (g.bar.style.transition = "transform 1.5s ease")); }, 300); }
+    BYPH.forEach((b, i) => {
+      const n = RESOLVE.filter((r) => Pc >= i + r).length;
+      if (n !== b.k) { b.k = n; b.lamps.forEach((e, j) => e.setAttribute("fill", j < n ? "var(--lilac)" : TRACK)); }
+      L.set(b.v, `${n} of 4`);
+    });
+    L.set(NEXT, nx ? `${nx[0]}  ·  ${nx[1]}` : "None Pending");
+  }
 }, 0);
 // the translator resolves another reference now and then
 L.every(16000, (t) => {
@@ -287,7 +389,7 @@ L.every(16000, (t) => {
   const m = nextM();
   mShown.shift(); mShown.push(m);
   swap(mRows.flatMap((r) => [r.p, r.m]), showM);
-  logLine(`Reference resolved: ${m[0].split(/[ ,]/)[0]}`, "Data");
+  logLine(`Reference resolved: ${UP || UW ? REF[m[0]] || m[0].split(/[ ,]/)[0] : m[0].split(/[ ,]/)[0]}`, "Data");
 }, 0.25);
 L.every(21000, (t) => { if (t > 2) routine(); }, 0.3);
 update(0, true);

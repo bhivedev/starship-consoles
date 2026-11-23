@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Temporal Anomaly</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .clip { position: absolute; overflow: hidden; }
@@ -14,7 +15,7 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: wide, no sidebars — the timeline is the screen ----------------
-L.frame({ type: "D", title: "Temporal Anomaly  •  Causality Monitor", c: "lilac", c2: "butter", accent: "plum" });
+const B = L.frame({ type: "D", title: "Temporal Anomaly  •  Causality Monitor", c: "lilac", c2: "butter", accent: "plum" });
 
 const PANEL = "#1a1122", TRACK = "#2c1f36", GRID = "#33253f", DIM = "#2a1f33";
 const col = (c) => (c.startsWith("#") ? c : `var(--${c})`);
@@ -26,14 +27,34 @@ const fmt = (n) => Math.round(n).toLocaleString("en");
 const pad2 = (n) => String(n).padStart(2, "0");
 const unboot = (e) => e.querySelectorAll(".boot").forEach((x) => x.classList.remove("boot"));
 
-// Columns: the timeline's track names 40–340, the timeline 364–3816; below it three columns 64 apart.
-const X0 = 40, X1 = 3816, TX = 364, TR = 3816, NSLOT = 6, SW = (TR - TX) / NSLOT;
-const COLS = [[40, 1256], [1320, 2536], [2600, 3816]];
+// ---------------- the grid, per shape ----------------
+// The data, readings and motion below are written once; only these positions differ by shape.
+// wide (3840 × 2160): the timeline's track names 40–340, the timeline 364–3816 in six iterations
+//   (four past, now, the projection); below it three columns 1216 wide, 64 apart: a middle row of
+//   panels (header 1068) and a bottom strip (header 1620).
+// ultrawide (5040 × 2160): the timeline runs to 5016 in eight iterations of the wide size (six past);
+//   the same three columns, and a fourth (3880–5016) holds the iteration record, one tall chart.
+// upright (2160 × 3120): the status subtitle drops to its own line; the timeline shows three
+//   iterations (one past) with a taller dekyon trace; the iteration record runs across the full
+//   width under it; the six panels stack two by two in columns 1016 wide (40, 1120).
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const X0 = 40, X1 = UP ? 2136 : UW ? 5016 : 3816, TX = 364, TR = X1, NSLOT = UP ? 3 : UW ? 8 : 6, SW = (TR - TX) / NSLOT;
+const PASTN = NSLOT - 2;                                   // iterations shown before the current one
+const CWD = UP ? 1016 : 1216;                              // a panel column's width
 const VX = 420;                                            // values and gauges start 420 into a column
-const Y = { iter: 368, dek: 448, evt: 752, echo: 904 }, HT = { iter: 56, dek: 280, evt: 128, echo: 56 };
-const AXIS = 1008;                                         // the ship's-hours scale under the tracks
-const MID = 1068, midB = (i) => MID + 120 + i * 54;        // the middle row of panels
-const STRIP = (i) => 1734 + i * 54;                        // the bottom strip
+const TLY = UP ? 352 : 280;                                // the timeline's header
+const Y = UP ? { iter: 440, dek: 520, evt: 864, echo: 1016 } : { iter: 368, dek: 448, evt: 752, echo: 904 };
+const HT = { iter: 56, dek: UP ? 320 : 280, evt: 128, echo: 56 };
+const AXIS = UP ? 1120 : 1008;                             // the ship's-hours scale under the tracks
+// the panels: [x, header y] for the gauge panels; [x, header y, header h, first row] for the tables
+const MID = 1068;
+const PN = UP
+  ? { dk: [40, 1556], at: [1120, 1556], rift: [40, 2068], an: [1120, 2068, 56, 120], log: [40, 2580, 48, 114], msg: [1120, 2580, 48, 114] }
+  : { dk: [40, MID], at: [1320, MID], rift: [2600, MID], an: [1320, 1620, 48, 114], log: [40, 1620, 48, 114], msg: [2600, 1620, 48, 114] };
+const midB = (p, i) => p[1] + 120 + i * 54;                // rows of a gauge panel
+const rowB = (p, i) => p[1] + p[3] + i * 54;               // rows of a table panel
+// the iteration record (new shapes only): x, header y, width, bars' top and bottom, legend baseline
+const REC = UP ? { x: 40, y: 1188, w: 2096, top: 1284, bot: 1444, leg: 1488 } : UW ? { x: 3880, y: MID, w: 1136, top: 1164, bot: 1940, leg: 2004 } : null;
 
 // ---------------- the loop ----------------
 // The Enterprise in the Typhon Expanse: each iteration runs 16 h 04 m of ship's time and ends in a
@@ -73,15 +94,15 @@ const AT = /[?&]it=(\d+)(?:&f=([\d.]+))?/.exec(location.search);   // dev: ?it=2
 
 // ---------------- status line ----------------
 const stateTxt = L.text({ x: X0, cap: 150, s: 100, c: "lilac", txt: "" });
-const stateSub = L.text({ x: 0, base: 222, s: 38, c: "butter", txt: "" });
-const setState = (word, sub) => { L.set(stateTxt, word); stateSub.style.left = X0 + L.textWidth(word, 100) + 40 + "px"; L.set(stateSub, sub); };
+const stateSub = L.text({ x: 0, base: UP ? 290 : 222, s: 38, c: "butter", txt: "" });
+const setState = (word, sub) => { L.set(stateTxt, word); stateSub.style.left = UP ? X0 + "px" : X0 + L.textWidth(word, 100) + 40 + "px"; L.set(stateSub, sub); };
 const pill = L.box({ x: TR - 400, y: 150, w: 400, h: 72, c: "pink", label: "", r: "lr", fs: 36, cls: "sw" });
 const SDR = TR - 400 - 48;
 const sdVal = L.text({ x: SDR, base: 222, s: 52, c: "white", txt: "", align: "r" });
 L.text({ x: SDR - L.textWidth("45000.0", 52) - 28, base: 222, s: 40, c: "lilac", txt: "Stardate", align: "r" });
 
 // ---------------- the timeline ----------------
-L.header({ x: X0, y: 280, w: X1 - X0, label: "Causality Loop Detector  ·  U.S.S. Enterprise", c1: "lilac", c2: "butter" });
+L.header({ x: X0, y: TLY, w: X1 - X0, label: "Causality Loop Detector  ·  U.S.S. Enterprise", c1: "lilac", c2: "butter" });
 L.box({ x: X0, y: Y.iter, w: 300, h: HT.iter, c: "lilac", label: "Iteration", fs: 32, r: "l" });
 L.box({ x: X0, y: Y.dek, w: 300, h: HT.dek, c: "plum", label: "Dekyon Field", fs: 32 });
 L.box({ x: X0, y: Y.evt, w: 300, h: HT.evt, c: "lilac", label: "Ship Events", fs: 32 });
@@ -91,7 +112,7 @@ L.rect({ x: TX, y: Y.dek, w: TR - TX, h: HT.dek, c: PANEL });
 L.rect({ x: TX, y: Y.evt, w: TR - TX, h: HT.evt, c: PANEL });
 [0.25, 0.5, 0.75].forEach((u) => L.rect({ x: TX, y: Y.dek + HT.dek * u - 1, w: TR - TX, h: 2, c: GRID, free: true }));
 
-const CY = 340, CH = AXIS + 12 - CY;                       // the clipped window the iterations slide through
+const CY = UP ? 412 : 340, CH = AXIS + 12 - CY;                       // the clipped window the iterations slide through
 const clip = L.el("div", "clip boot", L.stage, { left: TX + "px", top: CY + "px", width: TR - TX + "px", height: CH + "px" });
 const ry = (y) => y - CY;
 const veil = L.layer({ x: 0, y: ry(Y.iter), w: TR - TX + SW, h: Y.echo + HT.echo - Y.iter }, clip);   // what has not happened yet
@@ -139,7 +160,9 @@ const build = (s) => {
   const evs = k === "lin" ? EVENTS.lin[Math.min(lin, 2)] : EVENTS[k];
   evs.forEach(([f, txt, row, ec, side]) => {
     const x = f * SW;
-    div(x - 2, ry(Y.evt) + 8, 4, HT.evt - 16, ec);
+    // upright and ultrawide: a first-row event's tick stops above the second row, so a second-row label
+    // that runs back past it (Bozeman Clear, past Distortion) never touches it
+    div(x - 2, ry(Y.evt) + 8, 4, (UP || UW) && !row ? 52 : HT.evt - 16, ec);
     const base = ry(Y.evt) + (row ? 108 : 50);
     if (side === "r") L.text({ x: x - 16, base, s: 36, c: ec === "mars" ? "mars" : ec, txt, align: "r", rightIn: true }, e);
     else L.text({ x: x + 16, base, s: 36, c: ec, txt }, e);
@@ -163,57 +186,60 @@ const addSlot = (seq) => {
 };
 
 // ---------------- dekyon emissions · anti-time · temporal rift ----------------
-const gauge = (x, i, name, c) => {
-  const base = midB(i), r = x + 1216 - 230;
+const gauge = (p, i, name, c) => {
+  // wide: name | bar | value right-aligned; upright's narrower columns: name | value (in line with
+  // the panel's other values) | bar out to the column's edge
+  const x = p[0], base = midB(p, i), l = UP ? x + VX + 220 : x + VX, r = UP ? x + CWD : x + CWD - 230;
   L.text({ x, base, s: 36, c: "lilac", txt: name });
-  L.rect({ x: x + VX, y: base - 20, w: r - (x + VX), h: 20, c: TRACK });
-  const bar = L.layer({ x: x + VX, y: base - 20, w: r - (x + VX), h: 20 });
+  L.rect({ x: l, y: base - 20, w: r - l, h: 20, c: TRACK });
+  const bar = L.layer({ x: l, y: base - 20, w: r - l, h: 20 });
   bar.style.background = col(c); bar.style.transformOrigin = "0 50%";
-  return { bar, v: L.text({ x: x + 1216, base, s: 40, c: "white", txt: "", align: "r" }), u: -1 };
+  return { bar, v: UP ? L.text({ x: x + VX, base, s: 40, c: "white", txt: "" }) : L.text({ x: x + CWD, base, s: 40, c: "white", txt: "", align: "r" }), u: -1 };
 };
 const showBar = (g, k) => { k = L.clamp(k); if (Math.abs(k - g.u) > 0.001) { g.u = k; tf(g.bar, `scaleX(${k.toFixed(3)})`); } };
 const row = (x, base, name, txt, c = "white") => {
   L.text({ x, base, s: 36, c: "lilac", txt: name });
   return L.text({ x: x + VX, base, s: 40, c, txt });
 };
-const [C1, C2, C3] = COLS.map((c) => c[0]);
-L.header({ x: C1, y: MID, w: 1216, label: "Dekyon Emissions  ·  Typhon Expanse", c1: "plum", c2: "lilac" });
-L.header({ x: C2, y: MID, w: 1216, label: "Anti-Time  ·  Devron System", c1: "lilac", c2: "butter" });
-L.header({ x: C3, y: MID, w: 1216, label: "Temporal Rift  ·  Narendra III", c1: "butter", c2: "plum" });
+const { dk: P1, at: P2, rift: P3 } = PN, [C1, C2, C3] = [P1[0], P2[0], P3[0]];
+L.header({ x: C1, y: P1[1], w: CWD, label: "Dekyon Emissions  ·  Typhon Expanse", c1: "plum", c2: "lilac" });
+L.header({ x: C2, y: P2[1], w: CWD, label: "Anti-Time  ·  Devron System", c1: "lilac", c2: "butter" });
+L.header({ x: C3, y: P3[1], w: CWD, label: "Temporal Rift  ·  Narendra III", c1: "butter", c2: "plum" });
 const dk = {
-  flux: gauge(C1, 0, "Dekyon Flux", "butter"), coh: gauge(C1, 1, "Field Coherence", "lilac"), dist: gauge(C1, 2, "Spatial Distortion", "pink"),
-  bear: row(C1, midB(3), "Distortion Bearing", "318 Mark 004"),
-  vessel: row(C1, midB(4), "Vessel Detected", ""),
+  flux: gauge(P1, 0, "Dekyon Flux", "butter"), coh: gauge(P1, 1, "Field Coherence", "lilac"), dist: gauge(P1, 2, "Spatial Distortion", "pink"),
+  bear: row(C1, midB(P1, 3), "Distortion Bearing", "318 Mark 004"),
+  vessel: row(C1, midB(P1, 4), "Vessel Detected", ""),
 };
-row(C1, midB(5), "Bozeman Missing Since", "2278  ·  Soyuz Class  ·  NCC-1941");
-row(C1, midB(6), "Commanding Officer", "Capt. Morgan Bateson");
+row(C1, midB(P1, 5), "Bozeman Missing Since", "2278  ·  Soyuz Class  ·  NCC-1941");
+row(C1, midB(P1, 6), "Commanding Officer", "Capt. Morgan Bateson");
 // the anomaly in the Devron system is largest in the past: it grows as it goes back in time
 const at = [
-  [gauge(C2, 0, "Anomaly  ·  2364", "lilac"), 0.96, 1.62],
-  [gauge(C2, 1, "Anomaly  ·  2370", "lilac"), 0.42, 0.71],
-  [gauge(C2, 2, "Anomaly  ·  2395", "butter"), 0.07, 0.12],
+  [gauge(P2, 0, "Anomaly  ·  2364", "lilac"), 0.96, 1.62],
+  [gauge(P2, 1, "Anomaly  ·  2370", "lilac"), 0.42, 0.71],
+  [gauge(P2, 2, "Anomaly  ·  2395", "butter"), 0.07, 0.12],
 ];
-row(C2, midB(3), "Tachyon Pulse", "Inverse  ·  Main Deflector");
-const atFlux = row(C2, midB(4), "Anti-Time Flux", "");
-row(C2, midB(5), "Pulse Sources", "3 Enterprises  ·  Converging");
-row(C2, midB(6), "Location", "Romulan Neutral Zone");
+row(C2, midB(P2, 3), "Tachyon Pulse", "Inverse  ·  Main Deflector");
+const atFlux = row(C2, midB(P2, 4), "Anti-Time Flux", "");
+row(C2, midB(P2, 5), "Pulse Sources", "3 Enterprises  ·  Converging");
+row(C2, midB(P2, 6), "Location", "Romulan Neutral Zone");
 const rift = [
-  [gauge(C3, 0, "Chroniton Residue", "butter"), 0.22, (u) => (u * 0.1).toFixed(3) + " ppm"],
-  [gauge(C3, 1, "Subspace Shear", "lilac"), 0.13, (u) => (u * 10).toFixed(2) + " mc"],
-  [gauge(C3, 2, "Timeline Coherence", "lilac"), 0.993, (u) => (u * 100).toFixed(1) + "%"],
+  [gauge(P3, 0, "Chroniton Residue", "butter"), 0.22, (u) => (u * 0.1).toFixed(3) + " ppm"],
+  [gauge(P3, 1, "Subspace Shear", "lilac"), 0.13, (u) => (u * 10).toFixed(2) + " mc"],
+  [gauge(P3, 2, "Timeline Coherence", "lilac"), 0.993, (u) => (u * 100).toFixed(1) + "%"],
 ];
-row(C3, midB(3), "Vessel", "Enterprise-C  ·  NCC-1701-C");
-row(C3, midB(4), "Commanding Officer", "Capt. Rachel Garrett");
-row(C3, midB(5), "Rift Opened", "2344  ·  Klingon Outpost");
-const riftSt = row(C3, midB(6), "Rift Status", "Sealed  ·  Timeline Restored");
+row(C3, midB(P3, 3), "Vessel", "Enterprise-C  ·  NCC-1701-C");
+row(C3, midB(P3, 4), "Commanding Officer", "Capt. Rachel Garrett");
+row(C3, midB(P3, 5), "Rift Opened", "2344  ·  Klingon Outpost");
+const riftSt = row(C3, midB(P3, 6), "Rift Status", "Sealed  ·  Timeline Restored");
 
 // ---------------- bottom strip: log · analysis · the message ----------------
-L.header({ x: C1, y: 1620, w: 1216, label: "Loop Log", c1: "lilac", c2: "plum", h: 48 });
-L.header({ x: C2, y: 1620, w: 1216, label: "Loop Analysis", c1: "butter", c2: "lilac", h: 48 });
-L.header({ x: C3, y: 1620, w: 1216, label: "Dekyon Message", c1: "plum", c2: "butter", h: 48 });
+const { log: Q1, an: Q2, msg: Q3 } = PN;
+L.header({ x: Q1[0], y: Q1[1], w: CWD, label: "Loop Log", c1: "lilac", c2: "plum", h: Q1[2] });
+L.header({ x: Q2[0], y: Q2[1], w: CWD, label: "Loop Analysis", c1: "butter", c2: "lilac", h: Q2[2] });
+L.header({ x: Q3[0], y: Q3[1], w: CWD, label: "Dekyon Message", c1: "plum", c2: "butter", h: Q3[2] });
 const logRows = Array.from({ length: 6 }, (_, i) => ({
-  d: L.text({ x: C1, base: STRIP(i), s: 36, c: "butter", txt: "" }),
-  tx: L.text({ x: C1 + 190, base: STRIP(i), s: 36, c: "lilac", txt: "" }),
+  d: L.text({ x: Q1[0], base: rowB(Q1, i), s: 36, c: "butter", txt: "" }),
+  tx: L.text({ x: Q1[0] + 190, base: rowB(Q1, i), s: 36, c: "lilac", txt: "" }),
 }));
 let logged = [];
 const days = (seq, f) => ((seq - 1 + f) * PERIOD) / 24;
@@ -226,19 +252,19 @@ const log = (txt, d) => {
   });
 };
 const an = ["Iterations Logged", "Loop Period", "Time Elapsed", "Echo Index", "Projected Outcome", "Next Reset"]
-  .map((name, i) => row(C2, STRIP(i), name, i === 1 ? "16 h 04 m" : ""));
+  .map((name, i) => row(Q2[0], rowB(Q2, i), name, i === 1 ? "16 h 04 m" : ""));
 // the message: a 5 × 7 matrix that resolves into a three
 const THREE = ["01110", "10001", "00001", "00110", "00001", "10001", "01110"];
-const MT = STRIP(0) - 0.72 * 36, MB = STRIP(5), CP = (MB - MT - 35) / 6;
+const MT = rowB(Q3, 0) - 0.72 * 36, MB = rowB(Q3, 5), CP = (MB - MT - 35) / 6;
 const cells = [];
 for (let r = 0; r < 7; r++) for (let c = 0; c < 5; c++) {
-  const e = L.el("div", "cell boot", L.stage, { left: C3 + c * CP + "px", top: MT + r * CP + "px", width: "35px", height: "35px", background: DIM });
+  const e = L.el("div", "cell boot", L.stage, { left: Q3[0] + c * CP + "px", top: MT + r * CP + "px", width: "35px", height: "35px", background: DIM });
   cells.push({ e, on: THREE[r][c] === "1", r });
 }
-const MX = C3 + 300;
+const MX = Q3[0] + 300;
 const msgRows = ["Carrier", "Sender", "Received By", "Content", "Clue", "Action"].map((name, i) => {
-  L.text({ x: MX, base: STRIP(i), s: 36, c: "lilac", txt: name });
-  return L.text({ x: MX + 260, base: STRIP(i), s: 40, c: "white", txt: "" });
+  L.text({ x: MX, base: rowB(Q3, i), s: 36, c: "lilac", txt: name });
+  return L.text({ x: MX + 260, base: rowB(Q3, i), s: 40, c: "white", txt: "" });
 });
 let shown = "";
 const showMessage = (state, t) => {                         // "wait": scanning, "got": the three
@@ -254,13 +280,36 @@ const showMessage = (state, t) => {                         // "wait": scanning,
     .forEach(([txt, c], i) => { L.set(msgRows[i], txt); fg(msgRows[i], c); });
 };
 
+// ---------------- the iteration record (upright and ultrawide): how strongly each loop was remembered ----------------
+// One bar per iteration, 1 to 26, as high as its echo index; past lilac, the current one butter,
+// the projections dim. It draws what the timeline already knows: echoOf, cur and kind.
+const recBars = [];
+if (REC) {
+  L.header({ x: REC.x, y: REC.y, w: REC.w, label: "Iteration Record  ·  Echo Index", c1: "butter", c2: "lilac" });
+  const bx0 = REC.x + 124, n = LAST, bw = Math.round(((REC.x + REC.w - bx0) / n) * 0.6), pitch = (REC.x + REC.w - bx0 - bw) / (n - 1);
+  const hh = REC.bot - REC.top;
+  [[1, "100%", "cap", REC.top], [0.5, "50%", "base", REC.top + hh / 2 + 0.36 * 30], [0, "0%", "base", REC.bot]]
+    .forEach(([, txt, how, y]) => L.text({ x: REC.x, [how]: y, s: 30, c: "lilac", txt, legend: true }));
+  for (let q = 1; q <= n; q++) {
+    const x = bx0 + (q - 1) * pitch;
+    L.el("div", "cell boot", L.stage, { left: x.toFixed(1) + "px", top: REC.top + "px", width: bw + "px", height: hh + "px", background: TRACK });
+    const h = Math.round((echoOf(q) / 100) * hh);
+    recBars.push(L.el("div", "cell boot", L.stage, { left: x.toFixed(1) + "px", top: REC.bot - h + "px", width: bw + "px", height: h + "px", background: DIM }));
+    if ([1, 5, 10, 15, 20, LAST].includes(q)) L.text({ x: x + bw / 2, base: REC.leg, s: 30, c: "lilac", txt: pad2(q), align: "c", w: 80, legend: true });
+  }
+}
+const showRecord = () => recBars.forEach((e, i) => {
+  const q = i + 1;
+  bg(e, kind(cur) === "lin" ? (q === LAST ? "butter" : "lilac") : q < cur ? "lilac" : q === cur ? "butter" : "#4a3560");
+});
+
 // ---------------- the clock of the loop ----------------
 let inT0 = -9, curT0 = 0, scroll = 0, from = 0, to = 0, slideT0 = -9, fade = null, fired = new Set();
 const setup = (seq, f, t) => {
   slots.forEach((s) => s.el.remove()); slots.clear();
   cur = seq; broken = seq > LAST; msgGot = seq > LAST; curT0 = t - f * ITER_S; fired = new Set();
-  scroll = from = to = seq - 4; slideT0 = -9;
-  for (let q = seq - 4; q <= seq + 1; q++) addSlot(q);
+  scroll = from = to = seq - PASTN; slideT0 = -9;
+  for (let q = seq - PASTN; q <= seq + 1; q++) addSlot(q);
   logged = [];
   const d0 = days(seq, 0);
   if (seq <= LAST) {
@@ -275,7 +324,9 @@ const place = (all) => {
   slots.forEach((s) => {
     const pos = s.seq - scroll;
     if (all || s.moving) L.move(s.el, (pos * SW).toFixed(2), 0);
-    op(s.el, (pos < -0.01 || pos > NSLOT - 0.99 ? 0 : s.vis ?? 1) * (fade ? fade.k : 1));
+    // upright and ultrawide: the new projection shows while it slides in from the edge, so the end
+    // never stands empty
+    op(s.el, (pos < -0.01 || pos > (UP || UW ? NSLOT : NSLOT - 0.99) ? 0 : s.vis ?? 1) * (fade ? fade.k : 1));
   });
 };
 const advance = (t) => {
@@ -286,7 +337,7 @@ const advance = (t) => {
   build(slots.get(was)); build(slots.get(cur));
   if (kind(cur) === "lin" && cur === LAST + 1) log("Linear time  ·  Stardate corrected", days(cur, 0));
   addSlot(cur + 1).vis = 0;                                // it fades in once the slide is done
-  from = scroll; to = cur - 4; slideT0 = t; inT0 = t + 0.5;   // the new projection fades in as it slides into view, so the end never stands empty
+  from = scroll; to = cur - PASTN; slideT0 = t; inT0 = t + (UP || UW ? 0.1 : 0.5);   // the new projection fades in as it slides into view, so the end never stands empty
   slots.forEach((s) => (s.moving = true));
 };
 const happen = (key, f, fn) => { if (!fired.has(key) && fn) { fired.add(key); fn(); } };
@@ -313,7 +364,7 @@ L.tick((t) => {
     }
   }
   // the oldest iteration fades out before it slides off the edge; the new projection fades in after
-  const old = slots.get(cur - 4), nxt = slots.get(cur + 1);
+  const old = slots.get(cur - PASTN), nxt = slots.get(cur + 1);
   if (old && slideT0 < 0) { const v = L.clamp(((1 - f) * ITER_S) / 0.6); if (v !== old.vis) { old.vis = v; place(false); } }
   if (nxt && nxt.vis < 1 && inT0 > 0 && t >= inT0) { nxt.vis = L.clamp((t - inT0) / 1.0); place(false); }
   const x = (cur - scroll + f) * SW;
@@ -377,6 +428,7 @@ L.every(300, (t) => {
   fg(an[4], k === "lin" || broken ? "white" : "mars");
   L.set(an[5], k === "lin" || broken ? "None" : `in ${hm((1 - f) * PERIOD)}`);
   showMessage(msg ? "got" : "wait", t);
+  if (REC) showRecord();
 }, 0);
 
 const start0 = AT ? +AT[1] : L.irand(FIRST, LAST - 1);

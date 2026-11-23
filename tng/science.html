@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Science Station</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* the scan cursor: a bright hairline with a soft glow either side */
@@ -12,10 +13,24 @@
 const L = LCARS;
 L.ready(() => {
 
+// Three layouts; the samples, readings and the analysis cycle are written once, only places differ.
+// wide (3840 × 2160): the original, hand-placed — sample data beside the spectrum, then radiation,
+//   composition and the cycle, then the log, particle energy and the archive.
+// upright (2160 × 3120): the spectrum and the composition table at full width; then sample data in two
+//   columns beside the cycle; radiation beside the archive; the log beside particle energy.
+//   Its columns: A 40–800, B 860–1320, C 1380–1840 for the sample data and the cycle; the two rows
+//   below split at 900 / 960, so radiation, the archive, the log and particle energy line up.
+// ultrawide (5040 × 2160): the wide panels, a spectrum 1200 longer, a line catalogue between the
+//   composition and the cycle, and wider particle energy and archive (more bars, more columns).
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const TITLE = "Science Station  •  Spectrographic Analysis";
+const SIDE = [[140, "ice", "Sci 01"], [70, "butter", "Spec"], [420, "sky", "Analysis"], [70, "blue", "Lab 2"],
+  [300, "ice", "Sensors"], [70, "butter", "Probe"], [216, "sky", "Archive"]];
+let b;
+if (L.shape === "wide") {
 // ---------------- the frame, mirrored: sidebar on the right, title at top left ----------------
 const BAR = 64, TS = BAR / (L.BASELINE - L.CAP_TOP);
 L.box({ x: 40, y: 40, w: 92, h: BAR, c: "ice", r: "l" });
-const TITLE = "Science Station  •  Spectrographic Analysis";
 L.text({ x: 132 + L.GAP, cap: 40, s: TS, c: "ice", txt: TITLE });
 const afterTitle = 132 + L.GAP + L.textWidth(TITLE, TS) + L.GAP;
 L.rect({ x: afterTitle, y: 40, w: 300, h: BAR, c: "butter" });
@@ -29,6 +44,18 @@ L.text({ x: 3794, base: 1712, s: 40, c: "#000", txt: "Science", align: "r", on: 
 L.box({ x: 40, y: 2056, w: 92, h: BAR, c: "blue", r: "l" });
 [[132 + L.GAP, 700, "ice"], [132 + L.GAP + 700 + L.GAP, 900, "sky"]].forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
 L.rect({ x: 132 + 3 * L.GAP + 1600, y: 2056, w: 2600 - L.GAP - (132 + 3 * L.GAP + 1600), h: BAR, c: "blue" });
+b = { x0: 40, x1: 3520, y0: 140, y1: 2010 };
+} else {
+  // the same frame, drawn by the kit for this shape: type B, the same sidebar labels and colours. The kit
+  // draws the cap and title in the bar's sky and puts the butter accent first along the bottom; the
+  // hand-built wide frame has the cap, title and that first bottom piece ice, so those are recoloured.
+  const svg = document.getElementById("frame"), n0 = svg.querySelectorAll("rect").length, nb = document.querySelectorAll(".bx").length;
+  b = L.frame({ type: "B", title: TITLE, c: "sky", c2: "blue", accent: "butter", foot: "Science", side: SIDE });
+  document.querySelectorAll(".bx")[nb].style.background = "var(--ice)";
+  document.querySelector('[data-title="1"]').style.color = "var(--ice)";
+  const foot = [...svg.querySelectorAll("rect")].slice(n0).filter((r) => +r.getAttribute("y") === L.H - 104);
+  foot.sort((p, q) => +p.getAttribute("x") - +q.getAttribute("x"))[0].setAttribute("fill", "var(--ice)");
+}
 
 const header = (x, y, w, label, lw, c1, c2) => {
   L.box({ x, y, w: lw, h: 56, c: c1, label, fs: 32, r: "l" });
@@ -93,22 +120,30 @@ let sampleN = 2240, sd = 47772.3;
 
 // ---------------- status line ----------------
 const stateTxt = L.text({ x: 40, cap: 150, s: 100, c: "ice", txt: "Sampling" });
-const stateSub = L.text({ x: 1140, base: 222, s: 38, c: "sky", txt: "" });
-const pill = L.box({ x: 3120, y: 150, w: 400, h: 72, c: "sky", label: "", r: "lr", fs: 36 });
+// upright: the subtitle clears the longest state word (621) and the pill clears the longest subtitle (675)
+const stateSub = L.text({ x: UP ? 720 : 1140, base: 222, s: 38, c: "sky", txt: "" });
+// upright: a shorter pill, so the longest subtitle keeps well clear of it
+const pill = L.box({ x: b.x1 - (UP ? 340 : 400), y: 150, w: UP ? 340 : 400, h: 72, c: "sky", label: "", r: "lr", fs: 36 });
 
 // ---------------- sample data ----------------
-header(40, 280, 1040, "Sample Data", 300, "sky", "ice");
+// upright: two columns under one header, five rows each, 70 apart (columns A and B); the second
+// opens with the line count, a short value, so no first-row reading nearly meets the header's end
+header(40, UP ? 1620 : 280, UP ? 1280 : 1040, "Sample Data", 300, "sky", "ice");
 const META = [["Source", (s) => s.source], ["Class", (s) => s.cls], ["Collection", (s) => s.collect], ["Range", (s) => s.range],
   ["Temperature", (s) => s.temp], ["Density", (s) => s.density], ["Radial Velocity", (s) => s.vel], ["Sample Mass", (s) => s.mass],
   ["Stardate", (s) => s.sd]];
 const metaVals = META.map(([name], i) => {
-  const base = 404 + i * 76;
-  L.text({ x: 40, base, s: 40, c: "sky", txt: name });
-  return L.text({ x: 330, base, s: 52, c: "white", txt: "" });
+  const [lx, vx, base] = UP ? (i < 5 ? [40, 260, 1744 + i * 70] : [860, 1080, 1744 + (i - 4) * 70]) : [40, 330, 404 + i * 76];
+  L.text({ x: lx, base, s: 40, c: "sky", txt: name });
+  return L.text({ x: vx, base, s: 52, c: "white", txt: "" });
 });
 
+// upright: the second column's first row holds the lines the scan has found, of the sample's lines
+const linesVal = UP ? (L.text({ x: 860, base: 1744, s: 40, c: "sky", txt: "Lines Detected" }), L.text({ x: 1080, base: 1744, s: 52, c: "white", txt: "" })) : null;
+
 // ---------------- emission spectrum ----------------
-const P0 = 1140, PW = 3520 - P0, NM0 = 380, NM1 = 700, PT = 412, PH = 360, BT = 788, BH = 72;
+// upright: the full width; ultrawide: 1200 longer (b.x1 is 3520 in wide)
+const P0 = UP ? 40 : 1140, PW = b.x1 - P0, NM0 = 380, NM1 = 700, PT = 412, PH = 360, BT = 788, BH = 72;
 const X = (nm) => P0 + ((nm - NM0) / (NM1 - NM0)) * PW;
 header(P0, 280, PW, "Emission Spectrum", 360, "ice", "sky");
 for (let nm = NM0; nm <= NM1; nm += 10) {                // the wavelength scale, above the plot
@@ -178,9 +213,12 @@ const placeLabels = (lines) => {
   // Each label goes in a tier, to the right or left of its leader. Rules: labels in one tier keep
   // apart; no leader passes through a label in a tier above its own. A small search (ten lines at
   // most) finds a layout that keeps them, preferring the top tier and the right-hand side.
-  const order = lines.slice().sort((a, b) => b.nm - a.nm), placed = [];
+  // In the new shapes a label also keeps 40 clear of another line's leader in its own tier, so no
+  // label sits hard against a leader that isn't its own (wide keeps its layout exactly).
+  const order = lines.slice().sort((a, b) => b.nm - a.nm), placed = [], LC = L.shape === "wide" ? 0 : 40;
   const ok = (q) => placed.every((p) =>
     !(p.tier === q.tier && q.a < p.b + 18 && p.a < q.b + 18) &&
+    !(LC && p.tier === q.tier && ((p.x > q.a - LC && p.x < q.b + LC) || (q.x > p.a - LC && q.x < p.b + LC))) &&
     !(p.tier > q.tier && p.x > q.a - 10 && p.x < q.b + 10) &&
     !(p.tier < q.tier && q.x > p.a - 10 && q.x < p.b + 10));
   const search = (i) => {
@@ -218,25 +256,28 @@ const profile = (s) => {
 let prof = [];
 
 // ---------------- radiation ----------------
-header(40, 1100, 1040, "Radiation", 260, "ice", "sky");
+// upright: 40–900, under the sample data; the archive beside it and the panels below share its 900 / 960 gutter
+const RY = UP ? 2100 : 1100, RBX = UP ? 260 : 330, RBW = UP ? 420 : 430, RVX = UP ? 900 : 1080;
+header(40, RY, RVX - 40, "Radiation", 260, "ice", "sky");
 // bars on a log scale, [lo, hi]: the readings span orders of magnitude from sample to sample
 const RAD = [["Radiation", (v) => v.toFixed(3) + " rem/h", [1e-4, 0.1]], ["Neutrino Flux", (v) => Math.round(v).toLocaleString("en") + " /s", [10, 1e4]],
   ["Theta Radiation", (v) => v.toFixed(3) + " rem/h", [1e-4, 0.1]], ["Particulates", (v) => Math.round(v).toLocaleString("en") + " /cm³", [1, 1e5]],
   ["Ionization", (v) => (v < 1 ? v.toFixed(2) : v.toFixed(1)) + "%", [0.003, 100]]];
 const rads = RAD.map(([name, fmt, [lo, hi]], i) => {
-  const base = 1220 + i * 81;
+  const base = RY + 120 + i * 81;
   L.text({ x: 40, base, s: 40, c: "sky", txt: name });
-  L.rect({ x: 330, y: base - 28, w: 430, h: 28, c: "#0c1a3a" });
-  const f = L.layer({ x: 330, y: base - 28, w: 430, h: 28 });
+  L.rect({ x: RBX, y: base - 28, w: RBW, h: 28, c: "#0c1a3a" });
+  const f = L.layer({ x: RBX, y: base - 28, w: RBW, h: 28 });
   f.style.background = i === 2 ? "var(--butter)" : "var(--sky)"; f.style.transformOrigin = "0 0";
-  const v = L.text({ x: 1080, base, s: 52, c: "white", txt: "", align: "r" });
+  const v = L.text({ x: RVX, base, s: 52, c: "white", txt: "", align: "r" });
   return { f, v, fmt, frac: (x) => L.clamp(Math.log10(x / lo) / Math.log10(hi / lo), 0.01, 1), base: 0, cur: 0, goal: 0 };
 });
 
 // ---------------- element composition ----------------
-const EX = 1140, EW = 2700 - EX;
+// upright: the full width, the abundance bars longer
+const EX = UP ? 40 : 1140, ER = UP ? 1840 : 2700, EW = ER - EX;
 header(EX, 1100, EW, "Element Composition", 400, "sky", "ice");
-const EC = { name: 1256, lines: 1500, mass: 2100, bar: 2160 };
+const EC = UP ? { name: 156, lines: 400, mass: 1020, bar: 1080 } : { name: 1256, lines: 1500, mass: 2100, bar: 2160 };
 [["Element", EX], ["Spectral Lines  ·  nm", EC.lines], ["Mass %", EC.mass, "r"], ["Abundance  ·  Log Scale", EC.bar]]
   .forEach(([txt, x, align]) => L.text({ x, base: 1220, s: 36, c: "sky", txt, align }));
 const ROW_C = ["ice", "sky"], SYMW = Math.round(L.textWidth("Element", 36));   // the symbol column is as wide as its caption
@@ -246,49 +287,86 @@ const erows = [0, 1, 2, 3, 4, 5].map((i) => {
   const name = L.text({ x: EC.name, base, s: 40, c: "slate", txt: "Unresolved" });
   const lines = L.text({ x: EC.lines, base, s: 36, c: "ice", txt: "" });
   const mass = L.text({ x: EC.mass, base, s: 40, c: "white", txt: "", align: "r" });
-  L.rect({ x: EC.bar, y: base - 22, w: 2700 - EC.bar, h: 22, c: "#0c1a3a" });
-  const bar = L.layer({ x: EC.bar, y: base - 22, w: 2700 - EC.bar, h: 22 });
+  L.rect({ x: EC.bar, y: base - 22, w: ER - EC.bar, h: 22, c: "#0c1a3a" });
+  const bar = L.layer({ x: EC.bar, y: base - 22, w: ER - EC.bar, h: 22 });
   bar.style.background = `var(--${ROW_C[i % 2]})`; bar.style.transformOrigin = "0 0"; bar.style.transform = "scaleX(0)";
   return { box, name, lines, mass, bar, u: 0, goal: 0, t0: -1, el: null, found: [] };
 });
 const logFrac = (p) => L.clamp((Math.log10(p) + 2) / 4);     // 0.01% → empty, 100% → full
 
 // ---------------- the analysis cycle ----------------
-const AX = 2760, AW = 3520 - AX;
-header(AX, 1100, AW, "Analysis Cycle", 340, "butter", "sky");
+// upright: column C, beside the sample data; ultrawide: out 1200, past the line catalogue
+const AX = UP ? 1380 : UW ? 3960 : 2760, AR = b.x1, AW = AR - AX, AY = UP ? 1620 : 1100;
+header(AX, AY, AW, "Analysis Cycle", 340, "butter", "sky");
 const stages = ["Sampling", "Spectral Scan", "Identification", "Report"].map((name, i) => {
-  const base = 1220 + i * 81;
+  const base = UP ? 1744 + i * 70 : 1220 + i * 81, bx = AX + (UP ? 180 : 240), bw = UP ? 150 : 360;   // upright: ends 130 in from the column
   L.text({ x: AX, base, s: 40, c: "sky", txt: name });
-  L.rect({ x: 3000, y: base - 28, w: 360, h: 28, c: "#0c1a3a" });
-  const f = L.layer({ x: 3000, y: base - 28, w: 360, h: 28 });
+  L.rect({ x: bx, y: base - 28, w: bw, h: 28, c: "#0c1a3a" });
+  const f = L.layer({ x: bx, y: base - 28, w: bw, h: 28 });
   f.style.background = "var(--ice)"; f.style.transformOrigin = "0 0"; f.style.transform = "scaleX(0)";
-  const v = L.text({ x: 3520, base, s: 52, c: "white", txt: "", align: "r" });
+  const v = L.text({ x: AR, base, s: 52, c: "white", txt: "", align: "r" });
   return { f, v, u: 0 };
 });
-const readLabel = L.text({ x: AX, base: 1544, s: 40, c: "butter", txt: "" });
-const readVal = L.text({ x: 3520, base: 1544, s: 52, c: "butter", txt: "", align: "r" });
+const readLabel = L.text({ x: AX, base: UP ? 2024 : 1544, s: 40, c: "butter", txt: "" });
+const readVal = L.text({ x: AR, base: UP ? 2024 : 1544, s: 52, c: "butter", txt: "", align: "r" });
+
+// ---------------- line catalogue (ultrawide) ----------------
+// the sample's lines by wavelength, five to a column: the wavelength when the scan detects a line, its
+// species and what it is when identified; the counts below agree with the rows
+const cat = UW ? (() => {
+  const CX = 2760, CR = 3900, cols = [CX, CX + 600];
+  header(CX, 1100, CR - CX, "Line Catalogue", 320, "ice", "sky");
+  cols.forEach((x) => [["Species", 0], ["nm", 150], ["Designation", 250]].forEach(([txt, dx]) => L.text({ x: x + dx, base: 1220, s: 36, c: "sky", txt })));
+  const rows = Array.from({ length: 10 }, (_, k) => {
+    const x = cols[Math.floor(k / 5)], base = 1274 + (k % 5) * 54;
+    return { sp: L.text({ x, base, s: 36, c: "slate", txt: "" }), nm: L.text({ x: x + 150, base, s: 36, c: "ice", txt: "" }),
+      des: L.text({ x: x + 250, base, s: 36, c: "white", txt: "" }) };
+  });
+  const tally = [["Detected", cols[0]], ["Identified", cols[1]]].map(([txt, x]) => {
+    L.text({ x, base: 1544, s: 40, c: "sky", txt });
+    return L.text({ x: x + 540, base: 1544, s: 52, c: "white", txt: "", align: "r" });
+  });
+  return { rows, tally };
+})() : null;
+const catShow = () => {                                  // a few times a second
+  const ls = S.lines.slice().sort((a, b) => a.nm - b.nm);
+  cat.rows.forEach((r, k) => {
+    const l = ls[k];
+    L.set(r.sp, !l ? "" : l.id ? l.sp : "Unresolved");
+    if (r.sp.dataset.c !== (l && l.id ? "butter" : "slate")) { r.sp.dataset.c = l && l.id ? "butter" : "slate"; r.sp.style.color = `var(--${r.sp.dataset.c})`; }
+    L.set(r.nm, l && l.det ? l.nm.toFixed(1) : "");
+    L.set(r.des, l && l.id ? (l.name !== l.sp ? l.name : l.els.map((e) => ELEMENT[e]).join("  ·  ")) : "");
+  });
+  L.set(cat.tally[0], `${detected} / ${S.lines.length}`);
+  L.set(cat.tally[1], `${identified} / ${S.lines.length}`);
+};
 
 // ---------------- analysis log ----------------
-small(40, 1620, 1040, "Analysis Log", 280, "sky", "ice");
-const logRows = Array.from({ length: 6 }, (_, i) => {
-  const base = 1734 + i * 54;
+// upright: at the foot, 40–900 (its longest line ends 124 short of the header's end), the newest
+// five of the six entries
+const GY = UP ? 2620 : 1620;                              // the bottom panels' header line
+small(40, GY, UP ? 860 : 1040, "Analysis Log", 280, "sky", "ice");
+const logRows = Array.from({ length: UP ? 5 : 6 }, (_, i) => {
+  const base = GY + 114 + i * 54;
   return { sd: L.text({ x: 40, base, s: 36, c: "butter", txt: "" }), tx: L.text({ x: 230, base, s: 36, c: "ice", txt: "" }) };
 });
 const logged = [];
 const logLine = (txt) => {
   sd += 0.1; logged.push([sd.toFixed(1), txt]); if (logged.length > 6) logged.shift();
-  logRows.forEach((r, i) => { const e = logged[i]; r.sd.textContent = e ? e[0] : ""; r.tx.textContent = e ? e[1] : ""; });
+  const off = Math.max(0, logged.length - logRows.length);   // 0 when every entry has a row
+  logRows.forEach((r, i) => { const e = logged[i + off]; r.sd.textContent = e ? e[0] : ""; r.tx.textContent = e ? e[1] : ""; });
 };
 
 // ---------------- particle energy ----------------
-const QX = 1140, QW = 2100 - QX, QB = 2004;
-small(QX, 1620, QW, "Particle Energy", 320, "ice", "sky");
+// upright: 960–1840 at the foot, beside the log; ultrawide: as wide as the composition table, a fourth readout
+const QX = UP ? 960 : 1140, QW = (UP ? 1840 : UW ? 2700 : 2100) - QX, QB = UP ? 2950 : 2004, QS = UW ? 390 : 320 + L.GAP;
+small(QX, GY, QW, "Particle Energy", 320, "ice", "sky");
 // three readouts, each a caption over its value, on the log's first two lines
-const qcols = [["Peak", QX], ["Mean", QX + 320 + L.GAP], ["Count", QX + 2 * (320 + L.GAP)]].map(([name, x]) => {
-  L.text({ x, base: 1734, s: 36, c: "sky", txt: name });
-  return L.text({ x, base: 1788, s: 40, c: "white", txt: "" });
+const qcols = [["Peak", QX], ["Mean", QX + QS], ["Count", QX + 2 * QS]].concat(UW ? [["Width", QX + 3 * QS]] : []).map(([name, x]) => {
+  L.text({ x, base: GY + 114, s: 36, c: "sky", txt: name });
+  return L.text({ x, base: GY + 168, s: 40, c: "white", txt: "" });
 });
-const NQ = 24, QBW = QW / NQ, QH = 176;
+const NQ = UW ? 39 : UP ? 22 : 24, QBW = QW / NQ, QH = UP ? QB - (GY + 168 + 40) : 176;
 const qbars = Array.from({ length: NQ }, (_, i) => {
   const b = L.layer({ x: QX + i * QBW + 4, y: QB - QH, w: QBW - 8, h: QH });
   b.style.background = i % 4 === 3 ? "var(--ice)" : "var(--sky)"; b.style.transformOrigin = "50% 100%";
@@ -296,17 +374,27 @@ const qbars = Array.from({ length: NQ }, (_, i) => {
 });
 
 // ---------------- sample archive ----------------
-const RX = 2160, RW = 3520 - RX;
-small(RX, 1620, RW, "Sample Archive", 320, "butter", "sky");
-const RC = [RX, RX + 190, RX + 440, RX + 850, RX + 1180];
-["Stardate", "Source", "Class", "Dominant", "Lines"].forEach((h, i) => L.text({ x: RC[i], base: 1734, s: 36, c: "sky", txt: h }));
-const arcRows = Array.from({ length: 5 }, (_, i) => RC.map((x, j) => L.text({ x, base: 1788 + i * 54, s: 36, c: j === 0 ? "butter" : j >= 3 ? "white" : "ice", txt: "" })));
+// each entry: stardate, source, class, dominant element, lines, collection, temperature; the columns
+// pick from it. upright: 960–1840 beside the radiation, four entries on its 81 grid (no lines
+// column); ultrawide: past the line catalogue's edge, with collection and temperature too.
+const RX = UP ? 960 : UW ? 2760 : 2160, RW = b.x1 - RX;
+const ARC = UP ? [[0, 0], [1, 150], [2, 340], [3, 880, "r"]]   // upright: the dominant element right-aligned to the edge
+  : UW ? [[0, 0], [1, 190], [2, 440], [5, 850], [6, 1180], [3, 1420], [4, 1780]]
+  : [[0, 0], [1, 190], [2, 440], [3, 850], [4, 1180]];
+const AH = ["Stardate", "Source", "Class", "Dominant", "Lines", "Collection", "Temperature"];
+if (UP) header(RX, RY, RW, "Sample Archive", 320, "butter", "sky");
+else small(RX, 1620, RW, "Sample Archive", 320, "butter", "sky");
+const RC = ARC.map(([, dx]) => RX + dx);
+ARC.forEach(([f, , align], i) => L.text({ x: RC[i], base: UP ? RY + 120 : 1734, s: 36, c: "sky", txt: AH[f], align }));
+// four samples, so four rows in the new shapes (no sample shown twice); ultrawide spreads them down the panel
+const arcRows = Array.from({ length: UP || UW ? 4 : 5 }, (_, i) => RC.map((x, j) =>
+  L.text({ x, base: UP ? RY + 201 + i * 81 : UW ? 1788 + i * 72 : 1788 + i * 54, s: 36, c: ARC[j][0] === 0 ? "butter" : ARC[j][0] === 3 || ARC[j][0] === 4 || ARC[j][0] === 6 ? "white" : "ice", txt: "", align: ARC[j][2] })));
 const archived = [];
 const archive = (s, at) => {
   const [el, p] = s.comp[0];
-  archived.unshift([at, s.short, s.cls, `${ELEMENT[el]}  ${p.toFixed(1)}%`, String(s.lines.length)]);
+  archived.unshift([at, s.short, s.cls, `${ELEMENT[el]}  ${p.toFixed(1)}%`, String(s.lines.length), s.collect, s.temp]);
   if (archived.length > arcRows.length) archived.pop();
-  arcRows.forEach((r, i) => r.forEach((e, j) => (e.textContent = archived[i] ? archived[i][j] : "")));
+  arcRows.forEach((r, i) => r.forEach((e, j) => (e.textContent = archived[i] ? archived[i][ARC[j][0]] : "")));
 };
 
 // ---------------- history, so the screen starts part way through a watch ----------------
@@ -473,6 +561,7 @@ L.every(250, (t) => {
   pill.textContent = "Sample " + sampleN;
   pill.style.background = `var(--${ph.i === 3 ? "ice" : "sky"})`;
   META.forEach(([, f], i) => (metaVals[i].textContent = f(S)));
+  if (UP) L.set(linesVal, `${detected} / ${S.lines.length}`);
   erows.forEach((r) => (r.mass.textContent = r.t0 < 0 ? "" : (r.p * L.ease(L.clamp((t - r.t0) / 1.2))).toFixed(2)));
   stages.forEach((s) => (s.v.textContent = Math.round(L.clamp(s.u) * 100) + "%"));
   if (ph.i === 0) { readLabel.textContent = "Chamber Pressure"; readVal.textContent = (0.12 + 2.3 * L.ease(L.clamp(stages[0].u))).toFixed(2) + " kPa"; }
@@ -482,6 +571,7 @@ L.every(250, (t) => {
   const mean = 10 * (qPeak + 0.05);
   qcols[0].textContent = (10 * qPeak).toFixed(1) + " MeV";
   qcols[1].textContent = mean.toFixed(1) + " MeV";
+  if (UW) { L.set(qcols[3], (10 * qWid * 1.665).toFixed(1) + " MeV"); catShow(); }   // the hump's full width at half height
 }, 0);
 });
 </script></body></html>

@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Cargo Bay</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* a container on the bay plan: a block in its category's color, its id printed on it */
@@ -25,6 +26,17 @@ L.ready(() => {
 
 // ---------------- the frame: sidebar on the left, title at top right ----------------
 const BAR = 64;
+// Per shape. wide (3840 × 2160) is the original hand-built frame, untouched. upright (2160 × 3120) and
+// ultrawide (5040 × 2160) use L.frame type A in the same colours, with the same sidebar labels.
+// upright: the plan full width (its slots on a 180 pitch), capacity | log two-up under it, then the
+//   manifest and the queue full width, and environment | transporter two-up at the foot.
+// ultrawide: the left column as wide; the right column moved out 1200; a new middle column
+//   (2440–3580) with the transfer's step sequence, the transfer under way, and the stasis fields.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+if (L.shape !== "wide") L.frame({ type: "A", title: "Cargo Bay 4  •  Inventory Control", c: "tan", c2: "gold", accent: "gold", foot: "Inventory",
+  side: [[140, "tan", "CB 04"], [70, "gold", "Deck 22"], [420, "sand", "Bay Plan"], [70, "olive", "Stasis"],
+         [300, "tan", "Manifest"], [70, "gold", "Queue"], [216, "sand", "Transport"]] });
+else {
 L.title({ x: 3700, y: 40, h: BAR, c: "tan", txt: "Cargo Bay 4  •  Inventory Control" });
 // (L.title measures with a canvas, which sets this line ~11px wider than the page draws it; use the page's own width)
 const titleLeft = 3700 - document.querySelector("[data-title]").offsetWidth;
@@ -40,6 +52,7 @@ L.text({ x: 258, base: 1712, s: 40, c: "#000", txt: "Inventory", align: "r", on:
 [[1540 + L.GAP, 600, "tan"], [2164 + L.GAP, 900, "olive"], [3088 + L.GAP, 3700 - (3088 + L.GAP), "sand"]]
   .forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
 L.box({ x: 3724, y: 2056, w: 92, h: BAR, c: "gold", r: "r" });
+}
 
 const header = (x, y, w, label, c1, c2, h = 56, fs = 32) => {
   const lw = Math.round((L.textWidth(label, fs) + 64) / 10) * 10;
@@ -61,7 +74,9 @@ const fmt = (n) => n.toLocaleString("en");
 const V = (c) => `var(--${c})`;
 
 // columns: left 330–2380, right 2440–3816; the bottom strip splits the left at 1290 | 1350
-const C1 = 330, C1R = 2380, C3 = 2440, C3R = 3816, MID = 1290, C2 = 1350;
+// upright: one column 330–2136 (C3–C3R is the queue's full width), two-up halves 330–1203 | 1263–2136;
+// ultrawide: right column 3640–5016, the new middle column 2440–3580
+const C1 = 330, C1R = UP ? 2136 : 2380, C3 = UP ? 330 : UW ? 3640 : 2440, C3R = UP ? 2136 : UW ? 5016 : 3816, MID = UP ? 1203 : 1290, C2 = UP ? 1263 : 1350;
 
 // ---------------- what the bay holds ----------------
 const CATS = {
@@ -113,7 +128,8 @@ const STATES = ["Standing By", "Materializing", "Stowing", "Retrieving", "Demate
 const STATE_W = Math.max(...STATES.map((s) => L.textWidth(s, 100)));
 const state = L.text({ x: C1, cap: 150, s: 100, c: "tan", txt: "Standing By" });
 const sub = L.text({ x: C1 + Math.ceil(STATE_W / 10) * 10 + 60, base: 222, s: 38, c: "peach", txt: "" });
-const pill = L.box({ x: C3R - 420, y: 150, w: 420, h: 72, c: "sky", label: "Stasis Fields Holding", r: "lr", fs: 36, cls: "pill" });
+const PILLW = UP ? 340 : 420;
+const pill = L.box({ x: C3R - PILLW, y: 150, w: PILLW, h: 72, c: "sky", label: "Stasis Fields Holding", r: "lr", fs: 36, cls: "pill" });
 
 // ---------------- the bay plan ----------------
 header(C1, 280, C1R - C1, "Cargo Bay 4  ·  Deck 22", "tan", "sand");
@@ -134,7 +150,7 @@ const ROWS = [{ k: "A", y: 412, aisle: 534, a: 1 }, { k: "B", y: 572, aisle: 534
               { k: "C", y: 672, aisle: 794, a: 2 }, { k: "D", y: 832, aisle: 794, a: 2 }];
 const ZONE = ["med med med med sci sci sci", "prv prv prv prv prv sci sci", "prv prv per per per per per", "dil dil dil haz haz haz haz"]
   .map((r) => r.split(" "));
-const SX = 818, SP = 216, SW = 196, SH = 84, CW = 176, CH = 60;
+const SX = 818, SP = UP ? 180 : 216, SW = UP ? 168 : 196, SH = 84, CW = UP ? 148 : 176, CH = 60, SLW = UP ? 164 : 192;
 const PAD = [504, MIDY], HOME = [708, MIDY], CX = HOME[0];               // the sled parks 8px clear of pad and slots
 const deco = L.svg("g", { class: "boot" });
 // aisle markings, and the cross aisle from the transporter pad
@@ -169,9 +185,9 @@ const sparkBox = L.layer({ x: PAD[0] - 100, y: MIDY - 100, w: 200, h: 200, cls: 
 const spark = L.layer({ x: 0, y: 0, w: 200, h: 268, cls: "spark" }, sparkBox);
 sparkBox.style.opacity = 0;
 // the sled
-const sled = { e: L.layer({ x: 0, y: 0, w: 192, h: 72, cls: "sled boot" }), x: HOME[0], y: HOME[1], legs: [], cargo: null, v: 0 };
+const sled = { e: L.layer({ x: 0, y: 0, w: SLW, h: 72, cls: "sled boot" }), x: HOME[0], y: HOME[1], legs: [], cargo: null, v: 0 };
 const placeCrate = (c, x, y) => L.move(c.e, x - CW / 2, y - CH / 2);
-const placeSled = (x, y) => { sled.x = x; sled.y = y; L.move(sled.e, x - 96, y - 36); if (sled.cargo) placeCrate(sled.cargo, x, y); };
+const placeSled = (x, y) => { sled.x = x; sled.y = y; L.move(sled.e, x - SLW / 2, y - 36); if (sled.cargo) placeCrate(sled.cargo, x, y); };
 const crate = (c, boot) => {
   c.e = L.layer({ x: 0, y: 0, w: CW, h: CH, cls: "crate" + (boot ? " boot" : "") });
   c.e.style.background = V(c.cat.c); c.e.textContent = c.id;
@@ -180,30 +196,32 @@ const crate = (c, boot) => {
 placeSled(...HOME);
 
 // ---------------- capacity by category ----------------
-header(C3, 280, C3R - C3, "Capacity by Category", "gold", "tan");
-const KX = C3 + 340 + L.GAP, KW = 72, KG = 12, KR = KX + 7 * KW + 6 * KG;   // the cells: 2804–3380
-const CAPROW = (i) => PT + i * 88;
+const CP0 = UP ? C1 : C3, CP1 = UP ? MID : C3R, CPY = UP ? 1000 : 280, CPBW = UP ? 230 : 340, CPH = UP ? 44 : 64, CPB = UP ? 41 : 50;
+const CNTX = UP ? 1078 : UW ? 4780 : 3580;
+header(CP0, CPY, CP1 - CP0, "Capacity by Category", "gold", "tan");
+const KX = CP0 + CPBW + L.GAP, KW = UP ? 40 : 72, KG = UP ? 8 : 12, KR = KX + 7 * KW + 6 * KG;   // the cells: 2804–3380
+const CAPROW = (i) => UP ? 1088 + i * 54 : PT + i * 88;
 ORDER.forEach((k, i) => {
   const cat = CATS[k], y = CAPROW(i);
   cat.slots = slots.filter((s) => s.k === k);
-  L.box({ x: C3, y, w: 340, h: 64, c: cat.c, label: cat.name, fs: 30, r: "l" });
+  L.box({ x: CP0, y, w: CPBW, h: CPH, c: cat.c, label: cat.name, fs: 30, r: "l" });
   cat.cells = Array.from({ length: 7 }, (_, j) => {
-    L.rect({ x: KX + j * (KW + KG), y, w: KW, h: 64, c: j < cat.slots.length ? cat.tint : "#100d08" });
+    L.rect({ x: KX + j * (KW + KG), y, w: KW, h: CPH, c: j < cat.slots.length ? cat.tint : "#100d08" });
     if (j >= cat.slots.length) return null;
-    const f = fill(KX + j * (KW + KG), y, KW, 64, cat.c, "0 0", "cell");
+    const f = fill(KX + j * (KW + KG), y, KW, CPH, cat.c, "0 0", "cell");
     f.style.opacity = 0;
     return f;
   });
-  cat.count = L.text({ x: 3580, base: y + 50, s: 52, c: "white", txt: "", align: "r" });
-  cat.tons = L.text({ x: C3R, base: y + 50, s: 52, c: cat.c, txt: "", align: "r" });
+  cat.count = L.text({ x: CNTX, base: y + CPB, s: 52, c: "white", txt: "", align: "r" });
+  cat.tons = L.text({ x: CP1, base: y + CPB, s: 52, c: cat.c, txt: "", align: "r" });
 });
 const TY = CAPROW(6);
-L.box({ x: C3, y: TY, w: 340, h: 64, c: "tan", label: "All Cargo  ·  28 Slots", fs: 30, r: "l" });
-L.rect({ x: KX, y: TY, w: KR - KX, h: 64, c: "#2a2114" });
-const totBar = fill(KX, TY, KR - KX, 64, "tan", "0 0", "tot");
+L.box({ x: CP0, y: TY, w: CPBW, h: CPH, c: "tan", label: "All Cargo  ·  28 Slots", fs: 30, r: "l" });
+L.rect({ x: KX, y: TY, w: KR - KX, h: CPH, c: "#2a2114" });
+const totBar = fill(KX, TY, KR - KX, CPH, "tan", "0 0", "tot");
 totBar.style.transform = "scaleX(0)";
-const totCount = L.text({ x: 3580, base: TY + 50, s: 52, c: "white", txt: "", align: "r" });
-const totTons = L.text({ x: C3R, base: TY + 50, s: 52, c: "tan", txt: "", align: "r" });
+const totCount = L.text({ x: CNTX, base: TY + CPB, s: 52, c: "white", txt: "", align: "r" });
+const totTons = L.text({ x: CP1, base: TY + CPB, s: 52, c: "tan", txt: "", align: "r" });
 const showCapacity = () => {
   let n = 0, m = 0;
   ORDER.forEach((k) => {
@@ -218,14 +236,15 @@ const showCapacity = () => {
 };
 
 // ---------------- the manifest: what has moved lately, and what is waiting to ----------------
-header(C1, 1000, C1R - C1, "Cargo Manifest", "sand", "tan");
-const MC = { item: 590, from: 1080, to: 1380, mass: 1880, hand: 1940, slot: 2150 };
-const HB = 1110, RB = 1172, RP = 62;
+const MY = UP ? 1496 : 1000;
+header(C1, MY, C1R - C1, "Cargo Manifest", "sand", "tan");
+const MC = UP ? { item: 590, from: 1010, to: 1330, mass: 1730, hand: 1770, slot: 1900 } : { item: 590, from: 1080, to: 1380, mass: 1880, hand: 1940, slot: 2150 };
+const HB = MY + 110, RB = MY + 172, RP = 62;
 [["Container", C1], ["Contents", MC.item], ["Origin", MC.from], ["Destination", MC.to], ["Handling", MC.hand], ["Slot", MC.slot]]
   .forEach(([h, x]) => L.text({ x, base: HB, s: 36, c: "tan", txt: h }));
 L.text({ x: MC.mass, base: HB, s: 36, c: "tan", txt: "Mass kg", align: "r" });
 L.text({ x: C1R, base: HB, s: 36, c: "tan", txt: "Status", align: "r" });
-const mrows = Array.from({ length: 7 }, (_, i) => {
+const mrows = Array.from({ length: UP ? 6 : 7 }, (_, i) => {
   const base = RB + i * RP, t = (x, c, align) => L.text({ x, base, s: 40, c, txt: "", align });
   return { box: L.box({ x: C1, y: base - 41, w: 230, h: 52, c: "slate", label: "", fs: 30, r: "l" }),
            item: t(MC.item, "white"), from: t(MC.from, "sand"), to: t(MC.to, "sand"), mass: t(MC.mass, "white", "r"),
@@ -248,23 +267,25 @@ const touch = (c, status) => {
 };
 
 // ---------------- the transfer queue ----------------
-header(C3, 1000, C3R - C3, "Transfer Queue", "sky", "ice");
-const QC = { id: 2690, cat: 2850, place: 3150, range: 3640 };
-[["Transfer", C3], ["Container", QC.id], ["Contents", QC.cat], ["To  ·  From", QC.place]].forEach(([h, x]) => L.text({ x, base: HB, s: 36, c: "sky", txt: h }));
-L.text({ x: QC.range, base: HB, s: 36, c: "sky", txt: "Range", align: "r" });
-L.text({ x: C3R, base: HB, s: 36, c: "sky", txt: "Start", align: "r" });
-const qrows = Array.from({ length: 7 }, (_, i) => {
-  const base = RB + i * RP, t = (x, c, align) => L.text({ x, base, s: 40, c, txt: "", align });
+const QY = UP ? 2054 : 1000, QHB = QY + 110, QRB = QY + 172;
+header(C3, QY, C3R - C3, "Transfer Queue", "sky", "ice");
+const QC = UP ? { id: 600, cat: 820, place: 1180, range: 1840 } : UW ? { id: 3890, cat: 4050, place: 4350, range: 4840 } : { id: 2690, cat: 2850, place: 3150, range: 3640 };
+[["Transfer", C3], ["Container", QC.id], ["Contents", QC.cat], ["To  ·  From", QC.place]].forEach(([h, x]) => L.text({ x, base: QHB, s: 36, c: "sky", txt: h }));
+L.text({ x: QC.range, base: QHB, s: 36, c: "sky", txt: "Range", align: "r" });
+L.text({ x: C3R, base: QHB, s: 36, c: "sky", txt: "Start", align: "r" });
+const qrows = Array.from({ length: UP ? 5 : 7 }, (_, i) => {
+  const base = QRB + i * RP, t = (x, c, align) => L.text({ x, base, s: 40, c, txt: "", align });
   return { box: L.box({ x: C3, y: base - 41, w: 220, h: 52, c: "sky", label: "", fs: 30, r: "l", cls: "pill" }),
            id: t(QC.id, "white"), cat: t(QC.cat, "white"), place: t(QC.place, "sand"), range: t(QC.range, "tan", "r"), eta: t(C3R, "white", "r") };
 });
 
 // ---------------- bay environment ----------------
-header(C1, 1620, MID - C1, "Bay Environment", "tan", "olive", 48, 28);
+const EY = UP ? 2550 : 1620;
+header(C1, EY, MID - C1, "Bay Environment", "tan", "olive", 48, 28);
 const EV = 700, EB = 860, EBW = MID - EB;
 const ENV = [["Temperature", "°C", "tan"], ["Humidity", "%", "sand"], ["Pressure", "kPa", "sand"], ["Stasis Field", "%", "ice"], ["Stasis Zones", ""], ["Gravity", "g", "sand"]]
   .map(([k, u, c], i) => {
-    const base = 1734 + i * 54;
+    const base = EY + 114 + i * 54;
     L.text({ x: C1, base, s: 36, c: "tan", txt: k });
     if (u) L.text({ x: EV + 20, base, s: 36, c: "sand", txt: u });
     const r = { v: L.text({ x: EV, base, s: 44, c: "white", txt: "", align: "r" }), base };
@@ -281,11 +302,11 @@ ZONES.forEach((z, k) => {
 });
 
 // ---------------- the cargo transporter and the sled ----------------
-header(C2, 1620, C1R - C2, "Cargo Transporter  ·  Sled AG-1", "peach", "orange", 48, 28);
-const TV = 1800, TB = 1940, TBW = C1R - TB;
+header(C2, EY, C1R - C2, "Cargo Transporter  ·  Sled AG-1", "peach", "orange", 48, 28);
+const TV = UP ? C2 + 380 : 1800, TB = UP ? C2 + 500 : 1940, TBW = C1R - TB;
 const TR = [["Pattern Lock", "%", "ice"], ["Confinement", "%", "sky"], ["Sled Load", "kg", "peach"], ["Lift Field", "%", "orange"], ["Velocity", "m/s", "peach"], ["Sled Position", ""]]
   .map(([k, u, c], i) => {
-    const base = 1734 + i * 54;
+    const base = EY + 114 + i * 54;
     L.text({ x: C2, base, s: 36, c: "peach", txt: k });
     if (u) L.text({ x: TV + 20, base, s: 36, c: "orange", txt: u });
     const r = { v: L.text({ x: TV, base, s: i < 5 ? 44 : 40, c: "white", txt: "", align: "r" }), base };
@@ -301,16 +322,19 @@ const POS = ["Pad", "Aisle 1", "Aisle 2", "Slot"].map((k, i) => {
 });
 
 // ---------------- the cargo log ----------------
-header(C3, 1620, C3R - C3, "Cargo Log", "olive", "sand", 48, 28);
-const logRows = Array.from({ length: 6 }, (_, i) => {
-  const base = 1734 + i * 54;
-  return { sd: L.text({ x: C3, base, s: 36, c: "gold", txt: "" }), tx: L.text({ x: C3 + 170, base, s: 36, c: "sand", txt: "" }),
-           sys: L.text({ x: C3R, base, s: 36, c: "tan", txt: "", align: "r" }) };
+// upright: beside capacity, on its rows
+const LG0 = UP ? C2 : C3, LG1 = UP ? C1R : C3R;
+if (UP) header(LG0, 1000, LG1 - LG0, "Cargo Log", "olive", "sand");
+else header(C3, 1620, C3R - C3, "Cargo Log", "olive", "sand", 48, 28);
+const logRows = Array.from({ length: UP ? 7 : 6 }, (_, i) => {
+  const base = UP ? 1129 + i * 54 : 1734 + i * 54;
+  return { sd: L.text({ x: LG0, base, s: 36, c: "gold", txt: "" }), tx: L.text({ x: LG0 + (UP ? 130 : 170), base, s: 36, c: "sand", txt: "" }),
+           sys: L.text({ x: LG1, base, s: 36, c: "tan", txt: "", align: "r" }) };
 });
 let sd = 47790.4;
 const logged = [];
 const log = (txt, sys) => {
-  logged.push([sd.toFixed(1), txt, sys]); if (logged.length > 6) logged.shift();
+  logged.push([sd.toFixed(1), txt, sys]); if (logged.length > logRows.length) logged.shift();
   logRows.forEach((r, i) => { const e = logged[i] || ["", "", ""]; put(r.sd, e[0]); put(r.tx, e[1]); put(r.sys, e[2]); });
 };
 
@@ -357,6 +381,7 @@ showCapacity();
 
 // the log, as the last watch left it
 sd -= 0.6;
+if (UP) logged.push([(sd - 0.1).toFixed(1), "Cargo lift  ·  doors sealed  ·  Deck 22", "Inventory"]);   // upright shows seven lines
 [["DIL-4417  ·  materialized  ·  from U.S.S. Hood", "Transporter"], ["DIL-4417  ·  stowed  ·  D2", "Sled AG-1"],
  ["Stasis field cycled  ·  B1 – B5", "Stasis"], ["PER-2208  ·  retrieved from C5", "Sled AG-1"],
  ["PER-2208  ·  to U.S.S. Hood  ·  1,860 km", "Transporter"], ["Inventory scan complete  ·  no discrepancies", "Inventory"]]
@@ -403,6 +428,7 @@ const startOp = (T) => {
     const e3 = route([S, B, A, HOME], e2 + 0.6);
     at(e2 + 2.2, () => setZone(s, false));
     op.end = e3 + 0.8;
+    op.steps = [T, b0, b1, e1, e1 + 0.6, e2, e2 + 0.6];                     // when each step begins (the ultrawide sequence)
   } else {
     phase = "Retrieving";
     touch(c);
@@ -420,6 +446,7 @@ const startOp = (T) => {
     at(b1, () => { c.e.remove(); c.slot = null; c.status = "Transferred"; touch(c);
                    log(`${c.id}  ·  to ${q.place}${q.range ? `  ·  ${fmt(q.range)} km` : ""}`, "Transporter"); });
     op.end = b1 + 0.6;
+    op.steps = [T, T + 0.6, e1, e1 + 0.6, e2, e2 + 0.5, b0];
   }
   at(op.end, () => { op = null; phase = "Standing By"; at(L.t + 2.4, startOp); });
 };
@@ -477,7 +504,7 @@ L.every(250, (t) => {
   const [pl, pc] = PILL[phase];
   put(pill, pl); css(pill, "background", V(pc));
   // the queue: the transfer under way first, then what is waiting
-  const list = (op ? [op.q] : []).concat(queue).slice(0, 7);
+  const list = (op ? [op.q] : []).concat(queue).slice(0, qrows.length);
   let next = op ? op.end + 2.4 : events.length ? events[events.length - 1].t : t;
   list.forEach((q, i) => {
     const r = qrows[i], live = op && i === 0;
@@ -524,5 +551,78 @@ L.every(1000, (t) => {
   ZONES.forEach((z) => css(z.lamp, "background", V(z.open ? "peach" : "ice")));
   put(ENV[5].v, g.toFixed(2)); css(ENV[5].bar, "transform", `scaleX(${(g / 1.5).toFixed(3)})`);
 }, 0);
+
+// ---------------- ultrawide only: the middle column, 2440–3580 ----------------
+if (UW) {
+  const M0 = 2440, M1 = 3580;
+  // the transfer, step by step: on capacity's rows, a lamp per step and its progress
+  const STEPS = { in: ["Energize", "Materialize", "Sled to Pad", "Load", "Sled to Slot", "Stow", "Return"],
+                  out: ["Open Field", "Sled to Slot", "Load", "Sled to Pad", "Unload", "Clear Pad", "Dematerialize"] };
+  header(M0, 280, M1 - M0, "Transfer Sequence", "peach", "orange");
+  const SQX = M0 + 340 + L.GAP, SQR = M1 - 124;                    // the bars run up to the start times
+  const seq = Array.from({ length: 7 }, (_, i) => {
+    const y = CAPROW(i);
+    const box = L.box({ x: M0, y, w: 340, h: 64, c: "slate", label: "", fs: 30, r: "l", cls: "pill" });
+    L.rect({ x: SQX, y, w: SQR - SQX, h: 64, c: "#2a2114" });
+    const bar = fill(SQX, y, SQR - SQX, 64, "tan", "0 0", "pill"); bar.style.transform = "scaleX(0)";
+    return { box, bar, at: L.text({ x: M1, base: y + 50, s: 52, c: "white", txt: "", align: "r" }) };
+  });
+  // the transfer under way (or the next one), on the manifest's lines
+  header(M0, 1000, M1 - M0, "Transfer Under Way", "orange", "peach");
+  const UV = M0 + 300;
+  const und = ["Transfer", "Container", "Contents", "To  ·  From", "Mass", "Slot", "Status", "Elapsed"].map((k, i) => {
+    const base = i ? RB + (i - 1) * RP : HB;
+    L.text({ x: M0, base, s: 36, c: "tan", txt: k });
+    return { v: L.text({ x: UV, base, s: 40, c: "white", txt: "" }), r: L.text({ x: M1, base, s: 40, c: "sand", txt: "", align: "r" }) };
+  });
+  // the stasis fields, on the bottom strip's lines
+  header(M0, 1620, M1 - M0, "Stasis Fields", "ice", "sky", 48, 28);
+  const SV = M0 + 360, SB = M0 + 520, SBR = M1 - 212;              // up to the zone readouts ("5 of 5  ·  Holding")
+  const fld = [...ZONES.map((z) => `Zone  ${z.name}`), "Field Power", "Emitter Temp", "Next Cycle"].map((k, i) => {
+    const base = 1734 + i * 54, u = ["%", "%", "%", "kW", "K", ""][i];
+    L.text({ x: M0, base, s: 36, c: "tan", txt: k });
+    if (u) L.text({ x: SV + 20, base, s: 36, c: "sand", txt: u });
+    L.rect({ x: SB, y: base - 24, w: SBR - SB, h: 20, c: "#2a2114" });
+    const bar = fill(SB, base - 24, SBR - SB, 20, i < 3 ? "ice" : "sky"); bar.style.transform = "scaleX(0)"; bar.dataset.gap = "free";   // one length down the column; the short words stand further off
+    return { v: L.text({ x: SV, base, s: 44, c: "white", txt: "", align: "r" }), bar,
+             r: L.text({ x: M1, base, s: 36, c: "ice", txt: "", align: "r" }) };
+  });
+  fld[3].r.textContent = "Main Grid"; fld[4].r.textContent = "Nominal"; fld[5].r.textContent = "Automatic";
+  L.every(250, (t) => {
+    const q = op ? op.q : queue[0], c = q.c, names = STEPS[q.dir];
+    seq.forEach((r, i) => {
+      put(r.box, names[i]);
+      const s0 = op ? op.steps[i] : 0, s1 = op ? (i < 6 ? op.steps[i + 1] : op.end) : 0;
+      const k = op ? L.clamp((t - s0) / (s1 - s0)) : 0, now = op && k > 0 && k < 1;
+      css(r.box, "background", V(now ? "orange" : op && k >= 1 ? "tan" : "slate"));
+      css(r.bar, "background", V(now ? "orange" : "tan")); css(r.bar, "transform", `scaleX(${k.toFixed(3)})`);
+      put(r.at, op ? mss(s0 - op.T) : "—"); css(r.at, "color", V(now ? "orange" : op ? "white" : "slate"));
+    });
+    const rng = q.range ? `${fmt(q.range)} km` : "Internal";
+    const rows = [[q.n, op ? (q.dir === "in" ? "Inbound" : "Outbound") : "Next  ·  " + (q.dir === "in" ? "Inbound" : "Outbound")],
+      [c.id, c.hand], [c.item, c.cat.name], [q.place, rng], [`${fmt(c.mass)} kg`, "Sled Limit  1,200 kg"],
+      [q.slot.id, `Row ${q.slot.row.k}  ·  Aisle ${q.slot.row.a}`], [c.status, `Sled  ·  ${where()[0]}`],
+      op ? [mss(t - op.T), `of  ${mss(op.end - op.T)}`] : ["—", `Starts in  ${mss(Math.max(0, events.length ? events[events.length - 1].t - t : 0))}`]];
+    rows.forEach(([v, r], i) => { put(und[i].v, v); put(und[i].r, r); });
+    css(und[0].r, "color", V(q.dir === "in" ? "sky" : "peach"));
+    css(und[1].v, "color", V(c.cat.c)); css(und[1].r, "color", V(HANDC[c.hand]));
+    css(und[6].v, "color", V(STC[c.status] || "white"));
+  }, 0);
+  L.every(1000, (t) => {
+    let held = 0;
+    ZONES.forEach((z, i) => {
+      const f = 99.3 + 0.15 * Math.sin(t * 0.09 + i * 1.7) - (1 - z.k) * 38, n = z.slots.filter((s) => s.c).length;
+      held += n;
+      put(fld[i].v, f.toFixed(1)); css(fld[i].bar, "transform", `scaleX(${(f / 100).toFixed(3)})`);
+      put(fld[i].r, z.open ? "Open" : `${n} of ${z.slots.length}  ·  Holding`); css(fld[i].r, "color", V(z.open ? "peach" : "ice"));
+    });
+    const kw = 3 * 12.6 + held * 1.4 + 0.3 * Math.sin(t * 0.13);
+    put(fld[3].v, kw.toFixed(1)); css(fld[3].bar, "transform", `scaleX(${(kw / 80).toFixed(3)})`);
+    const kel = 77.4 + 0.2 * Math.sin(t * 0.05) + ZONES.filter((z) => z.open).length * 1.1;
+    put(fld[4].v, kel.toFixed(1)); css(fld[4].bar, "transform", `scaleX(${(kel / 120).toFixed(3)})`);
+    const left = 600 - ((t + 412) % 600);
+    put(fld[5].v, mss(left)); css(fld[5].bar, "transform", `scaleX(${(1 - left / 600).toFixed(3)})`);
+  }, 0);
+}
 });
 </script></body></html>

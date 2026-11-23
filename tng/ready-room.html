@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Ready Room</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .clip { position: absolute; overflow: hidden; }
@@ -11,13 +12,26 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: sidebar left, title top right ----------------
-L.frame({ type: "A", title: "Captain's Ready Room  •  Log", c: "lilac", c2: "plum", accent: "pink", foot: "Ready Room",
+const B = L.frame({ type: "A", title: "Captain's Ready Room  •  Log", c: "lilac", c2: "plum", accent: "pink", foot: "Ready Room",
   side: [[140, "plum", "Deck 01"], [70, "pink", "Log"], [420, "lilac", "Ready Room"], [70, "butter", "4715"],
          [300, "plum", "Command"], [70, "pink", "Sealed"], [216, "lilac", "Captain"]] });
 
 // Two equal columns: the log on the left, the captain's day on the right. Everything sits on one
 // 72px grid of baselines from 480, so the log's lines and the right column's rows share baselines.
-const LX = 330, LR = 2043, RX = 2103, RR = 3816;
+// ---------------- the geometry, per shape ----------------
+// The data, readings and motion are written once; only these positions and sizes differ by shape.
+// wide (3840 × 2160): log 330–2043 | day 2103–3816; schedule header 1008, the two bottom strips 1620.
+// upright (2160 × 3120): the log (330–1350, 15 lines, text 870 wide: every entry still wraps to whole
+//   lines) beside the ship status as four rows of two tiles (1410–2136), both on the 72px grid to
+//   1488; then the log index right under the log, the schedule and the communiqués at full width
+//   down the page, the communiqués' last row on the content box's floor.
+// ultrawide (5040 × 2160): wide's two columns unchanged, and a third column 3876–5016 on the same
+//   grid and strip headers: the watch rotation, the latest entry (being dictated, or sealed), the log archive.
+const UP = L.shape === "upright", ULTRA = L.shape === "ultrawide";
+const LX = 330, LR = UP ? 1350 : 2043, RX = UP ? 1410 : 2103, RR = UP ? B.x1 : 3816;
+const DL = UP ? B.x0 : RX, DR = UP ? B.x1 : RR;          // the schedule and the communiqués
+const IL = UP ? B.x0 : LX, IR = UP ? B.x1 : LR;          // the log index
+const SY = UP ? 1980 : 1008, CY = UP ? 2586 : 1620, IY = UP ? 1542 : 1620;   // their headers
 const ROW = (k) => 480 + 72 * k;
 const TRACK = "#2a1a30";
 const pad2 = (n) => String(n).padStart(2, "0");
@@ -40,7 +54,7 @@ const showStardate = () => {
   sdBig.textContent = txt;
   sub.style.left = LX + sdBig.offsetWidth + 40 + "px";
 };
-L.box({ x: RR - 400, y: 150, w: 400, h: 72, c: "plum", label: "Voiceprint Verified", r: "lr", fs: 36 });
+L.box({ x: B.x1 - 400, y: 150, w: 400, h: 72, c: "plum", label: "Voiceprint Verified", r: "lr", fs: 36 });
 
 // =====================================================================================
 // THE LOG
@@ -67,7 +81,7 @@ const ENTRIES = [
 const heading = (kind, sd) => kind === "Supplemental" ? "Captain's Log, Supplemental" : `${kind} Log, Stardate ${sd.toFixed(1)}`;
 
 // the log window: 16 lines on the grid, a time gutter, then the words
-const N = 16, PITCH = 72, GUT = 120, TX = 150, TW = LR - LX - TX;   // text 480 → 2043
+const N = UP ? 15 : 16, PITCH = 72, GUT = 120, TX = 150, TW = LR - LX - TX;   // text 480 → 2043
 const SPEED = 230, HOLD = 0.7, SCROLL = 1.0, PAUSE = 5;             // px/s of dictation; seconds
 const wrap = (txt, s, w) => {                                       // greedy, measured in the LCARS face
   const out = []; let line = "";
@@ -95,8 +109,8 @@ const entryLines = (e, sd) => {
 L.header({ x: LX, y: 280, w: LR - LX, label: "Captain's Log", c1: "lilac", c2: "plum" });
 // the caption row: recording state, the entry and its time, a voice level meter
 const recWord = L.text({ x: LX, base: 400, s: 36, c: "butter", txt: "Standing By", cls: "sw" });
-const recInfo = L.text({ x: LX + 300, base: 400, s: 36, c: "lilac", txt: "" });
-const MX = 1300, BARS = 31, BW = 16, BG = 8;                      // meter: 1300 → 2043
+const recInfo = L.text({ x: LX + (UP ? 160 : 300), base: 400, s: 36, c: "lilac", txt: "" });
+const MX = 1300, BARS = UP ? 14 : 31, BW = 16, BG = 8;            // meter: 1300 → 2043 (upright: 14 bars)
 const meterW = BARS * BW + (BARS - 1) * BG, mx0 = LR - meterW;
 const meter = Array.from({ length: BARS }, (_, i) => {
   const x = mx0 + i * (BW + BG);
@@ -131,18 +145,18 @@ cover.style.background = "#000";
 const cursor = L.el("div", "", cover, { position: "absolute", left: "0px", top: 54 - 35 + "px", width: "22px", height: "35px", background: "var(--lilac)" });
 
 // ---------------- the log index ----------------
-const IX = { sd: LX, kind: LX + 180, subj: LX + 420, len: LX + 1080, bar: LX + 1120 };
-L.header({ x: LX, y: 1620, w: LR - LX, label: "Log Index", c1: "plum", c2: "lilac", h: 48 });
+const IX = { sd: IL, kind: IL + 180, subj: IL + 420, len: IL + 1080, bar: IL + 1120 };
+L.header({ x: IL, y: IY, w: IR - IL, label: "Log Index", c1: "plum", c2: "lilac", h: 48 });
 // a strip of six rows that slide up one place when a row is added
-const strip = (x, w, build) => {
-  const c = L.el("div", "clip", L.stage, { left: x + "px", top: 1734 - 40 + "px", width: w + "px", height: 6 * 54 + 8 + "px" });
+const strip = (x, w, build, y0) => {                // y0: the strip's top, 74 below its header
+  const c = L.el("div", "clip", L.stage, { left: x + "px", top: y0 + "px", width: w + "px", height: 6 * 54 + 8 + "px" });
   const rows = Array.from({ length: 6 }, (_, i) => {
     const e = L.layer({ x: 0, y: 0, w, h: 54 }, c);
     const r = build(e); r.e = e; r.slot = i; L.move(e, 0, i * 54);
     return r;
   });
-  const st = { rows, t0: -1, data: [] };
-  st.push = (d, t) => { st.data.push(d); st.t0 = t; st.pending = d; };
+  const st = { rows, t0: -1 };
+  st.push = (d, t) => { st.t0 = t; st.pending = d; };
   L.tick((t) => {
     if (st.t0 < 0) return;
     const u = t - st.t0;
@@ -161,20 +175,20 @@ const strip = (x, w, build) => {
   });
   return st;
 };
-const index = strip(LX, LR - LX, (e) => {
+const index = strip(IL, IR - IL, (e) => {
   const sd = L.text({ x: 0, base: 40, s: 36, c: "orange", txt: "" }, e);
-  const kind = L.text({ x: IX.kind - LX, base: 40, s: 36, c: "lilac", txt: "" }, e);
-  const subj = L.text({ x: IX.subj - LX, base: 40, s: 36, c: "peach", txt: "" }, e);
-  const len = L.text({ x: IX.len - LX, base: 40, s: 36, c: "white", txt: "", align: "r", rightIn: true }, e);
+  const kind = L.text({ x: IX.kind - IL, base: 40, s: 36, c: "lilac", txt: "" }, e);
+  const subj = L.text({ x: IX.subj - IL, base: 40, s: 36, c: "peach", txt: "" }, e);
+  const len = L.text({ x: IX.len - IL, base: 40, s: 36, c: "white", txt: "", align: "r", rightIn: true }, e);
   // the length of the recording, as a bar from 0:15 to 0:50
-  const track = L.el("div", "", e, { position: "absolute", left: IX.bar - LX + "px", top: "14px", width: LR - IX.bar + "px", height: "26px", background: TRACK });
+  const track = L.el("div", "", e, { position: "absolute", left: IX.bar - IL + "px", top: "14px", width: IR - IX.bar + "px", height: "26px", background: TRACK });
   const bar = L.el("div", "", track, { position: "absolute", left: "0px", top: "0px", width: "100%", height: "100%", transformOrigin: "0 0" });
   return { fill: (d) => {
     L.set(sd, d.sd.toFixed(1)); L.set(kind, d.e[0]); L.set(subj, `${pad2(Math.floor(d.no / 100))}${pad2(d.no % 100)}  ·  ${d.e[1]}`); L.set(len, mss(d.len));
     bar.style.background = d.e[0] === "Personal" ? "var(--pink)" : "var(--lilac)";
     bar.style.transform = `scaleX(${L.clamp((d.len - 15) / 35).toFixed(3)})`;
   } };
-});
+}, IY + 74);
 
 // ---------------- running the log ----------------
 // The six entries before the first one spoken here are already in the index; the window shows the
@@ -274,9 +288,9 @@ const TILES = [
   ["The Conn", () => shift()[1], () => "Main Bridge", "pink"],
   ["Ship's Time", clockTxt, () => shift()[0] + " shift", "butter"],
 ];
-const TP = (RR - RX + 48) / 4, TIW = TP - 48;                 // four tiles, 48 apart
+const TN = UP ? 2 : 4, TP = (RR - RX + 48) / TN, TIW = TP - 48;   // four tiles (upright two), 48 apart
 const tiles = TILES.map(([label, val, det, c], i) => {
-  const x = RX + (i % 4) * TP, k = Math.floor(i / 4) * 4;  // rows 0–2 and 4–6 of the grid
+  const x = RX + (i % TN) * TP, k = Math.floor(i / TN) * 4;   // rows 0–2 and 4–6 of the grid (upright to 14)
   L.rect({ x, y: ROW(k) - 29, w: 12, h: ROW(k + 2) - ROW(k) + 29, c });
   L.text({ x: x + 36, base: ROW(k), s: 40, c: "lilac", txt: label });
   const v = L.text({ x: x + 36, base: ROW(k + 1), s: 52, c: "white", txt: "" });
@@ -286,9 +300,8 @@ const tiles = TILES.map(([label, val, det, c], i) => {
 const showTiles = () => tiles.forEach((t) => { L.set(t.v, t.val()); L.set(t.d, t.det()); });
 
 // ---------------- today's schedule ----------------
-const SY = 1008;
-L.header({ x: RX, y: SY, w: RR - RX, label: "Today's Schedule", c1: "pink", c2: "plum" });
-const SC = { time: RX, what: RX + 224, where: RX + 940, pill: RR - 300 };
+L.header({ x: DL, y: SY, w: DR - DL, label: "Today's Schedule", c1: "pink", c2: "plum" });
+const SC = { time: DL, what: DL + 224, where: DL + 940, pill: DR - 300 };
 const EVENTS = [
   [7, 0, "Breakfast, Doctor Crusher", "Captain's Quarters"], [8, 0, "Senior staff briefing", "Observation Lounge"],
   [9, 30, "Duty roster review, Cmdr. Riker", "Ready Room"], [11, 0, "Fencing practice", "Gymnasium  ·  Deck 12"],
@@ -297,13 +310,13 @@ const EVENTS = [
   [19, 30, "Dinner, Guinan", "Ten Forward"], [21, 0, "Personal log", "Ready Room"],
   [22, 0, "Flute practice", "Captain's Quarters"], [23, 0, "Off duty", "Captain's Quarters"],
 ].map(([h, m, what, where]) => ({ at: h * 60 + m, time: pad2(h) + pad2(m), what, where }));
-L.text({ x: SC.time, base: ROW(9), s: 36, c: "lilac", txt: "Time" });
-[["Appointment", SC.what], ["Location", SC.where]].forEach(([txt, x]) => L.text({ x, base: ROW(9), s: 36, c: "lilac", txt }));
-L.text({ x: SC.pill, base: ROW(9), s: 36, c: "lilac", txt: "Status" });
+L.text({ x: SC.time, base: SY + 120, s: 36, c: "lilac", txt: "Time" });
+[["Appointment", SC.what], ["Location", SC.where]].forEach(([txt, x]) => L.text({ x, base: SY + 120, s: 36, c: "lilac", txt }));
+L.text({ x: SC.pill, base: SY + 120, s: 36, c: "lilac", txt: "Status" });
 const STATES = { Complete: ["plum", "#000", "plum", "plum"], "In Progress": ["butter", "#000", "white", "peach"],
                  Next: ["lilac", "#000", "white", "lilac"], Scheduled: [TRACK, "lilac", "white", "lilac"] };
 const sched = Array.from({ length: 6 }, (_, i) => {
-  const base = ROW(10 + i), y = base - 44.56;
+  const base = SY + 192 + 72 * i, y = base - 44.56;   // wide: ROW(10 + i)
   return {
     box: L.box({ x: SC.time, y, w: 200, h: 56, c: "lilac", label: "", fs: 32, r: "l", cls: "sw" }),
     what: L.text({ x: SC.what, base, s: 40, c: "white", txt: "", cls: "sw" }),
@@ -332,7 +345,7 @@ const showSchedule = () => {
 L.tick((t) => { sched[1].pill.style.opacity = (0.82 + 0.18 * Math.sin(t * 1.1)).toFixed(3); });
 
 // ---------------- Starfleet communiqués ----------------
-L.header({ x: RX, y: 1620, w: RR - RX, label: "Starfleet Communiqués", c1: "lilac", c2: "pink", h: 48 });
+L.header({ x: DL, y: CY, w: DR - DL, label: "Starfleet Communiqués", c1: "lilac", c2: "pink", h: 48 });
 const CM = { sd: 0, from: 180, subj: 620 };
 const COMMS = [
   ["Starfleet Command", "Revised orders, Starbase 74 rendezvous"],
@@ -348,16 +361,16 @@ const COMMS = [
   ["Science Council", "Argolis Cluster survey data received"],
   ["Bajoran Government", "Relief convoy, escort requested"],
 ];
-const comms = strip(RX, RR - RX, (e) => {
+const comms = strip(DL, DR - DL, (e) => {
   const sd = L.text({ x: CM.sd, base: 40, s: 36, c: "orange", txt: "" }, e);
   const from = L.text({ x: CM.from, base: 40, s: 36, c: "peach", txt: "" }, e);
   const subj = L.text({ x: CM.subj, base: 40, s: 36, c: "white", txt: "" }, e);
-  const st = L.text({ x: RR - RX, base: 40, s: 36, c: "lilac", txt: "", align: "r", rightIn: true, cls: "sw" }, e);
+  const st = L.text({ x: DR - DL, base: 40, s: 36, c: "lilac", txt: "", align: "r", rightIn: true, cls: "sw" }, e);
   const r = { st };
   r.fill = (d) => { r.d = d; L.set(sd, d.sd.toFixed(1)); L.set(from, d.c[0]); L.set(subj, d.c[1]); r.mark(); };
   r.mark = () => { L.set(st, r.d.st); st.style.color = r.d.st === "Unread" ? "var(--butter)" : "var(--lilac)"; };
   return r;
-});
+}, CY + 74);
 let ci = L.irand(0, COMMS.length - 1);
 const READ = ["Read", "Acknowledged", "Read", "Replied", "Filed"];
 for (let i = 0; i < 6; i++) {
@@ -379,10 +392,123 @@ for (const e of ENTRIES) {
 TILES.forEach(([label, val, det]) => { fits(label, 40, TIW - 36, "tile"); fits(val(), 52, TIW - 36, "tile"); fits(det(), 36, TIW - 36, "tile"); });
 SHIFTS.forEach(([, who]) => fits(who, 52, TIW - 36, "conn"));
 EVENTS.forEach((e) => { fits(e.what, 40, SC.where - SC.what - 40, "appointment"); fits(e.where, 36, SC.pill - SC.where - 40, "location"); });
-COMMS.forEach(([from, subj]) => { fits(from, 36, CM.subj - CM.from - 40, "from"); fits(subj, 36, RR - RX - CM.subj - 220, "subject"); });
+COMMS.forEach(([from, subj]) => { fits(from, 36, CM.subj - CM.from - 40, "from"); fits(subj, 36, DR - DL - CM.subj - 220, "subject"); });
 if (bad.length) setTimeout(() => { throw new Error("ready-room: " + bad.join(" | ")); });
 
 showStardate(); showTiles(); showSchedule();
 L.every(1000, () => { showStardate(); showTiles(); showSchedule(); }, 0);
+
+// =====================================================================================
+// ULTRAWIDE ONLY: A THIRD COLUMN, 3876–5016, from the data above (shifts, schedule, the running log)
+// =====================================================================================
+if (ULTRA) {
+  const C0 = RR + 60, C1 = B.x1;
+  const no4 = (n) => pad2(Math.floor(n / 100)) + pad2(n % 100);
+  const bar = (x, y, w, c) => {                            // a track, and a fill that grows from the left
+    L.rect({ x, y, w, h: 26, c: TRACK });
+    const f = L.layer({ x, y, w, h: 26 });
+    f.style.background = `var(--${c})`; f.style.transformOrigin = "0 0"; f.style.transform = "scaleX(0)";
+    f.set = (k) => { const v = `scaleX(${L.clamp(k).toFixed(3)})`; if (f._v !== v) { f._v = v; f.style.transform = v; } };
+    return f;
+  };
+
+  // ---------------- the watch rotation: the three shifts of the day, each an 8-hour track ----------------
+  L.header({ x: C0, y: 280, w: C1 - C0, label: "Watch Rotation", c1: "lilac", c2: "plum" });
+  const WP = (C1 - C0 + 48) / 3, WW = WP - 48, TL = 36, TWW = WW - TL;   // 396 apart, 348 wide
+  const watch = SHIFTS.map(([name, who], i) => {
+    const x = C0 + i * WP, c = ["plum", "lilac", "pink"][i];
+    L.rect({ x, y: ROW(0) - 29, w: 12, h: ROW(6) - ROW(0) + 29, c });
+    L.text({ x: x + TL, base: ROW(0), s: 40, c: "lilac", txt: name + " Shift" });
+    L.text({ x: x + TL, base: ROW(1), s: 52, c: "white", txt: who });
+    const st = L.text({ x: x + TL, base: ROW(2), s: 36, c: "peach", txt: "", cls: "sw" });
+    const fill = bar(x + TL, ROW(4) - 26, TWW, c);
+    const evs = EVENTS.map((e, j) => ({ e, j })).filter(({ e }) => Math.floor(e.at / 480) === i);
+    evs.forEach(({ e }) => {                               // a notch where each appointment begins
+      if (e.at === i * 480) return;                        // (one at the shift's start is the edge itself)
+      const n = L.layer({ x: x + TL + Math.round(((e.at - i * 480) / 480) * TWW) - 2, y: ROW(4) - 26, w: 4, h: 26 });
+      n.style.background = "#000";
+    });
+    L.text({ x: x + TL, base: ROW(5), s: 36, c: "lilac", txt: pad2(i * 8) + "00" });
+    L.text({ x: x + WW, base: ROW(5), s: 36, c: "lilac", txt: pad2(i * 8 + 8) + "00", align: "r" });
+    const cnt = L.text({ x: x + TL, base: ROW(6), s: 36, c: "peach", txt: "" });
+    return { x, st, fill, evs, cnt };
+  });
+  const cursor = L.layer({ x: 0, y: 0, w: 6, h: 46 });
+  cursor.style.background = "var(--white)";
+  const showWatch = () => {
+    const m = minutes(), s = Math.floor(m / 480) % 3;
+    const begun = m >= EVENTS[0].at;                       // before 0700 nothing today is complete
+    watch.forEach((w, i) => {
+      const done = w.evs.filter(({ j }) => begun && j < curEv).length, n = w.evs.length;
+      L.set(w.st, i < s ? "Relieved" : i === s ? "On Duty" : i === s + 1 ? "Next" : "Later");
+      w.st.style.color = `var(--${i < s ? "plum" : i === s ? "butter" : "lilac"})`;
+      w.fill.set(i < s ? 1 : i === s ? (m - i * 480) / 480 : 0);
+      L.set(w.cnt, i > s ? `${n} scheduled` : `${done} of ${n} complete`);
+    });
+    L.move(cursor, Math.round(watch[s].x + TL + ((m - s * 480) / 480) * TWW - 3), ROW(4) - 36);
+  };
+
+  // ---------------- the entry being dictated (or the last one sealed) ----------------
+  L.header({ x: C0, y: SY, w: C1 - C0, label: "Latest Entry", c1: "pink", c2: "plum" });
+  const EV = C0 + 260, EB = C0 + 460;                     // bars start where the archive's do
+  const erow = ["Entry", "Subject", "Stardate", "Lines", "Dictated", "Pace", "Status"].map((label, k) => {
+    L.text({ x: C0, base: ROW(9 + k), s: 36, c: "lilac", txt: label });
+    return L.text({ x: EV, base: ROW(9 + k), s: 40, c: "white", txt: "", cls: "sw" });
+  });
+  const lineBar = bar(EB, ROW(12) - 26, C1 - EB, "lilac"), timeBar = bar(EB, ROW(13) - 26, C1 - EB, "butter");
+  const PACE = { "Captain's": "Brisk", Supplemental: "Steady", Personal: "Reflective" };
+  let sealed = history[history.length - 1];
+  const showEntry = (t) => {
+    const d = cur || sealed, m = d.lines.length, n = cur ? Math.max(1, li) : m;
+    const el = cur ? L.clamp(t - recT0, 0, d.len) : d.len;
+    const words = d.lines.reduce((a, l) => a + l.txt.split(" ").length, 0);
+    L.set(erow[0], `${no4(d.no)}  ·  ${d.e[0] === "Supplemental" ? "Captain's Log, Supplemental" : d.e[0] + " Log"}`);
+    L.set(erow[1], d.e[1]);
+    L.set(erow[2], d.sd.toFixed(1));
+    L.set(erow[3], `${n} / ${m}`); lineBar.set(n / m);
+    L.set(erow[4], `${mss(el)} / ${mss(d.len)}`); timeBar.set(el / d.len);
+    L.set(erow[5], `${PACE[d.e[0]]}  ·  ${Math.round(words / (d.len / 60))} words a minute`);
+    L.set(erow[6], cur ? "Recording  ·  Voiceprint Verified" : "Sealed  ·  Starfleet Command Archive");
+    erow[6].style.color = cur ? "var(--butter)" : "var(--plum)";
+  };
+
+  // ---------------- the log archive: every entry, by kind ----------------
+  L.header({ x: C0, y: 1620, w: C1 - C0, label: "Log Archive", c1: "plum", c2: "lilac", h: 48 });
+  const count = { "Captain's": 171, Supplemental: 98, Personal: 139 };   // 408 before entry 0409
+  const secs = { "Captain's": 171 * 36, Supplemental: 98 * 36, Personal: 139 * 36 };   // 0:36 each on average, inside the entries' 0:32–0:40
+  let longest = null;
+  const recent = [];                                       // the entries the index shows: its six rows
+  // the right-hand figures are short, and the bars run up to their column
+  const RW = Math.max(...["00 h 00 m", "Per Entry", "Entry 0000"].map((x) => L.textWidth(x, 36)));
+  const AR = (k) => 1734 + 54 * k, AN = C0 + 420, AB = EB, ABW = Math.round(C1 - RW - 48 - AB);
+  const arow = [["Captain's", "lilac"], ["Supplemental", "lilac"], ["Personal", "pink"], ["All Entries", "plum"],
+                ["Average Length", "butter"], ["Longest Recent", "butter"]].map(([label, c], k) => {
+    L.text({ x: C0, base: AR(k), s: 36, c: c === "pink" ? "pink" : "lilac", txt: label });
+    return { n: L.text({ x: AN, base: AR(k), s: 36, c: "white", txt: "", align: "r" }),
+             f: bar(AB, AR(k) - 26, ABW, c),
+             r: L.text({ x: C1, base: AR(k), s: 36, c: "peach", txt: "", align: "r" }) };
+  });
+  const hrs = (s) => `${Math.floor(s / 3600)} h ${pad2(Math.floor(s / 60) % 60)} m`;
+  const showArchive = () => {
+    const kinds = Object.keys(count), total = kinds.reduce((a, k) => a + count[k], 0), all = kinds.reduce((a, k) => a + secs[k], 0);
+    kinds.forEach((k, i) => { L.set(arow[i].n, count[k].toLocaleString("en-US")); arow[i].f.set(count[k] / total); L.set(arow[i].r, hrs(secs[k])); });
+    L.set(arow[3].n, total.toLocaleString("en-US")); arow[3].f.set(1); L.set(arow[3].r, hrs(all));
+    const avg = all / total;
+    L.set(arow[4].n, mss(avg)); arow[4].f.set((avg - 15) / 35); L.set(arow[4].r, "Per Entry");
+    L.set(arow[5].n, mss(longest.len)); arow[5].f.set((longest.len - 15) / 35); L.set(arow[5].r, `Entry ${no4(longest.no)}`);
+  };
+  const file = (d) => {
+    count[d.e[0]]++; secs[d.e[0]] += d.len;
+    recent.push(d); if (recent.length > 6) recent.shift();
+    longest = recent.reduce((a, e) => (e.len > a.len ? e : a));
+  };
+  history.forEach(file);
+  const push = index.push;                                 // each entry sealed into the index is filed here too
+  index.push = (d, t) => { push(d, t); file(d); sealed = d; showArchive(); };
+
+  showWatch(); showEntry(0); showArchive();
+  L.every(1000, showWatch, 0);
+  L.every(500, showEntry, 0);
+}
 });
 </script></body></html>

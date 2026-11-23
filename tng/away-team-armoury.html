@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Away Team Armory</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .sw { transition: background-color .8s ease, color .8s ease; }
@@ -10,7 +11,7 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame, mirrored: sidebar on the right, title at top left ----------------
-L.frame({ type: "B", title: "Away Team Armory  •  Equipment", c: "sand", c2: "olive", accent: "peach", foot: "Armory",
+const B = L.frame({ type: "B", title: "Away Team Armory  •  Equipment", c: "sand", c2: "olive", accent: "peach", foot: "Armory",
   side: [[140, "olive", "Armory"], [70, "peach", "Deck 9"], [420, "sand", "Away Team"], [70, "butter", "Bench 2"],
          [300, "olive", "Checkout"], [70, "peach", "Celtris III"], [216, "sand", "Security"]] });
 
@@ -32,6 +33,29 @@ const fill = (x, y, w, h, c, origin = "0 0") => {
 const clockAt = (t) => { const d = new Date(Date.now() + (t - L.t) * 1000); return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
 const mmss = (s) => `${pad(Math.floor(s / 60))}:${pad(Math.floor(s % 60))}`;
 const later = (ms, f, jitter) => L.every(ms, (t) => { if (t > 1) f(t); }, jitter);
+
+// ---------------- the grid, per shape ----------------
+// The data, readings and motion are written once; only these positions differ by shape (wide values
+// are exactly the ones above).
+// upright (2160 × 3120, content 40–1840 × 140–2970), four rows 124 apart (last line to next header):
+//   the checkout matrix 40–1370 (kit columns 230 wide at 630, 885, 1140) beside the power cell rack
+//   1430–1840 as two rows of four, both on the matrix grid; the bench 40–1260 (wide's own size) beside
+//   the mission profile 1320–1840 on the bench's rows; the log 40–800 beside the suits; the stock
+//   40–800 beside kit progress. Suits and kit progress share three 300 columns at 860, 1200, 1540.
+// ultrawide (5040 × 2160, content 40–4720): wide's three columns untouched, plus a fourth column
+//   3580–4720: the kit manifest of the kit at the bench (on the matrix grid), seconds per check for
+//   all 27 checks of this cycle (on the rack's band), and the issue record (on the stock's rows).
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const Y2 = 1138, Y3 = 1996, Y4 = 2568;                                   // upright row headers
+const MXM = UP ? [630, 885, 1140] : MX, MWM = UP ? 230 : MW;           // the matrix's kit columns
+const ML1 = UP ? 1370 : L1, CATX = UP ? 380 : 560, QTYX = UP ? 570 : 980;
+const MXS = UP ? [860, 1200, 1540] : MX, MWS = UP ? 300 : MW, SL1 = UP ? 1840 : L1;   // suits, kit progress
+const BX = UP ? 40 - R0 : 0, BY = UP ? Y2 - 280 : 0;                   // the bench, moved
+const SDY = UP ? Y3 - 1080 : 0;                                        // the suits, moved
+const KDY = UP ? Y4 - 1620 : 0;                                        // kit progress and stock, moved
+const SX = UP ? 40 - R0 : 0, SX1 = UP ? 800 : R1;                      // the stock: left edge shift, right edge
+const hook = {};                                                       // ultrawide listens for issues here
+const PILL = UP ? [1430, 410] : UW ? [B.x1 - 480, 480] : [R1 - 480, 480];
 
 // ---------------- the away team and the kit list (Chain of Command: Celtris III, stardate 46357) ----------------
 const TEAM = [{ full: "Capt. Picard", name: "Picard" }, { full: "Lt. Worf", name: "Worf" }, { full: "Dr. Crusher", name: "Crusher" }];
@@ -74,22 +98,23 @@ const note = (t, txt) => { log.push([clockAt(t), txt]); if (log.length > 40) log
 // ---------------- status line ----------------
 const BIG = 100, stateTxt = L.text({ x: L0, cap: 150, s: BIG, c: "sand", txt: "" });
 const sub = L.text({ x: L0, base: 222, s: 38, c: "peach", txt: "" });
-const pill = L.box({ x: R1 - 480, y: 150, w: 480, h: 72, c: "olive", label: "", r: "lr", fs: 36, cls: "sw" });
+const pill = L.box({ x: PILL[0], y: 150, w: PILL[1], h: 72, c: "olive", label: "", r: "lr", fs: 36, cls: "sw" });
 
 // ---------------- the checkout matrix ----------------
-L.header({ x: L0, y: 280, w: L1 - L0, label: "Kit Checkout  ·  Away Team Celtris III", c1: "sand", c2: "olive" });
-[["Item", L0, "l"], ["Category", 560, "l"], ["Qty", 980, "r"]].forEach(([txt, x, align]) => L.text({ x, base: 404, s: 36, c: "peach", txt, align }));
-const memberHd = TEAM.map((p, m) => L.text({ x: MX[m], base: 404, s: 36, c: "peach", txt: p.full }));
+L.header({ x: L0, y: 280, w: ML1 - L0, label: "Kit Checkout  ·  Away Team Celtris III", c1: "sand", c2: "olive" });
+[["Item", L0, "l"], ["Category", CATX, "l"], ["Qty", QTYX, "r"]].forEach(([txt, x, align]) => L.text({ x, base: 404, s: 36, c: "peach", txt, align }));
+const memberHd = TEAM.map((p, m) => UP ? L.text({ x: MXM[m] + MWM, base: 404, s: 36, c: "peach", txt: p.full, align: "r" })   // over the cells' labels
+  : L.text({ x: MXM[m], base: 404, s: 36, c: "peach", txt: p.full }));
 const itemT = ITEMS.map((it, i) => {
-  L.text({ x: 560, base: rowB(i), s: 36, c: "olive", txt: it.cat });
-  L.text({ x: 980, base: rowB(i), s: 40, c: "white", txt: String(it.qty), align: "r" });
+  L.text({ x: CATX, base: rowB(i), s: 36, c: "olive", txt: it.cat });
+  L.text({ x: QTYX, base: rowB(i), s: 40, c: "white", txt: String(it.qty), align: "r" });
   return L.text({ x: L0, base: rowB(i), s: 40, c: "sand", txt: it.name });
 });
 const cells = ITEMS.map((it, i) => TEAM.map((p, m) => {
   const y = rowY(i);
-  if (!it.who[m]) { const b = L.box({ x: MX[m], y, w: MW, h: 44, c: NONE, label: "Not Required", fs: 28 }); b.style.color = "#6e6740"; return null; }
-  const e = L.layer({ x: MX[m], y, w: MW, h: 44 });
-  const b = L.box({ x: 0, y: 0, w: MW, h: 44, c: DARK, label: "Pending", fs: 28, cls: "sw" }, e);
+  if (!it.who[m]) { const b = L.box({ x: MXM[m], y, w: MWM, h: 44, c: NONE, label: "Not Required", fs: 28 }); b.style.color = "#6e6740"; return null; }
+  const e = L.layer({ x: MXM[m], y, w: MWM, h: 44 });
+  const b = L.box({ x: 0, y: 0, w: MWM, h: 44, c: DARK, label: "Pending", fs: 28, cls: "sw" }, e);
   return { e, b, s: -1, serial: `${it.pre}-${L.digits(4)}` };
 }));
 const setCell = (i, m, s) => {
@@ -103,107 +128,121 @@ const setCell = (i, m, s) => {
 };
 
 // ---------------- the bench: the item under test ----------------
-L.header({ x: R0, y: 280, w: R1 - R0, label: "On the Bench  ·  Diagnostic", c1: "olive", c2: "sand" });
-L.text({ x: R0, base: 404, s: 36, c: "sand", txt: "Bench 2  ·  Main Armory" });
-const passedT = L.text({ x: R1, base: 404, s: 36, c: "white", txt: "", align: "r" });
-const BC = [R0, 2960, R1];
+L.header({ x: R0 + BX, y: 280 + BY, w: R1 - R0, label: "On the Bench  ·  Diagnostic", c1: "olive", c2: "sand" });
+L.text({ x: R0 + BX, base: 404 + BY, s: 36, c: "sand", txt: "Bench 2  ·  Main Armory" });
+const passedT = L.text({ x: R1 + BX, base: 404 + BY, s: 36, c: "white", txt: "", align: "r" });
+const BC = [R0 + BX, 2960 + BX, R1 + BX];
+const bY = (i) => rowY(i) + BY, bB = (i) => rowB(i) + BY;     // the bench grid
 const benchCols = (i, labels) => labels.map((txt, k) => {
-  L.text({ x: BC[k], base: rowB(i), s: 40, c: "sand", txt, align: k === 2 ? "r" : "l" });
-  return L.text({ x: BC[k], base: rowB(i + 1), s: 52, c: "white", txt: "", align: k === 2 ? "r" : "l" });
+  L.text({ x: BC[k], base: bB(i), s: 40, c: "sand", txt, align: k === 2 ? "r" : "l" });
+  return L.text({ x: BC[k], base: bB(i + 1), s: 52, c: "white", txt: "", align: k === 2 ? "r" : "l" });
 });
 const [itemV, serialV, kitV] = benchCols(0, ["Item", "Serial", "Kit"]);
 const SGW = (R1 - R0 - 3 * 12) / 4;
 const seg = [0, 1, 2, 3].map((k) => {
-  const x = R0 + k * (SGW + 12);
-  const name = L.text({ x, base: rowB(2), s: 36, c: "peach", txt: "" });
-  L.rect({ x, y: rowY(3), w: SGW, h: 44, c: TRACK });
-  return { name, f: fill(x, rowY(3), SGW, 44, "olive") };
+  const x = R0 + BX + k * (SGW + 12);
+  const name = L.text({ x, base: bB(2), s: 36, c: "peach", txt: "" });
+  L.rect({ x, y: bY(3), w: SGW, h: 44, c: TRACK });
+  return { name, f: fill(x, bY(3), SGW, 44, "olive") };
 });
-[["Test", R0, "l"], ["Reading", 2700, "l"], ["Spec", 2960, "l"], ["Result", R1 - 240, "l"]].forEach(([txt, x, align]) => L.text({ x, base: rowB(4), s: 36, c: "peach", txt, align }));
+[["Test", R0, "l"], ["Reading", 2700, "l"], ["Spec", 2960, "l"], ["Result", R1 - 240, "l"]].forEach(([txt, x, align]) => L.text({ x: x + BX, base: bB(4), s: 36, c: "peach", txt, align }));
 const tests = [0, 1, 2, 3].map((k) => ({
-  name: L.text({ x: R0, base: rowB(5 + k), s: 40, c: "sand", txt: "" }),
-  val: L.text({ x: 2700, base: rowB(5 + k), s: 40, c: "white", txt: "" }),
-  spec: L.text({ x: 2960, base: rowB(5 + k), s: 40, c: "olive", txt: "" }),
-  res: L.box({ x: R1 - 240, y: rowY(5 + k), w: 240, h: 44, c: DARK, label: "", fs: 28, cls: "sw" }),
+  name: L.text({ x: R0 + BX, base: bB(5 + k), s: 40, c: "sand", txt: "" }),
+  val: L.text({ x: 2700 + BX, base: bB(5 + k), s: 40, c: "white", txt: "" }),
+  spec: L.text({ x: 2960 + BX, base: bB(5 + k), s: 40, c: "olive", txt: "" }),
+  res: L.box({ x: R1 - 240 + BX, y: bY(5 + k), w: 240, h: 44, c: DARK, label: "", fs: 28, cls: "sw" }),
 }));
 const [resultV, stepV, elapsedV] = benchCols(9, ["Bench Result", "Step", "Elapsed"]);
 
 // ---------------- the power cell rack ----------------
-L.header({ x: L0, y: 1080, w: M1 - L0, label: "Power Cell Rack  ·  Charging", c1: "olive", c2: "sand" });
-L.text({ x: L0, base: 1204, s: 36, c: "sand", txt: "Type II Phaser Cells" });
-const chargedT = L.text({ x: M1, base: 1204, s: 36, c: "white", txt: "", align: "r" });
-const RCW = (M1 - L0 - 7 * 24) / 8, RY = 1232, RH = 228, RATE = 0.45;   // percent a second, steady
+// upright: 1430–1840 beside the matrix, two rows of four on the matrix grid (percentages on rows 4 and 10)
+const RK = UP ? { x0: 1430, x1: 1840, y: 280, base: 404 } : { x0: L0, x1: M1, y: 1080, base: 1204 };
+L.header({ x: RK.x0, y: RK.y, w: RK.x1 - RK.x0, label: "Power Cell Rack  ·  Charging", c1: "olive", c2: "sand", lw: UP ? 300 : undefined });
+L.text({ x: RK.x0, base: RK.base, s: 36, c: "sand", txt: "Type II Phaser Cells" });
+const chargedT = L.text({ x: RK.x1, base: RK.base, s: 36, c: "white", txt: "", align: "r" });
+const RCW = UP ? (RK.x1 - RK.x0 - 3 * 24) / 4 : (M1 - L0 - 7 * 24) / 8, RY = 1232, RH = UP ? 184 : 228, RATE = 0.45;   // percent a second, steady
+const rackAt = (k) => UP ? [RK.x0 + (k % 4) * (RCW + 24), k < 4 ? 430 : 754, k < 4 ? rowB(4) : rowB(10)] : [L0 + k * (RCW + 24), RY, 1528];
 const START = [100, 100, 100, 88, 100, 64, 100, 37].sort(() => Math.random() - 0.5);
 const rack = START.map((c, k) => {
-  const x = L0 + k * (RCW + 24);
-  L.rect({ x, y: RY, w: RCW, h: RH, c: TRACK, noalign: true });
-  const f = fill(x, RY, RCW, RH, "sand", "50% 100%");
-  return { f, c, st: "rack", since: 0, pct: L.text({ x: x + RCW / 2, base: 1528, s: 40, c: "white", txt: "", align: "c", w: RCW + 24 }) };
+  const [x, y, pb] = rackAt(k);
+  L.rect({ x, y, w: RCW, h: RH, c: TRACK, noalign: true });
+  const f = fill(x, y, RCW, RH, "sand", "50% 100%");
+  return { f, c, st: "rack", since: 0, pct: L.text({ x: x + RCW / 2, base: pb, s: 40, c: "white", txt: "", align: "c", w: RCW + 24 }) };
 });
 const takeCell = () => rack.filter((r) => r.st === "rack").reduce((a, b) => (!a || b.c > a.c ? b : a), null);
 
 // ---------------- environmental suits ----------------
-L.header({ x: MX[0], y: 1080, w: L1 - MX[0], label: "Environmental Suits  ·  Pressure Test", c1: "sand", c2: "olive" });
+L.header({ x: MXS[0], y: 1080 + SDY, w: SL1 - MXS[0], label: "Environmental Suits  ·  Pressure Test", c1: "sand", c2: "olive" });
 const SUIT = 4, SROWS = ITEMS[SUIT].steps;
 const suits = TEAM.map((p, m) => {
-  const x = MX[m], r = x + MW;
-  L.text({ x, base: 1204, s: 36, c: "sand", txt: p.name });
-  const st = L.text({ x: r, base: 1204, s: 36, c: "white", txt: "", align: "r" });
-  L.rect({ x, y: 1232, w: MW, h: 26, c: TRACK });
-  const f = fill(x, 1232, MW, 26, "sand");
+  const x = MXS[m], r = x + MWS;
+  L.text({ x, base: 1204 + SDY, s: 36, c: "sand", txt: p.name });
+  const st = L.text({ x: r, base: 1204 + SDY, s: 36, c: "white", txt: "", align: "r" });
+  L.rect({ x, y: 1232 + SDY, w: MWS, h: 26, c: TRACK });
+  const f = fill(x, 1232 + SDY, MWS, 26, "sand");
   const vals = SROWS.map(([name], k) => {
-    L.text({ x, base: 1312 + k * PITCH, s: 36, c: "olive", txt: name });
-    return L.text({ x: r, base: 1312 + k * PITCH, s: 36, c: "white", txt: "", align: "r" });
+    L.text({ x, base: 1312 + k * PITCH + SDY, s: 36, c: "olive", txt: name });
+    return L.text({ x: r, base: 1312 + k * PITCH + SDY, s: 36, c: "white", txt: "", align: "r" });
   });
-  L.text({ x, base: 1528, s: 36, c: "olive", txt: "Serial" });
-  L.text({ x: r, base: 1528, s: 36, c: "white", txt: cells[SUIT][m].serial, align: "r" });
+  L.text({ x, base: 1528 + SDY, s: 36, c: "olive", txt: "Serial" });
+  L.text({ x: r, base: 1528 + SDY, s: 36, c: "white", txt: cells[SUIT][m].serial, align: "r" });
   return { st, f, vals };
 });
 
 // ---------------- the mission ----------------
-L.header({ x: R0, y: 1080, w: R1 - R0, label: "Mission Profile  ·  Celtris III", c1: "peach", c2: "sand" });
+// upright: 1320–1840 beside the bench, on its rows: the profile on its first seven lines (values right-aligned),
+// a row's space, then the checklist two to a row, the last one full width
+const MS = UP ? { x0: 1320, x1: 1840, y: Y2 } : { x0: R0, x1: R1, y: 1080 };
+const misBase = (i) => UP ? (i ? bB(i - 1) : 404 + BY) : 1204 + i * PITCH;
+const CW2 = (520 - 24) / 2;
+const checkAt = (i) => !UP ? [2940, 1168 + i * PITCH, R1 - 2940] : i === 6 ? [MS.x0, bY(10), 520] : [MS.x0 + (i % 2) * (CW2 + 24), bY(7 + Math.floor(i / 2)), CW2];
+L.header({ x: MS.x0, y: MS.y, w: MS.x1 - MS.x0, label: "Mission Profile  ·  Celtris III", c1: "peach", c2: "sand" });
 [["Mission", "Reconnaissance"], ["Target", "Weapons Facility"], ["Location", "Celtris III"], ["Territory", "Cardassian Union"],
  ["Transport", "Ferengi Vessel"], ["Entry", "Cave System"], ["Orders", "Vice Adm. Nechayev"]].forEach(([k, v], i) => {
-  L.text({ x: R0, base: 1204 + i * PITCH, s: 36, c: "sand", txt: k });
-  L.text({ x: 2560, base: 1204 + i * PITCH, s: 36, c: "white", txt: v });
+  L.text({ x: MS.x0, base: misBase(i), s: 36, c: "sand", txt: k });
+  L.text({ x: UP ? MS.x1 : 2560, base: misBase(i), s: 36, c: "white", txt: v, align: UP ? "r" : undefined });
 });
 const CHECK = ["Orders Received", "Cave Descent Drill", "Phasers Issued", "Tricorders Issued", "Suits Sealed", "Transponders Keyed", "Kits Complete"];
-const checks = CHECK.map((label, i) => L.box({ x: 2940, y: 1168 + i * PITCH, w: R1 - 2940, h: 44, c: DARK, label, fs: 28, cls: "sw lt" }));
+const checks = CHECK.map((label, i) => L.box({ x: checkAt(i)[0], y: checkAt(i)[1], w: checkAt(i)[2], h: 44, c: DARK, label, fs: 28, cls: "sw lt" }));
 
 // ---------------- bottom strip: log, kit progress, stock ----------------
-L.header({ x: L0, y: 1620, w: M1 - L0, label: "Armory Log", c1: "sand", c2: "peach", h: 48 });
-const logRows = Array.from({ length: 6 }, (_, i) => ({
-  tm: L.text({ x: L0, base: 1734 + i * PITCH, s: 36, c: "olive", txt: "" }),
-  tx: L.text({ x: 200, base: 1734 + i * PITCH, s: 36, c: "sand", txt: "" }),
+// upright: 40–800 beside the suits, seven lines on the suits' rows
+const LG = UP ? { x1: 800, y: Y3, h: 56, base: Y3 + 124, n: 7 } : { x1: M1, y: 1620, h: 48, base: 1734, n: 6 };
+L.header({ x: L0, y: LG.y, w: LG.x1 - L0, label: "Armory Log", c1: "sand", c2: "peach", h: LG.h });
+const logRows = Array.from({ length: LG.n }, (_, i) => ({
+  tm: L.text({ x: L0, base: LG.base + i * PITCH, s: 36, c: "olive", txt: "" }),
+  tx: L.text({ x: 200, base: LG.base + i * PITCH, s: 36, c: "sand", txt: "" }),
 }));
 function showLog() {
-  const last = log.slice(-6);
+  const last = log.slice(-LG.n);
   logRows.forEach((r, i) => { const e = last[i]; L.set(r.tm, e ? e[0] : ""); L.set(r.tx, e ? e[1] : ""); fg(r.tx, i === last.length - 1 ? "white" : "sand"); });
 }
 
-L.header({ x: MX[0], y: 1620, w: L1 - MX[0], label: "Away Team  ·  Kit Progress", c1: "olive", c2: "sand", h: 48 });
+L.header({ x: MXS[0], y: 1620 + KDY, w: SL1 - MXS[0], label: "Away Team  ·  Kit Progress", c1: "olive", c2: "sand", h: 48 });
 const kits = TEAM.map((p, m) => {
-  const x = MX[m], r = x + MW;
-  L.text({ x, base: 1734, s: 36, c: "sand", txt: p.full });
-  const st = L.text({ x: r, base: 1734, s: 36, c: "white", txt: "", align: "r" });
-  L.rect({ x, y: 1762, w: MW, h: 26, c: TRACK });
-  const f = fill(x, 1762, MW, 26, "olive");
+  const x = MXS[m], r = x + MWS;
+  L.text({ x, base: 1734 + KDY, s: 36, c: "sand", txt: p.full });
+  const st = L.text({ x: r, base: 1734 + KDY, s: 36, c: "white", txt: "", align: "r" });
+  L.rect({ x, y: 1762 + KDY, w: MWS, h: 26, c: TRACK });
+  const f = fill(x, 1762 + KDY, MWS, 26, "olive");
   const row = (k, label, txt = "") => {
-    L.text({ x, base: 1842 + k * PITCH, s: 36, c: "olive", txt: label });
-    return L.text({ x: r, base: 1842 + k * PITCH, s: 36, c: "white", txt, align: "r" });
+    L.text({ x, base: 1842 + k * PITCH + KDY, s: 36, c: "olive", txt: label });
+    return L.text({ x: r, base: 1842 + k * PITCH + KDY, s: 36, c: "white", txt, align: "r" });
   };
   const items = row(0, "Items"), mass = row(1, "Kit Mass");
   row(2, "Descent Drill", "Passed"); row(3, "Inoculations", "Current");
   return { st, f, items, mass, n: 0, shown: 0, kg: 0 };
 });
 
-L.header({ x: R0, y: 1620, w: R1 - R0, label: "Armory Stock  ·  Deck 9", c1: "sand", c2: "olive", h: 48 });
-const SC = [[R0, "Item", "l"], [2860, "Total", "r"], [3080, "Issued", "r"], [3300, "Repair", "r"], [R1, "On Hand", "r"]];
-SC.forEach(([x, txt, align]) => L.text({ x, base: 1734, s: 36, c: "peach", txt, align }));
+// upright: 40–800 beside kit progress, the number columns re-cut 130 apart
+L.header({ x: R0 + SX, y: 1620 + KDY, w: SX1 - R0 - SX, label: "Armory Stock  ·  Deck 9", c1: "sand", c2: "olive", h: 48 });
+const SC = UP ? [[40, "Item", "l"], [410, "Total", "r"], [540, "Issued", "r"], [670, "Repair", "r"], [800, "On Hand", "r"]]
+  : [[R0, "Item", "l"], [2860, "Total", "r"], [3080, "Issued", "r"], [3300, "Repair", "r"], [R1, "On Hand", "r"]];
+SC.forEach(([x, txt, align]) => L.text({ x, base: 1734 + KDY, s: 36, c: "peach", txt, align }));
 const STOCK = [["Type II Phasers", [0], 48, 2], ["Phaser Power Cells", [1], 96, 4], ["Tricorders", [2], 24, 1],
                ["Medical Tricorders", [3], 8, 0], ["Environmental Suits", [4], 30, 2]];
 const stock = STOCK.map(([name, rows, total, rep], k) => {
-  const base = 1788 + k * PITCH;
+  const base = 1788 + k * PITCH + KDY;
   const t = SC.map(([x, , align], j) => L.text({ x, base, s: 36, c: j === 0 ? "sand" : "white", txt: "", align }));
   L.set(t[0], name); L.set(t[1], total); L.set(t[3], rep);
   return { rows, total, rep, t };
@@ -244,6 +283,7 @@ const planFor = (k) => {
 const onStart = (t, k) => { if (firstOf(k)) note(t, `${TEAM[ORDER[k].m].full} at Bench 2 for kit issue`); };
 const onIssue = (t, k, n) => {
   const { m, i } = ORDER[k], c = cells[i][m], who = TEAM[m].full;
+  if (hook.issue) hook.issue(t, k);
   if (i === 0) note(t, `Type II phaser ${c.serial} issued, ${who}`);
   if (i === SUIT) note(t, `Environmental suit ${c.serial} sealed, ${who}`);
   if (n === PER[m]) note(t, `Kit complete, ${who}, ${PER[m]} items`);
@@ -424,5 +464,109 @@ L.every(250, () => {
     : "Away Team Celtris III  ·  Bench 2, Main Armory, Deck 9  ·  Stardate 46357.4");
   bg(pill, kitsDone === 3 ? "olive" : "sand");
 }, 0);
+
+// =====================================================================================
+// ULTRAWIDE: a fourth column, 3580–4720, fed by the checkout above
+// =====================================================================================
+if (UW) {
+  const C0 = R1 + 60, C1 = B.x1;                                        // 3580–4720
+
+  // ---- the kit manifest: the kit at the bench, item by item, on the matrix grid ----
+  L.header({ x: C0, y: 280, w: C1 - C0, label: "Kit Manifest  ·  At the Bench", c1: "peach", c2: "sand" });
+  [["Item", C0, "l"], ["Serial", 4000, "l"], ["Mass", 4360, "r"], ["Status", C1 - 240, "l"]].forEach(([txt, x, align]) => L.text({ x, base: 404, s: 36, c: "peach", txt, align }));
+  const man = Array.from({ length: 9 }, (_, j) => ({
+    name: L.text({ x: C0, base: rowB(j), s: 40, c: "sand", txt: "" }),
+    ser: L.text({ x: 4000, base: rowB(j), s: 40, c: "white", txt: "" }),
+    kg: L.text({ x: 4360, base: rowB(j), s: 40, c: "white", txt: "", align: "r" }),
+    st: L.box({ x: C1 - 240, y: rowY(j), w: 240, h: 44, c: DARK, label: "", fs: 28, cls: "sw" }),
+  }));
+  const [manKit, manItems, manMass] = [[C0, "Kit", "l"], [4000, "Items", "l"], [C1, "Kit Mass", "r"]].map(([x, txt, align]) => {
+    L.text({ x, base: rowB(9), s: 40, c: "sand", txt, align });
+    return L.text({ x, base: rowB(10), s: 52, c: "white", txt: "", align });
+  });
+
+  // ---- seconds per check: all 27 checks of this cycle, a group of nine per kit, on the rack's band ----
+  L.header({ x: C0, y: 1080, w: C1 - C0, label: "Bench 2  ·  Seconds per Check", c1: "olive", c2: "sand" });
+  L.text({ x: C0, base: 1204, s: 36, c: "sand", txt: "This Cycle  ·  Scale 0 to 10 Seconds" });
+  const meanT = L.text({ x: C1, base: 1204, s: 36, c: "white", txt: "", align: "r" });
+  const GW = (C1 - C0 - 2 * 60) / 3, BW = 28, BP = (GW - BW) / 8;      // 340-wide groups, 9 bars
+  // a check done before the screen opened: drawn like a live one (load, then four steps of 1.2–1.7 s), from a
+  // hash of its serial, so no random number is taken and no two kits repeat a pattern
+  const hz = (n) => { const x = Math.sin(n * 12.9898 + 78.233) * 43758.5453; return x - Math.floor(x); };
+  const asFound = (k) => {
+    const { m, i } = ORDER[k], n = parseInt(cells[i][m].serial.slice(3), 10) + k * 97;
+    return (firstOf(k) ? 2.6 : LOAD) + [0, 1, 2, 3].reduce((a, j) => a + 1.2 + 0.5 * hz(n * 4 + j), 0);
+  };
+  const dur = ORDER.map((_, k) => (k < k0 ? asFound(k) : 0)), shownD = dur.slice();
+  const bars = ORDER.map(({ m }, k) => {
+    const j = ORDER.slice(0, k).filter((o) => o.m === m).length, x = C0 + m * (GW + 60) + j * BP;
+    L.rect({ x, y: RY, w: BW, h: 228, c: TRACK, noalign: true });
+    return fill(x, RY, BW, 228, "olive", "50% 100%");
+  });
+  const groupT = TEAM.map((p, m) => {
+    const x = C0 + m * (GW + 60);
+    L.text({ x, base: 1528, s: 36, c: "sand", txt: p.name });
+    return L.text({ x: x + GW, base: 1528, s: 36, c: "white", txt: "", align: "r" });
+  });
+  const mean = (a) => (a.length ? (a.reduce((x, y) => x + y, 0) / a.length).toFixed(1) + " s" : "—");
+
+  // ---- the issue record: every item issued with its bench time, newest last, on the stock's rows ----
+  L.header({ x: C0, y: 1620, w: C1 - C0, label: "Issue Record  ·  Bench 2", c1: "sand", c2: "peach", h: 48 });
+  const RC = [[C0, "Time", "l", "olive"], [3760, "Serial", "l", "white"], [3960, "Item", "l", "sand"], [4440, "Check", "r", "white"], [C1, "Kit", "r", "sand"]];
+  RC.forEach(([x, txt, align]) => L.text({ x, base: 1734, s: 36, c: "peach", txt, align }));
+  const recRows = Array.from({ length: 5 }, (_, k) => RC.map(([x, , align, c]) => L.text({ x, base: 1788 + k * PITCH, s: 36, c, txt: "", align })));
+  const rec = [];
+  const record = (t, k) => {
+    const { m, i } = ORDER[k];
+    rec.push([clockAt(t), cells[i][m].serial, ITEMS[i].name, dur[k].toFixed(1) + " s", TEAM[m].full]);   // its bench time, as on the bars
+    if (rec.length > 10) rec.shift();
+    const last = rec.slice(-5);
+    recRows.forEach((row, r) => row.forEach((e, j) => {
+      L.set(e, last[r] ? last[r][j] : "");
+      if (j === 2) fg(e, r === last.length - 1 ? "white" : "sand");
+    }));
+  };
+  for (let k = 0; k < k0; k++) record(tStart + k * STEP + STEP - 1, k);  // as found: the same times as the log
+  hook.issue = (t, k) => { dur[k] = cy.plan && cy.k === k ? cy.plan.end : asFound(k); record(t, k); };
+
+  let manM = -1;
+  L.tick((t) => {
+    const cur = cy.phase === "check" ? ORDER[cy.k] : null;
+    const m = cur ? cur.m : cy.phase === "ready" ? TEAM.length - 1 : 0;
+    const list = ITEMS.map((_, i) => i).filter((i) => ITEMS[i].who[m]);
+    if (m !== manM) {
+      manM = m;
+      man.forEach((r, j) => {
+        const i = list[j];
+        L.set(r.name, i === undefined ? "" : ITEMS[i].name);
+        L.set(r.ser, i === undefined ? "" : cells[i][m].serial);
+        L.set(r.kg, i === undefined ? "" : ITEMS[i].kg.toFixed(1) + " kg");
+      });
+      L.set(manKit, TEAM[m].full);
+    }
+    list.forEach((i, j) => {
+      const s = cells[i][m].s, r = man[j];
+      const v = s === 2 ? ["olive", "#000", "Issued"] : s === 1 ? ["butter", "#000", "On Bench"] : [DARK, "sand", "Pending"];
+      bg(r.st, v[0]); fg(r.st, v[1]); L.set(r.st, v[2]);
+      fg(r.name, cur && cur.i === i && cur.m === m ? "white" : "sand");
+    });
+    L.set(manItems, `${kits[m].n} / ${PER[m]}`);
+    L.set(manMass, kits[m].kg.toFixed(1) + " kg");
+
+    // the bars: a finished check holds its time, the one on the bench grows, a reset one eases down
+    const w = where(t), done = [];
+    ORDER.forEach(({ m: mm, i }, k) => {
+      const s = cells[i][mm].s, live = cur && cy.k === k && s === 1 && cy.plan;
+      const goal = s === 2 ? dur[k] : live ? Math.min(w.u, cy.plan.end) : 0;
+      shownD[k] = goal >= shownD[k] ? goal : shownD[k] + (goal - shownD[k]) * 0.12;
+      if (shownD[k] < 0.01) shownD[k] = 0;
+      tf(bars[k], `scaleY(${L.clamp(shownD[k] / 10).toFixed(4)})`);
+      bg(bars[k], live ? "butter" : "olive");
+      if (s === 2) done.push([mm, dur[k]]);
+    });
+    L.set(meanT, `Mean  ${mean(done.map((d) => d[1]))}`);
+    groupT.forEach((e, g) => L.set(e, mean(done.filter((d) => d[0] === g).map((d) => d[1]))));
+  });
+}
 });
 </script></body></html>

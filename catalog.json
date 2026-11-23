@@ -7,7 +7,8 @@
       "subtitle": "Long Range Scan",
       "channel": 1,
       "generation": 7,
-      "path": "tng/navigation.html"
+      "path": "tng/navigation.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "engineering",
@@ -15,7 +16,8 @@
       "subtitle": "Warp Core and EPS Distribution",
       "channel": 2,
       "generation": 2,
-      "path": "tng/engineering.html"
+      "path": "tng/engineering.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "sickbay",
@@ -23,7 +25,8 @@
       "subtitle": "Biobed 2",
       "channel": 3,
       "generation": 4,
-      "path": "tng/sickbay.html"
+      "path": "tng/sickbay.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "tactical",
@@ -31,7 +34,8 @@
       "subtitle": "Defensive Systems",
       "channel": 4,
       "generation": 6,
-      "path": "tng/tactical.html"
+      "path": "tng/tactical.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "transporter",
@@ -39,7 +43,8 @@
       "subtitle": "Transport Cycle",
       "channel": 5,
       "generation": 5,
-      "path": "tng/transporter.html"
+      "path": "tng/transporter.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "communications",
@@ -47,7 +52,8 @@
       "subtitle": "Subspace Array",
       "channel": 6,
       "generation": 1,
-      "path": "tng/communications.html"
+      "path": "tng/communications.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "astrometrics",
@@ -55,7 +61,8 @@
       "subtitle": "Stellar Cartography",
       "channel": 7,
       "generation": 3,
-      "path": "tng/astrometrics.html"
+      "path": "tng/astrometrics.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "library-computer",
@@ -63,7 +70,8 @@
       "subtitle": "Access and Retrieval",
       "channel": 8,
       "generation": 3,
-      "path": "tng/library-computer.html"
+      "path": "tng/library-computer.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "turbolift",
@@ -71,7 +79,8 @@
       "subtitle": "Deck Directory",
       "channel": 9,
       "generation": 5,
-      "path": "tng/turbolift.html"
+      "path": "tng/turbolift.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "ops",
@@ -79,7 +88,8 @@
       "subtitle": "Ship Status",
       "channel": 10,
       "generation": 1,
-      "path": "tng/ops.html"
+      "path": "tng/ops.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "science",
@@ -87,7 +97,8 @@
       "subtitle": "Spectrographic Analysis",
       "channel": 11,
       "generation": 3,
-      "path": "tng/science.html"
+      "path": "tng/science.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "planetary-survey",
@@ -95,7 +106,8 @@
       "subtitle": "Orbital Survey",
       "channel": 12,
       "generation": 3,
-      "path": "tng/planetary-survey.html"
+      "path": "tng/planetary-survey.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "stellar-system",
@@ -103,7 +115,8 @@
       "subtitle": "Stellar Survey",
       "channel": 13,
       "generation": 3,
-      "path": "tng/stellar-system.html"
+      "path": "tng/stellar-system.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "security",
@@ -111,7 +124,8 @@
       "subtitle": "Internal Sensors",
       "channel": 14,
       "generation": 6,
-      "path": "tng/security.html"
+      "path": "tng/security.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "holodeck",
@@ -119,7 +133,8 @@
       "subtitle": "Program Control",
       "channel": 15,
       "generation": 5,
-      "path": "tng/holodeck.html"
+      "path": "tng/holodeck.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "shuttlebay",
@@ -127,7 +142,8 @@
       "subtitle": "Flight Control",
       "channel": 16,
       "generation": 5,
-      "path": "tng/shuttlebay.html"
+      "path": "tng/shuttlebay.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "environmental",
@@ -135,7 +151,8 @@
       "subtitle": "Life Support",
       "channel": 17,
       "generation": 2,
-      "path": "tng/environmental.html"
+      "path": "tng/environmental.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "warp-field",
@@ -143,7 +160,8 @@
       "subtitle": "Field Geometry",
       "channel": 18,
       "generation": 2,
-      "path": "tng/warp-field.html"
+      "path": "tng/warp-field.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "damage-control",
@@ -151,7 +169,8 @@
       "subtitle": "Repair Coordination",
       "channel": 19,
       "generation": 2,
-      "path": "tng/damage-control.html"
+      "path": "tng/damage-control.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "neutral-zone",
@@ -159,7 +178,8 @@
       "subtitle": "Border Patrol",
       "channel": 20,
       "generation": 6,
-      "path": "tng/neutral-zone.html"
+      "path": "tng/neutral-zone.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "galactic-map",
@@ -167,7 +187,8 @@
       "subtitle": "Alpha and Beta Quadrants",
       "channel": 21,
       "generation": 3,
-      "path": "tng/galactic-map.html"
+      "path": "tng/galactic-map.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "dilithium",
@@ -175,7 +196,8 @@
       "subtitle": "Crystal Analysis",
       "channel": 22,
       "generation": 2,
-      "path": "tng/dilithium.html"
+      "path": "tng/dilithium.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "diagnostic",
@@ -183,7 +205,8 @@
       "subtitle": "Level 1 Diagnostic",
       "channel": 23,
       "generation": 2,
-      "path": "tng/diagnostic.html"
+      "path": "tng/diagnostic.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "cargo-bay",
@@ -191,7 +214,8 @@
       "subtitle": "Inventory Control",
       "channel": 24,
       "generation": 5,
-      "path": "tng/cargo-bay.html"
+      "path": "tng/cargo-bay.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "replicators",
@@ -199,7 +223,8 @@
       "subtitle": "Food and Matter Synthesis",
       "channel": 25,
       "generation": 5,
-      "path": "tng/replicators.html"
+      "path": "tng/replicators.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "crew-manifest",
@@ -207,7 +232,8 @@
       "subtitle": "Crew Manifest",
       "channel": 26,
       "generation": 5,
-      "path": "tng/crew-manifest.html"
+      "path": "tng/crew-manifest.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "long-range-sensors",
@@ -215,7 +241,8 @@
       "subtitle": "Subspace Scan",
       "channel": 27,
       "generation": 3,
-      "path": "tng/long-range-sensors.html"
+      "path": "tng/long-range-sensors.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "mission-ops",
@@ -223,7 +250,8 @@
       "subtitle": "Away Team",
       "channel": 28,
       "generation": 1,
-      "path": "tng/mission-ops.html"
+      "path": "tng/mission-ops.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "deflector",
@@ -231,7 +259,8 @@
       "subtitle": "Navigational Control",
       "channel": 29,
       "generation": 2,
-      "path": "tng/deflector.html"
+      "path": "tng/deflector.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "computer-core",
@@ -239,7 +268,8 @@
       "subtitle": "Optical Data Network",
       "channel": 30,
       "generation": 2,
-      "path": "tng/computer-core.html"
+      "path": "tng/computer-core.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "conn",
@@ -247,7 +277,8 @@
       "subtitle": "Heading and mark, warp and impulse, a calm course correction now and then",
       "channel": 31,
       "generation": 1,
-      "path": "tng/conn.html"
+      "path": "tng/conn.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "saucer-separation",
@@ -255,7 +286,8 @@
       "subtitle": "Saucer and stardrive part and rejoin: latches release in sequence, the sections draw apart, then dock again",
       "channel": 32,
       "generation": 1,
-      "path": "tng/saucer-separation.html"
+      "path": "tng/saucer-separation.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "battle-bridge",
@@ -263,7 +295,8 @@
       "subtitle": "Stardrive command: six station monitors, weapons and separation readiness, and a readiness drill now and then",
       "channel": 33,
       "generation": 1,
-      "path": "tng/battle-bridge.html"
+      "path": "tng/battle-bridge.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "alert-status",
@@ -271,7 +304,8 @@
       "subtitle": "Condition Green, a yellow-alert drill now and then, and every deck reporting in",
       "channel": 34,
       "generation": 1,
-      "path": "tng/alert-status.html"
+      "path": "tng/alert-status.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "ready-room",
@@ -279,7 +313,8 @@
       "subtitle": "The captain's log, dictated line by line, beside the day's schedule and Starfleet traffic",
       "channel": 35,
       "generation": 1,
-      "path": "tng/ready-room.html"
+      "path": "tng/ready-room.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "main-viewer",
@@ -287,7 +322,8 @@
       "subtitle": "Warp streaks on the main viewer, dropping to impulse to magnify and survey a planet",
       "channel": 36,
       "generation": 1,
-      "path": "tng/main-viewer.html"
+      "path": "tng/main-viewer.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "briefing",
@@ -295,7 +331,8 @@
       "subtitle": "Observation Lounge: the Celtris III briefing, slide by slide, with a 48-hour mission timeline",
       "channel": 37,
       "generation": 1,
-      "path": "tng/briefing.html"
+      "path": "tng/briefing.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "starfleet-orders",
@@ -303,7 +340,8 @@
       "subtitle": "Orders queue, standing orders and a sector map of the Enterprise's assignments",
       "channel": 38,
       "generation": 1,
-      "path": "tng/starfleet-orders.html"
+      "path": "tng/starfleet-orders.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "first-contact",
@@ -311,7 +349,8 @@
       "subtitle": "Malcor III through the four phases of contact, with the Tamarian language as the case study",
       "channel": 39,
       "generation": 1,
-      "path": "tng/first-contact.html"
+      "path": "tng/first-contact.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "antimatter-containment",
@@ -319,7 +358,8 @@
       "subtitle": "Twelve magnetic bottles on Deck 42, topping up the reaction chamber now and then",
       "channel": 40,
       "generation": 2,
-      "path": "tng/antimatter-containment.html"
+      "path": "tng/antimatter-containment.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "impulse-engines",
@@ -327,7 +367,8 @@
       "subtitle": "Fusion chambers, driver coils and vectored exhaust, answering the conn's impulse orders",
       "channel": 41,
       "generation": 2,
-      "path": "tng/impulse-engines.html"
+      "path": "tng/impulse-engines.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "command-codes",
@@ -335,7 +376,8 @@
       "subtitle": "Voiceprint, retina and biometrics; a command code verified digit by digit",
       "channel": 42,
       "generation": 1,
-      "path": "tng/command-codes.html"
+      "path": "tng/command-codes.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "eps-grid",
@@ -343,7 +385,8 @@
       "subtitle": "Plasma flowing through the four EPS trunks to twelve taps, with conduits isolated and rerouted through the cross-ties",
       "channel": 43,
       "generation": 2,
-      "path": "tng/eps-grid.html"
+      "path": "tng/eps-grid.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "plasma-injectors",
@@ -351,7 +394,8 @@
       "subtitle": "Three nacelle injectors firing in sequence: one drifts, is caught and recalibrated",
       "channel": 44,
       "generation": 2,
-      "path": "tng/plasma-injectors.html"
+      "path": "tng/plasma-injectors.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "structural-integrity",
@@ -359,7 +403,8 @@
       "subtitle": "Hull stress block map, SIF generators and manoeuvre loads",
       "channel": 45,
       "generation": 2,
-      "path": "tng/structural-integrity.html"
+      "path": "tng/structural-integrity.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "bussard-collectors",
@@ -367,7 +412,8 @@
       "subtitle": "Ramscoop fields drawing interstellar hydrogen into the port and starboard collectors",
       "channel": 46,
       "generation": 2,
-      "path": "tng/bussard-collectors.html"
+      "path": "tng/bussard-collectors.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "inertial-dampers",
@@ -375,7 +421,8 @@
       "subtitle": "Acceleration events, damper lag and per-deck compensation",
       "channel": 47,
       "generation": 2,
-      "path": "tng/inertial-dampers.html"
+      "path": "tng/inertial-dampers.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "tractor-beam",
@@ -383,7 +430,8 @@
       "subtitle": "Target lock, tow vector and the graviton polarity array, towing one craft after another",
       "channel": 48,
       "generation": 2,
-      "path": "tng/tractor-beam.html"
+      "path": "tng/tractor-beam.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "subspace-physics",
@@ -391,7 +439,8 @@
       "subtitle": "Laboratory: subspace field harmonics, verteron and tetryon flux, interphase readings",
       "channel": 49,
       "generation": 3,
-      "path": "tng/subspace-physics.html"
+      "path": "tng/subspace-physics.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "jefferies-tubes",
@@ -399,7 +448,8 @@
       "subtitle": "Maintenance teams crawl the Engineering section's tubes, cycling hatches and closing work orders",
       "channel": 50,
       "generation": 2,
-      "path": "tng/jefferies-tubes.html"
+      "path": "tng/jefferies-tubes.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "industrial-replicator",
@@ -407,7 +457,8 @@
       "subtitle": "Fabrication queue, parts built layer by layer, material stocks and power",
       "channel": 51,
       "generation": 2,
-      "path": "tng/industrial-replicator.html"
+      "path": "tng/industrial-replicator.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "temporal-anomaly",
@@ -415,7 +466,8 @@
       "subtitle": "Causality loop in the Typhon Expanse: dekyon traces, iterations and the message that breaks it",
       "channel": 52,
       "generation": 3,
-      "path": "tng/temporal-anomaly.html"
+      "path": "tng/temporal-anomaly.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "gravimetric",
@@ -423,7 +475,8 @@
       "subtitle": "Bre'el IV and its decaying moon: gravimetric contour mesh, tidal readings",
       "channel": 53,
       "generation": 3,
-      "path": "tng/gravimetric.html"
+      "path": "tng/gravimetric.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "nebula",
@@ -431,7 +484,8 @@
       "subtitle": "Probe survey of nebula FGC-47: density map, gas composition and radiation, sample by sample",
       "channel": 54,
       "generation": 3,
-      "path": "tng/nebula.html"
+      "path": "tng/nebula.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "stellar-observation",
@@ -439,7 +493,8 @@
       "subtitle": "A pulsar's beams sweeping the Kavis Alpha Sector, folded pulse by pulse",
       "channel": 55,
       "generation": 3,
-      "path": "tng/stellar-observation.html"
+      "path": "tng/stellar-observation.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "probe-telemetry",
@@ -447,7 +502,8 @@
       "subtitle": "Class 1 probe: launch, course to target, ten telemetry channels and the data coming home",
       "channel": 56,
       "generation": 3,
-      "path": "tng/probe-telemetry.html"
+      "path": "tng/probe-telemetry.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "warp-signature",
@@ -455,7 +511,8 @@
       "subtitle": "Warp trail spectra matched against the reference library, trail decay and origin estimate",
       "channel": 57,
       "generation": 3,
-      "path": "tng/warp-signature.html"
+      "path": "tng/warp-signature.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "archaeology",
@@ -463,7 +520,8 @@
       "subtitle": "Kurlan settlement, Site 4: grid squares, finds, strata and dating",
       "channel": 58,
       "generation": 3,
-      "path": "tng/archaeology.html"
+      "path": "tng/archaeology.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "exobiology",
@@ -471,7 +529,8 @@
       "subtitle": "Stasis specimens imaged, sequenced and classified, one bay at a time",
       "channel": 59,
       "generation": 3,
-      "path": "tng/exobiology.html"
+      "path": "tng/exobiology.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "geology",
@@ -479,7 +538,8 @@
       "subtitle": "Drema IV core samples: strata, minerals, radiometric ages and the surface seismic network",
       "channel": 60,
       "generation": 3,
-      "path": "tng/geology.html"
+      "path": "tng/geology.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "genetics",
@@ -487,7 +547,8 @@
       "subtitle": "Lt. Worf's genome scrolls past the read head, base by base against the Klingon reference, variants flagged as they're read",
       "channel": 61,
       "generation": 4,
-      "path": "tng/genetics.html"
+      "path": "tng/genetics.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "quarantine",
@@ -495,7 +556,8 @@
       "subtitle": "Deck 12 isolation wards, a turning pathogen model, and airlock decontamination after each round of visits",
       "channel": 62,
       "generation": 4,
-      "path": "tng/quarantine.html"
+      "path": "tng/quarantine.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "surgical-bay",
@@ -503,7 +565,8 @@
       "subtitle": "An eight-minute procedure step by step: vitals, the surgical arch, instruments in use and the team",
       "channel": 63,
       "generation": 4,
-      "path": "tng/surgical-bay.html"
+      "path": "tng/surgical-bay.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "medical-tricorder",
@@ -511,7 +574,8 @@
       "subtitle": "A full bioscan sweeps crown to sole, reading fifteen organ systems in turn",
       "channel": 64,
       "generation": 4,
-      "path": "tng/medical-tricorder.html"
+      "path": "tng/medical-tricorder.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "microbiology",
@@ -519,7 +583,8 @@
       "subtitle": "Twelve culture plates growing in the Sickbay lab, each identified at 24 hours",
       "channel": 65,
       "generation": 4,
-      "path": "tng/microbiology.html"
+      "path": "tng/microbiology.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "counselor",
@@ -527,7 +592,8 @@
       "subtitle": "Crew wellness by department, today's sessions and a calm breathing pacer, aggregate and anonymous",
       "channel": 66,
       "generation": 4,
-      "path": "tng/counselor.html"
+      "path": "tng/counselor.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "epidemiology",
@@ -535,7 +601,8 @@
       "subtitle": "RV-4475 spread model, deck-by-deck risk sweep, inoculation coverage and containment orders",
       "channel": 67,
       "generation": 4,
-      "path": "tng/epidemiology.html"
+      "path": "tng/epidemiology.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "pharmacy",
@@ -543,7 +610,8 @@
       "subtitle": "Sickbay's medical replicator compounds, stocks and dispenses doses",
       "channel": 68,
       "generation": 4,
-      "path": "tng/pharmacy.html"
+      "path": "tng/pharmacy.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "neurology",
@@ -551,7 +619,8 @@
       "subtitle": "Sixteen-channel EEG wall, synaptic cortex map, evoked-potential tests",
       "channel": 69,
       "generation": 4,
-      "path": "tng/neurology.html"
+      "path": "tng/neurology.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "medical-records",
@@ -559,7 +628,8 @@
       "subtitle": "Patient database: crew records, immunizations, check-ups and recent visits",
       "channel": 70,
       "generation": 4,
-      "path": "tng/medical-records.html"
+      "path": "tng/medical-records.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "arboretum",
@@ -567,15 +637,17 @@
       "subtitle": "Twelve beds in six climate zones: irrigation in turn, lamp cycles on ship time, species catalog and growth",
       "channel": 71,
       "generation": 5,
-      "path": "tng/arboretum.html"
+      "path": "tng/arboretum.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "crew-locator",
       "title": "CREW LOCATOR",
-      "subtitle": "Computer, locate\u2026: internal sensors find a comm badge and mark its deck and section on the deck map",
+      "subtitle": "Computer, locate…: internal sensors find a comm badge and mark its deck and section on the deck map",
       "channel": 72,
       "generation": 5,
-      "path": "tng/crew-locator.html"
+      "path": "tng/crew-locator.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "ten-forward",
@@ -583,7 +655,8 @@
       "subtitle": "Deck 10 lounge: orders poured at the bar, servers on the floor, warp streaks past the viewports",
       "channel": 73,
       "generation": 5,
-      "path": "tng/ten-forward.html"
+      "path": "tng/ten-forward.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "personal-logs",
@@ -591,7 +664,8 @@
       "subtitle": "Crew log index, live voice recording and archive storage",
       "channel": 74,
       "generation": 5,
-      "path": "tng/personal-logs.html"
+      "path": "tng/personal-logs.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "schoolroom",
@@ -599,7 +673,8 @@
       "subtitle": "Class timetable, lessons in progress, term progress and field trips",
       "channel": 75,
       "generation": 5,
-      "path": "tng/schoolroom.html"
+      "path": "tng/schoolroom.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "guest-quarters",
@@ -607,7 +682,8 @@
       "subtitle": "VIP suites on Deck 6 readied for each species' gravity, air and climate as delegations arrive",
       "channel": 76,
       "generation": 5,
-      "path": "tng/guest-quarters.html"
+      "path": "tng/guest-quarters.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "ships-stores",
@@ -615,7 +691,8 @@
       "subtitle": "Supply requisitions, inventory by category, and a cargo-transporter resupply from Starbase 74",
       "channel": 77,
       "generation": 5,
-      "path": "tng/ships-stores.html"
+      "path": "tng/ships-stores.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "duty-roster",
@@ -623,7 +700,8 @@
       "subtitle": "Twelve departments across three watches, and the Lower Decks promotions board",
       "channel": 78,
       "generation": 5,
-      "path": "tng/duty-roster.html"
+      "path": "tng/duty-roster.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "escape-pods",
@@ -631,7 +709,8 @@
       "subtitle": "Lifeboat bays by deck, a running readiness check, and the drill rota",
       "channel": 79,
       "generation": 5,
-      "path": "tng/escape-pods.html"
+      "path": "tng/escape-pods.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "music-archive",
@@ -639,7 +718,8 @@
       "subtitle": "The ship's music archive on six channels, with Data's violin and Picard's Ressikan flute among the recordings",
       "channel": 80,
       "generation": 5,
-      "path": "tng/music-archive.html"
+      "path": "tng/music-archive.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "phaser-arrays",
@@ -647,7 +727,8 @@
       "subtitle": "Emitter segments calibrated one by one, then a test fire",
       "channel": 81,
       "generation": 6,
-      "path": "tng/phaser-arrays.html"
+      "path": "tng/phaser-arrays.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "torpedo-magazine",
@@ -655,7 +736,8 @@
       "subtitle": "Forward racks, the warhead station and the loading path to Tube 1",
       "channel": 82,
       "generation": 6,
-      "path": "tng/torpedo-magazine.html"
+      "path": "tng/torpedo-magazine.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "shield-frequencies",
@@ -663,7 +745,8 @@
       "subtitle": "Six shield grids rotating frequencies against a Borg adaptation model",
       "channel": 83,
       "generation": 6,
-      "path": "tng/shield-frequencies.html"
+      "path": "tng/shield-frequencies.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "brig",
@@ -671,7 +754,8 @@
       "subtitle": "Six detention cells under forcefield, visitations and a Klingon passenger's 0800 release",
       "channel": 84,
       "generation": 6,
-      "path": "tng/brig.html"
+      "path": "tng/brig.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "battle-drill",
@@ -679,7 +763,8 @@
       "subtitle": "Twelve stations race the drill clock, scored against Starfleet standards",
       "channel": 85,
       "generation": 6,
-      "path": "tng/battle-drill.html"
+      "path": "tng/battle-drill.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "intruder-tracking",
@@ -687,7 +772,8 @@
       "subtitle": "Internal sensors track an intruder across the deck plan as security teams close in",
       "channel": 86,
       "generation": 6,
-      "path": "tng/intruder-tracking.html"
+      "path": "tng/intruder-tracking.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "away-team-armoury",
@@ -695,7 +781,8 @@
       "subtitle": "Kits checked out for Celtris III: three kits through the bench, power cells charging, suits pressure-tested",
       "channel": 87,
       "generation": 6,
-      "path": "tng/away-team-armoury.html"
+      "path": "tng/away-team-armoury.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "tactical-database",
@@ -703,7 +790,8 @@
       "subtitle": "Known vessels compared with the Galaxy class: sensor signatures, specifications and encounter history",
       "channel": 88,
       "generation": 6,
-      "path": "tng/tactical-database.html"
+      "path": "tng/tactical-database.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "starbase-defence",
@@ -711,7 +799,8 @@
       "subtitle": "Sector 001 perimeter drill: a simulated contact from Wolf 359, met by the fleet short of Jupiter",
       "channel": 89,
       "generation": 6,
-      "path": "tng/starbase-defence.html"
+      "path": "tng/starbase-defence.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "pulsar-navigation",
@@ -719,7 +808,8 @@
       "subtitle": "Triangulating from six pulsars: lines of position close in and the error ellipse shrinks to a fix",
       "channel": 90,
       "generation": 7,
-      "path": "tng/pulsar-navigation.html"
+      "path": "tng/pulsar-navigation.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "boarding-protocols",
@@ -727,7 +817,8 @@
       "subtitle": "Forcefields, control points and security teams contain a boarding party on Decks 35 to 37",
       "channel": 91,
       "generation": 6,
-      "path": "tng/boarding-protocols.html"
+      "path": "tng/boarding-protocols.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "starbase-docking",
@@ -735,7 +826,8 @@
       "subtitle": "Earth Station McKinley approach control: ships run the corridor, align and moor one after another",
       "channel": 92,
       "generation": 7,
-      "path": "tng/starbase-docking.html"
+      "path": "tng/starbase-docking.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "standard-orbit",
@@ -743,7 +835,8 @@
       "subtitle": "Orbit insertion at Tavela IV: two burns into standard orbit, then the ground track and survey passes",
       "channel": 93,
       "generation": 7,
-      "path": "tng/standard-orbit.html"
+      "path": "tng/standard-orbit.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "course-plotting",
@@ -751,7 +844,8 @@
       "subtitle": "A six-leg course between Starbase 74 and Bre'el IV, checked by projection and bent round a reported hazard",
       "channel": 94,
       "generation": 7,
-      "path": "tng/course-plotting.html"
+      "path": "tng/course-plotting.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "asteroid-field",
@@ -759,7 +853,8 @@
       "subtitle": "Devolin system: a corridor through three drifting layers of rock, the deflector clearing fragments",
       "channel": 95,
       "generation": 7,
-      "path": "tng/asteroid-field.html"
+      "path": "tng/asteroid-field.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "fleet-deployment",
@@ -767,7 +862,8 @@
       "subtitle": "Twelve starships on station across Federation space, redeploying in turn, with the Wolf 359 memorial",
       "channel": 96,
       "generation": 7,
-      "path": "tng/fleet-deployment.html"
+      "path": "tng/fleet-deployment.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "wormhole-transit",
@@ -775,7 +871,8 @@
       "subtitle": "The Bajoran wormhole opening for transit traffic, with Gamma Quadrant readings from Idran",
       "channel": 97,
       "generation": 7,
-      "path": "tng/wormhole-transit.html"
+      "path": "tng/wormhole-transit.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "ion-storm",
@@ -783,7 +880,8 @@
       "subtitle": "An ion storm on the Typhon Expanse approach: forecast track, intercept and a course adjustment round it",
       "channel": 98,
       "generation": 7,
-      "path": "tng/ion-storm.html"
+      "path": "tng/ion-storm.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "utopia-planitia",
@@ -791,7 +889,8 @@
       "subtitle": "Fleet yards over Mars: six hulls building frame by frame, and a Nebula-class launch",
       "channel": 99,
       "generation": 7,
-      "path": "tng/utopia-planitia.html"
+      "path": "tng/utopia-planitia.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     },
     {
       "slug": "search-rescue",
@@ -799,7 +898,8 @@
       "subtitle": "A grid search for an overdue shuttlecraft in the Hekaras Corridor",
       "channel": 100,
       "generation": 7,
-      "path": "tng/search-rescue.html"
+      "path": "tng/search-rescue.html",
+      "shapes": ["wide", "upright", "ultrawide"]
     }
   ]
 }

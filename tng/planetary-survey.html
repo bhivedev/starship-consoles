@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Planetary Survey</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .ship { width: 26px; height: 26px; border-radius: 13px; background: var(--butter); }
@@ -74,16 +75,26 @@ const CYCLE = 210;                                        // seconds on each pla
 const START = (() => { const m = /p(\d)/.exec(location.hash); return m ? +m[1] % PLANETS.length : 0; })();   // dev: #p1 starts on the second
 
 // ---------------- the frame: sidebar left, title top right ----------------
+// The data, readings and motion below are written once; only positions differ by shape.
+// wide (3840 × 2160): three columns (data | globe | progress & map) over a findings log and mineral table.
+// upright (2160 × 3120): two columns (330–1183 | 1243–2136): planetary data beside survey progress,
+//   the globe across the full width with its orbit readouts in the two free corners, atmosphere beside the
+//   survey map, and the findings log beside the mineral deposits along the foot.
+// ultrawide (5040 × 2160): the wide layout as it is, plus a fourth column (3876–5016): findings by
+//   category, the survey itinerary, and the sensor array.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+let B, titleEl, titleW, topBar, TR = 3700, BX = 1724 + L.GAP;   // the title's right edge, the top bar's left edge
+if (!UP && !UW) {
 const BAR = 64;
 L.title({ x: 3700, y: 40, h: BAR, c: "sand", txt: "Planetary Survey  •  " + PLANETS[START].name });
-const titleEl = document.querySelector("[data-title]");
+titleEl = document.querySelector("[data-title]");
 // every planet's title measured now, as the page draws it (before the stage is zoomed)
-const titleW = PLANETS.map((p) => { titleEl.textContent = "Planetary Survey  •  " + p.name; return titleEl.offsetWidth; });
+titleW = PLANETS.map((p) => { titleEl.textContent = "Planetary Survey  •  " + p.name; return titleEl.offsetWidth; });
 titleEl.textContent = "Planetary Survey  •  " + PLANETS[START].name;
 L.box({ x: 3724, y: 40, w: 92, h: BAR, c: "olive", r: "r" });
 L.elbow({ corner: "tl", x: 40, y: 40, w: 1360, h: 250, bw: 240, bh: BAR, R: 150, r: 60, c: "olive" });
 L.rect({ x: 1400 + L.GAP, y: 40, w: 300, h: BAR, c: "sand" });
-const topBar = L.rect({ x: 1724 + L.GAP, y: 40, w: 3700 - titleW[START] - L.GAP - (1724 + L.GAP), h: BAR, c: "olive" });
+topBar = L.rect({ x: 1724 + L.GAP, y: 40, w: 3700 - titleW[START] - L.GAP - (1724 + L.GAP), h: BAR, c: "olive" });
 [[298, 140, "sand", "Surv 04"], [446, 70, "gold", "Orbit"], [524, 420, "olive", "Planetary"], [952, 70, "sky", "4417"],
  [1030, 300, "tan", "Sensors"], [1338, 70, "butter", "Geo"], [1416, 216, "olive", "Survey"]]
   .forEach(([y, h, c, label]) => L.box({ x: 40, y, w: 240, h, c, label }));
@@ -92,6 +103,19 @@ L.text({ x: 258, base: 1712, s: 40, c: "#000", txt: "Cartography", align: "r", o
 [[1540 + L.GAP, 600, "olive"], [2164 + L.GAP, 900, "sand"], [3088 + L.GAP, 3700 - (3088 + L.GAP), "tan"]]
   .forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
 L.box({ x: 3724, y: 2056, w: 92, h: BAR, c: "olive", r: "r" });
+B = { x0: 330, x1: 3816, y0: 140, y1: 2010 };
+} else {
+  // the kit's type A frame in the wide frame's colours; the title keeps its sand
+  B = L.frame({ type: "A", title: "Planetary Survey  •  " + PLANETS[START].name, c: "olive", c2: "tan", accent: "sand", foot: "Cartography",
+    side: [[140, "sand", "Surv 04"], [70, "gold", "Orbit"], [420, "olive", "Planetary"], [70, "sky", "4417"],
+           [300, "tan", "Sensors"], [70, "butter", "Geo"], [216, "olive", "Survey"]] });
+  titleEl = document.querySelector("[data-title]");
+  titleEl.style.color = "var(--sand)";
+  titleW = PLANETS.map((p) => { titleEl.textContent = "Planetary Survey  •  " + p.name; return titleEl.offsetWidth; });
+  titleEl.textContent = "Planetary Survey  •  " + PLANETS[START].name;
+  TR = B.x1 - 92 - L.GAP; BX = UP ? 680 + 2 * L.GAP + 180 : 1724 + L.GAP;
+  topBar = [...document.querySelectorAll("#frame rect")].find((r) => +r.getAttribute("y") === 40 && +r.getAttribute("x") === BX);
+}
 
 const header = (x, y, w, label, c1, c2, h = 56, fs = 32) => {
   const lw = Math.round((L.textWidth(label, fs) + 64) / 10) * 10;
@@ -111,18 +135,20 @@ const fmtLon = (r) => `${Math.abs(r / D).toFixed(1)} ${r >= 0 ? "E" : "W"}`;
 const gridRef = (lat, lon) => "ABCDEF"[L.clamp(Math.floor((90 - lat / D) / 30), 0, 5)] + "-" + String(L.clamp(Math.floor((lon / D + 180) / 30), 0, 11) + 1).padStart(2, "0");
 
 // ---------------- column grid ----------------
-const C1 = 330, C1R = 1230, VX = 640;                    // left column; values start at VX
-const C2 = 1290, C2R = 2590;                             // the planet
-const C3 = 2650, C3R = 3816, VX3 = C3 + (VX - C1);       // right column
-const BARR = 170;                                        // bars end this far in from a column's right edge
+// upright: the columns split at 1183 | 1243 so no planet's subtitle ends near the first column's edge
+const C1 = 330, C1R = UP ? 1183 : 1230, VX = 640;        // left column; values start at VX
+const C2 = 1290, C2R = 2590;                             // the planet (wide, ultrawide)
+const C3 = UP ? 1243 : 2650, C3R = UP ? 2136 : 3816, VX3 = UP ? 1503 : C3 + (VX - C1);   // right column
+const BARR = 170, BARR3 = UP ? 146 : BARR;               // bars end this far in from a column's right edge
 const rowBase = (i) => 404 + i * 76;                     // upper tables
-const lowBase = (i) => 1124 + i * 76;                    // lower tables
+const LOW0 = UP ? 2124 : 1124, LOWH = UP ? 2000 : 1000;  // lower tables: first baseline, header
+const lowBase = (i) => LOW0 + i * 76;
 
 // ---------------- status line ----------------
 const nameTxt = L.text({ x: C1, cap: 150, s: 100, c: "butter", txt: PLANETS[START].name });
 const nameW = PLANETS.map((p) => L.textWidth(p.name, 100));
 const subTxt = L.text({ x: 0, base: 222, s: 38, c: "sand", txt: "" });
-const pill = L.box({ x: 3416, y: 150, w: 400, h: 72, c: "gold", label: "", r: "lr", fs: 36 });
+const pill = L.box({ x: B.x1 - 400, y: 150, w: 400, h: 72, c: "gold", label: "", r: "lr", fs: 36 });
 pill.style.willChange = "opacity";
 L.tick((t) => { pill.style.opacity = (0.82 + 0.18 * Math.sin(t * 1.3)).toFixed(3); });
 
@@ -135,7 +161,7 @@ const dataRows = PLANETS[0].data.map((_, i) => ({
 }));
 
 // ---------------- atmosphere ----------------
-header(C1, 1000, C1R - C1, "Atmosphere", "tan", "sand");
+header(C1, LOWH, C1R - C1, "Atmosphere", "tan", "sand");
 L.text({ x: C1, base: lowBase(0), s: 40, c: "tan", txt: "Surface Pressure" });
 const presV = L.text({ x: VX, base: lowBase(0), s: 52, c: "white", txt: "" });
 const presN = L.text({ x: C1R, base: lowBase(0), s: 36, c: "olive", txt: "", align: "r" });
@@ -154,11 +180,11 @@ L.tick(() => gasRows.forEach((g) => {
 // ---------------- the globe ----------------
 // A WebGL disc: the surface texture is generated once per planet; each frame is a single draw of
 // one quad, so the planet can turn smoothly as a real sphere (no strip, no seam) at no CPU cost.
-const PX = 1940, PY = 880, PR = 440, PM = 26;            // centre, radius, margin for the atmosphere
+const PX = UP ? 1233 : 1940, PY = UP ? 1458 : 880, PR = UP ? 420 : 440, PM = 26;   // centre, radius, margin for the atmosphere
 const A_ORB = 1.36, BETA = 22 * D, NODE = 0.6;           // orbit radius (in planet radii), view latitude, node
 const ROT_T = 160, CLOUD_T = 133, ORB_T = 70, FOOT = 11; // seconds per turn, per cloud turn, per orbit; sensor swath (deg)
 const SUN = (() => { const v = [0.58, 0.30, 0.76], n = Math.hypot(...v); return v.map((x) => x / n); })();
-header(C2, 280, C2R - C2, "Orbital Survey", "gold", "sand");
+if (UP) header(C1, 940, C3R - C1, "Orbital Survey", "gold", "sand"); else header(C2, 280, C2R - C2, "Orbital Survey", "gold", "sand");
 
 const VS = `#version 300 es
 in vec2 a; void main() { gl_Position = vec4(a, 0.0, 1.0); }`;
@@ -389,9 +415,10 @@ const shipBack = L.layer({ x: 0, y: 0, cls: "ship" });
 const globe = glCanvas(PX - PR - PM, PY - PR - PM, 2 * (PR + PM), 2 * (PR + PM), GLOBE);
 const NS = "http://www.w3.org/2000/svg";
 const over = document.createElementNS(NS, "svg");
-over.setAttribute("viewBox", `${C2} 340 ${C2R - C2} 1060`);
+const OV = UP ? [C1, 996, C3R - C1, 924] : [C2, 340, C2R - C2, 1060];   // the near side's box: x, y, w, h
+over.setAttribute("viewBox", `${OV[0]} ${OV[1]} ${OV[2]} ${OV[3]}`);
 over.setAttribute("class", "boot");
-Object.assign(over.style, { position: "absolute", left: C2 + "px", top: "340px", width: C2R - C2 + "px", height: "1060px" });
+Object.assign(over.style, { position: "absolute", left: OV[0] + "px", top: OV[1] + "px", width: OV[2] + "px", height: OV[3] + "px" });
 L.stage.appendChild(over);
 const orbitFront = L.svg("path", { fill: "none", stroke: "var(--butter)", "stroke-width": 4, "stroke-linecap": "round" }, over);
 const shipFront = L.layer({ x: 0, y: 0, cls: "ship" });
@@ -420,7 +447,7 @@ function drawOrbit() {
 header(C3, 280, C3R - C3, "Survey Progress", "gold", "olive");
 const SURVEY = [["Surface Mapped", 1, "butter"], ["Topography", 1.04, "gold"], ["Geology", 0.86, "sand"], ["Biosphere", 0.74, "gold"], ["Subsurface", 0.52, "sand"]];
 const surveyRows = SURVEY.map(([name, k, c], i) => {
-  const base = rowBase(i), w = C3R - BARR - VX3;
+  const base = rowBase(i), w = C3R - BARR3 - VX3;
   L.text({ x: C3, base, s: 40, c: "tan", txt: name });
   L.rect({ x: VX3, y: base - 26, w, h: 26, c: "#24200e" });
   return { k, f: fill(VX3, base - 26, w, 26, c), v: L.text({ x: C3R, base, s: 52, c: "white", txt: "", align: "r" }), u: 0 };
@@ -434,9 +461,9 @@ const findN = L.text({ x: C3R, base: rowBase(6), s: 36, c: "olive", txt: "", ali
 let mapped = 0;
 
 // ---------------- survey map: the whole surface, the swaths mapped so far, the ground track ----------------
-const MX = C3, MY = 1080, MW = C3R - C3, MH = lowBase(5) - MY;
+const MX = C3, MY = LOWH + 80, MW = C3R - C3, MH = lowBase(5) - MY;
 const LATMAX = (MH / 2) * (360 / MW);                     // equal scale both ways
-header(C3, 1000, C3R - C3, "Survey Map", "sky", "sand");
+header(C3, LOWH, C3R - C3, "Survey Map", "sky", "sand");
 const map = glCanvas(MX, MY, MW, MH, MAP);
 const mover = document.createElementNS(NS, "svg");
 mover.setAttribute("viewBox", `0 0 ${MW} ${MH}`);
@@ -458,23 +485,28 @@ function drawTrack(tau) {
 }
 
 // ---------------- orbit readouts under the globe ----------------
-const RO = [[C2, "Altitude"], [C2 + 440, "Period"], [C2 + 880, "Inclination"], [C2, "Velocity"], [C2 + 440, "Orbit"], [C2 + 880, "Over"]];
+// upright: three in the globe band's top-left corner, three in its bottom-right (the orbit leans the other way)
+const ROX = 1690;
+const RO = UP ? [[C1, "Altitude"], [C1, "Period"], [C1, "Inclination"], [ROX, "Velocity"], [ROX, "Orbit"], [ROX, "Over"]]
+  : [[C2, "Altitude"], [C2 + 440, "Period"], [C2 + 880, "Inclination"], [C2, "Velocity"], [C2 + 440, "Orbit"], [C2 + 880, "Over"]];
 const roV = RO.map(([x, name], i) => {
-  const base = lowBase(i < 3 ? 4 : 5);
+  const base = UP ? [1080, 1156, 1232, 1764, 1840, 1916][i] : lowBase(i < 3 ? 4 : 5);
   L.text({ x, base, s: 36, c: "tan", txt: name });
-  return L.text({ x: x + L.textWidth(name, 36) + 24, base, s: 52, c: "white", txt: "" });
+  // upright: each corner's values share one left edge, after its longest label
+  const lw = UP ? Math.max(...RO.filter((r) => r[0] === x).map((r) => L.textWidth(r[1], 36))) : L.textWidth(name, 36);
+  return L.text({ x: x + lw + 24, base, s: 52, c: "white", txt: "" });
 });
 
 // ---------------- surface scan findings ----------------
-const LOGR = C2R;
-L.box({ x: C1, y: 1620, w: 420, h: 48, c: "gold", label: "Surface Scan Findings", fs: 28, r: "l" });
-L.rect({ x: C1 + 420 + L.GAP, y: 1620, w: LOGR - (C1 + 420 + L.GAP), h: 48, c: "sand" });
-const LC = [C1, 510, 680, 1640, 2040, LOGR];
+const LOGR = UP ? 1443 : C2R, LOGY = UP ? 2584 : 1620;   // the log's right edge; the strip's header line
+L.box({ x: C1, y: LOGY, w: 420, h: 48, c: "gold", label: "Surface Scan Findings", fs: 28, r: "l" });
+L.rect({ x: C1 + 420 + L.GAP, y: LOGY, w: LOGR - (C1 + 420 + L.GAP), h: 48, c: "sand" });
+const LC = UP ? [C1, C1 + 124, C1 + 224, C1 + 692, C1 + 874, LOGR] : [C1, 510, 680, 1640, 2040, LOGR];
 [["Stardate", 0, "l"], ["Grid", 1, "l"], ["Finding", 2, "l"], ["Position", 3, "l"], ["Category", 4, "l"], ["Status", 5, "r"]]
-  .forEach(([txt, i, align]) => L.text({ x: LC[i], base: 1730, s: 36, c: "tan", txt, align }));
+  .forEach(([txt, i, align]) => L.text({ x: LC[i], base: LOGY + 110, s: 36, c: "tan", txt, align }));
 const CATC = { Cultural: "butter", Biological: "gold", Geological: "sand", Mineral: "peach", Hydrological: "sky", Atmospheric: "ice" };
 const logRows = Array.from({ length: 5 }, (_, i) => {
-  const base = 1790 + i * 54;
+  const base = LOGY + 170 + i * 54;
   return [["l", "orange"], ["l", "butter"], ["l", "white"], ["l", "sky"], ["l", "sand"], ["r", "olive"]]
     .map(([align, c], j) => L.text({ x: LC[j], base, s: 36, c, txt: "", align }));
 });
@@ -492,15 +524,16 @@ const logLine = (grid, txt, pos, cat, status) => {
 };
 
 // ---------------- mineral deposits ----------------
-L.box({ x: C3, y: 1620, w: 360, h: 48, c: "peach", label: "Mineral Deposits", fs: 28, r: "l" });
-L.rect({ x: C3 + 360 + L.GAP, y: 1620, w: C3R - (C3 + 360 + L.GAP), h: 48, c: "tan" });
-const MCOL = [C3, VX3, 3560, C3R];
+const MN = UP ? VX3 : C3;                                // upright: beside the log, on the progress bars' edge
+L.box({ x: MN, y: LOGY, w: 360, h: 48, c: "peach", label: "Mineral Deposits", fs: 28, r: "l" });
+L.rect({ x: MN + 360 + L.GAP, y: LOGY, w: C3R - (MN + 360 + L.GAP), h: 48, c: "tan" });
+const MCOL = UP ? [MN, MN + 150, C3R - 150, C3R] : [C3, VX3, 3560, C3R];
 [["Deposit", 0, "l"], ["Estimated Yield", 1, "l"], ["Sites", 2, "r"], ["Kilotonnes", 3, "r"]]
-  .forEach(([txt, i, align]) => L.text({ x: MCOL[i], base: 1730, s: 36, c: "tan", txt, align }));
+  .forEach(([txt, i, align]) => L.text({ x: MCOL[i], base: LOGY + 110, s: 36, c: "tan", txt, align }));
 const minRows = Array.from({ length: 5 }, (_, i) => {
-  const base = 1790 + i * 54, w = 3440 - VX3;
-  L.rect({ x: VX3, y: base - 24, w, h: 24, c: "#24200e" });
-  return { k: L.text({ x: C3, base, s: 36, c: "peach", txt: "" }), f: fill(VX3, base - 24, w, 24, i % 2 ? "tan" : "peach"),
+  const base = LOGY + 170 + i * 54, w = UP ? MCOL[2] - 60 - MCOL[1] : 3440 - VX3;
+  L.rect({ x: MCOL[1], y: base - 24, w, h: 24, c: "#24200e" });
+  return { k: L.text({ x: MCOL[0], base, s: 36, c: "peach", txt: "" }), f: fill(MCOL[1], base - 24, w, 24, i % 2 ? "tan" : "peach"),
            n: L.text({ x: MCOL[2], base, s: 36, c: "white", txt: "", align: "r" }), v: L.text({ x: C3R, base, s: 36, c: "white", txt: "", align: "r" }), u: 0, goal: 0 };
 });
 let minerals = [];
@@ -519,6 +552,7 @@ L.tick(() => minRows.forEach((r) => {
 
 // ---------------- a finding: logged, marked on the map, counted ----------------
 const pings = [];
+const hooks = {};                                          // ultrawide's fourth column listens here
 function find(tau, quiet) {
   if (!findDeck.length) findDeck = P.findings.slice().sort(() => Math.random() - 0.5);
   const [txt, cat, min] = findDeck.pop();
@@ -530,6 +564,7 @@ function find(tau, quiet) {
   if (!quiet) { const pg = L.layer({ x: MX + x - 40, y: MY + y - 40, cls: "ping" }); pg.t0 = L.t; pings.push(pg); }
   if (min) { const m = minerals.find((m) => m[0] === min); if (m) { m[1]++; m[2] += Math.round(L.rand(0.08, 0.3) * m[2] / m[1]); showMinerals(); } }
   nFound++; lastFind = `${cat}  ·  Grid ${grid}`;
+  if (hooks.find) hooks.find(cat);
   showFindings();
 }
 const showFindings = () => { findV.textContent = lastFind || "Scanning"; findN.textContent = `${nFound} this survey`; };
@@ -546,7 +581,7 @@ function startPlanet(i, t) {
   P = PLANETS[i]; pIndex = i; tStart = t;
   rot0 = L.rand(0, 2 * Math.PI); th0 = L.rand(0, 2 * Math.PI); orbit0 = L.irand(9, 16);
   titleEl.textContent = "Planetary Survey  •  " + P.name;
-  topBar.setAttribute("width", 3700 - titleW[i] - L.GAP - (1724 + L.GAP));
+  topBar.setAttribute("width", TR - titleW[i] - L.GAP - BX);
   nameTxt.textContent = P.name; subTxt.textContent = P.sub; subTxt.style.left = C1 + nameW[i] + 40 + "px";
   P.data.forEach(([k, v, n], j) => { dataRows[j].k.textContent = k; dataRows[j].v.textContent = v; dataRows[j].n.textContent = n; });
   presV.textContent = P.pressure[0]; presN.textContent = P.pressure[1];
@@ -571,10 +606,91 @@ function startPlanet(i, t) {
   mapped = mappedFraction(); surveyRows.forEach((r) => (r.u = Math.min(1, mapped * r.k)));
   while (marks.firstChild) marks.firstChild.remove();
   nFound = 0; lastFind = ""; findDeck = [];
+  if (hooks.planet) hooks.planet(i, t);
   for (let k = 4; k >= 0; k--) find(-k * 9, true);               // the log arrives full: the last few findings
   if (globe) globe.generate(P, 4096);
   if (map) map.generate(P, 2048);
   drawOrbit(); drawTrack(0); showFindings();
+}
+
+// ---------------- ultrawide: a fourth column ----------------
+if (UW) {
+  const C4 = 3876, C4R = B.x1, VX4 = C4 + (VX - C1);
+  const pad = (n) => String(Math.max(0, Math.floor(n))).padStart(2, "0");
+  const mmss = (sec) => `${pad(sec / 60)}:${pad(sec % 60)}`;
+  // the survey itinerary: the three planets in turn, and the time left in orbit
+  header(C4, 280, C4R - C4, "Survey Itinerary", "gold", "olive");
+  const itin = [0, 1, 2].map((i) => ({
+    k: L.text({ x: C4, base: rowBase(i), s: 40, c: "tan", txt: "" }),
+    v: L.text({ x: VX4, base: rowBase(i), s: 52, c: "white", txt: "" }),
+    n: L.text({ x: C4R, base: rowBase(i), s: 36, c: "olive", txt: "", align: "r" }),
+  }));
+  const ROWS = [["Time in Orbit", "of " + mmss(CYCLE)], ["Breaking Orbit", "Course laid in"], ["Transit", "Warp 6"], ["Surveys Sent", "to Starfleet"]];
+  const clock = ROWS.map(([k, n], j) => {
+    L.text({ x: C4, base: rowBase(3 + j), s: 40, c: "tan", txt: k });
+    L.text({ x: C4R, base: rowBase(3 + j), s: 36, c: "olive", txt: n, align: "r" });
+    return L.text({ x: VX4, base: rowBase(3 + j), s: 52, c: "white", txt: "" });
+  });
+  let sent = 0;
+  const showClock = (t) => {
+    const tau = Math.floor(L.clamp(t - tStart, 0, CYCLE));    // whole seconds, so in orbit + remaining = the survey
+    L.set(clock[0], mmss(tau)); L.set(clock[1], "in " + mmss(CYCLE - tau)); L.set(clock[3], String(sent));
+  };
+
+  // findings by category: one bar each, its share of this survey's findings, the count beside it
+  header(C4, 1000, C4R - C4, "Findings by Category", "sky", "sand");
+  const CATS = ["Cultural", "Biological", "Geological", "Mineral", "Hydrological", "Atmospheric"];
+  const counts = {};
+  const catRows = CATS.map((name, i) => {
+    const base = lowBase(i), w = C4R - 124 - VX4;          // counts are short: the bars run up close to them
+    L.text({ x: C4, base, s: 40, c: "tan", txt: name });
+    L.rect({ x: VX4, y: base - 26, w, h: 26, c: "#24200e" });
+    return { name, f: fill(VX4, base - 26, w, 26, CATC[name]), v: L.text({ x: C4R, base, s: 52, c: "white", txt: "", align: "r" }), u: 0, goal: 0 };
+  });
+  const showCats = () => {
+    const total = CATS.reduce((a, c) => a + (counts[c] || 0), 0);
+    catRows.forEach((r) => { const n = counts[r.name] || 0; L.set(r.v, String(n)); r.goal = total ? n / total : 0; });
+  };
+  L.tick(() => catRows.forEach((r) => {
+    if (Math.abs(r.goal - r.u) < 0.0005 && r.drawn) return;
+    r.u += (r.goal - r.u) * 0.05; r.drawn = true;
+    r.f.style.transform = `scaleX(${r.u.toFixed(4)})`;
+  }));
+
+  // the sensor array: the instruments on the survey, the thermal imager following day and night
+  L.box({ x: C4, y: 1620, w: 300, h: 48, c: "sky", label: "Sensor Array", fs: 28, r: "l" });
+  L.rect({ x: C4 + 300 + L.GAP, y: 1620, w: C4R - (C4 + 300 + L.GAP), h: 48, c: "olive" });
+  const SC = [C4, C4 + 434, C4R - 250, C4R];
+  [["Sensor", 0, "l"], ["Mode", 1, "l"], ["Resolution", 2, "r"], ["Status", 3, "r"]]
+    .forEach(([txt, i, align]) => L.text({ x: SC[i], base: 1730, s: 36, c: "tan", txt, align }));
+  const SENS = [["Geological Scanner", "Deep Survey", "1.2 m", "Active"], ["Lifeform Sensors", "Wide Sweep", "4.0 m", "Active"],
+    ["Mineral Spectrometer", "Assay", "2.5 m", "Active"], ["Thermal Imager", "Day Side", "8.0 m", "Active"],
+    ["Subsurface Probe", "Tomography", "40 m", "Active"]];
+  const sensMode = SENS.map(([a, m, r, st], i) => {
+    const base = 1790 + i * 54;
+    L.text({ x: SC[0], base, s: 36, c: "sky", txt: a });
+    L.text({ x: SC[2], base, s: 36, c: "white", txt: r, align: "r" });
+    L.text({ x: SC[3], base, s: 36, c: "olive", txt: st, align: "r" });
+    return L.text({ x: SC[1], base, s: 36, c: "butter", txt: m });
+  })[3];
+
+  hooks.find = (cat) => { counts[cat] = (counts[cat] || 0) + 1; showCats(); };
+  hooks.planet = (i, t) => {
+    CATS.forEach((c) => (counts[c] = 0)); showCats();
+    sent = Math.floor(t / CYCLE);
+    [["In Orbit", "butter"], ["Next", "sky"], [sent ? "Transmitted" : "Queued", "olive"]].forEach(([st, c], j) => {
+      const Q = PLANETS[(i + j) % PLANETS.length], r = itin[j];
+      L.set(r.k, Q.name); L.set(r.v, Q.sub.split("  ·  ")[1]); L.set(r.n, st); r.n.style.color = `var(--${c})`;
+    });
+    L.set(clock[2], "ETA 4.2 h  ·  " + PLANETS[(i + 1) % PLANETS.length].name);
+    showClock(t);
+  };
+  L.every(1000, (t) => { if (P) showClock(t); }, 0);
+  L.every(250, (t) => {
+    if (!P) return;
+    const s = shipAt(t - tStart), lit = s.vx * SUN[0] + s.vy * SUN[1] + s.vz * SUN[2] > 0;
+    L.set(sensMode, lit ? "Day Side" : "Night Side");
+  }, 0);
 }
 
 // ---------------- the clock ----------------

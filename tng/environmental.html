@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Environmental Control</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .heat { transition: opacity 4s ease-in-out; }          /* the climate map drifts on the compositor */
@@ -11,11 +12,20 @@
 "use strict";
 const L = LCARS;
 L.ready(() => {
+// Three layouts. Wide (3840×2160) is the original, hand-placed. Upright (2160×3120): atmosphere
+// processing, the recycling loop (its four reserves two by two inside it) and the deck climate maps
+// stacked at full width, then gravity plating beside hydroponics on one six-row grid, and the log beside
+// water reclamation. Ultrawide (5040×2160): the wide panels unchanged, and a fourth column (3580–4720):
+// section climate on the atmosphere rows, emergency life support on the gravity rows, and six more
+// hydroponics bays.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
 
 // ---------------- the frame, mirrored: sidebar on the right, title at top left ----------------
+const TITLE = "Environmental Control  •  Life Support";
+let b;
+if (L.shape === "wide") {
 const BAR = 64, TS = BAR / (L.BASELINE - L.CAP_TOP);
 L.box({ x: 40, y: 40, w: 92, h: BAR, c: "ice", r: "l" });
-const TITLE = "Environmental Control  •  Life Support";
 const titleEl = L.text({ x: 132 + L.GAP, cap: 40, s: TS, c: "ice", txt: TITLE });
 const afterTitle = 132 + L.GAP + titleEl.offsetWidth + L.GAP;          // the page's own width, not the canvas's
 L.rect({ x: afterTitle, y: 40, w: 320, h: BAR, c: "butter" });
@@ -29,6 +39,18 @@ L.text({ x: 3794, base: 1712, s: 40, c: "#000", txt: "Life Support", align: "r",
 L.box({ x: 40, y: 2056, w: 92, h: BAR, c: "olive", r: "l" });
 [[132 + L.GAP, 700, "butter"], [132 + L.GAP + 700 + L.GAP, 900, "sky"]].forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
 L.rect({ x: 132 + 3 * L.GAP + 1600, y: 2056, w: 2600 - L.GAP - (132 + 3 * L.GAP + 1600), h: BAR, c: "olive" });
+b = { x0: 40, x1: 3520, y0: 140, y1: 2010 };
+} else {
+  // the same frame, drawn by the kit for this shape: type B, the same colours and sidebar labels
+  // (the kit draws the cap and title in the bar's sky; the hand-built wide frame has them ice, so
+  // they are recoloured: the cap is the first box the frame makes, the title the one marked as such)
+  const nb = document.querySelectorAll(".bx").length;
+  b = L.frame({ type: "B", title: TITLE, c: "sky", c2: "olive", accent: "butter", foot: "Life Support",
+    side: [[140, "ice", "Env 01"], [70, "butter", "Atmos"], [420, "sky", "Recycling"], [70, "olive", "Climate"],
+           [300, "ice", "Gravity"], [70, "butter", "Water"], [216, "sky", "Hydroponics"]] });
+  document.querySelectorAll(".bx")[nb].style.background = "var(--ice)";
+  document.querySelector('[data-title="1"]').style.color = "var(--ice)";
+}
 
 const header = (x, y, w, label, c1, c2, h = 56, fs = 32) => {
   const lw = Math.round((L.textWidth(label, fs) + 64) / 10) * 10;
@@ -48,8 +70,12 @@ const D2 = (d) => String(d).padStart(2, "0");
 const wave = (t, a, f, p) => a * Math.sin(t * f + p);
 
 // The grid: upper panels split at 1660 | 1720, the middle and lower ones at 2380 | 2440 (and 1660 | 1720).
-const AR = 1660, BX = 1720, CR = 2380, DX = 2440, RR = 3520;
+// Upright: the content box is 40–1840; the upper three panels run its full width, and the lower two
+// rows split at 1000 | 1060. Ultrawide: the wide grid, and a fourth column from XS to XR.
+const AR = UP ? b.x1 : 1660, BX = UP ? 40 : 1720, CR = 2380, DX = 2440, RR = UP ? b.x1 : 3520;
+const XR = b.x1, XS = RR + 60;                                  // the content box's right edge; ultrawide's fourth column
 const ROW0 = 428, PITCH = 88, rowBase = (i) => ROW0 + i * PITCH + 52.5;
+const YB = 882, YC = 1390, YD = 1994, YE = 2578;                // upright: the header lines below atmosphere
 // six atmosphere sections, seven decks each — the same groups on the climate map and the gravity plating
 const GROUPS = Array.from({ length: 6 }, (_, i) => ({ d0: i * 7 + 1, d1: i * 7 + 7, name: `Decks ${D2(i * 7 + 1)} – ${D2(i * 7 + 7)}` }));
 
@@ -68,23 +94,26 @@ function logEvent(txt, where, sys) {
 const STATE = "Life Support Nominal";
 L.text({ x: 40, cap: 150, s: 100, c: "ice", txt: STATE });
 const stateSub = L.text({ x: 40 + L.textWidth(STATE, 100) + 40, base: 222, s: 38, c: "butter", txt: "" });
-L.box({ x: RR - 400, y: 150, w: 400, h: 72, c: "sky", label: "Class M Atmosphere", r: "lr", fs: 36 });
+L.box({ x: XR - 400, y: 150, w: 400, h: 72, c: "sky", label: "Class M Atmosphere", r: "lr", fs: 36 });
 
 // ---------------- atmosphere processing: partial pressures by section ----------------
 header(40, 280, AR - 40, "Atmosphere Processing", "ice", "sky");
-const AC = { o2: 520, n2: 720, co2: 900, tr: 1080, bar: 1120, barW: 260, pill: 1420 };
+const AC = UP ? { o2: 560, n2: 800, co2: 1020, tr: 1240, bar: 1280, barW: 260, pill: 1580 }
+              : { o2: 520, n2: 720, co2: 900, tr: 1080, bar: 1120, barW: 260, pill: 1420 };
+// upright: rows 70 apart with 52-high boxes, as on the gravity plating
+const AP = UP ? 70 : PITCH, AH = UP ? 52 : 64, AFS = UP ? 30 : 32;
 [["Section", 40, "l"], ["O2 kPa", AC.o2, "r"], ["N2 kPa", AC.n2, "r"], ["CO2 kPa", AC.co2, "r"], ["Trace ppm", AC.tr, "r"],
  ["Scrubbers", AC.bar, "l"], ["Status", AC.pill, "l"]].forEach(([txt, x, align]) => L.text({ x, base: 400, s: 36, c: "ice", txt, align }));
 const PILLC = { Nominal: "sky", Regenerating: "butter", Adjusting: "ice" };
 const atmo = GROUPS.map((g, i) => {
-  const y = ROW0 + i * PITCH, base = rowBase(i);
-  L.box({ x: 40, y, w: 280, h: 64, c: i % 2 ? "ice" : "sky", label: g.name, fs: 32, r: "l" });
+  const y = ROW0 + i * AP, base = UP ? y + 41 : rowBase(i);
+  L.box({ x: 40, y, w: 280, h: AH, c: i % 2 ? "ice" : "sky", label: g.name, fs: AFS, r: "l" });
   const v = (x) => L.text({ x, base, s: 52, c: "white", txt: "", align: "r" });
   L.rect({ x: AC.bar, y: base - 26, w: AC.barW, h: 26, c: "#14223a" });
   return Object.assign(g, {
     o2: v(AC.o2), n2: v(AC.n2), co2: v(AC.co2), tr: v(AC.tr),
     bar: fill(AC.bar, base - 26, AC.barW, 26, "sky"),
-    pill: L.box({ x: AC.pill, y, w: AR - AC.pill, h: 64, c: "sky", label: "Nominal", fs: 32, r: "lr", cls: "pill" }),
+    pill: L.box({ x: AC.pill, y, w: AR - AC.pill, h: AH, c: "sky", label: "Nominal", fs: AFS, r: "lr", cls: "pill" }),
     state: "Nominal", t0: 0, seed: L.rand(0, 6), load: L.rand(0.4, 0.62), shown: 0.5, goal: 0.5, o2dip: 0,
   });
 });
@@ -127,15 +156,17 @@ L.tick((t) => atmo.forEach((s) => {
 }));
 
 // ---------------- air recycling: the loop, with air moving through it ----------------
-header(BX, 280, RR - BX, "Air Recycling", "butter", "olive");
-L.text({ x: BX, base: 400, s: 36, c: "butter", txt: "Primary Recycling Loop  ·  Atmospheric Processing, Deck 29" });
-const flowTxt = L.text({ x: RR, base: 400, s: 36, c: "ice", txt: "", align: "r" });
-// four processors above, four below; the pipe runs through their centres
-const PW = 300, PX = [BX, BX + 500, BX + 1000, BX + 1500], TOPY = ROW0, BOTY = ROW0 + 5 * PITCH;
+const RY = UP ? YB : 280;                                      // its header line
+header(BX, RY, RR - BX, "Air Recycling", "butter", "olive");
+L.text({ x: BX, base: RY + 120, s: 36, c: "butter", txt: "Primary Recycling Loop  ·  Atmospheric Processing, Deck 29" });
+const flowTxt = L.text({ x: RR, base: RY + 120, s: 36, c: "ice", txt: "", align: "r" });
+// four processors above, four below; the pipe runs through their centres (upright: a shorter loop,
+// two rows of reserves inside it instead of four)
+const PW = 300, PX = [BX, BX + 500, BX + 1000, BX + 1500], TOPY = UP ? YB + 148 : ROW0, BOTY = UP ? TOPY + 244 : ROW0 + 5 * PITCH;
 const LX = BX + PW / 2, RX = PX[3] + PW / 2, TY = TOPY + 32, BY = BOTY + 32;
 L.svg("path", { d: `M${LX},${TY} H${RX} V${BY} H${LX} Z`, fill: "none", stroke: "#1b2c48", "stroke-width": 16, class: "boot" });
 // the air: small packets carried round the loop (made first, so the processors stand in front of them)
-const LOOP = 2 * (RX - LX) + 2 * (BY - TY), NPK = 36;
+const LOOP = 2 * (RX - LX) + 2 * (BY - TY), NPK = UP ? 32 : 36;      // the same spacing in every shape
 const at = (s) => {                                           // a point on the loop, clockwise from Return Air
   s = ((s % LOOP) + LOOP) % LOOP;
   const a = RX - LX, b = BY - TY;
@@ -155,7 +186,7 @@ const packets = Array.from({ length: NPK }, (_, i) => {
   .forEach(([label, c], i) => L.box({ x: PX[i], y: TOPY, w: PW, h: 64, c, label, fs: 32, r: "lr" }));
 const procBot = [["Distribution", "sky"], ["Humidity Control", "ice"], ["Thermal Exchange", "sky"], ["O2 Regeneration", "ice"]]
   .map(([label, c], i) => L.box({ x: PX[i], y: BOTY, w: PW, h: 64, c, label, fs: 32, r: "lr" }));
-L.box({ x: LX - 110, y: ROW0 + 2.5 * PITCH, w: 220, h: 64, c: "butter", label: "Decks 01 – 42", fs: 32, r: "lr" });
+L.box({ x: LX - 110, y: UP ? TOPY + 122 : ROW0 + 2.5 * PITCH, w: 220, h: 64, c: "butter", label: "Decks 01 – 42", fs: 32, r: "lr" });
 const SPEED = 100;                                            // px a second: about forty seconds round
 L.tick((t) => packets.forEach((p) => {
   const s = p.s0 + t * SPEED, [x, y, rot] = at(s), c = stage(s);
@@ -167,10 +198,13 @@ const IX = BX + 320, IB0 = 2350, IB1 = 3150, IV = PX[3];
 let beds = 0.38, filter = 0.74;
 const inner = [["O2 Reserve", "ice", () => 0.962 + wave(L.t, 0.004, 0.02, 0)], ["N2 Reserve", "sky", () => 0.978 + wave(L.t, 0.003, 0.015, 1)],
   ["Scrubber Beds", "butter", () => beds], ["Filter Life", "olive", () => filter]].map(([name, c, get], i) => {
-  const base = rowBase(i + 1);
-  L.text({ x: IX, base, s: 40, c: "butter", txt: name });
-  L.rect({ x: IB0, y: base - 26, w: IB1 - IB0, h: 26, c: "#14223a" });
-  return { get, f: fill(IB0, base - 26, IB1 - IB0, 26, c), v: L.text({ x: IV, base, s: 52, c: "white", txt: "" }), shown: get() };
+  // upright: two by two; the left bars under Filtration, the right names and figures flush with the
+  // processors above them; thinner bars, as on the gravity plating
+  const base = UP ? TOPY + 136 + (i >> 1) * 72 : rowBase(i + 1), BH = UP ? 20 : 26;
+  const ix = UP ? [350, 1040][i % 2] : IX, xb0 = UP ? [540, 1210][i % 2] : IB0, xb1 = UP ? xb0 + 300 : IB1, iv = UP ? [870, 1540][i % 2] : IV;
+  L.text({ x: ix, base, s: 40, c: "butter", txt: name });
+  L.rect({ x: xb0, y: base - BH, w: xb1 - xb0, h: BH, c: "#14223a" });
+  return { get, f: fill(xb0, base - BH, xb1 - xb0, BH, c), v: L.text({ x: iv, base, s: 52, c: "white", txt: "" }), shown: get() };
 });
 L.tick(() => inner.forEach((r) => {
   const g = r.get();
@@ -187,16 +221,18 @@ later(52000, () => {
 }, 0.3);
 
 // ---------------- deck climate: temperature and humidity, every deck, four zones ----------------
-header(40, 1000, CR - 40, "Deck Climate", "sky", "ice");
-const HX = 414, CWD = 41, CGAP = 4, GGAP = 20, CH = 44, CP = 50;
+const CY = UP ? YC : 1000;                                     // its header line
+header(40, CY, (UP ? XR : CR) - 40, "Deck Climate", "sky", "ice");
+// upright: narrower cells, so the 42 decks end at the content box's edge
+const HX = UP ? 336 : 414, CWD = UP ? 30 : 41, CGAP = 4, GGAP = 20, CH = UP ? 42 : 44, CP = UP ? 48 : 50;
 const cellX = (d) => HX + d * (CWD + CGAP) + Math.floor(d / 7) * (GGAP - CGAP);       // d from 0
 const GW = 7 * CWD + 6 * CGAP;
-GROUPS.forEach((g, i) => L.text({ x: cellX(i * 7) + GW / 2, base: 1112, s: 32, c: "ice", txt: `${D2(g.d0)} – ${D2(g.d1)}`, align: "c", w: GW, legend: true }));
+GROUPS.forEach((g, i) => L.text({ x: cellX(i * 7) + GW / 2, base: CY + 112, s: 32, c: "ice", txt: `${D2(g.d0)} – ${D2(g.d1)}`, align: "c", w: GW, legend: true }));
 const ZONES = ["Fore", "Port", "Stbd", "Aft"];
 // a map: base colour drawn once, the other end of the scale a layer over it whose opacity drifts
 const MAPS = [
-  { name: "Temperature", y: 1136, lo: 19.5, hi: 23.5, cold: "#1a2438", warm: "butter", lc: "butter", fmt: (v) => v.toFixed(1) + " °C", range: "19.5 – 23.5 °C" },
-  { name: "Humidity", y: 1358, lo: 30, hi: 70, cold: "#1c3460", warm: "ice", lc: "ice", fmt: (v) => Math.round(v) + "%", range: "30 – 70%" },
+  { name: "Temperature", y: UP ? YC + 136 : 1136, lo: 19.5, hi: 23.5, cold: "#1a2438", warm: "butter", lc: "butter", fmt: (v) => v.toFixed(1) + " °C", range: "19.5 – 23.5 °C" },
+  { name: "Humidity", y: UP ? YC + 350 : 1358, lo: 30, hi: 70, cold: "#1c3460", warm: "ice", lc: "ice", fmt: (v) => Math.round(v) + "%", range: "30 – 70%" },
 ];
 // what the decks hold: engineering runs warm, the arboretum and hydroponics humid, the antimatter decks cool
 const TB = { 10: 0.4, 11: 0.7, 12: 0.2, 24: 0.8, 27: 0.4, 34: 0.6, 35: 0.9, 36: 1.2, 37: 0.8, 40: -0.6, 41: -0.7, 42: -0.8 };
@@ -216,7 +252,7 @@ MAPS.forEach((m, mi) => {
   L.text({ x: 40, base: m.y + 4 * CP - 6, s: 36, c: "sky", txt: m.range });
   ZONES.forEach((z, zi) => {
     const y = m.y + zi * CP;
-    L.text({ x: HX - 20, base: y + 35, s: 36, c: "sky", txt: z, align: "r" });
+    L.text({ x: HX - 20, base: y + (UP ? 34 : 35), s: 36, c: "sky", txt: z, align: "r" });
     for (let d = 0; d < 42; d++) {
       L.rect({ x: cellX(d), y, w: CWD, h: CH, c: m.cold, noalign: true });
       const e = fill(cellX(d), y, CWD, CH, m.warm, "0 0", "heat");
@@ -263,20 +299,22 @@ L.tick((t) => {
 });
 
 // ---------------- gravity plating and inertial dampers ----------------
-header(DX, 1000, RR - DX, "Gravity Plating", "olive", "sand");
-const GC = { field: 2840, g0: 2900, g1: 3340 }, GMID = (GC.g0 + GC.g1) / 2, GSPAN = (GC.g1 - GC.g0) / 2;
-[["Section", DX, "l"], ["Field g", GC.field, "r"], ["Deviation ±0.5%", GC.g0, "l"], ["Damper Load", RR, "r"]]
-  .forEach(([txt, x, align]) => L.text({ x, base: 1112, s: 36, c: "sand", txt, align }));
-const GB0 = 1191, GP = 70;
+// upright: the left half of the fourth row (40–1000), its rows shared with hydroponics beside it
+const GL = UP ? 40 : DX, GR = UP ? 1000 : RR, GY = UP ? YD : 1000;
+header(GL, GY, GR - GL, "Gravity Plating", "olive", "sand");
+const GC = UP ? { field: 440, g0: 500, g1: 820 } : { field: 2840, g0: 2900, g1: 3340 }, GMID = (GC.g0 + GC.g1) / 2, GSPAN = (GC.g1 - GC.g0) / 2;
+[["Section", GL, "l"], ["Field g", GC.field, "r"], ["Deviation ±0.5%", GC.g0, "l"], ["Damper Load", GR, "r"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: GY + 112, s: 36, c: "sand", txt, align }));
+const GB0 = UP ? YD + 191 : 1191, GP = UP ? 66 : 70;
 let jolt = { t0: -99, amp: 0 }, recal = { i: -1, t0: -99 };
 const grav = GROUPS.map((g, i) => {
   const base = GB0 + i * GP;
-  L.box({ x: DX, y: base - 41, w: 240, h: 52, c: i % 2 ? "sand" : "olive", label: g.name, fs: 30, r: "l" });
+  L.box({ x: GL, y: base - 41, w: 240, h: 52, c: i % 2 ? "sand" : "olive", label: g.name, fs: 30, r: "l" });
   L.rect({ x: GC.g0, y: base - 24, w: GC.g1 - GC.g0, h: 20, c: "#14223a" });
   L.rect({ x: GMID - 2, y: base - 34, w: 4, h: 40, c: "#4e5d6c", free: true });          // 1.000 g
   const m = fill(0, base - 36, 10, 44, "butter");
   return { m, base, seed: L.rand(0, 6), f: L.text({ x: GC.field, base, s: 52, c: "white", txt: "", align: "r" }),
-           dl: L.text({ x: RR, base, s: 52, c: "white", txt: "", align: "r" }) };
+           dl: L.text({ x: GR, base, s: 52, c: "white", txt: "", align: "r" }) };
 });
 const field = (g, i, t) => 1 + wave(t, 0.0011, 0.07 + i * 0.013, g.seed) + wave(t, 0.0005, 0.23, g.seed * 2)
   + (recal.i === i ? 0.0034 * env(t - recal.t0) : 0) + (t - jolt.t0 > 0 ? 0.0012 * jolt.amp * Math.exp(-(t - jolt.t0) / 3) * Math.sin((t - jolt.t0) * 2.2) : 0);
@@ -296,12 +334,14 @@ later(30000, (t) => {
 }, 0.3);
 
 // ---------------- environmental log ----------------
-header(40, 1620, AR - 40, "Environmental Log", "ice", "sky", 48, 28);
-const LC = { tx: 230, at: 1000 };
+// upright: the left half of the bottom row (40–1000)
+const LY = UP ? YE : 1620, LR = UP ? 1000 : AR;
+header(40, LY, LR - 40, "Environmental Log", "ice", "sky", 48, 28);
+const LC = UP ? { tx: 164, at: 540 } : { tx: 230, at: 1000 };
 logRows = Array.from({ length: 6 }, (_, i) => {
-  const base = 1734 + i * 54;
+  const base = LY + 114 + i * 54;
   return { sd: L.text({ x: 40, base, s: 36, c: "sky", txt: "" }), tx: L.text({ x: LC.tx, base, s: 36, c: "ice", txt: "" }),
-           at: L.text({ x: LC.at, base, s: 36, c: "butter", txt: "" }), sys: L.text({ x: AR, base, s: 36, c: "sky", txt: "", align: "r" }) };
+           at: L.text({ x: LC.at, base, s: 36, c: "butter", txt: "" }), sys: L.text({ x: LR, base, s: 36, c: "sky", txt: "", align: "r" }) };
 });
 [["Humidity adjusted", "Arboretum, Deck 11", "Climate"], ["CO2 scrubber bed regenerated", "Decks 22 – 28", "Atmosphere"],
  ["Water reclamation cycle complete", "Recycling, Deck 39", "Water"], ["Trace contaminants purged", "Replicator Shop, Deck 27", "Atmosphere"],
@@ -309,8 +349,10 @@ logRows = Array.from({ length: 6 }, (_, i) => {
   .forEach((e) => logEvent(...e));
 
 // ---------------- water reclamation ----------------
-header(BX, 1620, CR - BX, "Water Reclamation", "sky", "ice", 48, 28);
-const TKW = 120, TKY = 1708, TKH = 188, TKX = (i) => BX + i * (TKW + 60);
+// upright: the right half of the bottom row (1060–1840), the tanks spread wider apart
+const WL = UP ? 1060 : BX, WR = UP ? XR : CR, WY = UP ? YE : 1620;
+header(WL, WY, WR - WL, "Water Reclamation", "sky", "ice", 48, 28);
+const TKW = 120, TKY = WY + 88, TKH = 188, TKS = UP ? 220 : TKW + 60, TKX = (i) => WL + i * TKS;
 L.svg("rect", { x: TKX(0) + TKW / 2, y: TKY + TKH - 24, width: TKX(3) - TKX(0), height: 10, fill: "#1b2c48", class: "boot" });
 const drops = [];
 for (let i = 0; i < 3; i++) for (let k = 0; k < 2; k++) drops.push({ e: L.layer({ x: TKX(i) + TKW, y: TKY + TKH - 23, w: 14, h: 8, cls: "drop" }), k });
@@ -318,31 +360,39 @@ const TANKS = [["Waste", "olive", 0.46, 0.07], ["Process", "sand", 0.61, 0.09], 
   .map(([name, c, lvl, sw], i) => {
     L.rect({ x: TKX(i), y: TKY, w: TKW, h: TKH, c: "#14223a" });
     const f = fill(TKX(i), TKY, TKW, TKH, c, "50% 100%");
-    L.text({ x: TKX(i) + TKW / 2, base: 2004, s: 36, c: "sky", txt: name, align: "c", w: TKW + 60 });
-    return { f, lvl, sw, p: i * 1.9, v: L.text({ x: TKX(i) + TKW / 2, base: 1950, s: 44, c: "white", txt: "", align: "c", w: TKW + 60 }) };
+    L.text({ x: TKX(i) + TKW / 2, base: WY + 384, s: 36, c: "sky", txt: name, align: "c", w: TKW + 60 });
+    return { f, lvl, sw, p: i * 1.9, v: L.text({ x: TKX(i) + TKW / 2, base: WY + 330, s: 44, c: "white", txt: "", align: "c", w: TKW + 60 }) };
   });
 const level = (k, t) => k.lvl + wave(t, k.sw, 0.045, k.p);
 L.tick((t) => {
   TANKS.forEach((k) => k.f.style.transform = `scaleY(${level(k, t).toFixed(4)})`);
   drops.forEach((d) => {                                       // water moving along, between the tanks
     const u = ((t * 0.5 + d.k * 0.5) % 1);
-    L.move(d.e, 6 + u * 34, 0);
+    L.move(d.e, 6 + u * (TKS - TKW - 26), 0);                  // across the gap between two tanks
     d.e.style.opacity = Math.sin(u * Math.PI).toFixed(2);
   });
 });
 later(47000, () => logEvent("Water reclamation cycle complete", "Recycling, Deck 39", "Water"), 0.3);
 
 // ---------------- hydroponics ----------------
-header(DX, 1620, RR - DX, "Hydroponics  ·  Deck 24", "olive", "butter", 48, 28);
-const HC = { crop: 2564, b0: 2820, b1: 3380 };
-const BAYS = [["Leafy Greens", 0.82], ["Legumes", 0.35], ["Root Vegetables", 0.58], ["Plomeek", 0.14], ["Katterpods", 0.71], ["Algae Culture", 0.46]]
+// upright: the right half of the fourth row (1060–1840), on the gravity plating's rows, with column heads.
+// Ultrawide: six more bays in the fourth column, on the same rows.
+const HL = UP ? 1060 : DX, HY = UP ? YD : 1620;
+header(HL, HY, (UP || UW ? XR : RR) - HL, "Hydroponics  ·  Deck 24", "olive", "butter", UP ? 56 : 48, UP ? 32 : 28);
+const HC = UP ? { crop: 1184, b0: 1380, b1: 1720 } : { crop: 2564, b0: 2820, b1: 3380 };
+if (UP) [["Bay", HL, "l"], ["Crop", HC.crop, "l"], ["Growth Cycle", HC.b0, "l"], ["Status", XR, "r"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: HY + 112, s: 36, c: "sand", txt, align }));
+const CROPS = [["Leafy Greens", 0.82], ["Legumes", 0.35], ["Root Vegetables", 0.58], ["Plomeek", 0.14], ["Katterpods", 0.71], ["Algae Culture", 0.46]];
+const BAYS = (UW ? CROPS.concat([["Tomatoes", 0.52], ["Soybeans", 0.27], ["Tea Plants", 0.66], ["Kelp Culture", 0.38], ["Herbs", 0.88], ["Mushrooms", 0.09]]) : CROPS)
   .map(([crop, p], i) => {
-    const base = 1734 + i * 54;
-    L.text({ x: DX, base, s: 36, c: "olive", txt: `Bay ${i + 1}` });
-    L.text({ x: HC.crop, base, s: 36, c: "sand", txt: crop });
-    L.rect({ x: HC.b0, y: base - 22, w: HC.b1 - HC.b0, h: 22, c: "#14223a" });
+    // ultrawide: bays 7–12 one column on (that column is 60 wider: its bars take it), all bars thinner
+    const base = UP ? GB0 + i * GP : 1734 + (i % 6) * 54, dx = UW && i >= 6 ? XS - DX : 0, wx = dx ? XR - RR - dx : 0;
+    const bx = UP ? HL : DX + dx, hr = UP ? XR : RR + dx + wx, BH = UW ? 18 : 22;
+    L.text({ x: bx, base, s: 36, c: "olive", txt: `Bay ${i + 1}` });
+    L.text({ x: HC.crop + dx, base, s: 36, c: "sand", txt: crop });
+    L.rect({ x: HC.b0 + dx, y: base - BH, w: HC.b1 - HC.b0 + wx, h: BH, c: "#14223a" });
     return { crop, p, shown: p, rate: 1 / L.rand(260, 420), yield: L.rand(91, 99), c: "",
-             f: fill(HC.b0, base - 22, HC.b1 - HC.b0, 22, "olive"), v: L.text({ x: RR, base, s: 36, c: "white", txt: "", align: "r" }) };
+             f: fill(HC.b0 + dx, base - BH, HC.b1 - HC.b0 + wx, BH, "olive"), v: L.text({ x: hr, base, s: 36, c: "white", txt: "", align: "r" }) };
   });
 let hPrev = null;
 L.tick((t) => {
@@ -361,6 +411,49 @@ L.tick((t) => {
   });
 });
 
+// ---------------- ultrawide: the fourth column ----------------
+let showMore = () => {};
+if (UW) {
+  // section climate, on the atmosphere rows: each section's mean over its seven decks and four zones
+  header(XS, 280, XR - XS, "Section Climate", "butter", "sand");
+  const SC = { t: 4120, h: 4340, pill: 4420 };
+  [["Section", XS, "l"], ["Mean °C", SC.t, "r"], ["Humidity %", SC.h, "r"], ["Climate Control", SC.pill, "l"]]
+    .forEach(([txt, x, align]) => L.text({ x, base: 400, s: 36, c: "butter", txt, align }));
+  const sec = GROUPS.map((g, i) => {
+    const y = ROW0 + i * PITCH, base = rowBase(i);
+    L.box({ x: XS, y, w: 280, h: 64, c: i % 2 ? "sand" : "butter", label: g.name, fs: 32, r: "l" });
+    return { g, t: L.text({ x: SC.t, base, s: 52, c: "white", txt: "", align: "r" }), h: L.text({ x: SC.h, base, s: 52, c: "white", txt: "", align: "r" }),
+             pill: L.box({ x: SC.pill, y, w: XR - SC.pill, h: 64, c: "sky", label: "Steady", fs: 32, r: "lr", cls: "pill" }) };
+  });
+  // emergency life support, on the gravity rows: one system at a time runs its self test
+  header(XS, 1000, XR - XS, "Emergency Life Support", "olive", "sand");
+  const EC = { v: 4300, pill: 4360 };
+  [["System", XS, "l"], ["Reserve", EC.v, "r"], ["State", EC.pill, "l"]].forEach(([txt, x, align]) => L.text({ x, base: 1112, s: 36, c: "sand", txt, align }));
+  const ESTC = { Ready: "olive", Standby: "sand", "Self Test": "ice" };
+  const em = [["Reserve Oxygen", "318 h", "Ready"], ["Force Field Emitters", "1,206", "Standby"], ["Emergency Bulkheads", "418", "Standby"],
+              ["Environmental Suits", "1,014", "Ready"], ["Escape Pods", "450", "Ready"], ["Backup Generators", "6", "Standby"]]
+    .map(([name, v, rest], i) => {
+      const base = GB0 + i * GP;
+      L.text({ x: XS, base, s: 40, c: "sand", txt: name });
+      L.text({ x: EC.v, base, s: 52, c: "white", txt: v, align: "r" });
+      return { name, rest, pill: L.box({ x: EC.pill, y: base - 41, w: XR - EC.pill, h: 52, c: ESTC[rest], label: rest, fs: 30, r: "lr", cls: "pill" }) };
+    });
+  const emState = (e, st) => { e.pill.textContent = st; e.pill.style.background = `var(--${ESTC[st]})`; };
+  let emK = -1;
+  later(20000, () => {
+    const e = em[emK = (emK + 1) % em.length];
+    emState(e, "Self Test");
+    setTimeout(() => { emState(e, e.rest); logEvent("Self test complete", e.name, "Emergency"); }, 8000);
+  }, 0.2);
+  showMore = (t) => sec.forEach((s) => {
+    let tc = 0, hu = 0;
+    for (let d = s.g.d0; d <= s.g.d1; d++) for (let z = 0; z < 4; z++) { tc += climate(0, d, z, t); hu += climate(1, d, z, t); }
+    put(s.t, (tc / 28).toFixed(1)); put(s.h, String(Math.round(hu / 28)));
+    const u = t - pert.t0, st = pert.t0 > 0 && u >= 0 && u < 19 && pert.d >= s.g.d0 && pert.d <= s.g.d1 ? "Adjusting" : "Steady";
+    if (s.pill.textContent !== st) { s.pill.textContent = st; s.pill.style.background = `var(--${st === "Adjusting" ? "butter" : "sky"})`; }
+  });
+}
+
 // ---------------- readings: a few times a second at most ----------------
 L.every(1000, (t) => {
   showAtmo(t); means(t); showGrav(t);
@@ -372,6 +465,7 @@ L.every(1000, (t) => {
   put(stateSub, `Shipwide  ${kpa.toFixed(1)} kPa  ·  ${MAPS[0].v.toFixed(1)} °C  ·  ${Math.round(MAPS[1].v)}% humidity  ·  1.00 g`);
   const flow = 18400 + Math.round(wave(t, 160, 0.03, 0) / 10) * 10;
   put(flowTxt, `Throughput  ${flow.toLocaleString("en")} m³/min  ·  ${(6.4 + wave(t, 0.1, 0.03, 0)).toFixed(1)} air changes per hour`);
+  showMore(t);
 }, 0);
 });
 </script></body></html>

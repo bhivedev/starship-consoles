@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Mission Briefing</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* colors change slowly; .boot (the start-up cascade) always wins */
@@ -13,7 +14,7 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: mirrored, sidebar on the right ----------------
-L.frame({ type: "B", title: "Observation Lounge  •  Mission Briefing", c: "gold", c2: "butter", accent: "orange", foot: "Briefing",
+const B = L.frame({ type: "B", title: "Observation Lounge  •  Mission Briefing", c: "gold", c2: "butter", accent: "orange", foot: "Briefing",
   side: [[140, "orange", "Obs 01"], [70, "butter", "Deck 1"], [420, "gold", "Briefing"], [70, "orange", "46357"],
          [300, "butter", "Staff"], [70, "gold", "Intel"], [216, "orange", "Celtris"]] });
 
@@ -27,10 +28,22 @@ const fill = (x, y, w, h, c, origin = "0 0", parent) => {
 const pad2 = (n) => String(n).padStart(2, "0");
 const later = (ms, f, jitter) => L.every(ms, (t) => { if (t > 1) f(t); }, jitter);   // not at once: first after a while
 
-// Columns: agenda 40–340, slide 364–2080, staff and actions 2140–3520. Rows of 56 on a 72 grid from 428.
-const AX = 40, AW = 300, SX = 364, SR = 2080, RX = 2140, RR = 3520;
+// ---------------- the grid, per shape ----------------
+// The data, readings and motion are written once; only these positions differ by shape.
+// wide (3840 × 2160): agenda 40–340, slide 364–2080, staff and actions 2140–3520. Rows of 56 on a
+//   72 grid from 428; the timeline across the foot.
+// upright (2160 × 3120): the slide at full width (40–1840) under the briefing header; below it the
+//   senior staff in two columns of five; then the action items, with the agenda as a column of four
+//   bars beside them, one per row; the timeline across the foot.
+// ultrawide (5040 × 2160): the wide layout with a new column 2140–3280 between the slide and the
+//   staff: the briefing record (remarks, row for row with the staff) over the decisions taken (row
+//   for row with the action items); the timeline runs 1200 longer, with a mark every two hours, and
+//   a fifth reading.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide", DX = UW ? 1200 : 0;
+const AX = 40, AW = 300, SX = UP ? B.x0 : 364, SR = UP ? B.x1 : 2080, RX = UP ? 400 : 2140 + DX, RR = B.x1;
 const ROW0 = 428, PITCH = 72, RH = 56, RB = 45.24;          // RB: the baseline of a 56-high button's label (fs 28)
 const MAIN_B = 1536;                                       // the main panels' common bottom edge
+const SY = 1580, AIY = UP ? 2116 : 1116, AROW = AIY + 148; // upright: staff header; actions header (wide 1116, rows 1264)
 
 // ---------------- status line ----------------
 const STATE = "Briefing in Session";
@@ -65,19 +78,21 @@ const DUR = 14;                                            // seconds a slide is
 
 // ---------------- the briefing: header, agenda, slide panel ----------------
 L.header({ x: AX, y: 280, w: SR - AX, label: "Mission Briefing", c1: "gold", c2: "butter", lw: AW });
-L.text({ x: AX, base: 400, s: 36, c: "peach", txt: "Agenda" });
+L.text({ x: AX, base: UP ? AIY + 120 : 400, s: 36, c: "peach", txt: "Agenda" });
 const slideInfo = L.text({ x: SX, base: 400, s: 36, c: "peach", txt: "" });
 const slideBy = L.text({ x: SR, base: 400, s: 36, c: "peach", txt: "", align: "r" });
 [slideInfo, slideBy].forEach((e) => (e.style.willChange = "opacity"));
 
 // the agenda: four tall buttons, one per slide; the slide being shown fills as it runs
-const AH = (MAIN_B - ROW0 - 3 * 8) / 4;                    // 271
+// (upright: four bars beside the action items, one per row, filling left to right)
+const AH = UP ? RH : (MAIN_B - ROW0 - 3 * 8) / 4;          // 271
+const AG = UP ? "scaleX" : "scaleY";
 const agenda = DECK.map((d, i) => {
-  const y = ROW0 + i * (AH + 8);
+  const y = UP ? AROW + i * PITCH : ROW0 + i * (AH + 8);
   L.rect({ x: AX, y, w: AW, h: AH, c: "gold" });
-  const f = fill(AX, y, AW, AH, "butter", "50% 100%");
-  f.style.transform = "scaleY(0)";
-  const b = L.box({ x: AX, y, w: AW, h: AH, c: DARK, label: `${pad2(i + 1)}  ${d.name}`, fs: 36, cls: "sw" });
+  const f = fill(AX, y, AW, AH, "butter", UP ? "0 50%" : "50% 100%");
+  f.style.transform = `${AG}(0)`;
+  const b = L.box({ x: AX, y, w: AW, h: AH, c: DARK, label: `${pad2(i + 1)}  ${d.name}`, fs: UP ? 28 : 36, cls: "sw" });
   b.style.color = "var(--gold)";
   return { f, b, state: "next" };
 });
@@ -87,7 +102,7 @@ const showAgenda = (cur) => agenda.forEach((a, i) => {
   a.state = s;
   a.b.style.background = s === "next" ? DARK : s === "done" ? "#8a6a2a" : "transparent";
   a.b.style.color = s === "next" ? "var(--gold)" : "#000";
-  if (s !== "now") a.f.style.transform = "scaleY(0)";
+  if (s !== "now") a.f.style.transform = `${AG}(0)`;
 });
 
 L.rect({ x: SX, y: ROW0, w: SR - SX, h: MAIN_B - ROW0, c: PANEL, panel: true });
@@ -259,7 +274,7 @@ let shipsTxt;
 // ---- slide 4: risks ----
 {
   const s = mkSlide("Risk Assessment", "Prepared by Security  ·  Lieutenant Worf");
-  const BX = 1000, BW = 260, VX = 1380, PX = 1420, PW = SW - M - PX;
+  const BX = UP || UW ? 680 : 1000, BW = UP || UW ? 580 : 260, VX = 1380, PX = 1420, PW = SW - M - PX;   // upright, ultrawide: longer bars, no void before them
   { const e = item(s, 2 * PITCH, RH, 0.2);
     [["Risk", M], ["Likelihood", BX], ["Severity", PX]].forEach(([txt, x]) => L.text({ x, base: RB, s: 36, c: "peach", txt }, e)); }
   const SEV = { Severe: "mars", High: "orange", Moderate: "butter", Low: "tan" };
@@ -284,10 +299,27 @@ let shipsTxt;
 }
 
 // ---------------- senior staff ----------------
+const NAMEX = RX + 220 + 24, POSTX = 2760 + DX, PILLX = UP ? 1650 : 3280 + DX, PILLW = RR - PILLX;
+let staff;
+if (UP) {
+  // two columns of five rows (40–916 | 964–1840): rank, officer, post, status; the tenth place holds the room
+  const SC = [AX, 964], SROW = SY + 148, NO = 204, PO = 428, QO = 686, QW = 190;
+  L.header({ x: AX, y: SY, w: RR - AX, label: "Senior Staff", c1: "butter", c2: "gold", lw: 180 });
+  SC.forEach((c) => [["Rank", c], ["Officer", c + NO], ["Post", c + PO], ["Status", c + QO]].forEach(([txt, x]) => L.text({ x, base: SY + 120, s: 36, c: "peach", txt })));
+  staff = STAFF.map(([rank, name, post], i) => {
+    const c = SC[i < 5 ? 0 : 1], y = SROW + (i % 5) * PITCH;
+    const box = L.box({ x: c, y, w: 180, h: RH, c: "gold", label: rank, fs: 28, r: "l", cls: "sw" });
+    L.text({ x: c + NO, base: y + RB, s: 40, c: "white", txt: name });
+    L.text({ x: c + PO, base: y + RB, s: 36, c: "tan", txt: post });
+    const pill = L.box({ x: c + QO, y, w: QW, h: RH, c: "tan", label: "", fs: 28, r: "lr", cls: "sw" });
+    pill.style.willChange = "opacity";
+    return { box, pill };
+  });
+  L.box({ x: SC[1], y: SROW + 4 * PITCH, w: RR - SC[1], h: RH, c: "orange", label: "Observation Lounge  ·  Deck 1  ·  Nine Officers", fs: 28, r: "lr" });
+} else {
 L.header({ x: RX, y: 280, w: RR - RX, label: "Senior Staff", c1: "butter", c2: "gold", lw: 220 });
-const NAMEX = RX + 220 + 24, POSTX = 2760, PILLX = 3280, PILLW = RR - PILLX;
 [["Rank", RX], ["Officer", NAMEX], ["Post", POSTX], ["Status", PILLX]].forEach(([txt, x]) => L.text({ x, base: 400, s: 36, c: "peach", txt }));
-const staff = STAFF.map(([rank, name, post], i) => {
+staff = STAFF.map(([rank, name, post], i) => {
   const y = ROW0 + i * PITCH;
   const box = L.box({ x: RX, y, w: 220, h: RH, c: "gold", label: rank, fs: 28, r: "l", cls: "sw" });
   L.text({ x: NAMEX, base: y + RB, s: 40, c: "white", txt: name });
@@ -296,6 +328,7 @@ const staff = STAFF.map(([rank, name, post], i) => {
   pill.style.willChange = "opacity";
   return { box, pill };
 });
+}
 let presenter = -1;
 const showStaff = (by) => {
   presenter = by;
@@ -310,9 +343,8 @@ const showStaff = (by) => {
 L.tick((t) => { if (presenter >= 0) staff[presenter].pill.style.opacity = (0.8 + 0.2 * (0.5 + 0.5 * Math.cos(t * 2.2))).toFixed(3); });
 
 // ---------------- action items ----------------
-const AIY = 1116, AROW = 1264;
-L.header({ x: RX, y: AIY, w: RR - RX, label: "Action Items", c1: "orange", c2: "butter", lw: 220 });
-const ASGX = 3000;
+L.header({ x: UP ? AX : RX, y: AIY, w: RR - (UP ? AX : RX), label: "Action Items", c1: "orange", c2: "butter", lw: UP ? AW : 220 });
+const ASGX = UP ? 1392 : 3000 + DX;          // upright: Assigned and Status under the staff's right-hand Post and Status
 [["Item", RX], ["Action", NAMEX], ["Assigned", ASGX], ["Status", PILLX]].forEach(([txt, x]) => L.text({ x, base: AIY + 120, s: 36, c: "peach", txt }));
 const ACTIONS = [
   ["Calibrate tricorders for theta-band carriers", "Crusher"],
@@ -371,22 +403,110 @@ L.tick((t) => actions.forEach((r) => {                    // a completed item st
   }
 }));
 
+// ---------------- ultrawide: the briefing record, between the slide and the staff ----------------
+// Two logs that share the right-hand column's rows: remarks beside the senior staff (nine lines), the
+// decisions taken beside the action items (four lines). Newest at the foot. On a step the top line
+// fades, the column slides up one row, then the new line fades in at the foot. Each list is longer
+// than its lines, so nothing is on screen twice.
+if (UW) {
+  const LX = 2140, LW = 1140;
+  const REMARKS = [
+    ["Nechayev", "The facility lies beneath the Celtris III cave system"],
+    ["Data", "Theta-band carrier waves detected near the facility"],
+    ["Crusher", "Theta-band emissions are consistent with metagenic agents"],
+    ["Picard", "The team will travel aboard a civilian transport"],
+    ["Worf", "Demolition charges must be shielded from theta radiation"],
+    ["Riker", "The four-shift rotation takes effect at T-0"],
+    ["Jellico", "The Enterprise will meet Gul Lemec at the border"],
+    ["La Forge", "Engineering changes can be ready inside two days"],
+    ["Troi", "The Cardassian delegation will test our resolve"],
+    ["Data", "Cardassian vessels are holding inside the nebula"],
+    ["Nechayev", "Only this mission can confirm the weapon exists"],
+    ["Worf", "Cave exercises are scheduled on Holodeck 3"],
+    ["Crusher", "Tricorders recalibrated to screen for the agent"],
+    ["Picard", "We carry no Starfleet equipment of any kind"],
+    ["Riker", "Minos Korva defenses have been placed on alert"],
+    ["Jellico", "The Cardassians will be watching every move we make"],
+    ["Data", "Border patrols pass every six and a half hours"],
+    ["La Forge", "Long range sensor logs are being reprocessed"],
+    ["Troi", "Gul Lemec will expect us to negotiate from weakness"],
+    ["Nechayev", "Minos Korva is the likely Cardassian objective"],
+    ["Worf", "The extraction window opens at T+30"],
+    ["Picard", "Captain Jellico assumes command on our departure"],
+    ["Crusher", "Medical kits packed for the cave descent"],
+    ["Riker", "Ready room handed over to Captain Jellico"],
+  ];
+  const DECISIONS = [
+    ["Nechayev", "Mission to Celtris III approved by Starfleet Command"],
+    ["Picard", "Away team of Picard, Crusher and Worf confirmed"],
+    ["Jellico", "The Enterprise moves to a four-shift rotation"],
+    ["Nechayev", "Command passes to Captain Jellico at departure"],
+    ["Riker", "Shore leave cancelled for the whole crew"],
+    ["Worf", "Theta-shielded demolition charges authorized"],
+    ["Data", "A continuous sensor watch kept on the nebula"],
+    ["Picard", "The team departs by civilian transport at T-0"],
+    ["Crusher", "Tricorder screening required before demolition"],
+  ];
+  [REMARKS, DECISIONS].forEach((list) => list.forEach(([, txt]) => { if (L.textWidth(txt, 36) > LW - 444) console.warn("briefing record: too long:", txt); }));
+  const clock = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+  const now0 = Date.now();
+  const mkLog = (hy, label, c1, c2, head, y0, LN, LIST, STEP) => {
+    L.header({ x: LX, y: hy, w: LW, label, c1, c2, lw: 300 });
+    [["Time", LX], ["Officer", LX + 204], [head, LX + 444]].forEach(([txt, x]) => L.text({ x, base: hy + 120, s: 36, c: "peach", txt }));
+    const log = L.layer({ x: LX, y: y0, w: LW, h: (LN + 1) * PITCH });
+    const rows = Array.from({ length: LN + 1 }, (_, k) => {
+      const e = L.el("div", "", log, { position: "absolute", left: "0px", top: k * PITCH + "px", width: LW + "px", height: RH + "px" });
+      return { e, tm: L.box({ x: 0, y: 0, w: 180, h: RH, c: "gold", label: "", fs: 28, r: "l" }, e),
+        who: L.text({ x: 204, base: RB, s: 40, c: "white", txt: "" }, e), tx: L.text({ x: 444, base: RB, s: 36, c: "tan", txt: "" }, e) };
+    });
+    const put = (r, en) => { L.set(r.tm, en[0]); L.set(r.who, en[1]); L.set(r.tx, en[2]); };
+    const shown = LIST.slice(0, LN).map(([who, txt], k) => [clock(new Date(now0 - (LN - 1 - k) * STEP * 1000)), who, txt]);
+    let nextR = LN, t0 = -1;
+    shown.forEach((en, k) => put(rows[k], en));
+    rows[LN].e.style.opacity = "0";
+    later(STEP * 1000, (t) => {
+      if (t0 >= 0) return;
+      const [who, txt] = LIST[nextR++ % LIST.length];
+      shown.push([clock(new Date()), who, txt]);
+      put(rows[LN], shown[LN]);
+      t0 = t; log.style.willChange = "transform"; rows[0].e.style.willChange = rows[LN].e.style.willChange = "opacity";
+    }, 0);
+    L.tick((t) => {
+      if (t0 < 0) return;
+      const a = t - t0;
+      rows[0].e.style.opacity = (1 - L.clamp(a / 0.5)).toFixed(3);
+      L.move(log, 0, (-PITCH * L.ease(L.clamp((a - 0.5) / 0.9))).toFixed(2));
+      rows[LN].e.style.opacity = L.clamp((a - 1.4) / 0.6).toFixed(3);   // the new line appears once it is in place
+      if (a >= 2) {                                           // the step done: shift the lines back up one, unmoved
+        shown.shift();
+        shown.forEach((en, j) => put(rows[j], en));
+        rows[0].e.style.opacity = "1"; rows[LN].e.style.opacity = "0";
+        log.style.transform = ""; log.style.willChange = ""; rows[0].e.style.willChange = rows[LN].e.style.willChange = "";
+        t0 = -1;
+      }
+    });
+  };
+  mkLog(280, "Briefing Record", "orange", "gold", "Remark", ROW0, STAFF.length, REMARKS, 11);   // beside the staff, row for row
+  mkLog(AIY, "Decisions", "butter", "gold", "Decision", AROW, 4, DECISIONS, 37);                // beside the action items, row for row
+}
+
 // ---------------- mission timeline: 48 hours, departure at T-0 ----------------
-const TY = 1620, TX = SX, TR = RR, H0 = -8, H1 = 40, PXH = (TR - TX) / (H1 - H0);
-const TRK1 = 1728, TRK2 = 1808, TH = 64;
+const TY = UP ? 2580 : 1620, TX = UP ? AX + AW + 24 : SX, TR = RR, H0 = -8, H1 = 40, PXH = (TR - TX) / (H1 - H0);
+const TRK1 = TY + 108, TRK2 = TY + 188, TH = 64;
+const SHORT = { "Training  ·  Outfitting": "Training", "Insertion  ·  Celtris III": "Insertion" };   // upright: the narrower phases
 L.header({ x: AX, y: TY, w: RR - AX, label: "Mission Timeline", c1: "gold", c2: "butter", h: 48, lw: AW });
 const hx = (h) => TX + (h - H0) * PXH;
-for (let h = H0; h <= H1; h += 4) {                        // the ends sit flush with the timeline's edges
+for (let h = H0; h <= H1; h += UP ? 8 : UW ? 2 : 4) {    // a mark every 4 h (upright 8, ultrawide 2); the ends sit flush with the edges
   const txt = h < 0 ? `T-${-h}` : h === 0 ? "T-0" : `T+${h}`;
-  L.text({ x: hx(h), base: 1712, s: 34, c: "peach", txt, align: h === H0 ? "l" : h === H1 ? "r" : "c", w: 120, legend: true });
+  L.text({ x: hx(h), base: TY + 92, s: 34, c: "peach", txt, align: h === H0 ? "l" : h === H1 ? "r" : "c", w: 120, legend: true });
 }
 L.box({ x: AX, y: TRK1, w: AW, h: TH, c: "gold", label: "Away Team", fs: 32, r: "l" });
 L.box({ x: AX, y: TRK2, w: AW, h: TH, c: "tan", label: "Enterprise", fs: 32, r: "l" });
 const segX = (h0, h1) => { const x0 = hx(h0) + (h0 > H0 ? 3 : 0), x1 = hx(h1) - (h1 < H1 ? 3 : 0); return [x0, x1 - x0]; };
 const phases = [];
 const track = (y, list, c) => list.forEach(([h0, h1, label]) => {
-  const [x, w] = segX(h0, h1);
-  phases.push({ h0, h1, c, e: L.box({ x, y, w, h: TH, c, label, fs: 28, cls: "sw" }) });
+  const [x, w] = segX(h0, h1), lab = (UP && SHORT[label]) || label;
+  phases.push({ h0, h1, c, e: L.box({ x, y, w, h: TH, c, label: lab, fs: UP && L.textWidth(lab, 28) > w - 34 ? 24 : 28, cls: "sw" }) });
 });
 track(TRK1, [[-8, -5, "Briefing"], [-5, 0, "Training  ·  Outfitting"], [0, 14, "Transit  ·  Civilian Transport"], [14, 20, "Border Crossing"],
              [20, 26, "Insertion  ·  Celtris III"], [26, 30, "Objective"], [30, 40, "Extraction  ·  Rendezvous"]], "gold");
@@ -395,9 +515,10 @@ const nowLine = fill(0, TRK1 - 6, 4, TRK2 + TH - TRK1 + 6, "white");
 const nowTip = L.layer({ x: 0, y: TRK2 + TH + 4, cls: "tip" });
 // readouts, each set under the start of a phase above it
 const READ = [[AX, "Ship's Time"], [segX(0, 14)[0], "Departure"], [segX(14, 20)[0], "Briefing Elapsed"], [segX(26, 30)[0], "Stardate"]]
+  .concat(UW ? [[segX(30, 40)[0], "Next Slide"]] : [])
   .map(([x, label]) => {
-    L.text({ x, base: 1972, s: 40, c: "tan", txt: label });
-    return L.text({ x: x + L.textWidth(label, 40) + 28, base: 1972, s: 52, c: "white", txt: "" });
+    L.text({ x, base: TY + 352, s: 40, c: "tan", txt: label });
+    return L.text({ x: x + L.textWidth(label, 40) + 28, base: TY + 352, s: 52, c: "white", txt: "" });
   });
 // The briefing runs three hours on the Mac's own clock, then begins again: "now" walks across it.
 const BRIEF = 3 * 3600;
@@ -430,6 +551,11 @@ later(23000, () => { ships = L.clamp(ships + L.pick([-1, 1]), 9, 13); L.set(ship
 
 // ---------------- the slide cycle ----------------
 let cur = -1, curT0 = 0, prev = -1, prevT0 = 0, infoSet = true;
+if (UW) {                                                  // ultrawide's fifth reading: the time to the next slide
+  const nextSlide = (t) => L.set(READ[4], `00:${pad2(cur < 0 ? DUR : L.clamp(Math.ceil(curT0 + DUR - t), 0, DUR))}`);
+  nextSlide(0);
+  L.every(1000, nextSlide, 0);
+}
 const show = (i, t) => {
   if (cur >= 0) { prev = cur; prevT0 = t; Object.assign(slides[prev].el.style, { willChange: "transform, opacity" }); }
   cur = i; curT0 = t + (prev >= 0 ? 0.35 : 0);
@@ -470,7 +596,7 @@ L.tick((t) => {
     });
     if (!busy) { s.live = false; s.items.forEach((it) => (it.e.style.willChange = "")); }
   }
-  agenda[cur].f.style.transform = `scaleY(${L.clamp(a / DUR).toFixed(4)})`;
+  agenda[cur].f.style.transform = `${AG}(${L.clamp(a / DUR).toFixed(4)})`;
   if (s.tick) s.tick(t, a);
 });
 });

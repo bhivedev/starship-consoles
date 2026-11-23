@@ -11,10 +11,28 @@
  */
 (function () {
   "use strict";
-  const W = 3840, H = 2160, NS = "http://www.w3.org/2000/svg";
-  const L = (window.LCARS = { W, H, zoom: 1 });
+  const NS = "http://www.w3.org/2000/svg";
+
+  // ---------- shapes: which canvas this screen is laid out on ----------
+  // Every screen has the wide layout (3840×2160). A screen may offer more in its <head>:
+  //   <meta name="lcars-shapes" content="upright ultrawide">
+  // and then builds the layout for L.shape. The shape that fills the window best is chosen when
+  // the page loads; if the window later changes shape enough, the page is rebuilt (the iPad app
+  // does that itself, with a crossfade). Keep SHAPES in step with ConsoleShape.swift (a test checks).
+  const SHAPES = { upright: [2160, 3120], wide: [3840, 2160], ultrawide: [5040, 2160] };
+  const offerMeta = document.querySelector('meta[name="lcars-shapes"]');
+  const offered = ["wide", ...(offerMeta ? offerMeta.content.split(/[\s,]+/) : []).filter((s) => SHAPES[s] && s !== "wide")];
+  const winSize = () => window.__lcarsWindow || [innerWidth, innerHeight];   // the app passes the real window
+  const fills = (s, [w, h]) => { if (!(w > 0 && h > 0)) return s === "wide" ? 1 : 0; const r = w / h, c = SHAPES[s][0] / SHAPES[s][1]; return Math.min(r / c, c / r); };
+  const bestShape = (size) => offered.reduce((a, s) =>
+    fills(s, size) > fills(a, size) || (fills(s, size) === fills(a, size) && SHAPES[s][0] > SHAPES[a][0]) ? s : a, "wide");
+  const forced = (location.search.match(/[?&]shape=(\w+)/) || [])[1];   // dev: ?shape=upright
+  const form = forced && offered.includes(forced) ? forced : bestShape(winSize());
+  const [W, H] = SHAPES[form];
+  const L = (window.LCARS = { W, H, zoom: 1, shape: form, shapes: offered });
   const shapes = [];                                  // static shapes, for the layout audit
   const shape = (x, y, w, h, el, panel, noalign) => shapes.push({ x, y, w, h, el, panel, noalign });
+  const headers = [];                                 // section headers, for the audit's header rule
 
   const stage = document.createElement("div");
   stage.id = "stage";
@@ -26,8 +44,29 @@
   frame.setAttribute("viewBox", `0 0 ${W} ${H}`);
   stage.appendChild(frame);
   L.frame = frame;
+  if (form !== "wide") {                              // lcars.css sizes both for the wide canvas
+    for (const e of [stage, frame]) { e.style.width = W + "px"; e.style.height = H + "px"; }
+  }
 
-  // ---------- fitting the 3840×2160 design to the display ----------
+  // The iPad app's viewport lays the canvas out at zoom 1 (iOS draws CSS-zoomed text wrongly):
+  // width = the canvas width, or wider for a wider window. The app guesses the shape; the page
+  // knows it, so it sets the width itself, now and whenever the app reports a new window size.
+  const setViewport = ([w, h]) => {
+    const m = document.getElementById("consoles-viewport");
+    if (m && w > 0 && h > 0) m.content = `width=${Math.ceil(Math.max(W, (H * w) / h))},user-scalable=no,viewport-fit=cover`;
+  };
+  L.viewport = (w, h) => { window.__lcarsWindow = [w, h]; setViewport([w, h]); };
+  if (window.__lcarsWindow) setViewport(window.__lcarsWindow);
+  let reshape;
+  addEventListener("resize", () => {                  // rebuild in the shape that now fits best
+    // the app rebuilds it itself; a page in a frame is the parent page's to replace (a reload there
+    // fires the frame's load event again, which the public shuffle page takes for a new screen)
+    if (window.__lcarsNative || forced || window.top !== window) return;
+    clearTimeout(reshape);
+    reshape = setTimeout(() => { if (bestShape(winSize()) !== form) location.reload(); }, 600);
+  });
+
+  // ---------- fitting the design to the display ----------
   const onFit = [];
   function fit() {
     const z = Math.min(innerWidth / W, innerHeight / H);
@@ -156,7 +195,8 @@
     const h = o.h || 56, fs = o.fs || (h >= 56 ? 32 : 28);
     const lw = o.lw || Math.ceil(L.textWidth(o.label, fs) + 88);
     L.box({ x: o.x, y: o.y, w: lw, h, c: o.c1, label: o.label, fs, r: "l" });
-    L.rect({ x: o.x + lw + L.GAP, y: o.y, w: o.w - lw - L.GAP, h, c: o.c2 });
+    const bar = L.rect({ x: o.x + lw + L.GAP, y: o.y, w: o.w - lw - L.GAP, h, c: o.c2 });
+    headers.push({ x: o.x, y: o.y, w: o.w, h, el: bar, label: o.label });   // for the audit's header rule
     return lw;
   };
 
@@ -164,73 +204,102 @@
    *  "C" (bracket: narrow sidebars both sides, title centred), "D" (wide: no sidebar).
    *  {type, title, c (main colour), c2 (bottom/second colour), accent, side: [[h, c, label], …],
    *   side2 (C only: the right-hand sidebar, so the two don't repeat; defaults to side),
-   *   foot (label on the bottom elbow)} — returns the content box {x0, x1, y0, y1}. */
+   *   foot (label on the bottom elbow)} — returns the content box {x0, x1, y0, y1}.
+   *  Drawn for L.shape: ultrawide is the wide frame stretched (right-hand pieces move out by
+   *  D = W − 3840); upright is taller (bottom pieces move down by Y = H − 2160) with shorter
+   *  elbows and bars, and leaves out the accent piece beside the title when the title is long. */
   L.frame = (o) => {
     const BAR = 64, c = o.c, c2 = o.c2 || o.c, acc = o.accent || c2, G = L.GAP;
+    const U = form === "upright", D = W - 3840, Y = H - 2160;
     const sideBoxes = (x, w, side = o.side) => {
       let y = 298;
       const hs = side || [[140, acc, ""], [70, c2, ""], [420, c, ""], [70, acc, ""], [300, c2, ""], [70, acc, ""], [216, c, ""]];
-      const total = hs.reduce((a, h) => a + h[0], 0) + 8 * (hs.length - 1), k = (1632 - 298) / total;
+      const total = hs.reduce((a, h) => a + h[0], 0) + 8 * (hs.length - 1), k = (1632 + Y - 298) / total;
       hs.forEach(([h, col, label], i) => {
-        const hh = i === hs.length - 1 ? 1632 - y : Math.round(h * k);
+        const hh = i === hs.length - 1 ? 1632 + Y - y : Math.round(h * k);
         L.box({ x, y, w, h: hh, c: col, label, fs: w < 200 ? 30 : 40 });
         y += hh + 8;
       });
     };
+    // upright: the accent piece and the bar between x0 and x1 on the top row, or just the bar if short
+    const topRow = (x0, x1, accFirst = true) => {
+      if (x1 - x0 >= 420) {
+        if (accFirst) { L.rect({ x: x0, y: 40, w: 180, h: BAR, c: acc }); L.rect({ x: x0 + 180 + G, y: 40, w: x1 - (x0 + 180 + G), h: BAR, c }); }
+        else { L.rect({ x: x0, y: 40, w: x1 - 180 - G - x0, h: BAR, c }); L.rect({ x: x1 - 180, y: 40, w: 180, h: BAR, c: acc }); }
+      } else if (x1 - x0 >= 60) L.rect({ x: x0, y: 40, w: x1 - x0, h: BAR, c });
+    };
+    const bottom = (pieces) => pieces.forEach(([x, w, col]) => L.rect({ x, y: 2056 + Y, w, h: BAR, c: col }));
     if (o.type === "A" || !o.type) {
-      L.box({ x: 3724, y: 40, w: 92, h: BAR, c, r: "r" });
-      const tl = L.title({ x: 3724 - G, y: 40, h: BAR, c, txt: o.title });
-      L.elbow({ corner: "tl", x: 40, y: 40, w: 1360, h: 250, bw: 240, bh: BAR, R: 150, r: 60, c });
-      L.rect({ x: 1400 + G, y: 40, w: 300, h: BAR, c: acc });
-      L.rect({ x: 1724 + G, y: 40, w: tl - G - (1724 + G), h: BAR, c });
+      L.box({ x: 3724 + D, y: 40, w: 92, h: BAR, c, r: "r" });
+      const tl = L.title({ x: 3724 + D - G, y: 40, h: BAR, c, txt: o.title });
+      L.elbow({ corner: "tl", x: 40, y: 40, w: U ? 640 : 1360, h: 250, bw: 240, bh: BAR, R: 150, r: 60, c });
+      if (U) topRow(680 + G, tl - G);
+      else {
+        L.rect({ x: 1400 + G, y: 40, w: 300, h: BAR, c: acc });
+        L.rect({ x: 1724 + G, y: 40, w: tl - G - (1724 + G), h: BAR, c });
+      }
       sideBoxes(40, 240);
-      L.elbow({ corner: "bl", x: 40, y: 1640, w: 1500, h: 480, bw: 240, bh: BAR, R: 150, r: 60, c: c2 });
-      if (o.foot) L.text({ x: 258, base: 1712, s: 40, c: "#000", txt: o.foot, align: "r", on: true });
-      [[1540 + G, 600, acc], [2164 + G, 900, c], [3088 + G, 3724 - G - (3088 + G), c2]].forEach(([x, w, col]) => L.rect({ x, y: 2056, w, h: BAR, c: col }));
-      L.box({ x: 3724, y: 2056, w: 92, h: BAR, c, r: "r" });
-      return { x0: 330, x1: 3816, y0: 140, y1: 2010 };
+      L.elbow({ corner: "bl", x: 40, y: 1640 + Y, w: U ? 900 : 1500, h: 480, bw: 240, bh: BAR, R: 150, r: 60, c: c2 });
+      if (o.foot) L.text({ x: 258, base: 1712 + Y, s: 40, c: "#000", txt: o.foot, align: "r", on: true });
+      bottom(U ? [[940 + G, 420, acc], [1384 + G, 3724 + D - G - (1384 + G), c2]]
+               : [[1540 + G, 600, acc], [2164 + G, 900, c], [3088 + G, 3724 + D - G - (3088 + G), c2]]);
+      L.box({ x: 3724 + D, y: 2056 + Y, w: 92, h: BAR, c, r: "r" });
+      return { x0: 330, x1: 3816 + D, y0: 140, y1: 2010 + Y };
     }
     if (o.type === "B") {
+      const ex = U ? 3816 + D - 640 : 2600 + D, ew = U ? 640 : 1216;
       L.box({ x: 40, y: 40, w: 92, h: BAR, c, r: "l" });
       const tr = L.titleLeft({ x: 132 + G, y: 40, h: BAR, c, txt: o.title });
-      L.rect({ x: tr + G, y: 40, w: 320, h: BAR, c: acc });
-      L.rect({ x: tr + 320 + 2 * G, y: 40, w: 2600 - G - (tr + 320 + 2 * G), h: BAR, c });
-      L.elbow({ corner: "tr", x: 2600, y: 40, w: 1216, h: 250, bw: 240, bh: BAR, R: 150, r: 60, c });
-      sideBoxes(3576, 240);
-      L.elbow({ corner: "br", x: 2600, y: 1640, w: 1216, h: 480, bw: 240, bh: BAR, R: 150, r: 60, c: c2 });
-      if (o.foot) L.text({ x: 3794, base: 1712, s: 40, c: "#000", txt: o.foot, align: "r", on: true });
-      L.box({ x: 40, y: 2056, w: 92, h: BAR, c: c2, r: "l" });
-      [[132 + G, 700, acc], [132 + 2 * G + 700, 900, c], [132 + 3 * G + 1600, 2600 - G - (132 + 3 * G + 1600), c2]].forEach(([x, w, col]) => L.rect({ x, y: 2056, w, h: BAR, c: col }));
-      return { x0: 40, x1: 3520, y0: 140, y1: 2010 };
+      if (U) topRow(tr + G, ex - G);
+      else {
+        L.rect({ x: tr + G, y: 40, w: 320, h: BAR, c: acc });
+        L.rect({ x: tr + 320 + 2 * G, y: 40, w: ex - G - (tr + 320 + 2 * G), h: BAR, c });
+      }
+      L.elbow({ corner: "tr", x: ex, y: 40, w: ew, h: 250, bw: 240, bh: BAR, R: 150, r: 60, c });
+      sideBoxes(3576 + D, 240);
+      L.elbow({ corner: "br", x: ex, y: 1640 + Y, w: ew, h: 480, bw: 240, bh: BAR, R: 150, r: 60, c: c2 });
+      if (o.foot) L.text({ x: 3794 + D, base: 1712 + Y, s: 40, c: "#000", txt: o.foot, align: "r", on: true });
+      L.box({ x: 40, y: 2056 + Y, w: 92, h: BAR, c: c2, r: "l" });
+      bottom(U ? [[132 + G, 420, acc], [132 + 2 * G + 420, ex - G - (132 + 2 * G + 420), c2]]
+               : [[132 + G, 700, acc], [132 + 2 * G + 700, 900, c], [132 + 3 * G + 1600, ex - G - (132 + 3 * G + 1600), c2]]);
+      return { x0: 40, x1: 3520 + D, y0: 140, y1: 2010 + Y };
     }
     if (o.type === "C") {
       // a bracket: the title centred in the top bar, elbows down both sides, narrow sidebars
+      const ew = U ? 400 : 900, rx = 3800 + D - ew;
       const t = L.text({ x: 0, cap: 40, s: BAR / (L.BASELINE - L.CAP_TOP), c, txt: o.title });
       const ink = t.offsetWidth;
-      t.style.left = 1920 - ink / 2 + "px";
+      t.style.left = W / 2 - ink / 2 + "px";
       t.dataset.title = "1";
-      const l = 1920 - ink / 2 - G, rr = 1920 + ink / 2 + G;
-      L.elbow({ corner: "tl", x: 40, y: 40, w: 900, h: 250, bw: 140, bh: BAR, R: 120, r: 50, c });
-      L.rect({ x: 940 + G, y: 40, w: l - (940 + G), h: BAR, c: acc });
-      L.rect({ x: rr, y: 40, w: 2900 - G - rr, h: BAR, c: acc });
-      L.elbow({ corner: "tr", x: 2900, y: 40, w: 900, h: 250, bw: 140, bh: BAR, R: 120, r: 50, c });
-      sideBoxes(40, 140); sideBoxes(3660, 140, o.side2 || o.side);
-      L.elbow({ corner: "bl", x: 40, y: 1640, w: 900, h: 480, bw: 140, bh: BAR, R: 120, r: 50, c: c2 });
-      L.elbow({ corner: "br", x: 2900, y: 1640, w: 900, h: 480, bw: 140, bh: BAR, R: 120, r: 50, c: c2 });
-      [[940 + G, 900, acc], [940 + 2 * G + 900, 2900 - G - (940 + 2 * G + 900), c]].forEach(([x, w, col]) => L.rect({ x, y: 2056, w, h: BAR, c: col }));
-      if (o.foot) L.text({ x: 158, base: 1712, s: 34, c: "#000", txt: o.foot, align: "r", on: true });
-      return { x0: 220, x1: 3620, y0: 140, y1: 2010 };
+      const l = W / 2 - ink / 2 - G, rr = W / 2 + ink / 2 + G;
+      // upright with a long title: no room for the accent pieces, so the elbows reach the title
+      const reach = U && l - (40 + ew + G) < 60;
+      L.elbow({ corner: "tl", x: 40, y: 40, w: reach ? l - 40 : ew, h: 250, bw: 140, bh: BAR, R: 120, r: 50, c });
+      if (!reach) L.rect({ x: 40 + ew + G, y: 40, w: l - (40 + ew + G), h: BAR, c: acc });
+      if (!reach) L.rect({ x: rr, y: 40, w: rx - G - rr, h: BAR, c: acc });
+      L.elbow({ corner: "tr", x: reach ? rr : rx, y: 40, w: reach ? 3800 + D - rr : ew, h: 250, bw: 140, bh: BAR, R: 120, r: 50, c });
+      sideBoxes(40, 140); sideBoxes(3660 + D, 140, o.side2 || o.side);
+      L.elbow({ corner: "bl", x: 40, y: 1640 + Y, w: ew, h: 480, bw: 140, bh: BAR, R: 120, r: 50, c: c2 });
+      L.elbow({ corner: "br", x: rx, y: 1640 + Y, w: ew, h: 480, bw: 140, bh: BAR, R: 120, r: 50, c: c2 });
+      const m = U ? 420 : 900;
+      bottom([[40 + ew + G, m, acc], [40 + ew + 2 * G + m, rx - G - (40 + ew + 2 * G + m), c]]);
+      if (o.foot) L.text({ x: 158, base: 1712 + Y, s: 34, c: "#000", txt: o.foot, align: "r", on: true });
+      return { x0: 220, x1: 3620 + D, y0: 140, y1: 2010 + Y };
     }
     // "D": wide — caps and bars top and bottom, no sidebars
     L.box({ x: 40, y: 40, w: 92, h: BAR, c, r: "l" });
     const tr = L.titleLeft({ x: 132 + G, y: 40, h: BAR, c, txt: o.title });
-    L.rect({ x: tr + G, y: 40, w: 360, h: BAR, c: acc });
-    L.rect({ x: tr + 360 + 2 * G, y: 40, w: 3724 - G - (tr + 360 + 2 * G), h: BAR, c });
-    L.box({ x: 3724, y: 40, w: 92, h: BAR, c, r: "r" });
-    L.box({ x: 40, y: 2056, w: 92, h: BAR, c: c2, r: "l" });
-    [[132 + G, 1100, c2], [132 + 2 * G + 1100, 600, acc], [132 + 3 * G + 1700, 3724 - G - (132 + 3 * G + 1700), c]].forEach(([x, w, col]) => L.rect({ x, y: 2056, w, h: BAR, c: col }));
-    L.box({ x: 3724, y: 2056, w: 92, h: BAR, c: c2, r: "r" });
-    return { x0: 40, x1: 3816, y0: 140, y1: 2010 };
+    if (U) topRow(tr + G, 3724 + D - G);
+    else {
+      L.rect({ x: tr + G, y: 40, w: 360, h: BAR, c: acc });
+      L.rect({ x: tr + 360 + 2 * G, y: 40, w: 3724 + D - G - (tr + 360 + 2 * G), h: BAR, c });
+    }
+    L.box({ x: 3724 + D, y: 40, w: 92, h: BAR, c, r: "r" });
+    L.box({ x: 40, y: 2056 + Y, w: 92, h: BAR, c: c2, r: "l" });
+    bottom(U ? [[132 + G, 600, c2], [132 + 2 * G + 600, 3724 + D - G - (132 + 2 * G + 600), c]]
+             : [[132 + G, 1100, c2], [132 + 2 * G + 1100, 600, acc], [132 + 3 * G + 1700, 3724 + D - G - (132 + 3 * G + 1700), c]]);
+    L.box({ x: 3724 + D, y: 2056 + Y, w: 92, h: BAR, c: c2, r: "r" });
+    return { x0: 40, x1: 3816 + D, y0: 140, y1: 2010 + Y };
   };
   L.GAP = 24;                                         // the gap between a title and its bar, between segments
 
@@ -484,6 +553,65 @@
       const tol = a.text || b.text ? 5 : 2;                       // glyph side-bearings
       for (const [edge, d] of [["left", a.x - b.x], ["right", a.x + a.w - b.x - b.w]])
         if (Math.abs(d) > tol && Math.abs(d) <= 120) issues.push(`${a.what} and ${b.what}: ${edge} edges almost line up (${Math.round(Math.abs(d))}px apart)`);
+    }
+    // ---- a section header runs exactly as far as the row directly beneath it ----
+    // (From Starship Monitor: Tactical's purple headers and the Ship's Log's gold one stopped 24px
+    // short of their rows, 2026-11-21.) Headers made with L.header.
+    const layerBox = (e) => {                           // where a bar stands (rows move by transform), at full length
+      const b = e.getBoundingClientRect();
+      return { x: (b.left - sr.left) / z, y: (b.top - sr.top) / z, w: e.offsetWidth, h: b.height / z };
+    };
+    // A bar: a solid block stretched along x by its own transform (scaleX), lying flat
+    const bars = [...stage.querySelectorAll("div")].filter((e) => e.isConnected && !e.closest("svg") && /scaleX\(|scale\([^,)]*,/.test(e.style.transform) && getComputedStyle(e).visibility !== "hidden" &&
+      !e.children.length && getComputedStyle(e).backgroundColor !== "rgba(0, 0, 0, 0)")   // a solid fill, not a drawing
+      .map((e) => Object.assign(layerBox(e), { el: e })).filter((b) => b.w >= 60 && b.h >= 8 && b.h <= 90 && b.w >= 3 * b.h);
+    const faded = (e) => { for (let n = e; n && n !== stage; n = n.parentElement) if (parseFloat(getComputedStyle(n).opacity) < 0.05) return true; return false; };
+    // every piece of free text, moving layers included (rows of logs and tables live in layers)
+    const allTexts = [];
+    for (const e of stage.querySelectorAll(".t")) {
+      if (!e.isConnected || getComputedStyle(e).visibility === "hidden" || faded(e)) continue;
+      for (const t of ink(e)) allTexts.push(Object.assign(t, { el: e, on: e.dataset.on }));
+    }
+    for (const hd of headers) {
+      if (!hd.el.isConnected) continue;
+      let hr = hd.x + hd.w;
+      const y0 = hd.y + hd.h;
+      for (let more = true; more; ) {                   // a count box, end cap or key row beside it continues the header
+        const s = shapes.find((s) => s.el && s.el.isConnected && Math.abs(s.y - hd.y) <= 2 && s.el !== hd.el && s.w > 0 && s.x > hr && s.x - hr <= 96 && Math.abs(s.h - hd.h) <= 2);
+        more = !!s; if (s) hr = s.x + s.w;
+      }
+      const under = [...shapes.filter((s) => s.el && s.el.isConnected && s.el !== hd.el && s.w >= 20 && !s.panel).map((s) => ({ x: s.x, y: s.y, w: s.w, h: s.h })),
+        ...bars, ...allTexts.filter((t) => !t.el.dataset.legend)]
+        .filter((b) => b.y >= y0 && b.y <= y0 + 150 && b.x >= hd.x - 8 && b.x < hr && b.x + b.w > hd.x);
+      if (!under.length) continue;
+      const top = Math.min(...under.map((b) => b.y));
+      const row = under.filter((b) => b.y <= top + 40);
+      const r = Math.max(...row.map((b) => b.x + b.w));
+      if (r - hr > 4) issues.push(`header "${String(hd.label).slice(0, 28)}" stops ${Math.round(r - hr)}px short of the row beneath it`);
+    }
+    // ---- a bar runs on to its words ----
+    // A bar and the words after it on its row (a figure, a state): never touching (under 16px), and
+    // never a wide black gap (over 72px). Bars run up to their numbers; never shorten one to dodge
+    // the alignment rule. (From Starship Monitor: Ship Status's bars stopped ~180px short, 2026-11-21.)
+    for (const br of bars) {
+      const bx = br.x + br.w;
+      const next = allTexts.filter((t) => !t.on && !t.el.dataset.legend && t.txt && t.el.style.right !== "" && t.x + t.w > bx - 4 && t.x - bx < 600 &&
+        t.y + t.h / 2 >= br.y - 20 && t.y + t.h / 2 <= br.y + br.h + 20 && t.x > br.x + br.w / 2 &&
+        !shapes.some((s) => s.el && s.el.isConnected && !s.panel && s.w < 1200 && hit(t, s)))      // free text, not printed on a cell
+        .sort((a, b) => a.x - b.x)[0];
+      if (!next) continue;
+      // a blank number slot between them (a row still filling, a number faded out): the bar's own words are missing
+      if ([...stage.querySelectorAll(".t")].some((e) => e.style.right !== "" && (!e.textContent.trim() || faded(e)) && (() => {
+        const b = e.getBoundingClientRect(), r = (b.right - sr.left) / z, y = (b.top + b.bottom) / 2 / z - sr.top / z;
+        return r > bx + 8 && r < next.x + next.w - 8 && y >= br.y - 30 && y <= br.y + br.h + 30;
+      })())) continue;
+      // anything else between the bar and that number (its own words left-aligned after it, a status pill,
+      // the next column's first words): the number belongs to something else
+      const between = (b) => b.x >= bx + 4 && b.x + b.w <= next.x - 4 && b.y + b.h > br.y - 20 && b.y < br.y + br.h + 20;
+      if (allTexts.some((t) => t.el !== next.el && between(t)) || shapes.some((s) => s.el && s.el.isConnected && !s.panel && s.h >= 16 && between(s))) continue;
+      const g = next.x - bx, at = `the bar at ${Math.round(br.x)},${Math.round(br.y)}`;
+      if (g < 16) issues.push(`${at} ${g < 0 ? "runs under" : "comes within " + Math.round(g) + "px of"} its words ${name(next)} (at least 16)`);
+      else if (/[?&]bargaps\b/.test(location.search) && !br.el.closest('[data-gap="free"]')) issues.push(`bargap ${Math.round(br.x)},${Math.round(br.y)},${Math.round(br.w)} ${Math.round(g)} ${Math.round(next.x + next.w)}`);
     }
     // ---- type large enough to read across a room ----
     for (const t of texts) {

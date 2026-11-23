@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Alert Status</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .seg  { transition: background-color 1.8s ease, color 1.8s ease; will-change: opacity; }
@@ -7,6 +8,7 @@
   .cell { transition: background-color 1.1s ease; }
   .pill { transition: background-color .9s ease, color .9s ease; }
   .scan { border: 4px solid var(--white); border-radius: 6px; }
+  .uwbar { transform-origin: 0 0; transform: scaleX(0); transition: transform 1.1s ease; }
 </style></head>
 <body><script src="../lcars.js"></script><script>
 "use strict";
@@ -14,10 +16,22 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: wide, no sidebars ----------------
-L.frame({ type: "D", title: "Alert Status  •  Ship Condition", c: "sky", c2: "blue", accent: "mars" });
+const B = L.frame({ type: "D", title: "Alert Status  •  Ship Condition", c: "sky", c2: "blue", accent: "mars" });
 
-const G = L.GAP, X0 = 40, X1 = 3816;
-const COL = [40, 1000, 1960, 2920], CW = 896;              // four columns, 64 apart
+// ---------------- the grid, per shape ----------------
+// The data, readings and motion below are written once; only these positions differ by shape.
+// wide (3840 × 2160): four columns of 896, 64 apart (40–3816); band, readouts, the 42-deck grid
+//   full width, then checklist | history two-up on columns 1–2 | 3–4.
+// upright (2160 × 3120): the band in two rows (green full width over yellow | red, halves on the
+//   four 476 columns, 64 apart), readouts one to a column; the grid full width at 42 px a deck, its
+//   key line split in two; then the checklist and the history stacked full width.
+// ultrawide (5040 × 2160): the wide layout unchanged on 40–3816, plus a fifth column 3880–5016:
+//   Red Alert and a fifth readout, Department Readiness on the grid's rows, and Drill Response
+//   (each department's last report, on a 0–30 s scale) on the checklist's rows.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const G = L.GAP, X0 = 40, X1 = UP ? B.x1 : 3816;           // X1: the wide part's right edge
+const XE = B.x1;                                           // ultrawide: the fifth column's right edge
+const COL = UP ? [40, 580, 1120, 1660] : UW ? [40, 1000, 1960, 2920, 3880] : [40, 1000, 1960, 2920], CW = UP ? 476 : 896;
 const TRACK = "#0c1a36";
 const pad = (n, k = 2) => String(n).padStart(k, "0");
 const fmt = (n) => Math.round(n).toLocaleString("en");
@@ -34,20 +48,24 @@ const setState = (word, sub, c) => {
 };
 const stardate0 = 47634.4 + Math.random() * 0.05;
 const stardate = (t = L.t) => stardate0 + t / 3600 / 8.766;
-L.text({ x: COL[3], base: 222, s: 40, c: "sky", txt: "Stardate" });
-const sdVal = L.text({ x: COL[3] + L.textWidth("Stardate", 40) + 24, base: 222, s: 52, c: "white", txt: "" });
-L.text({ x: X1, base: 222, s: 40, c: "sky", txt: "Main Bridge  ·  Tactical", align: "r" });
+const SDX = UW ? COL[4] : COL[3];                          // over the Red Alert segment
+L.text({ x: SDX, base: 222, s: 40, c: "sky", txt: "Stardate" });
+const sdVal = L.text({ x: SDX + L.textWidth("Stardate", 40) + 24, base: 222, s: 52, c: "white", txt: "" });
+const PLACE = "Main Bridge  ·  Tactical";                   // upright: on the grid's second key line
+if (!UP) L.text({ x: UW ? XE : X1, base: 222, s: 40, c: "sky", txt: PLACE, align: "r" });
 
 // ---------------- the condition band ----------------
-const BY = 280, BH = 176;
+// upright: two rows of 128 (green full width over yellow | red), the rest moved down by 104
+const BY = 280, BH = UP ? 128 : 176, DY = UP ? 104 : 0;
 const SEGS = [
-  { name: "Condition Green", note: "Normal operations", x: COL[0], w: COL[1] + CW - COL[0], c: "sky", dark: "#0e2246", r: "l" },
-  { name: "Yellow Alert", note: "Shields up  ·  Stations manned", x: COL[2], w: CW, c: "butter", dark: "#2e2610", r: null },
-  { name: "Red Alert", note: "Battle stations", x: COL[3], w: CW, c: "mars", dark: "#2e100a", r: "r" },
+  // ultrawide: green over columns 1–3, yellow on 4, red on the fifth column
+  { name: "Condition Green", note: "Normal operations", x: COL[0], y: BY, w: UP ? X1 - X0 : (UW ? COL[2] : COL[1]) + CW - COL[0], c: "sky", dark: "#0e2246", r: "l" },
+  { name: "Yellow Alert", note: "Shields up  ·  Stations manned", x: UP ? X0 : UW ? COL[3] : COL[2], y: UP ? BY + BH + G : BY, w: UP ? COL[1] + CW - X0 : CW, c: "butter", dark: "#2e2610", r: UP ? "l" : null },
+  { name: "Red Alert", note: "Battle stations", x: UP ? COL[2] : UW ? COL[4] : COL[3], y: UP ? BY + BH + G : BY, w: UP ? X1 - COL[2] : UW ? XE - COL[4] : CW, c: "mars", dark: "#2e100a", r: "r" },
 ].map((s) => {
-  s.e = L.box({ x: s.x, y: BY, w: s.w, h: BH, c: s.dark, label: s.name, fs: 112, r: s.r, cls: "seg" });
+  s.e = L.box({ x: s.x, y: s.y, w: s.w, h: BH, c: s.dark, label: s.name, fs: 112, r: s.r, cls: "seg" });
   s.e.style.paddingRight = (s.r === "r" ? 80 : 32) + "px"; s.e.style.paddingBottom = "14px";
-  s.n = L.text({ x: s.x + (s.r === "l" ? 96 : 32), cap: BY + 26, s: 40, c: s.c, txt: s.note, on: true, cls: "segt" });
+  s.n = L.text({ x: s.x + (s.r === "l" ? 96 : 32), cap: s.y + 26, s: 40, c: s.c, txt: s.note, on: true, cls: "segt" });
   return s;
 });
 let lit = -1;
@@ -64,18 +82,19 @@ L.tick((t) => { if (lit >= 0) SEGS[lit].e.style.opacity = (0.9 + 0.1 * Math.sin(
 
 // readouts under the band, one to a column
 const readout = (i, label) => {
-  const l = L.text({ x: COL[i], base: 532, s: 40, c: "sky", txt: label });
-  const v = L.text({ x: COL[i] + L.textWidth(label, 40) + 28, base: 532, s: 52, c: "white", txt: "" });
+  const l = L.text({ x: COL[i], base: 532 + DY, s: 40, c: "sky", txt: label });
+  const v = L.text({ x: COL[i] + L.textWidth(label, 40) + 28, base: 532 + DY, s: 52, c: "white", txt: "" });
   return { l, v, label: (txt) => { L.set(l, txt); v.style.left = COL[i] + L.textWidth(txt, 40) + 28 + "px"; } };
 };
 const rdTime = readout(0, "Time at Condition"), rdReady = readout(1, "Stations Ready"),
       rdLast = readout(2, "Last Drill"), rdNext = readout(3, "Next Drill");
+const rdStandby = UW ? readout(4, "Stations on Standby") : null;   // ultrawide: a fifth, under Red Alert
 
 // ---------------- the deck readiness grid: 42 decks × six departments ----------------
-const HY = 592;
+const HY = 592 + DY;
 L.header({ x: X0, y: HY, w: X1 - X0, label: "Deck Readiness  ·  Decks 1 – 42", c1: "sky", c2: "blue" });
 const DECKS = 42, LW = 314, CX0 = X0 + LW + G, PITCH = (X1 - CX0 + 6) / DECKS, CELLW = PITCH - 6;
-const GY = 728, RP = 60, RH = 48;
+const GY = 728 + DY, RP = 60, RH = 48;
 const range = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
 const DEPTS = [
   ["Command", "sky", [1, 2, 3, 8, 9, 16, 36]],
@@ -136,22 +155,27 @@ let kx = X0;
   kx += w + 12;
 });
 const KB = KY + 40;                                           // shares the key's label baseline
-const pollTxt = L.text({ x: COL[1], base: KB, s: 40, c: "sky", txt: "" });
-const deckTxt = L.text({ x: COL[2], base: KB, s: 40, c: "ice", txt: "" });
+const KB2 = KB + 74;                                          // upright: a second line under the key
+const pollTxt = L.text({ x: UP ? X0 : COL[1], base: UP ? KB2 : KB, s: 40, c: "sky", txt: "" });
+const deckTxt = L.text({ x: COL[2], base: UP ? KB2 : KB, s: 40, c: "ice", txt: "" });
 const totTxt = L.text({ x: X1, base: KB, s: 40, c: "white", txt: "", align: "r" });
+if (UP) L.text({ x: X1, base: KB2, s: 40, c: "sky", txt: PLACE, align: "r" });
 const showTotals = () => {
   const ready = cells.filter((c) => c.state === "ready" || c.state === "reported").length;
   L.set(rdReady.v, `${ready} of ${cells.length}`);
   L.set(totTxt, `${cells.length} stations on ${DECKS} decks  ·  6 departments`);
+  if (UW) uw.show();
 };
 
 // ---------------- readiness checklist (lower left) ----------------
-const LY = 1288, RB0 = 1440, RPITCH = 72, RRH = 56;
+// upright: full width, under the key's second line; its columns spread over the extra 240
+const LY = UP ? KB2 + 72 : 1288, RB0 = LY + 152, RPITCH = 72, RRH = 56;
 const rowBase = (i) => RB0 + i * RPITCH + 46;
-const LR = COL[1] + CW;
+const LR = UP ? X1 : COL[1] + CW;
+const CK = UP ? [184, 830, 1270, 1820, 1880] : [184, 700, 1040, 1580, 1640];   // item, station, by, checked, pill
 L.header({ x: X0, y: LY, w: LR - X0, label: "Readiness Checklist", c1: "ice", c2: "sky" });
-[["Check No.", X0, "l"], ["Readiness Check", 184, "l"], ["Station", 700, "l"], ["Reported By", 1040, "l"], ["Checked", 1580, "r"], ["Status", LR, "r"]]
-  .forEach(([txt, x, align]) => L.text({ x, base: 1408, s: 36, c: "ice", txt, align, w: 300 }));
+[["Check No.", X0, "l"], ["Readiness Check", CK[0], "l"], ["Station", CK[1], "l"], ["Reported By", CK[2], "l"], ["Checked", CK[3], "r"], ["Status", LR, "r"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: LY + 120, s: 36, c: "ice", txt, align, w: 300 }));
 const NW = Math.round(L.textWidth("Check No.", 36));
 const CHECKS = [
   ["Bridge stations manned", "Main Bridge", "Cmdr. Riker"],
@@ -165,11 +189,11 @@ const CHECKS = [
 ].map(([item, station, who], i) => {
   const y = RB0 + i * RPITCH, base = rowBase(i);
   L.box({ x: X0, y, w: NW, h: RRH, c: i % 2 ? "sky" : "ice", label: pad(i + 1), fs: 28, r: "l" });
-  L.text({ x: 184, base, s: 40, c: "white", txt: item });
-  L.text({ x: 700, base, s: 36, c: "sky", txt: station });
-  L.text({ x: 1040, base, s: 36, c: "ice", txt: who });
-  const at = L.text({ x: 1580, base, s: 36, c: "ice", txt: "", align: "r" });
-  const pill = L.box({ x: 1640, y, w: LR - 1640, h: RRH, c: "sky", label: "Complete", fs: 28, r: "lr", cls: "pill" });
+  L.text({ x: CK[0], base, s: 40, c: "white", txt: item });
+  L.text({ x: CK[1], base, s: 36, c: "sky", txt: station });
+  L.text({ x: CK[2], base, s: 36, c: "ice", txt: who });
+  const at = L.text({ x: CK[3], base, s: 36, c: "ice", txt: "", align: "r" });
+  const pill = L.box({ x: CK[4], y, w: LR - CK[4], h: RRH, c: "sky", label: "Complete", fs: 28, r: "lr", cls: "pill" });
   return { item, at, pill, state: "Complete" };
 });
 const PILL = { Complete: ["var(--sky)", "#000"], Pending: ["#2e2610", "var(--butter)"], Checking: ["var(--butter)", "#000"] };
@@ -181,18 +205,20 @@ const setCheck = (k, st, secs) => {
 };
 
 // ---------------- alert history (lower right) ----------------
-const AX = COL[2];
-L.header({ x: AX, y: LY, w: X1 - AX, label: "Alert History", c1: "sky", c2: "blue" });
-[["Stardate", AX, "l"], ["Condition", 2248, "c"], ["Event", 2380, "l"], ["Ordered By", 3240, "l"], ["Duration", X1, "r"]]
-  .forEach(([txt, x, align]) => L.text({ x, base: 1408, s: 36, c: "ice", txt, align, w: 300 }));
+// upright: full width under the checklist
+const AX = UP ? X0 : COL[2], HY2 = UP ? RB0 + 7 * RPITCH + RRH + 72 : LY, HB0 = HY2 + 152;
+const HC = UP ? [220, 328, 460, 1540] : [2140, 2248, 2380, 3240];   // pill, its heading's centre, event, ordered by
+L.header({ x: AX, y: HY2, w: X1 - AX, label: "Alert History", c1: "sky", c2: "blue" });
+[["Stardate", AX, "l"], ["Condition", HC[1], "c"], ["Event", HC[2], "l"], ["Ordered By", HC[3], "l"], ["Duration", X1, "r"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: HY2 + 120, s: 36, c: "ice", txt, align, w: 300 }));
 const COND = { Yellow: ["var(--butter)", "Yellow"], Red: ["var(--mars)", "Red"], Intruder: ["var(--mars)", "Intruder"] };
 const logRows = Array.from({ length: 8 }, (_, i) => {
-  const y = RB0 + i * RPITCH, base = rowBase(i);
+  const y = HB0 + i * RPITCH, base = HB0 + i * RPITCH + 46;
   return {
     sd: L.text({ x: AX, base, s: 40, c: i < 4 ? "butter" : "sky", txt: "" }),
-    pill: L.box({ x: 2140, y, w: 216, h: RRH, c: "butter", label: "", fs: 28, r: "lr", cls: "pill" }),
-    ev: L.text({ x: 2380, base, s: 40, c: "white", txt: "" }),
-    by: L.text({ x: 3240, base, s: 36, c: "sky", txt: "" }),
+    pill: L.box({ x: HC[0], y, w: 216, h: RRH, c: "butter", label: "", fs: 28, r: "lr", cls: "pill" }),
+    ev: L.text({ x: HC[2], base, s: 40, c: "white", txt: "" }),
+    by: L.text({ x: HC[3], base, s: 36, c: "sky", txt: "" }),
     du: L.text({ x: X1, base, s: 36, c: "ice", txt: "", align: "r" }),
   };
 });
@@ -215,6 +241,67 @@ const showLog = () => [...recent, ...RECORD].forEach(([sd, cond, ev, du, by], i)
   r.pill.style.background = COND[cond][0];
 });
 showLog();
+
+// ---------------- ultrawide only: the fifth column (3880–5016) ----------------
+// Department Readiness on the grid's rows: each department's stations ready now, and the decks.
+// Drill Response on the checklist's rows: when each department's last station reported in the
+// drill under way (or the last one), on a 0–30 s scale. All read from the same cells as the grid.
+const uw = {};
+if (UW) {
+  const UX = COL[4], RBX = 4208, TX = 4340, TW = 552, TMAX = 30;
+  const sx = (f, k) => { const v = `scaleX(${L.clamp(k).toFixed(4)})`; if (f._v !== v) { f._v = v; f.style.transform = v; } };
+  const bar = (x, y, w, h, c) => {
+    L.box({ x, y, w, h, c: TRACK });
+    const f = L.layer({ x, y, w, h, cls: "uwbar boot" });
+    f.style.background = c;
+    return f;
+  };
+  L.header({ x: UX, y: HY, w: XE - UX, label: "Department Readiness", c1: "sky", c2: "blue" });
+  const dRows = [...DEPTS, ["Deck Status", "butter"]].map(([name, c], r) => {
+    const y = r < 6 ? GY + r * RP : SY;
+    L.text({ x: UX, base: y + 37, s: 36, c, txt: name });
+    return { n: L.text({ x: RBX - 32, base: y + 37, s: 36, c: "white", txt: "", align: "r" }), f: bar(RBX, y, XE - RBX, RH, `var(--${c})`) };
+  });
+  const keyTxt = L.text({ x: UX, base: KB, s: 40, c: "sky", txt: "" });
+
+  L.header({ x: UX, y: LY, w: XE - UX, label: "Drill Response", c1: "ice", c2: "sky" });
+  [["Department", UX, "l"], ["Reported", 4140, "l"], ["Last Report", XE, "r"]]
+    .forEach(([txt, x, align]) => L.text({ x, base: LY + 120, s: 36, c: "ice", txt, align, w: 300 }));
+  const groups = DEPTS.map(([name]) => cells.filter((c) => c.dept === name)).concat([cells]);
+  const tRows = [...DEPTS, ["All Stations", "white"]].map(([name, c], i) => ({
+    name: L.text({ x: UX, base: rowBase(i), s: 40, c, txt: name }),
+    n: L.text({ x: 4140, base: rowBase(i), s: 36, c: "white", txt: "" }),
+    f: bar(TX, RB0 + i * RPITCH, TW, RRH, `var(--${c === "white" ? "ice" : c})`),
+    at: L.text({ x: XE, base: rowBase(i), s: 36, c: "ice", txt: "", align: "r" }),
+  }));
+  L.text({ x: UX, base: rowBase(7), s: 36, c: "sky", txt: "Time from Alert" });
+  [0, 10, 20, 30].forEach((s) => L.text({ x: TX + (TW * s) / TMAX, base: rowBase(7), s: 32, c: "sky", txt: s + " s", align: "c", w: 80, legend: true }));
+  // the last drill before the screen came up (0 m 34 s with the checklist)
+  const SEED = [19.6, 28.4, 26.9, 25.1, 27.7, 28.9];
+  uw.show = () => {
+    const ok = (c) => c.state === "ready" || c.state === "reported";
+    let full = 0;
+    groups.slice(0, 6).forEach((mine, r) => {
+      const k = mine.filter(ok).length;
+      if (k === mine.length) full++;
+      L.set(dRows[r].n, `${k} / ${mine.length}`); sx(dRows[r].f, k / mine.length);
+    });
+    const dk = deckBox.filter((e) => e.dataset.st === "dready" || e.dataset.st === "reported").length;
+    L.set(dRows[6].n, `${dk} / ${DECKS}`); sx(dRows[6].f, dk / DECKS);
+    L.set(keyTxt, `${full} of 6 departments fully ready`);
+    const sb = cells.filter((c) => c.state === "standby").length;
+    L.set(rdStandby.v, sb ? `${sb} of ${cells.length}` : "None");
+    groups.forEach((mine, r) => {
+      let n = mine.length, at;
+      if (drill) { const rep = mine.filter((c) => c.state === "reported"); n = rep.length; at = n ? Math.max(...rep.map((c) => c.at)) : null; }
+      else if (mine[0].at !== undefined) at = Math.max(...mine.map((c) => c.at));
+      else at = r < 6 ? SEED[r] : Math.max(...SEED);
+      L.set(tRows[r].n, `${n} of ${mine.length}`);
+      L.set(tRows[r].at, at === null ? "—" : ms(at));
+      sx(tRows[r].f, (at || 0) / TMAX);
+    });
+  };
+}
 
 // ---------------- condition green: the ship going about its business ----------------
 let since = L.rand(2.5, 9) * 3600, sinceT = 0;               // hours at condition when the screen comes up

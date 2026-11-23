@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Starbase Docking</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* swapped text dips and comes back; colors change slowly; .boot (the start-up cascade) always wins */
@@ -15,12 +16,22 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: sidebar left, title top right ----------------
-L.frame({ type: "A", title: "Earth Station McKinley  •  Approach Control", c: "sky", c2: "peach", accent: "ice", foot: "Navigation",
+const B = L.frame({ type: "A", title: "Earth Station McKinley  •  Approach Control", c: "sky", c2: "peach", accent: "ice", foot: "Navigation",
   side: [[140, "peach", "Sector 001"], [70, "ice", "Earth"], [420, "sky", "Approach"], [70, "peach", "Port"],
          [300, "sky", "Corridor"], [70, "ice", "Beacon"], [216, "peach", "Traffic"]] });
 
 // Two columns as Torpedo Magazine's: 330–2490 | 2554–3816; the middle band and the strip split the left again at 1398 | 1422.
 const X0 = 330, ML = 1398, MR = 1422, GR = 2490, RX = 2554, X1 = 3816;
+// ---------------- the other shapes: only positions and sizes differ; data, readings and motion are written once ----------------
+// upright (2160 × 3120): two status lines (Arrivals and Vessels Docked drop to the second), then two columns
+//   330–1374 | 1438–2136 all the way down: plan view | docking ports; elevation | closing speed (charts 500 tall);
+//   final alignment (scope + table) | inbound vessel on one 70px grid; docking history | approach sequence.
+// ultrawide (5040 × 2160): the wide layout in place, plus a fourth column 3880–5016: range against cycle time on the
+//   plan's band, port occupancy (hull lengths) on the alignment table's rows, corridor beacons on the strip's rows,
+//   and time to contact on the status line.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const UL = 1374, UR = 1438, UX1 = B.x1;                        // upright: left column's right edge, right column's left edge
+const NX = 3880, NX1 = B.x1;                                   // ultrawide: the fourth column
 const CONE = "#0c1d3c", EDGE = "#2f5ea8", GRID = "#1a3466", TRACK = "#14294d", PANEL = "#08142e";
 const cls = (e, ...c) => (e.classList.add(...c), e);
 const op = (e, v) => { v = v < 0.005 ? "0" : v > 0.995 ? "1" : v.toFixed(3); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
@@ -98,14 +109,18 @@ const BIG = 100;
 const state = cls(L.text({ x: X0, cap: 150, s: BIG, c: "sky", txt: "" }), "sw");
 const sub = cls(L.text({ x: X0, base: 222, s: 38, c: "peach", txt: "" }), "sw");
 const placeSub = () => { sub.style.left = X0 + L.textWidth(state.textContent, BIG) + 48 + "px"; };
-L.text({ x: RX, base: 222, s: 40, c: "peach", txt: "Vessels Docked" });
-const rDocked = L.text({ x: RX + L.textWidth("Vessels Docked", 40) + 36, cap: 150, s: BIG, c: "white", txt: "" });
-L.text({ x: MR, base: 222, s: 40, c: "peach", txt: "Arrivals" });
+const S2B = UP ? 340 : 222, S2C = UP ? 268 : 150, DKX = UP ? UR : RX, ARX = UP ? X0 : MR;   // upright: a second status line
+L.text({ x: DKX, base: S2B, s: 40, c: "peach", txt: "Vessels Docked" });
+const rDocked = L.text({ x: DKX + L.textWidth("Vessels Docked", 40) + 36, cap: S2C, s: BIG, c: "white", txt: "" });
+L.text({ x: ARX, base: S2B, s: 40, c: "peach", txt: "Arrivals" });
 let arrivals = L.irand(9, 14);
-const rArr = L.text({ x: MR + L.textWidth("Arrivals", 40) + 36, cap: 150, s: BIG, c: "white", txt: String(arrivals) });
+const rArr = L.text({ x: ARX + L.textWidth("Arrivals", 40) + 36, cap: S2C, s: BIG, c: "white", txt: String(arrivals) });
+const SDX = B.x1;                                              // wide: 3816
 const sdLab = L.text({ x: 0, base: 222, s: 40, c: "peach", txt: "Stardate" });
-const sdVal = L.text({ x: X1, cap: 150, s: BIG, c: "white", txt: "00000.0", align: "r" });
-const placeSD = () => { sdLab.style.left = X1 - L.textWidth(sdVal.textContent, BIG) - 36 - L.textWidth("Stardate", 40) + "px"; };
+const sdVal = L.text({ x: SDX, cap: 150, s: BIG, c: "white", txt: "00000.0", align: "r" });
+const placeSD = () => { sdLab.style.left = SDX - L.textWidth(sdVal.textContent, BIG) - 36 - L.textWidth("Stardate", 40) + "px"; };
+let rTTC = null;                                               // ultrawide: time to contact above the fourth column
+if (UW) { L.text({ x: NX, base: 222, s: 40, c: "peach", txt: "Time to Contact" }); rTTC = L.text({ x: NX + L.textWidth("Time to Contact", 40) + 36, cap: 150, s: BIG, c: "white", txt: "00:00" }); }
 
 // ---------------- a corridor diagram: the funnel to the port on a logarithmic range scale ----------------
 // o: {x0 (lead-in), xe (10 km), xp (the port face), cy, h0 (half-height at the port), h1 (added at 10 km), lab (label baseline)}
@@ -130,63 +145,68 @@ function corridor(o, labels) {
 const RLAB = [[10000, "10 Km"], [1000, "1 Km"], [100, "100 m"], [10, "10 m"], [0, "0 m"]];
 
 // ---------------- plan view ----------------
-L.header({ x: X0, y: 280, w: GR - X0, label: "Approach Corridor  ·  Plan View", c1: "sky", c2: "peach" });
-const PL = { x0: 480, xe: 540, xp: 2290, cy: 620, h0: 24, h1: 196, lab: 896 };
+const PY = UP ? 120 : 0, PLR = UP ? UL : GR;                  // upright: the plan drops a status line, in the left column
+L.header({ x: X0, y: 280 + PY, w: PLR - X0, label: "Approach Corridor  ·  Plan View", c1: "sky", c2: "peach" });
+const PL = UP ? { x0: 480, xe: 540, xp: 1174, cy: 740, h0: 24, h1: 196, lab: 1016 } : { x0: 480, xe: 540, xp: 2290, cy: 620, h0: 24, h1: 196, lab: 896 };
 const plan = corridor(PL, RLAB);
 const ENTRY = "Entry";
-L.box({ x: X0, y: 400, w: 126, h: 440, c: "peach", label: ENTRY, fs: 28 });
-L.rect({ x: 2290, y: 400, w: 24, h: 440, c: "peach" });                                  // the station's face
-L.box({ x: 2338, y: 400, w: 152, h: 180, c: "ice", label: "Upper Ring", fs: 28 });
-const portBox = cls(L.box({ x: 2338, y: 588, w: 152, h: 64, c: "sky", label: "", fs: 32 }), "sw");
-L.box({ x: 2338, y: 660, w: 152, h: 180, c: "peach", label: "McKinley", fs: 28 });
+L.box({ x: X0, y: 400 + PY, w: 126, h: 440, c: "peach", label: ENTRY, fs: 28 });
+L.rect({ x: PL.xp, y: 400 + PY, w: 24, h: 440, c: "peach" });                            // the station's face
+L.box({ x: PL.xp + 48, y: 400 + PY, w: 152, h: 180, c: "ice", label: "Upper Ring", fs: 28 });
+const portBox = cls(L.box({ x: PL.xp + 48, y: 588 + PY, w: 152, h: 64, c: "sky", label: "", fs: 32 }), "sw");
+L.box({ x: PL.xp + 48, y: 660 + PY, w: 152, h: 180, c: "peach", label: "McKinley", fs: 28 });
 
 // ---------------- inbound vessel ----------------
-L.header({ x: RX, y: 280, w: X1 - RX, label: "Inbound Vessel", c1: "peach", c2: "sky" });
-const RB = (k) => 416 + 80 * k, BA = 3010, BB = 3520, BH = 20;
-const vName = cls(L.text({ x: RX, base: RB(0), s: 40, c: "white", txt: "" }), "sw");
+const IX = UP ? UR : RX, IX1 = UP ? UX1 : X1;                  // upright: the right column, beside the alignment scope
+L.header({ x: IX, y: UP ? 1860 : 280, w: IX1 - IX, label: "Inbound Vessel", c1: "peach", c2: "sky" });
+const RB = UP ? (k) => 1976 + 70 * k : (k) => 416 + 80 * k, BA = UP ? 1748 : 3010, BB = UP ? 1976 : 3520, BH = 20;
+const vName = cls(L.text({ x: IX, base: RB(0), s: 40, c: "white", txt: "" }), "sw");
 const vReg = cls(L.text({ x: BA, base: RB(0), s: 36, c: "sky", txt: "" }), "sw");
-const vCl = cls(L.text({ x: X1, base: RB(0), s: 36, c: "peach", txt: "", align: "r" }), "sw");
-[["Reading", RX, ""], ["Level", BA, ""], ["Value", X1, "r"]].forEach(([txt, x, align]) => L.text({ x, base: RB(1), s: 36, c: "peach", txt, align }));
+const vCl = cls(L.text({ x: IX1, base: RB(0), s: 36, c: "peach", txt: "", align: "r" }), "sw");
+[["Reading", IX, ""], ["Level", BA, ""], ["Value", IX1, "r"]].forEach(([txt, x, align]) => L.text({ x, base: RB(1), s: 36, c: "peach", txt, align }));
 const VR = ["Range", "Closing Speed", "Time to Contact", "Hull Length", "Tractor Beam"].map((name, i) => {
   const base = RB(i + 2);
-  L.text({ x: RX, base, s: 36, c: "sky", txt: name });
+  L.text({ x: IX, base, s: 36, c: "sky", txt: name });
   L.rect({ x: BA, y: base - BH, w: BB - BA, h: BH, c: TRACK });
-  return { bar: fill(BA, base - BH, BB - BA, BH, i === 4 ? "peach" : "sky"), v: cls(L.text({ x: X1, base, s: 36, c: "white", txt: "", align: "r" }), "sw"), cur: 0 };
+  return { bar: fill(BA, base - BH, BB - BA, BH, i === 4 ? "peach" : "sky"), v: cls(L.text({ x: IX1, base, s: 36, c: "white", txt: "", align: "r" }), "sw"), cur: 0 };
 });
 
 // ---------------- elevation ----------------
-L.header({ x: X0, y: 1000, w: ML - X0, label: "Corridor  ·  Elevation", c1: "ice", c2: "sky" });
-const EL = { x0: 480, xe: 540, xp: 1374, cy: 1288, h0: 12, h1: 188, lab: 1536 };
+const ET = UP ? 1208 : 1088, EH = UP ? 500 : 400, ELR = UP ? UL : ML;   // the middle band's charts: top, height
+L.header({ x: X0, y: ET - 88, w: ELR - X0, label: "Corridor  ·  Elevation", c1: "ice", c2: "sky" });
+const EL = UP ? { x0: 480, xe: 540, xp: 1350, cy: 1458, h0: 12, h1: 238, lab: 1756 } : { x0: 480, xe: 540, xp: 1374, cy: 1288, h0: 12, h1: 188, lab: 1536 };
 const elev = corridor(EL, RLAB);
-L.box({ x: X0, y: 1088, w: 126, h: 400, c: "peach", label: "Entry", fs: 28 });
-L.rect({ x: 1374, y: 1088, w: 24, h: 400, c: "peach" });
+L.box({ x: X0, y: ET, w: 126, h: EH, c: "peach", label: "Entry", fs: 28 });
+L.rect({ x: EL.xp, y: ET, w: 24, h: EH, c: "peach" });
 
 // ---------------- closing speed against range, both logarithmic ----------------
-L.header({ x: MR, y: 1000, w: GR - MR, label: "Closing Speed  ·  m/s", c1: "sky", c2: "peach" });
-const SP = { x0: 1572, x1: 2482 };
-const SX = (u) => SP.x1 - (SP.x1 - SP.x0) * u, SY = (v) => 1488 - 100 * (Math.log10(L.clamp(v, 0.1, 1000)) + 1);
+const SPL = UP ? UR : MR, SPR = UP ? UX1 : GR;
+L.header({ x: SPL, y: ET - 88, w: SPR - SPL, label: "Closing Speed  ·  m/s", c1: "sky", c2: "peach" });
+const SP = UP ? { x0: 1588, x1: 2128 } : { x0: 1572, x1: 2482 };
+const SX = (u) => SP.x1 - (SP.x1 - SP.x0) * u, SY = UP ? (v) => 1708 - 125 * (Math.log10(L.clamp(v, 0.1, 1000)) + 1) : (v) => 1488 - 100 * (Math.log10(L.clamp(v, 0.1, 1000)) + 1);
 {
   const g = L.svg("g", { class: "boot" });
-  L.svg("rect", { x: SP.x0, y: 1088, width: GR - SP.x0, height: 400, fill: CONE }, g);
+  L.svg("rect", { x: SP.x0, y: ET, width: SPR - SP.x0, height: EH, fill: CONE }, g);
   for (const v of [0.1, 1, 10, 100, 1000]) {
-    L.svg("rect", { x: SP.x0, y: SY(v) - 1, width: GR - SP.x0, height: 2, fill: GRID }, g);
-    L.text({ x: 1548, base: SY(v) + 11, s: 30, c: "sky", txt: String(v), align: "r", legend: true });
+    L.svg("rect", { x: SP.x0, y: SY(v) - 1, width: SPR - SP.x0, height: 2, fill: GRID }, g);
+    L.text({ x: SP.x0 - 24, base: SY(v) + 11, s: 30, c: "sky", txt: String(v), align: "r", legend: true });
   }
-  for (const r of [0, 10, 100, 1000, 10000]) L.svg("rect", { x: SX(uOf(r)) - 1, y: 1088, width: 2, height: 400, fill: GRID }, g);
+  for (const r of [0, 10, 100, 1000, 10000]) L.svg("rect", { x: SX(uOf(r)) - 1, y: ET, width: 2, height: EH, fill: GRID }, g);
   // the speed limit: a ceiling of 450 m/s, then proportional to range down to 3 m/s at the port
   const pts = range(121).map((i) => { const r = 10 ** (L4 * (1 - i / 120)) - 1; return `${SX(uOf(r)).toFixed(1)},${SY(Math.min(450, 0.15 * r + 3)).toFixed(1)}`; });
   L.svg("polyline", { points: pts.join(" "), fill: "none", stroke: "var(--peach)", "stroke-width": 4, "stroke-dasharray": "16 10" }, g);
-  L.svg("rect", { x: 2268, y: 1118, width: 44, height: 4, fill: "var(--peach)" }, g);
-  L.svg("rect", { x: 2268, y: 1166, width: 44, height: 4, fill: "var(--white)" }, g);
-  L.text({ x: 2330, base: 1131, s: 30, c: "peach", txt: "Limit", legend: true });
-  L.text({ x: 2330, base: 1179, s: 30, c: "white", txt: "Actual", legend: true });
-  RLAB.forEach(([r, txt], i) => L.text({ x: SX(uOf(r)) + (i === 0 ? -10 : i === 4 ? 8 : 0), w: 200, base: 1536, s: 32, c: "sky", txt,
+  L.svg("rect", { x: SPR - 222, y: ET + 30, width: 44, height: 4, fill: "var(--peach)" }, g);
+  L.svg("rect", { x: SPR - 222, y: ET + 78, width: 44, height: 4, fill: "var(--white)" }, g);
+  L.text({ x: SPR - 160, base: ET + 43, s: 30, c: "peach", txt: "Limit", legend: true });
+  L.text({ x: SPR - 160, base: ET + 91, s: 30, c: "white", txt: "Actual", legend: true });
+  RLAB.forEach(([r, txt], i) => L.text({ x: SX(uOf(r)) + (i === 0 ? -10 : i === 4 ? 8 : 0), w: 200, base: EL.lab, s: 32, c: "sky", txt,
     align: i === 0 ? undefined : i === 4 ? "r" : "c", legend: true }));
 }
 
 // ---------------- final alignment: a scope on a log scale, and the five errors ----------------
-L.header({ x: RX, y: 1000, w: X1 - RX, label: "Final Alignment", c1: "peach", c2: "ice" });
-const SC = { x: 2554, y: 1088, s: 448 }, SCX = SC.x + SC.s / 2, SCY = SC.y + SC.s / 2;
+const AH = UP ? X0 : RX, AR = UP ? UL : X1;                    // upright: the left column, on the inbound vessel's rows
+L.header({ x: AH, y: UP ? 1860 : 1000, w: AR - AH, label: "Final Alignment", c1: "peach", c2: "ice" });
+const SC = UP ? { x: 330, y: 1948, s: 448 } : { x: 2554, y: 1088, s: 448 }, SCX = SC.x + SC.s / 2, SCY = SC.y + SC.s / 2;
 const RING = (d) => 60 * (Math.log10(Math.max(d, 0.1)) + 1);             // 1 m at 60, 10 m at 120, 100 m at 180
 L.rect({ x: SC.x, y: SC.y, w: SC.s, h: SC.s, c: PANEL, panel: true });
 {
@@ -198,58 +218,69 @@ L.rect({ x: SC.x, y: SC.y, w: SC.s, h: SC.s, c: PANEL, panel: true });
     L.text({ x: SCX + 10, base: SCY - RING(d) + 30, s: 30, c: "sky", txt, legend: true });
   }
 }
-const AX = 3098, AB = 3320;
-[["Axis", AX, ""], ["Deviation", AB, ""], ["Value", X1, "r"]].forEach(([txt, x, align]) => L.text({ x, base: 1116, s: 36, c: "peach", txt, align }));
+const AX = UP ? 874 : 3098, AB = UP ? 1004 : 3320, ABB = UP ? 1234 : BB;
+[["Axis", AX, ""], ["Deviation", AB, ""], ["Value", AR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: UP ? RB(1) : 1116, s: 36, c: "peach", txt, align }));
+// upright: the captions sit on the inbound vessel's caption line, so the row above them names the axis she is flown to
+const aPort = UP ? cls(L.text({ x: AR, base: RB(0), s: 36, c: "peach", txt: "", align: "r" }), "sw") : null;
+if (UP) L.text({ x: AX, base: RB(0), s: 40, c: "white", txt: "Docking Axis" });
 const AL = ["Lateral", "Vertical", "Pitch", "Yaw", "Roll"].map((name, i) => {
-  const base = 1200 + 84 * i;
+  const base = UP ? RB(i + 2) : 1200 + 84 * i;
   L.text({ x: AX, base, s: 36, c: "sky", txt: name });
-  L.rect({ x: AB, y: base - BH, w: BB - AB, h: BH, c: TRACK });
-  return { bar: fill(AB, base - BH, BB - AB, BH, i < 2 ? "sky" : "ice"), v: L.text({ x: X1, base, s: 36, c: "white", txt: "", align: "r" }), cur: 0 };
+  L.rect({ x: AB, y: base - BH, w: ABB - AB, h: BH, c: TRACK });
+  return { bar: fill(AB, base - BH, ABB - AB, BH, i < 2 ? "sky" : "ice"), v: L.text({ x: AR, base, s: 36, c: "white", txt: "", align: "r" }), cur: 0 };
 });
 
 // ---------------- the bottom strip ----------------
-L.header({ x: X0, y: 1620, w: ML - X0, label: "Approach Sequence", c1: "sky", c2: "peach", h: 48 });
-L.header({ x: MR, y: 1620, w: GR - MR, label: "Docking Ports  ·  Upper Ring", c1: "peach", c2: "ice", h: 48 });
-L.header({ x: RX, y: 1620, w: X1 - RX, label: "Docking History", c1: "ice", c2: "sky", h: 48 });
-const SB = (k) => 1734 + k * 54, QA = 640, QB = 1160;
+// upright: the sequence sits in the right column under the inbound vessel, the history in the left; the ports go up beside the plan
+const QX = UP ? UR : X0, QR = UP ? UX1 : ML, QY = UP ? 2480 : 1620, PX = UP ? UR : MR, PR = UP ? UX1 : GR, HX = UP ? X0 : RX, HX1 = UP ? UL : X1;
+L.header({ x: QX, y: QY, w: QR - QX, label: "Approach Sequence", c1: "sky", c2: "peach", h: 48 });
+L.header({ x: PX, y: UP ? 400 : 1620, w: PR - PX, label: "Docking Ports  ·  Upper Ring", c1: "peach", c2: "ice", h: UP ? 56 : 48 });
+L.header({ x: HX, y: QY, w: HX1 - HX, label: "Docking History", c1: "ice", c2: "sky", h: 48 });
+const SB = UP ? (k) => 2594 + k * 70 : (k) => 1734 + k * 54, QA = UP ? 1748 : 640, QB = UP ? 1976 : 1160;
 
 // the sequence: five steps against the cycle's clock
 const STEPS = [["Clearance", 0, T.cl], ["Corridor Approach", T.cl, T.ap], ["Station-Keeping", T.ap, T.sk], ["Final Closure", T.sk, T.fc], ["Capture and Mooring", T.fc, T.mo]];
-[["Step", X0, ""], ["Progress", QA, ""], ["State", ML, "r"]].forEach(([txt, x, align]) => L.text({ x, base: SB(0), s: 36, c: "peach", txt, align }));
+[["Step", QX, ""], ["Progress", QA, ""], ["State", QR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: SB(0), s: 36, c: "peach", txt, align }));
 const seq = STEPS.map(([name], i) => {
   const base = SB(i + 1);
   L.rect({ x: QA, y: base - BH, w: QB - QA, h: BH, c: TRACK });
-  return { name: cls(L.text({ x: X0, base, s: 36, c: "white", txt: name }), "sw"), bar: cls(fill(QA, base - BH, QB - QA, BH, "sky"), "sw"),
-           st: cls(L.text({ x: ML, base, s: 36, c: "white", txt: "", align: "r" }), "sw"), s: "" };
+  return { name: cls(L.text({ x: QX, base, s: 36, c: "white", txt: name }), "sw"), bar: cls(fill(QA, base - BH, QB - QA, BH, "sky"), "sw"),
+           st: cls(L.text({ x: QR, base, s: 36, c: "white", txt: "", align: "r" }), "sw"), s: "" };
 });
 
-// the ports
-const PV = 1572;
-[["Port", MR, ""], ["Vessel", PV, ""], ["Status", GR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: SB(0), s: 36, c: "peach", txt, align }));
+// the ports (upright: beside the plan, their rows ending on its range labels)
+const PV = UP ? 1588 : 1572, PB = UP ? (k) => 536 + 96 * k : SB;
+[["Port", PX, ""], ["Vessel", PV, ""], ["Status", PR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: PB(0), s: 36, c: "peach", txt, align }));
 const ST_C = { Docked: "sky", Inbound: "peach", Departing: "ice", Clear: "tan" };
 const prow = range(NP).map((i) => {
-  const base = SB(i + 1);
-  return { lab: L.box({ x: MR, y: base - 33, w: 110, h: 42, c: "sky", label: `Port ${i + 1}`, fs: 28, r: "l" }), ship: cls(L.text({ x: PV, base, s: 36, c: "white", txt: "" }), "sw"),
-           st: cls(L.text({ x: GR, base, s: 36, c: "white", txt: "", align: "r" }), "sw") };
+  const base = PB(i + 1);
+  return { lab: L.box({ x: PX, y: base - 33, w: 110, h: 42, c: "sky", label: `Port ${i + 1}`, fs: 28, r: "l" }), ship: cls(L.text({ x: PV, base, s: 36, c: "white", txt: "" }), "sw"),
+           st: cls(L.text({ x: PR, base, s: 36, c: "white", txt: "", align: "r" }), "sw") };
 });
+let hull = null;                                               // ultrawide: port occupancy rows, filled in below
 function showPorts() {
   ports.forEach((p, i) => {
     L.set(prow[i].ship, p.ship ? p.ship.name : "Clear for Arrival"); fg(prow[i].ship, p.ship ? "white" : "tan");
     L.set(prow[i].st, p.st); fg(prow[i].st, ST_C[p.st]);
   });
   L.set(rDocked, `${ports.filter((p) => p.st === "Docked" || p.st === "Departing").length} / ${NP}`);
+  if (hull) hull.forEach((h, i) => {
+    const p = ports[i];
+    L.set(h.cl, p.ship ? `${p.ship.cl} Class` : "Clear for Arrival"); fg(h.cl, p.ship ? "white" : "tan");
+    L.set(h.v, p.ship ? `${p.ship.len} m` : ""); bg(h.bar, ST_C[p.st]); h.target = p.ship ? p.ship.len / PORT_MAX : 0;
+  });
 }
 
 // the history: oldest at the top, a new line arrives at the bottom
-const LG = { ves: RX + 160, ev: BA };
-const LN = 6, LPH = 54, LY = SB(0) - 44;
+const LG = { ves: HX + 160, ev: UP ? HX + 456 : BA };
+const LN = 6, LPH = UP ? 70 : 54, LY = SB(0) - 44;
 const logRows = range(LN).map((i) => {
-  const e = L.layer({ x: RX, y: LY, w: X1 - RX, h: LPH });
+  const e = L.layer({ x: HX, y: LY, w: HX1 - HX, h: LPH });
   const r = { e, slot: i,
     sd: L.text({ x: 0, base: 44, s: 36, c: "sky", txt: "" }, e),
-    ves: L.text({ x: LG.ves - RX, base: 44, s: 36, c: "white", txt: "" }, e),
-    ev: L.text({ x: LG.ev - RX, base: 44, s: 36, c: "ice", txt: "" }, e),
-    port: L.text({ x: X1 - RX, base: 44, s: 36, c: "white", txt: "", align: "r", rightIn: true }, e) };
+    ves: L.text({ x: LG.ves - HX, base: 44, s: 36, c: "white", txt: "" }, e),
+    ev: L.text({ x: LG.ev - HX, base: 44, s: 36, c: "ice", txt: "" }, e),
+    port: L.text({ x: HX1 - HX, base: 44, s: 36, c: "white", txt: "", align: "r", rightIn: true }, e) };
   L.move(e, 0, i * LPH);
   return r;
 });
@@ -286,16 +317,18 @@ function trail(o) {
   c.onResize = () => { const p = tr.pts; tr.clear(); p.forEach(([x, y]) => tr.add(x, y)); };
   return tr;
 }
-const tPlan = trail({ x: 470, y: 392, w: 1850, h: 456, step: 18, color: "#8fd3ffcc" });
-const tElev = trail({ x: 470, y: 1080, w: ML - 470, h: 416, step: 14, color: "#8fd3ffcc" });
-const tSpeed = trail({ x: 1566, y: 1080, w: GR - 1566, h: 416, step: 5, color: "#f2f2ffee", line: true, panel: true });
+const tPlan = trail(UP ? { x: 470, y: 512, w: PL.xp + 30 - 470, h: 456, step: 18, color: "#8fd3ffcc" } : { x: 470, y: 392, w: 1850, h: 456, step: 18, color: "#8fd3ffcc" });
+const tElev = trail(UP ? { x: 470, y: ET - 8, w: UL - 470, h: EH + 16, step: 14, color: "#8fd3ffcc" } : { x: 470, y: 1080, w: ML - 470, h: 416, step: 14, color: "#8fd3ffcc" });
+const tSpeed = trail(UP ? { x: SP.x0 - 6, y: ET - 8, w: SPR - SP.x0 + 6, h: EH + 16, step: 5, color: "#f2f2ffee", line: true, panel: true }
+  : { x: 1566, y: 1080, w: GR - 1566, h: 416, step: 5, color: "#f2f2ffee", line: true, panel: true });
 const trails = [tPlan, tElev, tSpeed];
 const where = (k) => {
   const pu = k.u, px = plan.X(pu), py = PL.cy + k.latN * plan.hh(pu);
   const ex = elev.X(pu), ey = EL.cy - k.vertN * elev.hh(pu);
   return { px, py, ex, ey, sx: SX(pu), sy: SY(k.v) };
 };
-const feed = (k) => { const w = where(k); tPlan.add(w.px, w.py); tElev.add(w.ex, w.ey); tSpeed.add(w.sx, w.sy); };
+let uwFeed = null;                                             // ultrawide: the range-against-time trace
+const feed = (k, tc) => { const w = where(k); tPlan.add(w.px, w.py); tElev.add(w.ex, w.ey); tSpeed.add(w.sx, w.sy); if (uwFeed) uwFeed(k, tc); };
 
 // ---------------- formats ----------------
 const fRange = (r) => (r >= 1000 ? `${(r / 1000).toFixed(2)} Km` : r >= 100 ? `${r.toFixed(0)} m` : `${r.toFixed(1)} m`);
@@ -304,37 +337,126 @@ const fDist = (d) => (Math.abs(d) >= 10 ? `${Math.abs(d).toFixed(1)} m` : `${Mat
 const fAng = (a) => `${Math.abs(a).toFixed(2)}°`;
 const logK = (x, lo, decades) => L.clamp((Math.log10(Math.max(x, 1e-9)) - Math.log10(lo)) / decades);
 
+// ---------------- ultrawide: the fourth column (3880–5016), pure functions of the approach, the ports and the cycle's clock ----------------
+let uwRead = null, uwTick = null;
+if (UW) {
+  const hms = (s) => `${pad(Math.floor(s / 60))}:${pad(Math.floor(s % 60))}`;
+  // range against cycle time: the planned profile (the same for every vessel), traced over as she flies it
+  L.header({ x: NX, y: 280, w: NX1 - NX, label: "Range  ·  Cycle Time", c1: "ice", c2: "peach" });
+  const RP = { x0: NX + 150, x1: NX1 - 8, y0: 400, y1: 840 };
+  const RPX = (tc) => RP.x0 + (RP.x1 - RP.x0) * L.clamp(tc / CYC), RPY = (u) => RP.y1 - (RP.y1 - RP.y0) * u;
+  const V0 = { lat0: 0, vert0: 0, att: [0, 0, 0], ph: [0, 0, 0, 0, 0] };
+  {
+    const g = L.svg("g", { class: "boot" });
+    L.svg("rect", { x: RP.x0, y: RP.y0, width: NX1 - RP.x0, height: RP.y1 - RP.y0, fill: CONE }, g);
+    RLAB.forEach(([r, txt]) => {
+      const y = RPY(uOf(r));
+      L.svg("rect", { x: RP.x0, y: y - 1, width: NX1 - RP.x0, height: 2, fill: GRID }, g);
+      L.text({ x: RP.x0 - 24, base: y + 11, s: 30, c: "sky", txt, align: "r", legend: true });
+    });
+    for (let s = 0; s <= CYC; s += 30) {
+      L.svg("rect", { x: RPX(s) - 1, y: RP.y0, width: 2, height: RP.y1 - RP.y0, fill: GRID }, g);
+      L.text({ x: RPX(s) + (s === 0 ? -10 : s === CYC ? 8 : 0), w: 200, base: 896, s: 32, c: "sky", txt: hms(s),
+        align: s === 0 ? undefined : s === CYC ? "r" : "c", legend: true });
+    }
+    const pts = range(301).map((i) => { const tc = i / 2; return `${RPX(tc).toFixed(1)},${RPY(kin(tc, V0).u).toFixed(1)}`; });
+    L.svg("polyline", { points: pts.join(" "), fill: "none", stroke: "var(--peach)", "stroke-width": 4, "stroke-dasharray": "16 10" }, g);
+    L.svg("rect", { x: NX1 - 222, y: RP.y0 + 30, width: 44, height: 4, fill: "var(--peach)" }, g);
+    L.svg("rect", { x: NX1 - 222, y: RP.y0 + 78, width: 44, height: 4, fill: "var(--white)" }, g);
+    L.text({ x: NX1 - 160, base: RP.y0 + 43, s: 30, c: "peach", txt: "Planned", legend: true });
+    L.text({ x: NX1 - 160, base: RP.y0 + 91, s: 30, c: "white", txt: "Flown", legend: true });
+  }
+  const tRange = trail({ x: RP.x0 - 6, y: RP.y0 - 8, w: NX1 - RP.x0 + 6, h: RP.y1 - RP.y0 + 16, step: 5, color: "#f2f2ffee", line: true, panel: true });
+  trails.push(tRange);
+  uwFeed = (k, tc) => tRange.add(RPX(tc), RPY(k.u));
+  const rDot = cls(cls(L.layer({ x: 0, y: 0, w: 18, h: 18 }), "dot"), "mk");
+
+  // port occupancy: each port's hull against the longest a port takes, on the alignment table's rows
+  L.header({ x: NX, y: 1000, w: NX1 - NX, label: "Port Occupancy  ·  Hull Length", c1: "sky", c2: "ice" });
+  const HB0 = 4320, HB1 = 4800;
+  [["Port", NX, ""], ["Vessel Class", NX + 150, ""], ["Hull  ·  Limit 700 m", HB0, ""], ["Length", NX1, "r"]].forEach(([txt, x, align]) => L.text({ x, base: 1116, s: 36, c: "peach", txt, align }));
+  hull = range(NP).map((i) => {
+    const base = 1200 + 84 * i;
+    L.text({ x: NX, base, s: 36, c: "sky", txt: `Port ${i + 1}` });
+    L.rect({ x: HB0, y: base - BH, w: HB1 - HB0, h: BH, c: TRACK });
+    return { cl: cls(L.text({ x: NX + 150, base, s: 36, c: "white", txt: "" }), "sw"), bar: fill(HB0, base - BH, HB1 - HB0, BH, "sky"),
+             v: cls(L.text({ x: NX1, base, s: 36, c: "white", txt: "", align: "r" }), "sw"), target: 0, cur: 0 };
+  });
+  for (const s of FLEET) fits(`${s.cl} Class`, 36, HB0 - NX - 150 - 36, "hull class");
+
+  // corridor beacons: when she passes each (the corridor run is analytic; the 10 m marker is found on the final closure)
+  L.header({ x: NX, y: 1620, w: NX1 - NX, label: "Corridor Beacons", c1: "peach", c2: "sky", h: 48 });
+  const BEA = [["Outer Marker", 10000], ["Tractor Lock", 1000], ["Middle Marker", 100], ["Hold Point", 30], ["Inner Marker", 10]];
+  const tPass = (R) => {
+    if (R >= 30) { const e = (L4 - Math.log10(R + 1)) / (L4 - L30); return T.cl + (T.ap - T.cl) * Math.acos(1 - 2 * e) / Math.PI; }
+    let a = T.sk, b = T.fc;
+    for (let i = 0; i < 40; i++) { const m = (a + b) / 2; if (kin(m, V0).r > R) a = m; else b = m; }
+    return b;
+  };
+  const BRX = NX + 300, BB0 = HB0, BB1 = HB1;                    // bars on the hull bars' edges
+  [["Beacon", NX, ""], ["Range", BRX, ""], ["Closure", BB0, ""], ["ETA", NX1, "r"]].forEach(([txt, x, align]) => L.text({ x, base: SB(0), s: 36, c: "peach", txt, align }));
+  const beacons = BEA.map(([name, R], i) => {
+    const base = SB(i + 1);
+    L.text({ x: BRX, base, s: 36, c: "sky", txt: fRange(R) });
+    L.rect({ x: BB0, y: base - BH, w: BB1 - BB0, h: BH, c: TRACK });
+    fits(name, 36, BRX - NX - 36, "beacon");
+    return { R, tp: tPass(R), uR: uOf(R), name: L.text({ x: NX, base, s: 36, c: "white", txt: name }), bar: fill(BB0, base - BH, BB1 - BB0, BH, "sky"),
+             eta: L.text({ x: NX1, base, s: 36, c: "white", txt: "", align: "r" }), cur: 0, target: 0 };
+  });
+  // closure on the leg from the beacon before: only the leg she is flying fills, as the sequence's steps do
+  beacons.forEach((b, i) => (b.uP = i ? beacons[i - 1].uR : null));
+  const beaconK = (b, k, tc) => (tc >= b.tp ? 1 : b.uP === null || tc < beacons[beacons.indexOf(b) - 1].tp ? 0 : L.clamp((b.uP - k.u) / (b.uP - b.uR)));
+  uwRead = (k, tc, ttcTxt) => {
+    L.set(rTTC, ttcTxt);
+    const next = beacons.find((b) => tc < b.tp);
+    beacons.forEach((b) => {
+      const passed = tc >= b.tp, c = passed ? "sky" : b === next ? "peach" : "white";
+      L.set(b.eta, passed ? "Passed" : hms(Math.ceil(b.tp - tc))); fg(b.eta, c); fg(b.name, c);
+      b.target = beaconK(b, k, tc);
+    });
+  };
+  uwTick = (k, tc, vis) => {
+    op(rDot, vis);
+    tf(rDot, `translate3d(${(RPX(tc) - 9).toFixed(1)}px,${(RPY(k.u) - 9).toFixed(1)}px,0)`);
+    hull.forEach((h) => { h.cur += (h.target - h.cur) * 0.12; scaleX(h.bar, h.cur); });
+    beacons.forEach((b) => { b.cur += (b.target - b.cur) * 0.12; scaleX(b.bar, b.cur); });
+  };
+}
+
 // ---------------- the guard: every word fits its place ----------------
 fits(ENTRY, 28, 126 - 22 - 12, "entry box");
 const SUBS = (n, p) => [`${n}  ·  Holding at Corridor Entry`, `${n}  ·  Corridor to Port ${p}`, `${n}  ·  Holding at 30 m`, `${n}  ·  Closing on Port ${p}`,
   `Docking Clamps  ·  Port ${p}`, `${n}  ·  Moored at Port ${p}`];
+// the room for the state and its subtitle: up to Arrivals, or (upright) up to the stardate
+const SUBR = UP ? SDX - L.textWidth("00000.0", BIG) - 36 - L.textWidth("Stardate", 40) : MR;
 for (const [w, k] of [["Clearance", 0], ["Approach", 1], ["Station-Keeping", 2], ["Final Closure", 3], ["Capture", 4], ["Docked", 5]])
-  fits(w, BIG, MR - 72 - X0 - 48 - L.textWidth(SUBS("U.S.S. Sutherland", 5)[k], 38), "state + subtitle");
+  fits(w, BIG, SUBR - 72 - X0 - 48 - L.textWidth(SUBS("U.S.S. Sutherland", 5)[k], 38), "state + subtitle");
 for (const s of FLEET) {
-  fits(s.name, 40, BA - RX - 36, "vessel"); fits(`${s.cl} Class`, 36, X1 - BA - L.textWidth(s.reg, 36) - 48, "class");
-  fits(s.name, 36, GR - PV - L.textWidth("Departing", 36) - 48, "port vessel"); fits(s.name, 36, LG.ev - LG.ves - 30, "log vessel");
+  fits(s.name, 40, BA - IX - 36, "vessel"); fits(`${s.cl} Class`, 36, IX1 - BA - L.textWidth(s.reg, 36) - 48, "class");
+  fits(s.name, 36, PR - PV - L.textWidth("Departing", 36) - 48, "port vessel"); fits(s.name, 36, LG.ev - LG.ves - 30, "log vessel");
 }
-fits("Clear for Arrival", 36, GR - PV - L.textWidth("Inbound", 36) - 48, "port clear");
-for (const [n] of STEPS) fits(n, 36, QA - X0 - 36, "step");
-fits("Time to Contact", 36, BA - RX - 36, "reading"); fits("1000.00 m/s", 36, X1 - BB - 36, "value"); fits("Released", 36, X1 - BB - 36, "value");
-fits("Deviation", 36, BB - AB, "deviation"); fits("Vertical", 36, AB - AX - 36, "axis"); fits("100.00 m", 36, X1 - BB - 36, "axis value");
-fits("Found at Dyson Sphere  ·  Lost 2294", 36, X1 - LG.ev - L.textWidth("Archive", 36) - 48, "log");
-fits("Docked  ·  From Typhon Expanse", 36, X1 - LG.ev - L.textWidth("Port 2", 36) - 48, "log");
-fits("Refit  ·  Wolf 359 Repairs", 36, X1 - LG.ev - L.textWidth("Refit Bay", 36) - 48, "log");
-for (const pl of PLACES) fits(`Departed  ·  For ${pl}`, 36, X1 - LG.ev - L.textWidth("Port 5", 36) - 48, "log");
-fits("46180.4", 36, LG.ves - RX - 30, "log stardate");
+fits("Clear for Arrival", 36, PR - PV - L.textWidth("Inbound", 36) - 48, "port clear");
+for (const [n] of STEPS) fits(n, 36, QA - QX - 36, "step");
+fits("Time to Contact", 36, BA - IX - 36, "reading"); fits("1000.00 m/s", 36, IX1 - BB - 36, "value"); fits("Released", 36, IX1 - BB - 36, "value");
+fits("Deviation", 36, ABB - AB, "deviation"); fits("Vertical", 36, AB - AX - 36, "axis"); fits("100.00 m", 36, AR - ABB - 36, "axis value");
+fits("Found at Dyson Sphere  ·  Lost 2294", 36, HX1 - LG.ev - L.textWidth("Archive", 36) - 48, "log");
+fits("Docked  ·  From Typhon Expanse", 36, HX1 - LG.ev - L.textWidth("Port 2", 36) - 48, "log");
+fits("Refit  ·  Wolf 359 Repairs", 36, HX1 - LG.ev - L.textWidth("Refit Bay", 36) - 48, "log");
+for (const pl of PLACES) fits(`Departed  ·  For ${pl}`, 36, HX1 - LG.ev - L.textWidth("Port 5", 36) - 48, "log");
+fits("46180.4", 36, LG.ves - HX - 30, "log stardate");
 if (bad.length) setTimeout(() => { throw new Error("starbase-docking: " + bad.join(" | ")); });
 
 // ---------------- the cycle ----------------
 let cyc = null;
-const FADED = [vName, vReg, vCl, portBox, ...seq.flatMap((r) => [r.bar, r.st])];   // dipped while one vessel gives way to the next
+const FADED = [vName, vReg, vCl, portBox, ...seq.flatMap((r) => [r.bar, r.st])];
+if (aPort) FADED.push(aPort);   // dipped while one vessel gives way to the next
 function startCycle(t0, port, offset) {
   const ship = L.pick(FLEET.filter((s) => !busy(s) && (!cyc || (s !== cyc.V.ship && s !== cyc.left))));
   cyc = { t0, port, V: newVessel(ship), fired: {}, dep: -1 };
   ports[port].ship = ship; ports[port].st = "Inbound";
   trails.forEach((tr) => { tr.clear(); op(tr.c.cv, 1); });
   const p = port + 1;
-  const ident = () => { L.set(vName, ship.name); L.set(vReg, ship.reg); L.set(vCl, `${ship.cl} Class`); L.set(portBox, `Port ${p}`); };
+  const ident = () => { L.set(vName, ship.name); L.set(vReg, ship.reg); L.set(vCl, `${ship.cl} Class`); L.set(portBox, `Port ${p}`); if (aPort) L.set(aPort, `Port ${p}`); };
   ident();
   if (offset === undefined) requestAnimationFrame(() => requestAnimationFrame(() => FADED.forEach((e) => e.classList.remove("out"))));
   showPorts();
@@ -342,7 +464,7 @@ function startCycle(t0, port, offset) {
 // the first vessel is already in the corridor; her clearance is in the log
 const OFFSET = L.rand(12, 40);
 startCycle(-OFFSET, target0, OFFSET);
-for (let tc = 0; tc <= OFFSET; tc += 0.1) feed(kin(tc, cyc.V));
+for (let tc = 0; tc <= OFFSET; tc += 0.1) feed(kin(tc, cyc.V), tc);
 {
   const docked = ports.filter((p) => p.st === "Docked"), a = L.pick(docked).ship;
   const gone = L.pick(FLEET.filter((s) => !busy(s)));
@@ -435,6 +557,7 @@ function readings() {
   const al = [[k.lat, fDist, 0.01, 4], [k.vert, fDist, 0.01, 4], [k.pitch, fAng, 0.01, 3], [k.yaw, fAng, 0.01, 3], [k.roll, fAng, 0.01, 3]];
   al.forEach(([x, f, lo, dec], i) => { AL[i].target = logK(Math.abs(x), lo, dec); L.set(AL[i].v, f(x)); });
   L.set(sdVal, sdAt(L.t)); placeSD();
+  if (uwRead) uwRead(k, tc, vals[2][1]);
 }
 VR.forEach((r) => (r.target = 0)); AL.forEach((r) => (r.target = 0));
 readings();
@@ -460,7 +583,7 @@ L.tick((t) => {
   op(ret, vis * (d > 100 ? 0.55 : 1));
   const rc = tc >= T.fc ? "var(--peach)" : "var(--white)";
   if (ret._bc !== rc) { ret._bc = rc; ret.style.borderColor = rc; }
-  if (tc < T.end) feed(k);
+  if (tc < T.end) feed(k, tc);
   // the port lights while she closes, and holds her colour once moored
   bg(portBox, tc >= T.mo ? "peach" : tc >= T.sk ? "white" : "sky");
   // the sequence
@@ -475,6 +598,7 @@ L.tick((t) => {
   VR.forEach((r) => { r.cur += (r.target - r.cur) * 0.12; scaleX(r.bar, r.cur); });
   AL.forEach((r) => { r.cur += (r.target - r.cur) * 0.12; scaleX(r.bar, r.cur); });
   stepLog(t);
+  if (uwTick) uwTick(k, tc, vis);
 });
 });
 </script></body></html>

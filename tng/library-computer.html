@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Library Computer</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* rows and the record fade between states; .boot (the start-up cascade) always wins */
@@ -12,7 +13,17 @@
 const L = LCARS;
 L.ready(() => {
 
+// Three layouts. Wide (3840 × 2160) is the original, hand-placed. Upright (2160 × 3120) stacks the
+// page: search results and the record display across the full width, then the current query beside
+// isolinear access, the access log beside the memory core, and the database statistics four across.
+// Ultrawide (5040 × 2160) keeps every wide panel where it is and adds a fourth column, 3876–5016:
+// query history, the displayed record's related records, and the subspace links.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+
 // ---------------- the frame: sidebar left, title top right ----------------
+const TITLE = "Library Computer  •  Access and Retrieval";
+let B;
+if (L.shape === "wide") {
 const BAR = 64;
 L.title({ x: 3700, y: 40, h: BAR, c: "peach", txt: "Library Computer  •  Access and Retrieval" });
 // (L.title measures with a canvas, which sets this line ~11px wider than the page draws it; use the page's own width)
@@ -29,6 +40,14 @@ L.text({ x: 258, base: 1712, s: 40, c: "#000", txt: "Retrieval", align: "r", on:
 [[1540 + L.GAP, 600, "orange"], [2164 + L.GAP, 900, "butter"], [3088 + L.GAP, 3700 - (3088 + L.GAP), "peach"]]
   .forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
 L.box({ x: 3724, y: 2056, w: 92, h: BAR, c: "orange", r: "r" });
+B = { x0: 330, x1: 3816, y0: 140, y1: 2010 };
+} else {
+  // the same frame, drawn by the kit for this shape: type A, the same colours and sidebar labels
+  B = L.frame({ type: "A", title: TITLE, c: "orange", c2: "peach", accent: "butter", foot: "Retrieval",
+    side: [[140, "peach", "LIB 07"], [70, "butter", "Query"], [420, "orange", "Access"], [70, "sky", "Index"],
+           [300, "peach", "Records"], [70, "butter", "Xref"], [216, "orange", "Archive"]] });
+  document.querySelector("[data-title]").style.color = "var(--peach)";   // the title is peach, as in wide
+}
 
 const header = (x, y, w, label, lw, c1, c2) => {
   L.box({ x, y, w: lw, h: 56, c: c1, label, fs: 32, r: "l" });
@@ -45,6 +64,18 @@ const css = (e, k, v) => { if (e.style[k] !== v) e.style[k] = v; };
 
 // The columns: left 330–1530, right 1590–3816; the right column splits again at 3200 | 3260.
 const LX = 330, LR = 1530, RX = 1590, RR = 3816, SPLIT = 3200, AX = 3260;
+// Each panel's place, per shape (wide values exactly the original's). Upright: results and record
+// across 330–2136; the record's attributes three across (562 wide, 60 apart: 330 | 952 | 1574); the
+// current query 330–1203 beside isolinear access 1263–2136; the log 330–1514 beside the memory core
+// 1574–2136; statistics four across. Panels stack 78 apart (last baseline to the next header), the
+// statistics ending on the content box's floor.
+const QX1 = UP ? 1203 : LR, QY = UP ? 1660 : 280;                      // current query: 330 → QX1
+const TX0 = UP ? B.x0 : RX, TX1 = UP ? B.x1 : RR;                       // search results
+const IX0 = UP ? 1263 : LX, IX1 = UP ? B.x1 : LR, IY = UP ? 1660 : 1000; // isolinear access
+const RCX = UP ? B.x0 : RX, RCX1 = UP ? B.x1 : RR, RCY = UP ? 938 : 1000; // record display
+const LGX = UP ? B.x0 : RX, LGX1 = UP ? 1514 : SPLIT, LGY = UP ? 2318 : 1620;   // access log
+const MCX = UP ? 1574 : AX, MCX1 = UP ? B.x1 : RR, MCY = LGY;           // memory core
+const STX1 = UP ? B.x1 : LR, STY = UP ? 2780 : 1620;                    // database statistics: 330 → STX1
 
 // ---------------- the library: queries, their results, and the records' abstracts ----------------
 // Each result: [title, source, relevance, stardate entered, media, abstract]. The first three of each
@@ -121,40 +152,41 @@ const ROWS = 6, REVEAL = (i) => 1.2 + i * 1.25;
 
 // ---------------- status line ----------------
 const stateTxt = L.text({ x: LX, cap: 150, s: 100, c: "butter", txt: "Searching" });
-const stateSub = L.text({ x: RX, base: 222, s: 38, c: "peach", txt: "" });          // on the right column's line
-const qPill = L.box({ x: 3416, y: 150, w: 400, h: 72, c: "peach", label: "", r: "lr", fs: 36 });
+const stateSub = L.text({ x: UP ? 900 : RX, base: 222, s: 38, c: "peach", txt: "" });          // on the right column's line
+const qPill = L.box({ x: UP || UW ? B.x1 - 400 : 3416, y: 150, w: 400, h: 72, c: "peach", label: "", r: "lr", fs: 36 });
 
 // ---------------- current query ----------------
-header(LX, 280, LR - LX, "Current Query", 340, "orange", "peach");
+header(LX, QY, QX1 - LX, "Current Query", 340, "orange", "peach");
 const VX = 560;                                                                       // the values' column
-L.text({ x: LX, base: 404, s: 40, c: "peach", txt: "Query" });
-const qA = L.text({ x: VX, base: 404, s: 52, c: "white", txt: "" });
-const qB = L.text({ x: VX, base: 480, s: 52, c: "white", txt: "" });
-L.text({ x: LX, base: 556, s: 40, c: "peach", txt: "Scope" });
-const qScope = L.text({ x: VX, base: 556, s: 52, c: "white", txt: "" });
-L.text({ x: LX, base: 632, s: 40, c: "peach", txt: "Method" });
-const qMethod = L.text({ x: VX, base: 632, s: 52, c: "white", txt: "" });
-L.text({ x: LX, base: 708, s: 40, c: "peach", txt: "Progress" });
-L.rect({ x: VX, y: 708 - 30, w: 1340 - VX, h: 30, c: "#2a1a10" });
-const progBar = L.layer({ x: VX, y: 708 - 30, w: 1340 - VX, h: 30 });
+L.text({ x: LX, base: QY + 124, s: 40, c: "peach", txt: "Query" });
+const qA = L.text({ x: VX, base: QY + 124, s: 52, c: "white", txt: "" });
+const qB = L.text({ x: VX, base: QY + 200, s: 52, c: "white", txt: "" });
+L.text({ x: LX, base: QY + 276, s: 40, c: "peach", txt: "Scope" });
+const qScope = L.text({ x: VX, base: QY + 276, s: 52, c: "white", txt: "" });
+L.text({ x: LX, base: QY + 352, s: 40, c: "peach", txt: "Method" });
+const qMethod = L.text({ x: VX, base: QY + 352, s: 52, c: "white", txt: "" });
+L.text({ x: LX, base: QY + 428, s: 40, c: "peach", txt: "Progress" });
+const PBX1 = UP ? 1045 : 1340;            // upright: 124+ past the methods' ends, 50 before the percentage
+L.rect({ x: VX, y: QY + 428 - 30, w: PBX1 - VX, h: 30, c: "#2a1a10" });
+const progBar = L.layer({ x: VX, y: QY + 428 - 30, w: PBX1 - VX, h: 30 });
 progBar.style.background = "var(--orange)"; progBar.style.transformOrigin = "0 0";
-const progTxt = L.text({ x: LR, base: 708, s: 52, c: "white", txt: "", align: "r" });
-L.text({ x: LX, base: 784, s: 40, c: "peach", txt: "Scanned" });
-const scanned = L.text({ x: VX, base: 784, s: 52, c: "white", txt: "" });
-L.text({ x: LX, base: 860, s: 40, c: "peach", txt: "Matches" });
-const matches = L.text({ x: VX, base: 860, s: 52, c: "white", txt: "" });
+const progTxt = L.text({ x: QX1, base: QY + 428, s: 52, c: "white", txt: "", align: "r" });
+L.text({ x: LX, base: QY + 504, s: 40, c: "peach", txt: "Scanned" });
+const scanned = L.text({ x: VX, base: QY + 504, s: 52, c: "white", txt: "" });
+L.text({ x: LX, base: QY + 580, s: 40, c: "peach", txt: "Matches" });
+const matches = L.text({ x: VX, base: QY + 580, s: 52, c: "white", txt: "" });
 
 // ---------------- search results ----------------
-header(RX, 280, RR - RX, "Search Results", 340, "sky", "ice");
-const CX = { num: RX + 48, title: 1880, src: 2760, rel: AX }, BARX = 3400;
-[["Record", RX], ["Title", CX.title], ["Source", CX.src], ["Relevance", CX.rel]]
+header(TX0, 280, TX1 - TX0, "Search Results", 340, "sky", "ice");
+const CX = { num: TX0 + 48, title: UP ? 620 : 1880, src: UP ? 1263 : 2760, rel: UP ? 1660 : AX }, BARX = UP ? 1800 : 3400;
+[["Record", TX0], ["Title", CX.title], ["Source", CX.src], ["Relevance", CX.rel]]
   .forEach(([h, x]) => L.text({ x, base: 404, s: 36, c: "sky", txt: h }));
 const rowBase = (i) => 480 + i * 76;                                                  // the query panel's rows
 const rows = Array.from({ length: ROWS }, (_, i) => {
   const base = rowBase(i);
-  L.rect({ x: RX, y: base - 40, w: 24, h: 48, c: "#2a1a10" });                       // the selection slot
-  L.rect({ x: BARX, y: base - 26, w: RR - BARX, h: 26, c: "#141c36" });
-  const bar = L.layer({ x: BARX, y: base - 26, w: RR - BARX, h: 26 });
+  L.rect({ x: TX0, y: base - 40, w: 24, h: 48, c: "#2a1a10" });                      // the selection slot
+  L.rect({ x: BARX, y: base - 26, w: TX1 - BARX, h: 26, c: "#141c36" });
+  const bar = L.layer({ x: BARX, y: base - 26, w: TX1 - BARX, h: 26 });
   bar.style.background = "var(--sky)"; bar.style.transformOrigin = "0 0"; bar.style.transition = "opacity .45s ease";
   return {
     num: cls(L.text({ x: CX.num, base, s: 40, c: "orange", txt: "" }), "fade"),
@@ -164,7 +196,7 @@ const rows = Array.from({ length: ROWS }, (_, i) => {
     bar, u: 0, goal: 0,
   };
 });
-const marker = L.layer({ x: RX, y: 0, w: 24, h: 48 });
+const marker = L.layer({ x: TX0, y: 0, w: 24, h: 48 });
 marker.style.background = "var(--butter)"; marker.style.opacity = 0; marker.style.transition = "opacity .45s ease";
 let markerY = rowBase(0) - 40;
 const fillRow = (i, r) => {
@@ -175,14 +207,15 @@ const fillRow = (i, r) => {
 const dimRow = (i, on) => [rows[i].num, rows[i].title, rows[i].src, rows[i].rel].forEach((e) => e.classList.toggle("dim", on));
 
 // ---------------- isolinear access ----------------
-header(LX, 1000, LR - LX, "Isolinear Access", 360, "peach", "butter");
-L.text({ x: LX, base: 1112, s: 40, c: "peach", txt: "Transfer Rate" });
-const rateTxt = L.text({ x: LR, base: 1112, s: 52, c: "white", txt: "", align: "r" });
-const CHX = 480, NCH = 12, CHG = 18, CHW = (LR - CHX - (NCH - 1) * CHG) / NCH, CHH = 118;
+header(IX0, IY, IX1 - IX0, "Isolinear Access", 360, "peach", "butter");
+const RATEB = IY + (UP ? 124 : 112), BANKY = IY + (UP ? 160 : 148);   // upright: on the query's rows
+L.text({ x: IX0, base: RATEB, s: 40, c: "peach", txt: "Transfer Rate" });
+const rateTxt = L.text({ x: IX1, base: RATEB, s: 52, c: "white", txt: "", align: "r" });
+const CHX = IX0 + 150, NCH = 12, CHG = 18, CHW = (IX1 - CHX - (NCH - 1) * CHG) / NCH, CHH = 118;
 const chips = [];
 ["Bank A", "Bank B", "Bank C"].forEach((bank, r) => {
-  const y = 1148 + r * 138;
-  L.text({ x: LX, base: y + CHH / 2 + 14, s: 40, c: r === 1 ? "sky" : "peach", txt: bank });
+  const y = BANKY + r * 138;
+  L.text({ x: IX0, base: y + CHH / 2 + 14, s: 40, c: r === 1 ? "sky" : "peach", txt: bank });
   for (let k = 0; k < NCH; k++) {
     const x = CHX + k * (CHW + CHG);
     L.rect({ x, y, w: CHW, h: CHH, rx: 6, c: r === 1 ? "#14203c" : "#33220f" });
@@ -197,15 +230,18 @@ const chips = [];
 let readAt = 0, readPos = L.irand(0, chips.length - 1);
 
 // ---------------- record display ----------------
-header(RX, 1000, RR - RX, "Record Display", 340, "orange", "peach");
+header(RCX, RCY, RCX1 - RCX, "Record Display", 340, "orange", "peach");
 const REC_W = SPLIT - RX, REC_LINES = 5, ABS = 48;
-const recBase = (i) => (i === 0 ? 1112 : 1196 + (i - 1) * 74);               // the title, then five lines of abstract
-const recTitle = cls(L.text({ x: RX, base: 1112, s: 52, c: "butter", txt: "" }), "fade");
-const recLines = Array.from({ length: REC_LINES }, (_, i) => cls(L.text({ x: RX, base: recBase(i + 1), s: ABS, c: "white", txt: "" }), "fade"));
+const recBase = (i) => (i === 0 ? RCY + 112 : RCY + 196 + (i - 1) * 74);               // the title, then five lines of abstract
+const recTitle = cls(L.text({ x: RCX, base: RCY + 112, s: 52, c: "butter", txt: "" }), "fade");
+const recLines = Array.from({ length: REC_LINES }, (_, i) => cls(L.text({ x: RCX, base: recBase(i + 1), s: ABS, c: "white", txt: "" }), "fade"));
 const ATTRS = ["Record", "Category", "Entered", "Size", "Cross-Refs", "Access"];
+// wide: a column beside the abstract; upright: three across under it, on the 76 grid
+const attrAt = (i) => UP ? [RCX + (i % 3) * 622, RCX + (i % 3) * 622 + 562, RCY + 568 + Math.floor(i / 3) * 76] : [AX, RR, recBase(i)];
 const attrVals = ATTRS.map((name, i) => {
-  L.text({ x: AX, base: recBase(i), s: 40, c: "peach", txt: name });
-  return cls(L.text({ x: RR, base: recBase(i), s: 48, c: "white", txt: "", align: "r" }), "fade");
+  const [x, xr, base] = attrAt(i);
+  L.text({ x, base, s: 40, c: "peach", txt: name });
+  return cls(L.text({ x: xr, base, s: 48, c: "white", txt: "", align: "r" }), "fade");
 });
 const recEls = [recTitle, ...recLines, ...attrVals];
 // greedy word wrap, measured in the LCARS face
@@ -218,33 +254,36 @@ const wrap = (txt, s, w) => {
   if (line) out.push(line);
   return out;
 };
+let onRecord = null;                                      // ultrawide: the related records follow the record
 const showRecord = (q, r) => {
   recTitle.textContent = r[0];
   wrap(r[5], ABS, REC_W).forEach((l, i, a) => i < REC_LINES && (recLines[i].textContent = l));
   for (let i = wrap(r[5], ABS, REC_W).length; i < REC_LINES; i++) recLines[i].textContent = "";
   [r.num, q.cat, r[3] ? "Stardate " + r[3] : "Pre-Federation", r.size, r.xref, q.access]
     .forEach((v, i) => (attrVals[i].textContent = v));
+  if (onRecord) onRecord(q, r);
 };
 
 // ---------------- database statistics ----------------
-small(LX, 1620, LR - LX, "Database Statistics", 360, "peach", "butter");
+small(LX, STY, STX1 - LX, "Database Statistics", 360, "peach", "butter");
 let indexed = 4812337105, xrefs = 61904227318, active = 1206, access = 4.1;
 const STATS = [["Records Indexed", () => indexed.toLocaleString("en")], ["Access Time", () => access.toFixed(1) + " ms"],
   ["Cross-Refs", () => xrefs.toLocaleString("en")], ["Active Queries", () => active.toLocaleString("en")],
   ["Linked Archives", () => "2,417"], ["Index Integrity", () => "99.998%"],
   ["Subspace Link", () => "Starbase 74"], ["Last Update", () => sd.toFixed(1)]];
-const SW = (LR - LX - 120) / 2;
+// wide: two across, 90 apart; upright: four across (406.5 wide, 60 apart), 76 apart
+const SW = UP ? (STX1 - LX - 180) / 4 : (LR - LX - 120) / 2;
 const statVals = STATS.map(([name], i) => {
-  const x = LX + (i % 2) * (SW + 120), base = 1734 + Math.floor(i / 2) * 90;
+  const x = UP ? LX + (i % 4) * (SW + 60) : LX + (i % 2) * (SW + 120), base = UP ? STY + 114 + Math.floor(i / 4) * 76 : 1734 + Math.floor(i / 2) * 90;
   L.text({ x, base, s: 40, c: "peach", txt: name });
   return L.text({ x: x + SW, base, s: 52, c: "white", txt: "", align: "r" });
 });
 
 // ---------------- access log ----------------
-small(RX, 1620, SPLIT - RX, "Access Log", 300, "orange", "peach");
+small(LGX, LGY, LGX1 - LGX, "Access Log", 300, "orange", "peach");
 const logRows = Array.from({ length: 6 }, (_, i) => {
-  const base = 1734 + i * 54;
-  return { sd: L.text({ x: RX, base, s: 36, c: "orange", txt: "" }), tx: L.text({ x: RX + 190, base, s: 36, c: "peach", txt: "" }) };
+  const base = LGY + 114 + i * 54;
+  return { sd: L.text({ x: LGX, base, s: 36, c: "orange", txt: "" }), tx: L.text({ x: LGX + 190, base, s: 36, c: "peach", txt: "" }) };
 });
 let sd = 47772.4, logged = [];
 const logLine = (txt) => {
@@ -253,13 +292,13 @@ const logLine = (txt) => {
 };
 
 // ---------------- memory core ----------------
-small(AX, 1620, RR - AX, "Memory Core", 280, "sky", "ice");
+small(MCX, MCY, MCX1 - MCX, "Memory Core", 280, "sky", "ice");
 const cores = [["Core 1  ·  Primary", 0.64], ["Core 2  ·  Primary", 0.58], ["Core 3  ·  Backup", 0.37]].map(([name, u], i) => {
-  const base = 1734 + i * 108;                            // every second line of the access log
-  L.text({ x: AX, base, s: 36, c: "ice", txt: name });
-  const v = L.text({ x: RR, base, s: 36, c: "white", txt: "", align: "r" });
-  L.rect({ x: AX, y: base + 18, w: RR - AX, h: 22, c: "#141c36" });
-  const bar = L.layer({ x: AX, y: base + 18, w: RR - AX, h: 22 });
+  const base = MCY + 114 + i * 108;                       // every second line of the access log
+  L.text({ x: MCX, base, s: 36, c: "ice", txt: name });
+  const v = L.text({ x: MCX1, base, s: 36, c: "white", txt: "", align: "r" });
+  L.rect({ x: MCX, y: base + 18, w: MCX1 - MCX, h: 22, c: "#141c36" });
+  const bar = L.layer({ x: MCX, y: base + 18, w: MCX1 - MCX, h: 22 });
   bar.style.background = i === 2 ? "var(--ice)" : "var(--sky)"; bar.style.transformOrigin = "0 0";
   return { v, bar, u, base: u, goal: u };
 });
@@ -269,7 +308,7 @@ const cores = [["Core 1  ·  Primary", 0.64], ["Core 2  ·  Primary", 0.58], ["C
   const bad = [];
   const fits = (txt, s, w, where) => { if (L.textWidth(txt, s) > w) bad.push(`${where}: "${txt}"`); };
   for (const q of QUERIES) {
-    fits(q.a, 52, LR - VX, "query"); fits(q.b, 52, LR - VX, "query"); fits(q.scope, 52, LR - VX, "scope");
+    fits(q.a, 52, QX1 - VX, "query"); fits(q.b, 52, QX1 - VX, "query"); fits(q.scope, 52, QX1 - VX, "scope");
     for (const r of q.res) {
       fits(r[0], 40, CX.src - CX.title - 40, "title"); fits(r[1], 40, CX.rel - CX.src - 40, "source");
       if (!r[5]) continue;
@@ -283,7 +322,7 @@ const cores = [["Core 1  ·  Primary", 0.64], ["Core 2  ·  Primary", 0.58], ["C
 }
 
 // ---------------- the starting state: the previous query, complete ----------------
-let qn = -1, q = null, revealed = 0, sel = -1, done = false;
+let qn = -1, q = null, revealed = 0, sel = -1, done = false, onQuery = null, onSelect = null;
 const prevQ = QUERIES[QUERIES.length - 1];
 prevQ.res.forEach((r, i) => { fillRow(i, r); rows[i].u = rows[i].goal; });
 showRecord(prevQ, prevQ.res[0]);
@@ -299,6 +338,7 @@ const startQuery = (n) => {
   recEls.forEach((e) => e.classList.add("dim"));
   qPill.textContent = "Query " + String(411 + n).padStart(4, "0");
   logLine(`Query ${String(411 + n).padStart(4, "0")} initiated  ·  ${q.a}, ${q.b}`);
+  if (onQuery) onQuery(n);
 };
 let recSwap = null;
 const select = (k) => {
@@ -310,7 +350,89 @@ const select = (k) => {
     recEls.forEach((e) => e.classList.remove("out"));
   }, 480);
   logLine(`Record ${q.res[k].num} retrieved  ·  ${q.res[k][0]}`);
+  if (onSelect) onSelect(k);
 };
+
+// =====================================================================================
+// ULTRAWIDE ONLY: a fourth column, 3876–5016, on the wide panels' lines
+// =====================================================================================
+if (UW) {
+  const UX = 3876, UR = B.x1;
+  const q4 = (m) => String(m).padStart(4, "0");
+  // ---- query history: the last five queries, newest at the top, on the search results' rows ----
+  // Before this session's first query (0411) came these; 0410 is the one the access log remembers.
+  const PAST = { 410: ["Klingon succession law", 612, "Political History"], 409: ["Tamarian language", 388, "Linguistics"],
+                 408: ["Dyson sphere", 1043, "Astroengineering"], 407: ["Typhon Expanse", 207, "Astrophysics"] };
+  header(UX, 280, UR - UX, "Query History", 340, "sky", "ice");
+  const HCX = UX + 580;                                   // the category column
+  [["Query", UX], ["Subject", UX + 190], ["Category", HCX]].forEach(([h, x]) => L.text({ x, base: 404, s: 36, c: "sky", txt: h }));
+  L.text({ x: UR, base: 404, s: 36, c: "sky", txt: "Matches", align: "r" });
+  const hist = Array.from({ length: 5 }, (_, i) => ({
+    num: cls(L.text({ x: UX, base: rowBase(i), s: 40, c: "orange", txt: "" }), "fade"),
+    sub: cls(L.text({ x: UX + 190, base: rowBase(i), s: 40, c: "white", txt: "" }), "fade"),
+    cat: cls(L.text({ x: HCX, base: rowBase(i), s: 40, c: "peach", txt: "" }), "fade"),
+    mt: cls(L.text({ x: UR, base: rowBase(i), s: 40, c: "white", txt: "", align: "r" }), "fade"),
+  }));
+  L.text({ x: UX, base: rowBase(5), s: 40, c: "peach", txt: "Records Retrieved" });
+  const retTxt = L.text({ x: UR, base: rowBase(5), s: 52, c: "white", txt: "", align: "r" });
+  let retrieved = 2;                                     // the previous query's two records in the log
+  const queryAt = (m) => (m >= 411 ? QUERIES[(m - 411) % QUERIES.length] : null);
+  onQuery = (n) => hist.forEach((h, i) => {
+    const m = 411 + n - i, qq = queryAt(m);
+    put(h.num, q4(m)); put(h.sub, qq ? qq.a : PAST[m][0]); put(h.cat, qq ? qq.cat : PAST[m][2]);
+    if (i > 0) put(h.mt, (qq ? qq.matches : PAST[m][1]).toLocaleString("en"));
+    css(h.sub, "color", i === 0 ? "var(--butter)" : "var(--white)");
+  });
+  onSelect = () => { retrieved++; };
+  // ---- related records: the displayed record's companions in its query, on the record's lines ----
+  header(UX, 1000, UR - UX, "Related Records", 340, "orange", "peach");
+  [["Record", UX], ["Title", UX + 190]].forEach(([h, x]) => L.text({ x, base: 1112, s: 36, c: "peach", txt: h }));
+  L.text({ x: UR, base: 1112, s: 36, c: "peach", txt: "Size", align: "r" });
+  const rel = Array.from({ length: ROWS - 1 }, (_, i) => {
+    const base = recBase(i + 1);
+    return { num: L.text({ x: UX, base, s: 40, c: "orange", txt: "" }), title: L.text({ x: UX + 190, base, s: 40, c: "white", txt: "" }),
+             size: L.text({ x: UR, base, s: 40, c: "white", txt: "", align: "r" }) };
+  });
+  rel.forEach((r) => recEls.push(cls(r.num, "fade"), cls(r.title, "fade"), cls(r.size, "fade")));   // they fade with the record
+  onRecord = (qq, r) => qq.res.filter((x) => x !== r).forEach((x, i) => {
+    put(rel[i].num, x.num); put(rel[i].title, x[0]); put(rel[i].size, x.size);
+  });
+  onRecord(prevQ, prevQ.res[0]);
+  const bad = [];
+  for (const qq of QUERIES) for (const r of qq.res) if (L.textWidth(r[0], 40) > UR - L.textWidth("860 kiloquads", 40) - 40 - (UX + 190)) bad.push(`related title: "${r[0]}"`);
+  // ---- subspace links: the archives the library reaches, on the access log's lines ----
+  small(UX, 1620, UR - UX, "Subspace Links", 300, "sky", "ice");
+  const LBX = UX + 400, LBX1 = UR - 220;                 // the bars, between the names and the rates
+  const links = [["Memory Alpha", 1180], ["Starbase 74", 940], ["Daystrom Institute", 760], ["Vulcan Science Academy", 620],
+                 ["Starfleet Archives", 1040], ["Bajoran Archives", 380]].map(([name, base], i) => {
+    const y = 1734 + i * 54;
+    L.text({ x: UX, base: y, s: 36, c: i % 2 ? "ice" : "sky", txt: name });
+    const v = L.text({ x: UR, base: y, s: 36, c: "white", txt: "", align: "r" });
+    L.rect({ x: LBX, y: y - 24, w: LBX1 - LBX, h: 18, c: "#141c36" });
+    const bar = L.layer({ x: LBX, y: y - 24, w: LBX1 - LBX, h: 18 });
+    bar.style.background = i % 2 ? "var(--ice)" : "var(--sky)"; bar.style.transformOrigin = "0 0";
+    return { v, bar, base, r: base, goal: base };
+  });
+  const LMAX = 3600;                                     // kiloquads/s at a full bar
+  // the links' total, on the status line above the column (the line is otherwise bare from 2400 to the pill)
+  const trafTxt = L.text({ x: UX, base: 222, s: 38, c: "peach", txt: "" });
+  let lPrev = null;
+  L.tick((t) => {
+    const dt = lPrev === null ? 0 : Math.min(0.1, t - lPrev); lPrev = t;
+    for (const k of links) { k.r += (k.goal - k.r) * Math.min(1, dt * 0.8); css(k.bar, "transform", `scaleX(${(k.r / LMAX).toFixed(3)})`); }
+  });
+  L.every(2000, (t) => {                                 // busier while a search cross-references them
+    const searching = t % CYCLE < SEARCH;
+    links.forEach((k) => (k.goal = k.base * (searching ? 2.6 : 1) * L.rand(0.94, 1.06)));
+  }, 0.2);
+  L.every(250, (t) => {
+    if (q) put(hist[0].mt, Math.round(Math.pow(prog, 1.4) * q.matches).toLocaleString("en"));
+    put(retTxt, retrieved.toLocaleString("en"));
+    links.forEach((k) => put(k.v, (Math.round(k.r / 10) * 10).toLocaleString("en") + " kiloquads/s"));
+    put(trafTxt, `Archive Traffic  ·  ${links.length} links  ·  ${links.reduce((s, k) => s + Math.round(k.r / 10) * 10, 0).toLocaleString("en")} kiloquads/s`);
+  }, 0);
+  if (bad.length) setTimeout(() => { throw new Error("library-computer: " + bad.join(" | ")); });
+}
 
 // ---------------- the clock ----------------
 let tPrev = null, prog = 1, rate = 610, rateGoal = 610;

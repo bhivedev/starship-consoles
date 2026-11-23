@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Long Range Sensors</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .arm { background: linear-gradient(to top, rgba(143,211,255,.25), rgba(220,240,255,.95)); transform-origin: 50% 100%; border-radius: 2px; }
@@ -20,8 +21,18 @@
 const L = LCARS;
 L.ready(() => {
 
+// Three layouts. Wide (3840×2160) is the original, hand-placed. Upright (2160×3120): the fan at
+// K 40 across the full width, the contacts table under it at full width, then sensor arrays beside
+// subspace interference, then sensor focus (readouts two by two) beside an eight-row scan log.
+// Ultrawide (5040×2160): every wide panel where it was, and a fourth column (3896–5016) on the same
+// section lines: sweep returns (each contact's lane on its table row, sliding over 60 s), the sweep
+// arm's bearing history under the focus line, and a vessel track beside the scan log.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+
 // ---------------- the frame: sidebar left, title top right ----------------
 const BAR = 64;
+let B;
+if (L.shape === "wide") {
 L.title({ x: 3700, y: 40, h: BAR, c: "sky", txt: "Long Range Sensors  •  Subspace Scan" });
 // (L.title measures with a canvas, which sets this line ~11px wider than the page draws it; use the page's own width)
 const titleLeft = 3700 - document.querySelector("[data-title]").offsetWidth;
@@ -37,6 +48,13 @@ L.text({ x: 258, base: 1712, s: 40, c: "#000", txt: "Sensors", align: "r", on: t
 [[1540 + L.GAP, 600, "navy"], [2164 + L.GAP, 900, "ice"], [3088 + L.GAP, 3700 - (3088 + L.GAP), "blue"]]
   .forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
 L.box({ x: 3724, y: 2056, w: 92, h: BAR, c: "sky", r: "r" });
+B = { x0: 330, x1: 3816, y0: 140, y1: 2010 };
+} else {
+  // the same frame, drawn by the kit for this shape: type A, the same colours and sidebar labels
+  B = L.frame({ type: "A", title: "Long Range Sensors  •  Subspace Scan", c: "sky", c2: "blue", accent: "butter", foot: "Sensors",
+    side: [[140, "sky", "LRS 01"], [70, "butter", "Fwd"], [420, "blue", "Sweep"], [70, "ice", "20 LY"],
+           [300, "sky", "Contacts"], [70, "mars", "Focus"], [216, "blue", "Arrays"]] });
+}
 
 const header = (x, y, w, label, c1, c2, h = 56, fs = 32) => {
   const lw = Math.round((L.textWidth(label, fs) + 64) / 10) * 10;
@@ -53,10 +71,13 @@ const brg = (b) => String(Math.round((b + 360) % 360)).padStart(3, "0");
 const DARK = "#0c1840";
 
 // columns: the scan 330–2330; the right column 2410–3816. Bottom strip: arrays 330–1330, interference 1410–2330, log 2410–3816
-const FX = 330, FW = 2000, FY = 360, FH = 1200, RX = 2410, RR = 3816;
+// upright: the scan 330–2136 (FH 910); contacts 330–2136 from y 1330; arrays 330–1193 and interference
+//   1273–2136 from y 2016; focus 330–1193 and the log 1273–2136 from y 2474, ending on the floor (2964)
+const FX = 330, FW = UP ? 1806 : 2000, FY = 360, FH = UP ? 910 : 1200, RX = UP ? 330 : 2410, RR = UP ? 2136 : 3816;
+const CT = UP ? 1330 : 280;                                   // the contacts header
 
 // ---------------- the scan: a fan looking forward along the ship's course ----------------
-const CX = 1330, CY = 1500, K = 52, RANGE = 20, R = RANGE * K, SPAN = 60;
+const CX = UP ? 1233 : 1330, CY = UP ? 1237 : 1500, K = UP ? 40 : 52, RANGE = 20, R = RANGE * K, SPAN = 60;
 const rad = (d) => (d * Math.PI) / 180;
 const pol = (b, r) => [CX + r * K * Math.sin(rad(b)), CY - r * K * Math.cos(rad(b))];   // bearing (0 = dead ahead), light-years
 const toPolar = (x, y) => [(Math.atan2(x - CX, CY - y) * 180) / Math.PI, Math.hypot(x - CX, CY - y) / K];
@@ -67,11 +88,13 @@ L.text({ x: 330, cap: 150, s: 100, c: "ice", txt: STATE });
 const stateSub = L.text({ x: 330 + L.textWidth(STATE, 100) + 40, base: 222, s: 38, c: "sky", txt: "" });
 const showSub = () => put(stateSub, `Forward sweep  ·  Course 047 mark 12  ·  Warp 6  ·  Range ${RANGE} light-years  ·  Stardate ${stardate.toFixed(1)}`);
 showSub();
-const pill = L.box({ x: 3416, y: 150, w: 400, h: 72, c: "sky", label: "Sensors Active", r: "lr", fs: 36, cls: "pill" });
+// upright: the subtitle runs to x 1793, so the pill sits at the end of the scan's header row
+const pill = UP ? L.box({ x: B.x1 - 340, y: 280, w: 340, h: 56, c: "sky", label: "Sensors Active", r: "lr", fs: 32, cls: "pill" })
+  : L.box({ x: UW ? B.x1 - 400 : 3416, y: 150, w: 400, h: 72, c: "sky", label: "Sensors Active", r: "lr", fs: 36, cls: "pill" });
 pill.style.willChange = "opacity";
 L.tick((t) => { pill.style.opacity = (0.82 + 0.18 * Math.sin(t * 1.1)).toFixed(3); });
 
-header(FX, 280, FW, "Forward Scan  ·  Bearing 300 – 060", "sky", "blue");
+header(FX, 280, UP ? FW - 340 - L.GAP : FW, "Forward Scan  ·  Bearing 300 – 060", "sky", "blue");
 L.rect({ x: FX, y: FY, w: FW, h: FH, c: "#02061a", panel: true });
 {
   const g = L.svg("g", { class: "boot" });
@@ -243,7 +266,9 @@ const placeLabel = (o) => {
   const [dx, dy, al] = LABEL[o.kind === "vessel" ? "" : o.name], LW = 330;
   const x = al === "c" ? o.x - LW / 2 : al === "r" ? o.x + dx - LW : o.x + dx;
   css(o.labT, "textAlign", al === "c" ? "center" : al === "r" ? "right" : "left");
-  L.move(o.lab.e, x, o.y + dy - (8 + 0.72 * 36));          // the name's baseline at dy below the glyph's centre
+  // upright: low in the fan the vessel's name eases up above its glyph, clear of the course readings in the corner
+  const vy = UP && o.kind === "vessel" ? L.mix(dy, -22, L.ease(L.clamp((15 - o.r) / 4))) : dy;
+  L.move(o.lab.e, x, o.y + vy - (8 + 0.72 * 36));          // the name's baseline at dy below the glyph's centre
 };
 // the focus reticle
 const ret = L.layer({ x: 0, y: 0, w: 120, h: 120, cls: "ret" });
@@ -252,15 +277,16 @@ const ret = L.layer({ x: 0, y: 0, w: 120, h: 120, cls: "ret" });
   .forEach(([h, v, b1, b2]) => { const i = L.el("i", "", ret); i.style[h] = 0; i.style[v] = 0; i.style[b1] = "5px"; i.style[b2] = "5px"; });
 
 // ---------------- contacts ----------------
-header(RX, 280, RR - RX, "Contacts  ·  Classification", "blue", "sky");
-const TC = { name: RX, cls: 2790, brg: 3270, rng: 3460, bar: 3530, barW: 190, sig: RR };
-L.text({ x: TC.name, base: 400, s: 36, c: "sky", txt: "Designation" });
-L.text({ x: TC.cls, base: 400, s: 36, c: "sky", txt: "Classification" });
-L.text({ x: TC.brg, base: 400, s: 36, c: "sky", txt: "Bearing", align: "r" });
-L.text({ x: TC.rng, base: 400, s: 36, c: "sky", txt: "Range LY", align: "r" });
-L.text({ x: TC.sig, base: 400, s: 36, c: "sky", txt: "Signal", align: "r" });
+header(RX, CT, RR - RX, "Contacts  ·  Classification", "blue", "sky");
+const TC = UP ? { name: RX, cls: 810, brg: 1430, rng: 1650, bar: 1730, barW: 310, sig: RR }
+  : { name: RX, cls: 2790, brg: 3270, rng: 3460, bar: 3530, barW: 190, sig: RR };
+L.text({ x: TC.name, base: CT + 120, s: 36, c: "sky", txt: "Designation" });
+L.text({ x: TC.cls, base: CT + 120, s: 36, c: "sky", txt: "Classification" });
+L.text({ x: TC.brg, base: CT + 120, s: 36, c: "sky", txt: "Bearing", align: "r" });
+L.text({ x: TC.rng, base: CT + 120, s: 36, c: "sky", txt: "Range LY", align: "r" });
+L.text({ x: TC.sig, base: CT + 120, s: 36, c: "sky", txt: "Signal", align: "r" });
 OBJ.forEach((o, i) => {
-  const base = 460 + i * 54;
+  const base = CT + 180 + i * 54;
   o.row = {
     name: L.text({ x: TC.name, base, s: 36, c: "white", txt: "" }),
     cls: L.text({ x: TC.cls, base, s: 36, c: "sky", txt: "" }),
@@ -285,10 +311,11 @@ const showRow = (o) => {
 };
 
 // ---------------- sensor focus: one contact's return ----------------
-header(RX, 1000, RR - RX, "Sensor Focus  ·  Return Profile", "sky", "navy");
-const fName = L.text({ x: RX, base: 1112, s: 52, c: "white", txt: "" });
-const fCls = L.text({ x: RR, base: 1112, s: 40, c: "sky", txt: "", align: "r" });
-const PX = RX, PY = 1150, PW = RR - RX, PH = 250;
+const FCX = UP ? 330 : RX, FCR = UP ? 1193 : RR, FT = UP ? 2474 : 1000;   // the focus panel's edges and header
+header(FCX, FT, FCR - FCX, "Sensor Focus  ·  Return Profile", "sky", "navy", UP ? 48 : 56, UP ? 28 : 32);   // upright: as the scan log beside it
+const fName = L.text({ x: FCX, base: FT + 112, s: 52, c: "white", txt: "" });
+const fCls = L.text({ x: FCR, base: FT + 112, s: 40, c: "sky", txt: "", align: "r" });
+const PX = FCX, PY = UP ? FT + 146 : 1150, PW = FCR - FCX, PH = UP ? 160 : 250;
 L.rect({ x: PX, y: PY, w: PW, h: PH, c: "#02061a", panel: true });
 {
   const g = L.svg("g", { class: "boot" });
@@ -297,15 +324,16 @@ L.rect({ x: PX, y: PY, w: PW, h: PH, c: "#02061a", panel: true });
 }
 [1, 16, 32, 48, 64].forEach((n) => {
   const x = PX + ((n - 1) / 63) * PW;
-  L.text({ x: n === 1 ? PX : n === 64 ? RR : x, base: PY + PH + 46, s: 30, c: "sky", txt: n === 1 ? "Band 1" : n === 64 ? "64" : n, align: n === 1 ? "l" : n === 64 ? "r" : "c", w: 120, legend: true });
+  L.text({ x: n === 1 ? PX : n === 64 ? FCR : x, base: PY + PH + 46, s: 30, c: "sky", txt: n === 1 ? "Band 1" : n === 64 ? "64" : n, align: n === 1 ? "l" : n === 64 ? "r" : "c", w: 120, legend: true });
 });
 const profLayer = { e: L.layer({ x: PX, y: PY, w: PW, h: PH }), op: -1 };
 const profSvg = svgIn(profLayer.e, PW, PH);
 const cursor = { e: L.layer({ x: PX, y: PY, w: 70, h: PH, cls: "cursor" }), op: -1 };
 const fVals = ["Bearing", "Range", "Signal", "Doppler"].map((label, i) => {         // label and reading in pairs, a quarter apart
-  const x = RX + (i * PW) / 4;
-  L.text({ x, base: 1546, s: 40, c: "sky", txt: label });
-  return L.text({ x: x + Math.ceil(L.textWidth(label, 40)) + 24, base: 1546, s: 52, c: "white", txt: "" });
+  const x = UP ? FCX + (i % 2) * 432 : RX + (i * PW) / 4, fb = UP ? FT + 426 + Math.floor(i / 2) * 64 : 1546;   // upright: two by two
+  const lw = UP ? Math.max(L.textWidth(["Bearing", "Range"][i % 2], 40), L.textWidth(["Signal", "Doppler"][i % 2], 40)) : L.textWidth(label, 40);   // upright: readings line up down each column
+  L.text({ x, base: fb, s: 40, c: "sky", txt: label });
+  return L.text({ x: x + Math.ceil(lw) + 24, base: fb, s: 52, c: "white", txt: "" });
 });
 const PROFILE = {
   star: (x, n, o) => 0.12 + 0.72 * Math.exp(-(((x - o.peak) / 0.2) ** 2)) - [0.22, 0.41, 0.47, 0.63].reduce((a, c, k) => a + 0.16 * Math.exp(-(((x - c) / 0.008) ** 2)) * (1 - k * 0.15), 0) + 0.02 * n,
@@ -334,43 +362,45 @@ const drawProfile = (o) => {
 };
 
 // ---------------- sensor arrays ----------------
-header(330, 1620, 1000, "Sensor Arrays", "blue", "sky", 48, 28);
-const AB = { x: 760, w: 300, pct: 1170 };
-L.text({ x: 330, base: 1734, s: 36, c: "sky", txt: "Array" });
-L.text({ x: AB.x, base: 1734, s: 36, c: "sky", txt: "Power" });
-L.text({ x: 1330, base: 1734, s: 36, c: "sky", txt: "Resolution", align: "r" });
+const AR = UP ? 1193 : 1330, AT = UP ? 2016 : 1620;            // the arrays panel's right edge and header
+header(330, AT, AR - 330, "Sensor Arrays", "blue", "sky", 48, 28);
+const AB = UP ? { x: 640, w: 240, pct: 980 } : { x: 760, w: 300, pct: 1170 };
+L.text({ x: 330, base: AT + 114, s: 36, c: "sky", txt: "Array" });
+L.text({ x: AB.x, base: AT + 114, s: 36, c: "sky", txt: "Power" });
+L.text({ x: AR, base: AT + 114, s: 36, c: "sky", txt: "Resolution", align: "r" });
 const ARRAYS = [["Forward Array", 0.94, "0.04 LY"], ["Lateral Array  ·  Port", 0.81, "0.12 LY"], ["Lateral Array  ·  Starboard", 0.83, "0.12 LY"],
   ["Long Range Pallet", 0.97, "0.02 LY"]].map(([name, v, res], i) => {
-  const base = 1788 + i * 54;
+  const base = AT + 168 + i * 54;
   L.text({ x: 330, base, s: 36, c: "ice", txt: name });
   L.rect({ x: AB.x, y: base - 26, w: AB.w, h: 26, c: DARK });
   const bar = L.layer({ x: AB.x, y: base - 26, w: AB.w, h: 26, cls: "pbar" });
   bar.style.background = i === 3 ? "var(--butter)" : "var(--sky)";
   const pct = L.text({ x: AB.pct, base, s: 36, c: "white", txt: "", align: "r" });
-  L.text({ x: 1330, base, s: 36, c: "white", txt: res, align: "r" });
+  L.text({ x: AR, base, s: 36, c: "white", txt: res, align: "r" });
   return { v, base: v, bar, pct };
 });
-L.text({ x: 330, base: 2004, s: 36, c: "sky", txt: "Effective Range" });
-L.text({ x: 1330, base: 2004, s: 36, c: "butter", txt: `${RANGE.toFixed(1)} light-years`, align: "r" });
+L.text({ x: 330, base: AT + 384, s: 36, c: "sky", txt: "Effective Range" });
+L.text({ x: AR, base: AT + 384, s: 36, c: "butter", txt: `${RANGE.toFixed(1)} light-years`, align: "r" });
 const showArrays = () => ARRAYS.forEach((a) => { a.bar.style.transform = `scaleX(${a.v.toFixed(3)})`; put(a.pct, (a.v * 100).toFixed(1) + "%"); });
 showArrays();
 later(6000, () => { const a = L.pick(ARRAYS); a.v = L.clamp(a.base + L.rand(-0.02, 0.02), 0.5, 0.995); showArrays(); }, 0.3);
 
 // ---------------- subspace interference ----------------
-header(1410, 1620, 920, "Subspace Interference", "sky", "navy", 48, 28);
-L.text({ x: 1410, base: 1734, s: 36, c: "sky", txt: "Noise Floor" });
-const noiseV = L.text({ x: 1800, base: 1734, s: 36, c: "white", txt: "", align: "r" });
-L.text({ x: 1940, base: 1734, s: 36, c: "sky", txt: "Peak" });
-const peakV = L.text({ x: 2330, base: 1734, s: 36, c: "butter", txt: "", align: "r" });
-const NB = 24, SLOT = 920 / NB, BW = 24, BTOP = 1768, BBOT = 1950;
+const IX = UP ? 1273 : 1410, IW = UP ? 863 : 920, IT = AT;      // the interference panel
+header(IX, IT, IW, "Subspace Interference", "sky", "navy", 48, 28);
+L.text({ x: IX, base: IT + 114, s: 36, c: "sky", txt: "Noise Floor" });
+const noiseV = L.text({ x: IX + 390, base: IT + 114, s: 36, c: "white", txt: "", align: "r" });
+L.text({ x: IX + 530, base: IT + 114, s: 36, c: "sky", txt: "Peak" });
+const peakV = L.text({ x: IX + IW, base: IT + 114, s: 36, c: "butter", txt: "", align: "r" });
+const NB = 24, SLOT = IW / NB, BW = 24, BTOP = IT + 148, BBOT = IT + 330;
 const bands = Array.from({ length: NB }, (_, i) => {
-  const x = 1410 + i * SLOT + (SLOT - BW) / 2;
+  const x = IX + i * SLOT + (SLOT - BW) / 2;
   L.rect({ x, y: BTOP, w: BW, h: BBOT - BTOP, c: DARK, free: true });
   const e = L.layer({ x, y: BTOP, w: BW, h: BBOT - BTOP, cls: "bar" });
   const hump = 0.62 * Math.exp(-(((i - 16) / 1.6) ** 2)) + 0.18 * Math.exp(-(((i - 4) / 2.5) ** 2));   // the rift's band, and the ion storm's
   return { e, x: x + BW / 2, hump, v: 0 };
 });
-[1, 6, 12, 18, 24].forEach((n) => L.text({ x: bands[n - 1].x, base: 2004, s: 36, c: "sky", txt: n, align: "c", w: 60 }));
+[1, 6, 12, 18, 24].forEach((n) => L.text({ x: bands[n - 1].x, base: IT + 384, s: 36, c: "sky", txt: n, align: "c", w: 60 }));
 const setBand = (b) => {
   b.v = L.clamp(0.14 + b.hump + L.rand(-0.06, 0.1), 0.05, 0.97);
   b.e.style.transform = `scaleY(${b.v.toFixed(3)})`;
@@ -388,17 +418,20 @@ later(700, () => { for (let n = 0; n < 4; n++) setBand(L.pick(bands)); }, 0.3);
 later(3000, showNoise, 0.2);
 
 // ---------------- scan log ----------------
-header(RX, 1620, RR - RX, "Scan Log", "butter", "sky", 48, 28);
-const logRows = Array.from({ length: 6 }, (_, i) => {
-  const base = 1734 + i * 54;
-  return { sd: L.text({ x: RX, base, s: 36, c: "sky", txt: "" }), what: L.text({ x: 2600, base, s: 36, c: "white", txt: "" }),
-           who: L.text({ x: RR, base, s: 36, c: "sky", txt: "", align: "r" }) };
+const LX = UP ? 1273 : RX, LR = UP ? 2136 : RR, LT = UP ? 2474 : 1620, LOGN = UP ? 8 : 6;   // upright: eight rows beside the focus
+// (upright: the entry starts 124 in, as near the stardate as the alignment rule allows, so the longest entry,
+//  "Contact NNN identified  ·  Federation Freighter, Antares class", stays clear of "Tactical")
+header(LX, LT, LR - LX, "Scan Log", "butter", "sky", 48, 28);
+const logRows = Array.from({ length: LOGN }, (_, i) => {
+  const base = UP ? LT + 112 + i * 54 : 1734 + i * 54;
+  return { sd: L.text({ x: LX, base, s: 36, c: "sky", txt: "" }), what: L.text({ x: UP ? LX + 124 : 2600, base, s: 36, c: "white", txt: "" }),
+           who: L.text({ x: LR, base, s: 36, c: "sky", txt: "", align: "r" }) };
 });
 const logged = [];
 const log = (what, who, c = "white") => {
   stardate += 0.1; showSub();
   logged.push([stardate.toFixed(1), what, who, c]);
-  if (logged.length > 6) logged.shift();
+  if (logged.length > LOGN) logged.shift();
   logRows.forEach((r, i) => {
     const e = logged[i] || ["", "", "", "white"];
     put(r.sd, e[0]); put(r.what, e[1]); put(r.who, e[2]); css(r.what, "color", `var(--${e[3]})`);
@@ -418,7 +451,7 @@ const ROUTINE = [
 ];
 let routineI = L.irand(0, ROUTINE.length - 1);
 const routine = () => { const [w, who] = ROUTINE[routineI++ % ROUTINE.length]; log(w, who); };
-for (let i = 0; i < 6; i++) routine();
+for (let i = 0; i < LOGN; i++) routine();
 later(13000, routine, 0.35);
 
 // ---------------- the vessel: comes in on an intercept course, then turns away ----------------
@@ -441,6 +474,7 @@ const newVessel = () => {
 
 // ---------------- motion ----------------
 let prevA = sweepAt(0), focusT0 = -99, retFrom = [CX, CY - 400], settled = false;
+let track = null;                                            // ultrawide: the sweep-returns lanes listen here
 const FOCUS = 14;
 const focusables = () => OBJ.filter((o) => o.kind !== "vessel" || o.seen);
 const hit = (o, t) => {
@@ -461,12 +495,114 @@ const hit = (o, t) => {
       put(pill, "Sensors Active"); pill.style.background = "var(--sky)";
     }
   }
+  if (track) track(o, t);
   showRow(o);
   css(o.row.name, "color", "var(--butter)");
   o.flash = t;
 };
 newVessel();
 OBJ.forEach(showRow);
+
+// ---------------- ultrawide: a fourth column on the same section lines ----------------
+if (UW) {
+  const NX = 3896, NR = B.x1, NW = NR - NX, WIN = 60, V = NW / WIN;    // 60 s across the column
+  const inkOf = (o) => o.kind === "vessel" ? "var(--mars)" : o.kind === "storm" || o.kind === "anomaly" ? "var(--butter)" : "var(--sky)";
+  L.text({ x: NX, base: 222, s: 38, c: "sky", txt: "Long range pallet  ·  Sweep period 20 seconds" });
+
+  // sweep returns: each contact's lane on its table row; a tick each time the sweep finds it
+  header(NX, 280, NW, "Sweep Returns  ·  Last 60 Seconds", "sky", "blue");
+  L.text({ x: NX, base: 400, s: 36, c: "sky", txt: "60 s ago" });
+  L.text({ x: NX + NW / 2, base: 400, s: 36, c: "sky", txt: "30 s", align: "c", w: 160 });
+  L.text({ x: NR, base: 400, s: 36, c: "sky", txt: "Now", align: "r" });
+  OBJ.forEach((o, i) => L.rect({ x: NX, y: 434 + i * 54, w: NW, h: 26, c: DARK }));
+  const lanes = L.el("div", "lc", L.stage, { left: NX + "px", top: "434px", width: NW + "px", height: 8 * 54 + 26 + "px", overflow: "hidden" });
+  const trk = L.layer({ x: 0, y: 0, w: NW, h: 8 * 54 + 26 }, lanes);
+  const ticks = [];
+  let T0 = 0;                                                    // the lanes' time origin, moved on every minute (keeps the layer's overflow short)
+  const left = (th) => ((th - T0) * V + NW - 6).toFixed(1) + "px";
+  const addTick = (o, th, sig) => {
+    const e = L.el("div", "", trk, { position: "absolute", left: left(th), top: o.i * 54 + "px", width: "6px", height: "26px",
+      background: inkOf(o), opacity: (0.45 + 0.55 * sig).toFixed(2) });
+    ticks.push({ e, th });
+  };
+  // the last minute's returns, from the sweep's own motion (the vessel is not yet in contact)
+  for (let k = -WIN * 30; k < 0; k++) {
+    const a0 = sweepAt((k - 1) / 30), a1 = sweepAt(k / 30);
+    for (const o of OBJ) if (o.kind !== "vessel" && (a0 - o.b) * (a1 - o.b) <= 0 && a0 !== a1) addTick(o, k / 30, o.sig);
+  }
+  track = (o, t) => addTick(o, t, o.sigNow);
+
+  // the sweep arm's bearing over the same minute: one period-long curve, slid and wrapped (it repeats every 20 s)
+  header(NX, 1000, NW, "Sweep Arm  ·  Bearing History", "blue", "sky");
+  L.text({ x: NX, base: 1112, s: 52, c: "white", txt: "Sweep Arm" });
+  L.text({ x: NR, base: 1112, s: 40, c: "sky", txt: "Arc 300 – 060  ·  Period 20 s", align: "r" });
+  const AY = 1150, AH = 250, XN = NW - 12;                         // the panel; where "now" sits in it
+  const yOf = (b) => 12 + ((b + SPAN) / (2 * SPAN)) * (AH - 24);  // port (300) at the top
+  L.rect({ x: NX, y: AY, w: NW, h: AH, c: "#02061a", panel: true });
+  {
+    const g = L.svg("g", { class: "boot" });
+    for (let k = 1; k < 4; k++) L.svg("rect", { x: NX, y: AY + (AH * k) / 4 - 1, width: NW, height: 2, fill: "#13235e" }, g);
+    for (let k = 1; k < 4; k++) L.svg("rect", { x: NX + (NW * k) / 4 - 1, y: AY, width: 2, height: AH, fill: "#13235e" }, g);
+  }
+  [60, 45, 30, 15, 0].forEach((s, k) => L.text({ x: k === 0 ? NX : k === 4 ? NR : NX + (k * NW) / 4, base: AY + AH + 46, s: 30, c: "sky",
+    txt: k === 0 ? "60 s" : k === 4 ? "Now" : s, align: k === 0 ? "l" : k === 4 ? "r" : "c", w: 120, legend: true }));
+  const armClip = L.el("div", "lc", L.stage, { left: NX + "px", top: AY + "px", width: XN + "px", height: AH + "px", overflow: "hidden" });   // the curve ends at now
+  const LW = Math.ceil(4 * 20 * V) + 40, armLayer = L.layer({ x: 0, y: 0, w: LW, h: AH }, armClip);
+  {
+    const sv = svgIn(armLayer, LW, AH), pts = [];
+    for (let x = 0; x <= LW; x += 2) pts.push(`${x},${yOf(sweepAt(x / V)).toFixed(1)}`);
+    L.svg("polyline", { points: pts.join(" "), fill: "none", stroke: "#8fd3ff", "stroke-width": 4, "stroke-linejoin": "round" }, sv);
+  }
+  const dot = L.layer({ x: 0, y: 0, w: 20, h: 20, cls: "glow" });
+  dot.style.background = "var(--white)";
+
+  // readings under it, a quarter apart, as under the focus profile
+  const aVals = ["Bearing", "Sweeps", "Turn In", "Returns"].map((label, i) => {
+    const x = NX + (i * NW) / 4;
+    L.text({ x, base: 1546, s: 40, c: "sky", txt: label });
+    return L.text({ x: x + Math.ceil(L.textWidth(label, 40)) + 24, base: 1546, s: 52, c: "white", txt: "" });
+  });
+
+  // vessel track: the visiting contact, from the same live position as the fan and the table
+  header(NX, 1620, NW, "Vessel Track", "mars", "sky", 48, 28);
+  const vRows = ["Contact", "Bearing", "Range", "Heading", "Returns", "Tracked"].map((label, i) => {
+    const base = 1734 + i * 54;
+    L.text({ x: NX, base, s: 36, c: "sky", txt: label });
+    return { v: L.text({ x: NX + 330, base, s: 36, c: "white", txt: "" }), n: L.text({ x: NR, base, s: 36, c: "sky", txt: "", align: "r" }) };
+  });
+  let seenT = null, last = null, lostT = 0;                   // the last contact's record, held until the next
+  const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+
+  L.tick((t) => {
+    if (t - T0 > 60) { T0 += 60; ticks.forEach((k) => { k.e.style.left = left(k.th); }); }
+    trk.style.transform = `translate3d(${(-(t - T0) * V).toFixed(2)}px,0,0)`;
+    const p = ((t % 20) + 20) % 20;
+    armLayer.style.transform = `translate3d(${(XN - V * (p + 60)).toFixed(2)}px,0,0)`;
+    L.move(dot, NX + XN - 10, AY + yOf(sweepAt(t)) - 10);
+  });
+  L.every(250, (t) => {
+    while (ticks.length && t - ticks[0].th > 61) ticks.shift().e.remove();
+    const a = sweepAt(t), turn = 10 - ((((t - 5) % 10) + 10) % 10);
+    put(aVals[0], brg(a));
+    put(aVals[1], (1180 + Math.floor((t + 5) / 10)).toLocaleString("en-US"));
+    put(aVals[2], turn.toFixed(1) + " s");
+    put(aVals[3], String(ticks.filter((k) => t - k.th <= WIN).length));
+    const v = VESSEL, on = !!v.seen;
+    if (!on) seenT = null; else if (seenT === null) seenT = t;
+    const course = v.cls.includes("Intercept") ? "Intercept Course" : v.cls.includes("Altered") ? "Course Altered" : "Plotting";
+    let rows;
+    if (on) {
+      rows = [[v.id, v.hits >= 3 ? v.ship : "Unidentified"], [brg(v.b), v.b < 0 ? "Port" : "Starboard"],
+        [v.r.toFixed(2) + " LY", v.turned ? "Receding" : "Closing"], [brg(v.heading), course],
+        [String(v.hits), v.hits >= 3 ? "Identified" : `${3 - v.hits} more to identify`], [mmss(t - seenT), "Warp signature"]];
+      last = rows; lostT = t;
+    } else if (last) {                                         // between visits: the last contact, its bearing and range as the table holds them
+      const r = v.row;
+      rows = [last[0], [r.brg.textContent, last[1][1]], [r.rng.textContent + " LY", "Out of range"], last[3], last[4], [last[5][0], `Lost ${mmss(t - lostT)} ago`]];
+    } else rows = [["—", "Scanning"], ["—", "—"], ["—", "—"], ["—", "—"], ["—", "—"], ["—", "—"]];
+    rows.forEach(([a1, b1], i) => { put(vRows[i].v, a1); put(vRows[i].n, b1); });
+  }, 0);
+}
 
 L.tick((t) => {
   // the arm and its afterglow

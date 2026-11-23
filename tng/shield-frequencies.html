@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Shield Frequencies</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .clip { position: absolute; overflow: hidden; }
@@ -18,9 +19,20 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: wide, no sidebars ----------------
-L.frame({ type: "D", title: "Shield Frequencies  •  Modulation", c: "sky", c2: "lilac", accent: "ice" });
+const B = L.frame({ type: "D", title: "Shield Frequencies  •  Modulation", c: "sky", c2: "lilac", accent: "ice" });
 
-const X0 = 40, X1 = 3816;
+// ---------------- the layout, per shape ----------------
+// The data, readings and motion are written once; only positions and sizes differ by shape.
+// wide (3840 × 2160): the schedule with the grid modulation table beside it; three panels across the
+//   middle (spectrum, analysis, counter) and three along the bottom (log, lockouts, settings).
+// upright (2160 × 3120): the schedule across the full width (−10 to +40 s); the grid modulation table
+//   turned into six columns under it; then two panels to a row: spectrum | analysis, log | counter,
+//   lockouts | settings.
+// ultrawide (5040 × 2160): the schedule 30 s longer (to +80 s) at the same scale, the table beside
+//   it; four panels to a row: a rotation interval panel joins the middle row, and the next rotations
+//   join the bottom row.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const X0 = 40, X1 = B.x1;
 const TRACK = "#0e1638", PANEL = "#0a0c26", GRID = "#1d2258";
 const col = (c) => (c.startsWith("#") ? c : `var(--${c})`);
 const pad = (n) => String(n).padStart(2, "0");
@@ -68,12 +80,14 @@ const setState = (word, sub, c) => {
   L.set(stateSub, sub);
 };
 const pill = L.box({ x: X1 - 340, y: 150, w: 340, h: 72, c: "sky", label: "", r: "lr", fs: 36, cls: "sw" });
-L.text({ x: 3164, base: 222, s: 40, c: "sky", txt: "Stardate" });             // on the Grid Modulation column
-const sdVal = L.text({ x: 3164 + L.textWidth("Stardate", 40) + 24, base: 222, s: 52, c: "white", txt: "47634.40" });
+// on the Grid Modulation column; upright: just left of the pill
+const SDX = UW ? 4364 : UP ? Math.round(X1 - 340 - 64 - L.textWidth("Stardate", 40) - 24 - L.textWidth("47634.4", 52)) : 3164;
+L.text({ x: SDX, base: 222, s: 40, c: "sky", txt: "Stardate" });
+const sdVal = L.text({ x: SDX + L.textWidth("Stardate", 40) + 24, base: 222, s: 52, c: "white", txt: "47634.40" });
 const stardate0 = 47634.4 + Math.random() * 0.05;
 
 // ---------------- frequency rotation schedule (top, wide) ----------------
-const CX0 = 364, CX1 = 3100, PAST = 20, SPAN = 70, PPS = (CX1 - CX0) / SPAN, NOWX = CX0 + PAST * PPS;
+const CX0 = 364, CX1 = UP ? X1 : UW ? 4300 : 3100, PAST = UP ? 10 : 20, SPAN = UP ? 50 : UW ? 100 : 70, PPS = (CX1 - CX0) / SPAN, NOWX = CX0 + PAST * PPS;
 const ROW0 = 428, PITCH = 88, RH = 64, CAP = 400, BGAPX = 6;
 const rowY = (i) => ROW0 + i * PITCH, rowBase = (i) => rowY(i) + 52.5;
 L.header({ x: X0, y: 280, w: CX1 - X0, label: "Frequency Rotation Schedule", c1: "sky", c2: "lilac" });
@@ -87,7 +101,7 @@ GRIDS.forEach((g, i) => {
   L.box({ x: X0, y: rowY(i), w: 300, h: RH, c: GC[i], label: g, fs: 32, r: "l" });
   L.rect({ x: CX0, y: rowY(i), w: CX1 - CX0, h: RH, c: TRACK });
 });
-for (let s = -10; s < SPAN - PAST; s += 10) if (s) L.rect({ x: Math.round(NOWX + s * PPS) - 1, y: ROW0 - 12, w: 2, h: rowY(5) + RH + 12 - (ROW0 - 12), c: GRID, free: true });
+for (let s = 10 - PAST; s < SPAN - PAST; s += 10) if (s) L.rect({ x: Math.round(NOWX + s * PPS) - 1, y: ROW0 - 12, w: 2, h: rowY(5) + RH + 12 - (ROW0 - 12), c: GRID, free: true });
 const clip = L.el("div", "clip boot", L.stage, { left: CX0 + "px", top: ROW0 + "px", width: CX1 - CX0 + "px", height: rowY(5) + RH - ROW0 + "px" });
 // the past is dimmed; both ends fade, so nothing is cut by the window's edge
 const dim = L.layer({ x: CX0, y: ROW0, w: NOWX - CX0, h: rowY(5) + RH - ROW0 });
@@ -97,19 +111,37 @@ fadeR.style.background = "linear-gradient(to right, rgba(0,0,0,0), #000)";
 const cursor = fill(NOWX - 2, ROW0 - 12, 4, rowY(5) + RH + 12 - (ROW0 - 12), "white");
 
 // ---------------- grid modulation: what each grid holds now ----------------
-const MX0 = 3164;
-L.header({ x: MX0, y: 280, w: X1 - MX0, label: "Grid Modulation", c1: "lilac", c2: "sky" });
-const HOLDX = X1, PHX = X1 - 200, FQX = PHX - 220;
-[["Frequency", FQX], ["Phase", PHX], ["Hold", HOLDX]].forEach(([txt, x]) => L.text({ x, base: CAP, s: 36, c: "lilac", txt, align: "r" }));
-const modRows = GRIDS.map((_, i) => ({
-  f: L.text({ x: FQX, base: rowBase(i), s: 52, c: "white", txt: "", align: "r", cls: "sw" }),
-  ph: L.text({ x: PHX, base: rowBase(i), s: 40, c: "lilac", txt: "", align: "r" }),
-  hold: L.text({ x: HOLDX, base: rowBase(i), s: 40, c: "sky", txt: "", align: "r" }),
-}));
+let modRows;
+if (UP) {                                                  // upright: six columns under the schedule, on its track
+  const GMY = 1000, GMB = [1100, 1162, 1218, 1274], GX = (i) => Math.round(CX0 + ((i + 1) * (X1 - CX0)) / 6);
+  L.header({ x: X0, y: GMY, w: X1 - X0, label: "Grid Modulation", c1: "lilac", c2: "sky" });
+  ["Grid", "Frequency", "Phase", "Hold"].forEach((txt, k) => L.text({ x: X0, base: GMB[k], s: 36, c: "lilac", txt }));
+  GRIDS.forEach((g, i) => L.text({ x: GX(i), base: GMB[0], s: 36, c: GC[i], txt: g, align: "r" }));
+  modRows = GRIDS.map((_, i) => ({
+    f: L.text({ x: GX(i), base: GMB[1], s: 52, c: "white", txt: "", align: "r", cls: "sw" }),
+    ph: L.text({ x: GX(i), base: GMB[2], s: 40, c: "lilac", txt: "", align: "r" }),
+    hold: L.text({ x: GX(i), base: GMB[3], s: 40, c: "sky", txt: "", align: "r" }),
+  }));
+} else {
+  const MX0 = UW ? 4364 : 3164;
+  L.header({ x: MX0, y: 280, w: X1 - MX0, label: "Grid Modulation", c1: "lilac", c2: "sky" });
+  const HOLDX = X1, PHX = X1 - 200, FQX = PHX - 220;
+  [["Frequency", FQX], ["Phase", PHX], ["Hold", HOLDX]].forEach(([txt, x]) => L.text({ x, base: CAP, s: 36, c: "lilac", txt, align: "r" }));
+  modRows = GRIDS.map((_, i) => ({
+    f: L.text({ x: FQX, base: rowBase(i), s: 52, c: "white", txt: "", align: "r", cls: "sw" }),
+    ph: L.text({ x: PHX, base: rowBase(i), s: 40, c: "lilac", txt: "", align: "r" }),
+    hold: L.text({ x: HOLDX, base: rowBase(i), s: 40, c: "sky", txt: "", align: "r" }),
+  }));
+}
 
 // ---------------- the middle: spectrum, analysis, counter ----------------
-const MH = 1000, MCAP = 1100, LT = (i) => 1128 + i * 60, LH = 48, LB = (i) => LT(i) + 38, AXB = 1550;
-const P1 = 40, P1R = 1256, P2 = 1320, P2R = 2536, P3 = 2600, P3R = X1;
+// upright: spectrum | analysis on one row, then log | counter a row lower (OY moves the rows down)
+let OY = UP ? 340 : 0, MH, MCAP, AXB;
+const LT = (i) => 1128 + OY + i * 60, LH = 48, LB = (i) => LT(i) + 38;
+const midRow = () => { MH = 1000 + OY; MCAP = 1100 + OY; AXB = 1550 + OY; };
+midRow();
+const P1 = 40, P1R = UP ? 1056 : UW ? 1236 : 1256, P2 = UP ? 1120 : UW ? 1300 : 1320, P2R = UP ? X1 : UW ? 2496 : 2536;
+const P3 = UP ? 1120 : UW ? 2560 : 2600, P3R = UW ? 3756 : X1, P4 = 3820, P4R = X1;   // P4: ultrawide only
 
 // frequency spectrum: where in the band each grid sits, its last six, and the locked-out bands
 L.header({ x: P1, y: MH, w: P1R - P1, label: "Frequency Spectrum", c1: "lilac", c2: "sky" });
@@ -155,16 +187,23 @@ for (const k of [0.25, 0.5, 0.75]) L.rect({ x: Math.round(ABX0 + k * (ABX1 - ABX
 L.text({ x: P2, base: AXB, s: 36, c: "lilac", txt: "Mean Interval" });
 const meanInt = L.text({ x: P2 + L.textWidth("Mean Interval", 36) + 24, base: AXB, s: 36, c: "white", txt: "" });
 const MAX_ = Math.round((ABX0 + ABX1) / 2);                 // on the bars' midline
-L.text({ x: MAX_, base: AXB, s: 36, c: "lilac", txt: "Mean Time to Adapt" });
-const meanAda = L.text({ x: MAX_ + L.textWidth("Mean Time to Adapt", 36) + 24, base: AXB, s: 36, c: "white", txt: "" });
+let meanAda;
+if (UP) {                                                  // narrower: the value ends on the panel's edge
+  L.text({ x: ABX1, base: AXB, s: 36, c: "lilac", txt: "Mean Time to Adapt", align: "r" });   // ends with the bars
+  meanAda = L.text({ x: P2R, base: AXB, s: 36, c: "white", txt: "", align: "r" });
+} else {
+  L.text({ x: MAX_, base: AXB, s: 36, c: "lilac", txt: "Mean Time to Adapt" });
+  meanAda = L.text({ x: MAX_ + L.textWidth("Mean Time to Adapt", 36) + 24, base: AXB, s: 36, c: "white", txt: "" });
+}
 
 // adaptation counter, and the two distributions it comes from
+if (UP) { OY = 956; midRow(); }
 L.header({ x: P3, y: MH, w: P3R - P3, label: "Adaptation Counter", c1: "lilac", c2: "sky" });
 L.text({ x: P3, base: MCAP, s: 36, c: "lilac", txt: "Borg Adaptation Model  ·  Wolf 359 Tactical Records" });
 L.text({ x: P3, base: LB(0), s: 40, c: "sky", txt: "Adaptations" });
 L.text({ x: P3, base: LB(1), s: 36, c: "lilac", txt: "Frequencies lost to the model" });
 const bigCount = L.text({ x: P3R, base: LB(1), s: 140, c: "butter", txt: "", align: "r", cls: "sw" });
-const CMX = 3060, CMR = 3500;
+const CMX = UP ? P3 + 400 : UW ? P3 + 460 : 3060, CMR = UP ? P3 + 760 : UW ? P3 + 900 : 3500;
 L.text({ x: CMX, base: LB(0), s: 36, c: "lilac", txt: "Rotations" });
 const rotVal = L.text({ x: CMR, base: LB(0), s: 40, c: "white", txt: "", align: "r" });
 L.text({ x: CMX, base: LB(1), s: 36, c: "lilac", txt: "Rotated Clear" });
@@ -189,26 +228,28 @@ const hBars = Array.from({ length: NBIN }, (_, b) => [0, 1].map((k) => {
 }));
 
 // ---------------- bottom strip: log, lockouts, settings ----------------
-const BH = 1620, BCAP = 1716, BROW = (i) => 1776 + i * 54, NL = 5;
-const B1 = P1, B1R = P1R, B2 = P2, B2R = P2R, B3 = P3, B3R = P3R;
-L.header({ x: B1, y: BH, w: B1R - B1, label: "Rotation Log", c1: "sky", c2: "lilac", h: 48 });
+const BH = UP ? 2572 : 1620, BCAP = BH + 96, BROW = (i) => BH + 156 + i * 54, NL = 5;
+const B1 = P1, B1R = P1R, B2 = UP ? P1 : P2, B2R = UP ? P1R : P2R, B3 = P3, B3R = P3R, B4 = P4, B4R = P4R;
+// the log: upright, it sits beside the counter on that panel's rows (six of them)
+const LGY = UP ? MH : BH, LGCAP = UP ? MCAP : BCAP, LGROW = UP ? LB : BROW, NLG = UP ? 6 : NL;
+L.header({ x: B1, y: LGY, w: B1R - B1, label: "Rotation Log", c1: "sky", c2: "lilac", h: UP ? 56 : 48 });
 const LGX = B1 + Math.ceil(L.textWidth("88:88:88", 36)) + 64, LEX = LGX + widest([...GRIDS, "All"], 36) + 64;
-[["Time", B1], ["Grid", LGX], ["Event", LEX]].forEach(([txt, x]) => L.text({ x, base: BCAP, s: 36, c: "lilac", txt }));
-const logRows = Array.from({ length: NL }, (_, i) => ({
-  tm: L.text({ x: B1, base: BROW(i), s: 36, c: "sky", txt: "", cls: "fd" }),
-  gr: L.text({ x: LGX, base: BROW(i), s: 36, c: "lilac", txt: "", cls: "fd" }),
-  ev: L.text({ x: LEX, base: BROW(i), s: 36, c: "white", txt: "", cls: "fd" }),
+[["Time", B1], ["Grid", LGX], ["Event", LEX]].forEach(([txt, x]) => L.text({ x, base: LGCAP, s: 36, c: "lilac", txt }));
+const logRows = Array.from({ length: NLG }, (_, i) => ({
+  tm: L.text({ x: B1, base: LGROW(i), s: 36, c: "sky", txt: "", cls: "fd" }),
+  gr: L.text({ x: LGX, base: LGROW(i), s: 36, c: "lilac", txt: "", cls: "fd" }),
+  ev: L.text({ x: LEX, base: LGROW(i), s: 36, c: "white", txt: "", cls: "fd" }),
 }));
 const logged = [];
 let logReady = false, lastLog = -99;
 const showLog = () => logRows.forEach((r, i) => {
-  const e = logged[logged.length - NL + i];
+  const e = logged[logged.length - NLG + i];
   L.set(r.tm, e ? e.tm : ""); L.set(r.gr, e ? e.gr : ""); L.set(r.ev, e ? e.ev : "");
   fg(r.ev, e && e.adapt ? "mars" : "white");
 });
 const logEvent = (gr, ev, adapt = false, dt = 0) => {
   logged.push({ tm: clockAt(dt), gr, ev, adapt });
-  if (logged.length > NL) logged.shift();
+  if (logged.length > NLG) logged.shift();
   lastLog = L.t;
   if (!logReady) return;
   const els = logRows.flatMap((r) => [r.tm, r.gr, r.ev]);
@@ -264,7 +305,7 @@ const genSlot = (row, start, t) => {
   const len = Math.round(L.rand(IMIN, IMAX) * 10) / 10, prevF = row.lastF;
   const f = pickF(prevF, t);
   const s = { start, end: start + len, len, f, ph: pickPh(), adaptAt: null };
-  if (start > 0 && len >= 4.8 && Math.random() < P_ADAPT) {
+  if (start > Math.max(0, t) && len >= 4.8 && Math.random() < P_ADAPT) {   // (only a slot made after a pause starts before now)
     s.adaptAt = start + L.rand(2, len - REACT - 1.8);
     s.ta = s.adaptAt - start;
   } else s.ta = len / L.rand(0.4, 0.9);
@@ -346,7 +387,8 @@ const routine = (dt = 0) => {
   if (!routineDeck.length) routineDeck = ROUTINE.slice().sort(() => Math.random() - 0.5);
   logEvent(...routineDeck.pop(), false, dt);
 };
-// the log so far, oldest first
+// the log so far, oldest first (upright's log has a sixth row)
+if (UP) routine(-212);
 routine(-164);
 logEvent(GRIDS[2], `${lockouts[0].f.toFixed(1)} adapted in 4.6 s  ·  rotated to ${pickF(lockouts[0].f, 0).toFixed(1)}`, true, -128);
 routine(-96);
@@ -365,8 +407,11 @@ L.tick((t) => {
   const t0 = t - PAST;
   rows.forEach((row, ri) => {
     // keep the schedule ahead of the window
-    let last = row.slots[row.slots.length - 1];
-    while (last.end < t + SPAN - PAST + 2) { const s = genSlot(row, last.end, t); addSlot(row, s, t); last = s; }
+    // (after a long pause in animation frames the schedule picks up just before the window, staggered as at the
+    // start, rather than making every slot it missed)
+    let at = row.slots[row.slots.length - 1].end;
+    if (at < t0 - IMAX) at = t0 - L.rand(0, IMAX);
+    while (at < t + SPAN - PAST + 2) { const s = genSlot(row, at, t); addSlot(row, s, t); at = s.end; }
     // an adaptation, the moment the model completes it
     for (const s of row.slots) if (s.adaptAt !== null && !s.done && t >= s.adaptAt) adapt(row, s, t);
     // the blocks slide left
@@ -455,6 +500,66 @@ const showHist = () => {
 };
 showHist();
 L.every(6000, showHist, 0);
+
+// ---------------- ultrawide only: rotation intervals, and the rotations coming up ----------------
+if (UW) {
+  // each grid's interval, draining to its next rotation; refilled with an ease when it rotates
+  L.header({ x: P4, y: MH, w: P4R - P4, label: "Rotation Interval", c1: "sky", c2: "lilac" });
+  const RVW = Math.ceil(L.textWidth("8.8 s", 40));
+  const RX0 = P4 + widest(GRIDS, 36) + 64, RX1 = P4R - RVW - 40;   // the bars run up to their figures, as Analysis's do
+  L.text({ x: P4, base: MCAP, s: 36, c: "lilac", txt: "Grid" });
+  L.text({ x: RX0, base: MCAP, s: 36, c: "lilac", txt: "Time Left in Interval" });
+  L.text({ x: P4R, base: MCAP, s: 36, c: "lilac", txt: "Interval", align: "r" });
+  const ivRows = GRIDS.map((g, i) => {
+    L.text({ x: P4, base: LB(i), s: 36, c: GC[i], txt: g });
+    L.rect({ x: RX0, y: LB(i) - 26, w: RX1 - RX0, h: 26, c: TRACK });
+    const bar = fill(RX0, LB(i) - 26, RX1 - RX0, 26, GC[i]); bar.style.transform = "scaleX(0)";
+    return { bar, val: L.text({ x: P4R, base: LB(i), s: 40, c: "white", txt: "", align: "r" }) };
+  });
+  for (const k of [0.25, 0.5, 0.75]) L.rect({ x: Math.round(RX0 + k * (RX1 - RX0)) - 1, y: LB(0) - 34, w: 2, h: LB(5) + 8 - (LB(0) - 34), c: GRID, free: true });
+  L.text({ x: P4, base: AXB, s: 36, c: "lilac", txt: "Next Rotation" });
+  const nextVal = L.text({ x: RX0, base: AXB, s: 36, c: "white", txt: "" });
+  L.text({ x: RX1, base: AXB, s: 36, c: "lilac", txt: "Longest Interval", align: "r" });   // ends with the bars
+  const longVal = L.text({ x: P4R, base: AXB, s: 36, c: "white", txt: "", align: "r" });   // ends on the panel's edge
+  const left = (row, t) => {
+    const p = row.cur;
+    if (!p) return 0;
+    const v = L.clamp((p.end - t) / (p.end - p.start));
+    return v * L.ease(L.clamp((t - p.start) / 0.6));
+  };
+  L.tick((t) => rows.forEach((row, ri) => tf(ivRows[ri].bar, `scaleX(${left(row, t).toFixed(4)})`)));
+
+  // the next five rotations, soonest first
+  L.header({ x: B4, y: BH, w: B4R - B4, label: "Next Rotations", c1: "lilac", c2: "sky", h: 48 });
+  const NW = [widest(GRIDS, 36), L.textWidth("888.8 MHz", 36), L.textWidth("Phase", 36), L.textWidth("88.8 s", 36)];
+  const NG = (B4R - B4 - NW.reduce((a, b) => a + b, 0)) / 3;
+  const NC = [B4]; { let x = B4 + NW[0]; for (let j = 1; j < 4; j++) { x += NG + NW[j]; NC.push(Math.round(j === 3 ? B4R : x)); } }
+  [["Grid", NC[0], "l"], ["Frequency", NC[1], "r"], ["Phase", NC[2], "r"], ["In", NC[3], "r"]].forEach(([txt, x, align]) => L.text({ x, base: BCAP, s: 36, c: "lilac", txt, align }));
+  const nextRows = Array.from({ length: NL }, (_, i) => ({
+    gr: L.text({ x: NC[0], base: BROW(i), s: 36, c: "sky", txt: "" }),
+    f: L.text({ x: NC[1], base: BROW(i), s: 36, c: "white", txt: "", align: "r" }),
+    ph: L.text({ x: NC[2], base: BROW(i), s: 36, c: "lilac", txt: "", align: "r" }),
+    in: L.text({ x: NC[3], base: BROW(i), s: 36, c: "white", txt: "", align: "r" }),
+  }));
+  L.every(250, (t) => {
+    rows.forEach((row, ri) => { if (row.cur) L.set(ivRows[ri].val, (row.cur.end - row.cur.start).toFixed(1) + " s"); });
+    const live = rows.filter((r) => r.cur);
+    if (live.length) {
+      const nx = live.reduce((a, b) => (b.cur.end < a.cur.end ? b : a));
+      L.set(nextVal, `${nx.g}  ·  ${Math.max(0, nx.cur.end - t).toFixed(1)} s`);
+      const lg = live.reduce((a, b) => (b.cur.end - b.cur.start > a.cur.end - a.cur.start ? b : a));
+      L.set(longVal, `${(lg.cur.end - lg.cur.start).toFixed(1)} s`);
+    }
+    const up = rows.flatMap((r) => r.pieces.filter((p) => p.start > t).map((p) => ({ r, p }))).sort((a, b) => a.p.start - b.p.start).slice(0, NL);
+    nextRows.forEach((n, i) => {
+      const u = up[i];
+      if (!u) { L.set(n.gr, ""); L.set(n.f, ""); L.set(n.ph, ""); L.set(n.in, ""); return; }
+      L.set(n.gr, u.r.g); fg(n.gr, GC[u.r.i]);
+      L.set(n.f, `${u.p.f.toFixed(1)} MHz`); fg(n.f, bandOf(u.p.f));
+      L.set(n.ph, `${u.p.ph}°`); L.set(n.in, `${(u.p.start - t).toFixed(1)} s`);
+    });
+  }, 0);
+}
 L.every(15000, (t) => { if (t - lastLog > 8) routine(); }, 0.3);
 });
 </script></body></html>

@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Saucer Separation</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .band { transition: background-color .9s ease, color .9s ease; }
@@ -15,13 +16,40 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: sidebar left, title top right ----------------
-L.frame({ type: "A", title: "Saucer Separation  •  Sequence", c: "peach", c2: "orange", accent: "tan", foot: "Separation",
+const FB = L.frame({ type: "A", title: "Saucer Separation  •  Sequence", c: "peach", c2: "orange", accent: "tan", foot: "Separation",
   side: [[140, "orange", "Sep 01"], [70, "tan", "Saucer"], [420, "peach", "Latches"], [70, "butter", "Impulse"],
          [300, "orange", "Stardrive"], [70, "tan", "Loads"], [216, "peach", "Sequence"]] });
 
 // three equal columns: saucer · docking latches · stardrive
 const COLS = [[330, 1452], [1512, 2634], [2694, 3816]];
 const [A, B, C] = COLS;
+
+// ---------------- the layout, per shape ----------------
+// Data, readings and motion below are written once; only these positions and sizes differ.
+// wide (3840 × 2160): the three columns above — saucer | latches | stardrive — each carrying a
+//   system table (or the latches), a cycle chart and a list.
+// upright (2160 × 3120): the two section tables side by side (halves, 873 wide); the latches
+//   (330–1514) with the structural loads beside them on the latch rows (1574–2136); the three
+//   cycle charts in thirds (562 wide, 24 bars each); the two sequences side by side at the foot.
+// ultrawide (5040 × 2160): the saucer and stardrive columns keep their wide size at either side;
+//   the latch column between them is 1200 longer (2322): a larger latch diagram, a range chart of
+//   96 bars, and below them the crew transfer to the saucer beside the docking sequence.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const X0 = FB.x0, X1 = FB.x1;
+const HALF_L = [X0, 1203], HALF_R = [1263, X1];                 // upright halves
+const THIRD = [[X0, 892], [952, 1514], [1574, X1]];             // upright thirds
+const MID = [1512, 3834], UC = [3894, X1];                       // ultrawide: the long centre column, the stardrive's
+const S1 = UP ? HALF_L : A, S2 = UP ? HALF_R : UW ? UC : C;     // the section tables
+const LC = UP ? [X0, 1514] : UW ? MID : B;                       // the docking latches
+const LD = UP ? THIRD[2] : UW ? UC : C;                          // the structural loads
+const IA = UP ? THIRD[0] : A, IR = UP ? THIRD[1] : UW ? MID : B, IC = UP ? THIRD[2] : UW ? UC : C;   // the charts
+const Q1 = UP ? HALF_L : A, Q2 = UP ? HALF_R : UW ? [2703, 3834] : B;   // the sequences
+const CREW = UW ? [1512, 2643] : null;                           // ultrawide only: crew transfer
+// rows: the section tables' header and first row; the latches'; the charts'; the lists'
+const HY = UP ? 356 : 280, TR0 = HY + 148;                       // wide 280, 428
+const LHY = UP ? 1088 : 280, LR0 = LHY + 148;
+const SUBX = UP ? X0 : B[0], SUBB = UP ? 282 : 222;
+const QY = UP ? 2580 : 1620, QB = QY + 114;                      // wide 1620, 1734
 const TRACK = "#2a2016";
 const fill = (x, y, w, h, c, origin = "0 0") => {
   const f = L.layer({ x, y, w, h });
@@ -58,28 +86,28 @@ const apart = (u) => sm(22, 26, u) - sm(49, 53, u);
 
 // ---------------- status line ----------------
 const stateTxt = L.text({ x: A[0], cap: 150, s: 100, c: "lilac", txt: "" });
-L.text({ x: B[0], base: 222, s: 38, c: "peach", txt: "U.S.S. Enterprise NCC-1701-D  ·  Last combat separation, Stardate 44001.4" });
-const cond = L.box({ x: C[1] - 400, y: 150, w: 400, h: 72, c: "tan", label: "", r: "lr", fs: 36, cls: "sw" });
+L.text({ x: SUBX, base: SUBB, s: 38, c: "peach", txt: "U.S.S. Enterprise NCC-1701-D  ·  Last combat separation, Stardate 44001.4" });
+const cond = L.box({ x: X1 - 400, y: 150, w: 400, h: 72, c: "tan", label: "", r: "lr", fs: 36, cls: "sw" });
 
 // a section header with a status pill at its right end
-const pillHeader = (col, label, c1, c2, texts, pc) => {
+const pillHeader = (col, label, c1, c2, texts, pc, y = 280) => {
   const pw = Math.ceil(Math.max(...texts.map((s) => L.textWidth(s, 32))) / 10) * 10 + 90;
-  L.header({ x: col[0], y: 280, w: col[1] - col[0] - pw - L.GAP, label, c1, c2 });
-  return L.box({ x: col[1] - pw, y: 280, w: pw, h: 56, c: pc, label: "", fs: 32, r: "r", cls: "sw" });
+  L.header({ x: col[0], y, w: col[1] - col[0] - pw - L.GAP, label, c1, c2 });
+  return L.box({ x: col[1] - pw, y, w: pw, h: 56, c: pc, label: "", fs: 32, r: "r", cls: "sw" });
 };
 
 // ---------------- the two sections: systems ----------------
-const ROW0 = 428, PITCH = 88, rowBase = (i) => ROW0 + i * PITCH + 52.5;
+const ROW0 = TR0, PITCH = 88, rowBase = (i, r0 = ROW0) => r0 + i * PITCH + 52.5;
 const BOXW = 290, VALW = 160;
 const SECTIONS = [
-  { col: A, c: "peach", name: "Saucer Section", bridge: "Main Bridge", rows: [
+  { col: S1, c: "peach", name: "Saucer Section", bridge: "Main Bridge", rows: [
     ["EPS Power", (u) => 72 - 14 * sm(18, 20, u) + 14 * sm(56, 58, u)],
     ["Structural Field", (u) => 85 + 15 * alert(u)],
     ["Inertial Dampers", (u) => 80 + 20 * alert(u)],
     ["Deflector Shields", (u) => 25 + 75 * alert(u)],
     ["Life Support", (u) => 99 - 2 * apart(u)],
     ["Phaser Arrays", (u) => 15 + 65 * alert(u)]] },
-  { col: C, c: "orange", name: "Stardrive Section", bridge: "Battle Bridge", rows: [
+  { col: S2, c: "orange", name: "Stardrive Section", bridge: "Battle Bridge", rows: [
     ["Warp Core", (u) => 34 + 18 * sm(18, 20, u) - 18 * sm(56, 58, u)],
     ["Structural Field", (u) => 85 + 15 * alert(u)],
     ["Inertial Dampers", (u) => 80 + 20 * alert(u)],
@@ -93,10 +121,10 @@ const BRIDGE_TXT = [
 ];
 SECTIONS.forEach((s, k) => {
   const [x0, x1] = s.col;
-  s.pill = pillHeader(s.col, s.name, s.c, k ? "peach" : "orange", BRIDGE_TXT[k], "tan");
-  L.text({ x: x0, base: 400, s: 36, c: "lilac", txt: "System" });
-  L.text({ x: x0 + BOXW + L.GAP, base: 400, s: 36, c: "lilac", txt: "Level" });
-  L.text({ x: x1, base: 400, s: 36, c: "lilac", txt: "Percent", align: "r" });
+  s.pill = pillHeader(s.col, s.name, s.c, k ? "peach" : "orange", BRIDGE_TXT[k], "tan", HY);
+  L.text({ x: x0, base: HY + 120, s: 36, c: "lilac", txt: "System" });
+  L.text({ x: x0 + BOXW + L.GAP, base: HY + 120, s: 36, c: "lilac", txt: "Level" });
+  L.text({ x: x1, base: HY + 120, s: 36, c: "lilac", txt: "Percent", align: "r" });
   const tx = x0 + BOXW + L.GAP, tw = x1 - VALW - tx;
   s.gauges = s.rows.map(([label, f], i) => {
     const base = rowBase(i);
@@ -107,47 +135,51 @@ SECTIONS.forEach((s, k) => {
 });
 
 // ---------------- docking latches ----------------
-const latchPill = pillHeader(B, "Docking Latches", "orange", "tan", ["6 Of 6 Locked", "All Released"], "peach");
+const latchPill = pillHeader(LC, "Docking Latches", "orange", "tan", ["6 Of 6 Locked", "All Released"], "peach", LHY);
 const LBW = Math.ceil((L.textWidth("Latch 6", 32) + 80) / 10) * 10;
 const ST = ["Locked", "Releasing", "Released", "Engaging"];
 const STW = Math.ceil(Math.max(...ST.map((s) => L.textWidth(s, 40))) / 10) * 10;
-const TS = B[0] + LBW + L.GAP, TE = B[1] - STW - 2 * L.GAP, CX = Math.round((TS + TE) / 2);
-L.text({ x: B[0], base: 400, s: 36, c: "lilac", txt: "Latch" });
-L.text({ x: TS, base: 400, s: 36, c: "lilac", txt: "Saucer" });
-L.text({ x: TE, base: 400, s: 36, c: "lilac", txt: "Stardrive", align: "r" });
-L.text({ x: B[1], base: 400, s: 36, c: "lilac", txt: "Status", align: "r" });
-const SEAM = 6, J = 170, PW = 48;
+const TS = LC[0] + LBW + L.GAP, TE = LC[1] - STW - 2 * L.GAP, CX = Math.round((TS + TE) / 2);
+L.text({ x: LC[0], base: LHY + 120, s: 36, c: "lilac", txt: "Latch" });
+L.text({ x: TS, base: LHY + 120, s: 36, c: "lilac", txt: "Saucer" });
+L.text({ x: TE, base: LHY + 120, s: 36, c: "lilac", txt: "Stardrive", align: "r" });
+L.text({ x: LC[1], base: LHY + 120, s: 36, c: "lilac", txt: "Status", align: "r" });
+// ultrawide: the jaws, pins and their run scaled with the longer track (wide: 170, 64, 80)
+const SEAM = 6, J = UW ? 540 : 170, PW = 48, PINH = UW ? 150 : 64;
 const DMAX = CX - SEAM - J - PW - TS - 16;               // the furthest the plates draw apart, clear of the track ends
 const latches = Array.from({ length: NL }, (_, i) => {
-  const y = ROW0 + i * PITCH;
-  L.box({ x: B[0], y, w: LBW, h: 64, c: i % 2 ? "tan" : "orange", label: "Latch " + (i + 1), fs: 32, r: "l" });
+  const y = LR0 + i * PITCH;
+  L.box({ x: LC[0], y, w: LBW, h: 64, c: i % 2 ? "tan" : "orange", label: "Latch " + (i + 1), fs: 32, r: "l" });
   L.rect({ x: TS, y, w: TE - TS, h: 64, c: TRACK });
-  return { y, st: L.text({ x: B[1], base: rowBase(i), s: 40, c: "tan", txt: "", align: "r" }) };
+  return { y, st: L.text({ x: LC[1], base: rowBase(i, LR0), s: 40, c: "tan", txt: "", align: "r" }) };
 });
-L.rect({ x: CX - 1, y: ROW0 - 12, w: 2, h: NL * PITCH - 24 + 24, c: "#6b5233", free: true });   // the separation plane
+L.rect({ x: CX - 1, y: LR0 - 12, w: 2, h: NL * PITCH - 24 + 24, c: "#6b5233", free: true });   // the separation plane
 const GH = NL * PITCH - 24;                              // the plates span the six latch rows
 const comb = (x, side, c) => {                           // a plate and its six jaws, one layer
-  const g = L.layer({ x, y: ROW0, w: J + PW, h: GH });
+  const g = L.layer({ x, y: LR0, w: J + PW, h: GH });
   const plate = L.el("div", "plate", g, { left: (side < 0 ? 0 : J) + "px", top: 0, width: PW + "px", height: GH + "px", background: `var(--${c})` });
   latches.forEach((l, i) => L.el("div", "jaw", g, { left: (side < 0 ? PW + 8 : 0) + "px", top: i * PITCH + "px", width: J - 8 + "px", height: "64px", background: `var(--${c})` }));
   return g;
 };
 const saucerComb = comb(CX - SEAM - J - PW, -1, "peach");
 const starComb = comb(CX + SEAM, 1, "orange");
-latches.forEach((l) => (l.pin = L.layer({ x: CX - 64, y: l.y + 20, w: 128, h: 24, cls: "pin" })));
-const PINRUN = 80;
+latches.forEach((l) => (l.pin = L.layer({ x: CX - PINH, y: l.y + 20, w: 2 * PINH, h: 24, cls: "pin" })));
+const PINRUN = UW ? 180 : 80;
 const gapAt = (u) => DMAX * (1 - Math.exp(-range(u) / 250));
 
 // ---------------- lower panels: impulse, range, impulse — each the whole cycle, and now ----------------
-const LH = 1000, RB = 1136, CT = 1176, CB = 1452, BY = 1476, NB = 48;
-const charts = [];
-const chart = (col, f, max, c) => {
+// upright: the charts' band starts at 1812 and runs taller, ending 80 above the sequences
+const LH = UP ? 1812 : 1000, RB = LH + 136, CT = LH + 176, CB = UP ? 2412 : 1452, BY = CB + 24, NB = UP ? 24 : 48;
+const NB0 = NB, charts = [];
+const chart = (col, f, max, c, NB = NB0, grid = null) => {
   const [x0, x1] = col, w = x1 - x0, p = (w + 6) / NB;
   for (let i = 0; i < NB; i++) {
     const v = L.clamp(f(((i + 0.5) * CYCLE) / NB) / max), x = x0 + i * p;
     L.rect({ x, y: CT, w: p - 6, h: CB - CT, c: TRACK, noalign: true });
     const h = Math.round(v * (CB - CT));
     if (h >= 1) L.rect({ x, y: CB - h, w: p - 6, h, c, noalign: true });
+    // ultrawide's long range chart: scale lines on the empty part of each track, so the long docked stretch reads
+    if (grid) for (const g of grid) { const gy = Math.round(CB - (g / max) * (CB - CT)); if (gy < CB - h - 4) L.rect({ x, y: gy - 1, w: p - 6, h: 2, c: "#5a442c", free: true }); }
   }
   const clip = L.el("div", "clip", L.stage, { left: x0 + "px", top: CT + "px", width: w + "px", height: CB - CT + "px" });
   const cover = L.layer({ x: 0, y: 0, w, h: CB - CT }, clip);
@@ -158,7 +190,7 @@ const chart = (col, f, max, c) => {
   let bx = x0;
   const bands = PHASES.map(([name, a, b, pc], i) => {
     const bw = i === PHASES.length - 1 ? x1 - bx : Math.round(((b - a) / CYCLE) * (w + 6)) - 6;
-    const e = L.box({ x: bx, y: BY, w: bw, h: 64, c: pc, label: name, fs: 32, cls: "band" });
+    const e = L.box({ x: bx, y: BY, w: bw, h: 64, c: pc, label: name, fs: UP ? 28 : 32, cls: "band" });   // upright: thirds, "Docked" in 89
     bx += bw + 6;
     return e;
   });
@@ -173,15 +205,23 @@ const readouts = (col, l1, l2, wide2) => {
   const v2 = L.text({ x: x1, base: RB, s: 52, c: "white", txt: "", align: "r" });
   return { v1, l2: l2e, v2 };
 };
-L.header({ x: A[0], y: LH, w: A[1] - A[0], label: "Saucer Impulse", c1: "peach", c2: "tan" });
-L.header({ x: B[0], y: LH, w: B[1] - B[0], label: "Separation Range", c1: "orange", c2: "peach" });
-L.header({ x: C[0], y: LH, w: C[1] - C[0], label: "Stardrive Impulse", c1: "orange", c2: "tan" });
-const roA = readouts(A, "Impulse", "Aboard", "8,888");
-const roB = readouts(B, "Range", "Closing", "888 m/s");
-const roC = readouts(C, "Impulse", "Aboard", "8,888");
-chart(A, impSaucer, 50, "peach");
-chart(B, range, 1300, "butter");
-chart(C, impStar, 50, "orange");
+L.header({ x: IA[0], y: LH, w: IA[1] - IA[0], label: "Saucer Impulse", c1: "peach", c2: "tan" });
+L.header({ x: IR[0], y: LH, w: IR[1] - IR[0], label: "Separation Range", c1: "orange", c2: "peach" });
+L.header({ x: IC[0], y: LH, w: IC[1] - IC[0], label: "Stardrive Impulse", c1: "orange", c2: "tan" });
+const roA = readouts(IA, "Impulse", "Aboard", "8,888");
+const roB = readouts(IR, "Range", "Closing", "888 m/s");
+const roC = readouts(IC, "Impulse", "Aboard", "8,888");
+chart(IA, impSaucer, 50, "peach");
+chart(IR, range, 1300, "butter", UW ? 96 : NB, UW ? [250, 500, 750, 1000, 1250] : null);
+chart(IC, impStar, 50, "orange");
+// ultrawide: the long range panel also reads the time through the sequence, centred between its readouts
+let seqV = null;
+if (UW) {
+  const mx = Math.round((IR[0] + IR[1]) / 2), lw = Math.ceil(L.textWidth("Sequence", 40)), vw = Math.ceil(L.textWidth("T+00:00", 52));
+  const lx = mx - Math.round((lw + 32 + vw) / 2);
+  L.text({ x: lx, base: RB, s: 40, c: "tan", txt: "Sequence" });
+  seqV = L.text({ x: lx + lw + 32, base: RB, s: 52, c: "white", txt: "" });
+}
 
 // ---------------- the sequences ----------------
 const SEP = [["Separation alert, all decks", 10], ["Civilians and families to the saucer", 12], ["Command to the Battle Bridge", 16],
@@ -190,21 +230,26 @@ const DOCK = [["Approach vector laid in", 42], ["Alignment thrusters, final appr
   ["Structural integrity fields merged", 55.5], ["EPS and turbolift links restored", 56.5], ["Command returned to the Main Bridge", 58]];
 const checklist = (col, label, c1, c2, steps, end, idle) => {
   const [x0, x1] = col;
-  L.header({ x: x0, y: 1620, w: x1 - x0, label, c1, c2, h: 48 });
+  L.header({ x: x0, y: QY, w: x1 - x0, label, c1, c2, h: 48 });
   const t0 = steps[0][1], TW = 230;
   return steps.map(([txt, at], i) => {
-    const base = 1734 + i * 54;
+    const base = QB + i * 54;
     L.box({ x: x0, y: base - 29, w: 96, h: 40, c: i % 2 ? "tan" : c1, label: pad2(i + 1), fs: 30, r: "l" });
     const e = L.text({ x: x0 + 124, base, s: 36, c: "peach", txt });
     L.text({ x: x1 - TW, base, s: 36, c: "lilac", txt: "T+" + pad2(Math.floor(at - t0)), align: "r" });
     return { e, st: L.text({ x: x1, base, s: 36, c: "lilac", txt: "", align: "r" }), at, next: i + 1 < steps.length ? steps[i + 1][1] : end, t0, idle, look: "" };
   });
 };
-const sepList = checklist(A, "Separation Sequence", "peach", "orange", SEP, 28, "Ready");
-const dockList = checklist(B, "Docking Sequence", "orange", "peach", DOCK, CYCLE, "Standby");
+const sepList = checklist(Q1, "Separation Sequence", "peach", "orange", SEP, 28, "Ready");
+const dockList = checklist(Q2, "Docking Sequence", "orange", "peach", DOCK, CYCLE, "Standby");
 
 // ---------------- structural loads ----------------
-L.header({ x: C[0], y: 1620, w: C[1] - C[0], label: "Structural Loads", c1: "peach", c2: "orange", h: 48 });
+// upright: beside the latches, on the latch rows, with column captions like theirs
+if (UP) {
+  L.header({ x: LD[0], y: LHY, w: LD[1] - LD[0], label: "Structural Loads", c1: "peach", c2: "orange" });
+  L.text({ x: LD[0], base: LHY + 120, s: 36, c: "lilac", txt: "Member" });
+  L.text({ x: LD[1], base: LHY + 120, s: 36, c: "lilac", txt: "Load", align: "r" });
+} else L.header({ x: LD[0], y: 1620, w: LD[1] - LD[0], label: "Structural Loads", c1: "peach", c2: "orange", h: 48 });
 const LOADS = [
   ["Saucer Spaceframe", (u) => 31 + 5 * apart(u) + 9 * thrust(u) + 8 * contact(u)],
   ["Stardrive Spaceframe", (u) => 28 + 3 * apart(u) + 10 * thrust(u) + 9 * contact(u)],
@@ -213,13 +258,36 @@ const LOADS = [
   ["Saucer Field Load", (u) => 22 + 8 * apart(u) + 26 * thrust(u) + 14 * contact(u)],
   ["Stardrive Field Load", (u) => 20 + 8 * apart(u) + 25 * thrust(u) + 15 * contact(u)],
 ];
-const LX = C[0] + Math.ceil(Math.max(...LOADS.map(([n]) => L.textWidth(n, 36))) / 10) * 10 + 40, LW = C[1] - 130 - LX;
+const LX = LD[0] + Math.ceil(Math.max(...LOADS.map(([n]) => L.textWidth(n, 36))) / 10) * 10 + 40, LW = LD[1] - 130 - LX;
 const loads = LOADS.map(([name, f], i) => {
-  const base = 1734 + i * 54;
-  L.text({ x: C[0], base, s: 36, c: "tan", txt: name });
+  const base = UP ? rowBase(i, LR0) : 1734 + i * 54;
+  L.text({ x: LD[0], base, s: 36, c: "tan", txt: name });
   L.rect({ x: LX, y: base - 26, w: LW, h: 26, c: TRACK });
-  return { f, bar: fill(LX, base - 26, LW, 26, i < 2 ? "peach" : i < 4 ? "orange" : "tan"), val: L.text({ x: C[1], base, s: 40, c: "white", txt: "", align: "r" }), v: -1 };
+  return { f, bar: fill(LX, base - 26, LW, 26, i < 2 ? "peach" : i < 4 ? "orange" : "tan"), val: L.text({ x: LD[1], base, s: 40, c: "white", txt: "", align: "r" }), v: -1 };
 });
+
+// ---------------- ultrawide only: crew transfer to the saucer ----------------
+// The 226 who move with the separation alert (the Aboard readings), group after group: each
+// group's bar fills from the running total, so the groups always add up to the readings.
+let crew = null;
+if (UW) {
+  const [x0, x1] = CREW;
+  L.header({ x: x0, y: QY, w: x1 - x0, label: "Crew Transfer To Saucer", c1: "orange", c2: "tan", h: 48 });
+  const GROUPS = [["Families  ·  Decks 19–24", 52], ["Families  ·  Decks 25–31", 44], ["Families  ·  Decks 32–38", 30],
+    ["Science Staff", 46], ["Civilian Specialists", 28], ["Medical Staff", 26]];
+  const NW = Math.ceil(L.textWidth("52 / 52", 40) / 10) * 10 + 40;
+  const GX = x0 + Math.ceil(Math.max(...GROUPS.map(([n]) => L.textWidth(n, 36))) / 10) * 10 + 40, GW = x1 - NW - GX;
+  let before = 0;
+  crew = GROUPS.map(([name, n], i) => {
+    const base = QB + i * 54;
+    L.text({ x: x0, base, s: 36, c: "tan", txt: name });
+    L.rect({ x: GX, y: base - 26, w: GW, h: 26, c: TRACK });
+    const g = { n, before, bar: fill(GX, base - 26, GW, 26, i % 2 ? "tan" : "peach"), val: L.text({ x: x1, base, s: 40, c: "white", txt: "", align: "r" }), v: -1 };
+    g.bar.style.transform = "scaleX(0)"; g.bar.style.transition = "transform .2s ease-in-out";   // glides to each count as it is shown
+    before += n;
+    return g;
+  });
+}
 
 // ---------------- the clock ----------------
 const OFFSET = 6;                                        // open on the docked ship, a few seconds before the alert
@@ -286,10 +354,21 @@ L.every(250, (t) => {
   const mv = moved(u);
   L.set(roA.v1, Math.round(impSaucer(u)) + "%"); L.set(roA.v2, fmt(642 + 226 * mv));
   L.set(roC.v1, Math.round(impStar(u)) + "%"); L.set(roC.v2, fmt(372 - 226 * mv));
+  if (crew) {                                            // whole people, adding up to the Aboard readings; each bar shows its own count
+    let left = Math.round(226 * mv);
+    for (const g of crew) {
+      const k = Math.min(g.n, left); left -= k; L.set(g.val, `${k} / ${g.n}`);
+      if (k !== g.v) { g.v = k; g.bar.style.transform = `scaleX(${(k / g.n).toFixed(4)})`; }
+    }
+  }
   const r = range(u), v = rate(u);
   L.set(roB.v1, fmt(r) + " m");
   L.set(roB.l2, Math.abs(v) < 0.5 ? (r < 0.5 && locked(u) > 0.99 ? "Latched" : "Holding") : v > 0 ? "Opening" : "Closing");
   L.set(roB.v2, fmt(Math.abs(v)) + " m/s");
+  if (seqV) {                                            // from the separation alert: counting down to it while docked
+    const k = u < 10 ? Math.ceil(10 - u) : Math.floor(u - 10);
+    L.set(seqV, (u < 10 ? "T−" : "T+") + pad2(Math.floor(k / 60)) + ":" + pad2(k % 60));
+  }
   // the checklists
   for (const s of [...sepList, ...dockList]) {
     const [txt, c, tc] = stepState(s, u, ph);

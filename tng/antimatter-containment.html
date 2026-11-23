@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Antimatter Containment</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* swapped text dips and comes back; colors change slowly; .boot (the start-up cascade) always wins */
@@ -13,7 +14,7 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: a bracket, title centred ----------------
-L.frame({ type: "C", title: "Antimatter Containment  •  Storage Pods", c: "pink", c2: "lilac", accent: "plum", foot: "Pods",
+const B = L.frame({ type: "C", title: "Antimatter Containment  •  Storage Pods", c: "pink", c2: "lilac", accent: "plum", foot: "Pods",
   side: [[140, "lilac", "Bay 01"], [70, "plum", "4210"], [420, "pink", "Storage"], [70, "butter", "42"], [300, "lilac", "Fields"],
          [70, "plum", "A1"], [216, "pink", "Deck 42"]],
   side2: [[140, "lilac", "Eject 02"], [70, "plum", "7731"], [420, "pink", "Transfer"], [70, "butter", "06"], [300, "lilac", "Coils"],
@@ -33,12 +34,25 @@ const fg = (e, c) => { if (e._fg !== c) { e._fg = c; e.style.color = c.startsWit
 const swap = (els, f) => { els.forEach((e) => e.classList.add("out")); setTimeout(() => { f(); els.forEach((e) => e.classList.remove("out")); }, 460); };
 const smooth = (x) => { x = L.clamp(x); return x * x * (3 - 2 * x); };
 
-// The wall: four columns of pod monitors, 570 wide and 40 apart (220–2620); the systems column 2660–3620.
-// Three rows, 588 apart. Every panel is a header and five rows of 64 on a 100 pitch, so baselines are
-// shared right across the screen.
-const MW = 570, MG = 40, ROWS = [280, 868, 1456];
-const RX = 2660, RR = 3620, BX = 300, BRW = 220;
-const rowTop = (y0, k) => y0 + 84 + 100 * k, rowBase = (y0, k) => rowTop(y0, k) + 52.5;
+// ---------------- the grid, per shape ----------------
+// The data, readings and motion below are written once; only these positions differ by shape.
+// wide (3840 × 2160): the wall is four columns of pod monitors, 570 wide and 40 apart (220–2620); the
+//   systems column 2660–3620. Three rows, 588 apart. Every panel is a header and five rows of 64 on a
+//   100 pitch, so baselines are shared right across the screen.
+// upright (2160 × 3120): five bands of panels, 548 apart, on a 90 pitch (270–2970). The wall keeps its
+//   four columns, 400 wide, in bands 1–3; under it the systems in two columns of 840 (220–1060 |
+//   1100–1940): generators beside ejection, then transfer beside the chamber reserve trace.
+// ultrawide (5040 × 2160): wide's wall and systems column where they are, and a new 1160 column
+//   (3660–4820) on the same three rows: the reserve trace, the containment log, the transfer schedule.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const MW = UP ? 400 : 570, MG = 40, ROWS = UP ? [270, 818, 1366, 1914, 2462] : [280, 868, 1456];
+const RX = 2660, RR = 3620, BX = 300, BRW = 220, P = UP ? 90 : 100;
+const rowTop = (y0, k) => y0 + 84 + P * k, rowBase = (y0, k) => rowTop(y0, k) + 52.5;
+// the systems panels and the new ones: [left, right, header y]
+const SYS = UP ? { gen: [220, 1060, ROWS[3]], ej: [1100, 1940, ROWS[3]], xfer: [220, 1060, ROWS[4]] }
+               : { gen: [RX, RR, ROWS[0]], xfer: [RX, RR, ROWS[1]], ej: [RX, RR, ROWS[2]] };
+const NEW = UP ? { trace: [1100, 1940, ROWS[4]] }
+          : UW ? { trace: [3660, B.x1, ROWS[0]], log: [3660, B.x1, ROWS[1]], plan: [3660, B.x1, ROWS[2]] } : null;
 
 // ---------------- the pods ----------------
 // [fill %, field %], Pod 12 empty and held at standby field
@@ -55,9 +69,9 @@ const pods = PODS.map(([f0, field], i) => {
   const hot = fill(x0 + lw + L.GAP, y0, MW - lw - L.GAP, 56, "butter"); op(hot, 0);
 
   // the magnetic bottle: a capsule in its well, field coils round it, the antimatter suspended clear of the walls
-  const PX = x0, PY = rowTop(y0, 0), PW = 210, PH = 464;
+  const PX = x0, PY = rowTop(y0, 0), PW = UP ? 160 : 210, PH = UP ? 4 * P + 64 : 464;
   L.rect({ x: PX, y: PY, w: PW, h: PH, c: BOTTLE, panel: true });
-  const cx = PX + PW / 2, CT = PY + 28, CB = PY + PH - 28, CW = 112;
+  const cx = PX + PW / 2, CT = PY + 28, CB = PY + PH - 28, CW = UP ? 100 : 112, CH = UP ? 68 : 78;
   L.svg("rect", { x: cx - CW / 2, y: CT, width: CW, height: CB - CT, rx: CW / 2, fill: VOID, stroke: "var(--lilac)", "stroke-width": 4, class: "boot" });
   const IN = 14, FW = CW - 2 * IN, FH = CB - CT - 2 * IN;
   const clip = L.el("div", "clip", L.stage, { left: cx - FW / 2 + "px", top: CT + IN + "px", width: FW + "px", height: FH + "px", borderRadius: FW / 2 + "px" });
@@ -70,10 +84,10 @@ const pods = PODS.map(([f0, field], i) => {
   const NC = 7;
   for (let k = 0; k < NC; k++) {
     const y = CT + 44 + (k * (CB - CT - 88)) / (NC - 1);
-    L.svg("rect", { x: cx - 78, y: y - 6, width: 156, height: 12, rx: 6, fill: `var(--${i === STANDBY ? "plum" : k % 3 === 1 ? "lilac" : "plum"})` }, coils);
+    L.svg("rect", { x: cx - CH, y: y - 6, width: 2 * CH, height: 12, rx: 6, fill: `var(--${i === STANDBY ? "plum" : k % 3 === 1 ? "lilac" : "plum"})` }, coils);
   }
   // readings: a small table beside the bottle
-  const TX = x0 + 240, TR = x0 + MW;
+  const TX = x0 + (UP ? 184 : 240), TR = x0 + MW;
   const reading = (k, label) => {
     L.text({ x: TX, base: rowBase(y0, k), s: 40, c: "lilac", txt: label });
     return L.text({ x: TR, base: rowBase(y0, k), s: 52, c: "white", txt: "", align: "r" });
@@ -84,9 +98,10 @@ const pods = PODS.map(([f0, field], i) => {
   return { i, name, fill: f0, field, body, band, hot, FH, vField, vFill, vTemp, pill, phase: Math.random() * 6, flow: 0, lit: 0,
            w: L.rand(0.05, 0.09), shown: -1 };
 });
-coilSvg.setAttribute("viewBox", "0 0 3840 2160"); coilSvg.setAttribute("width", 3840); coilSvg.setAttribute("height", 2160);
+coilSvg.setAttribute("viewBox", `0 0 ${L.W} ${L.H}`); coilSvg.setAttribute("width", L.W); coilSvg.setAttribute("height", L.H);
 Object.assign(coilSvg.style, { position: "absolute", left: 0, top: 0, pointerEvents: "none" });
 L.stage.appendChild(coilSvg);
+const fieldAt = (p, t) => p.i === STANDBY ? 15.0 + 0.02 * Math.sin(t * 0.07 + p.phase) : p.field + 0.05 * Math.sin(t * 0.045 + p.phase);
 const showFill = (p) => {
   const y = Math.round(p.FH * (1 - p.fill / 100) * 4) / 4;
   if (y !== p.shown) { p.shown = y; tf(p.body, `translate3d(0,${y}px,0)`); }
@@ -97,20 +112,22 @@ op(pods[STANDBY].body, 0);                                   // the empty pod: n
 // ---------------- status line ----------------
 const state = cls(L.text({ x: 220, cap: 150, s: 100, c: "pink", txt: "Containment Fields Secure" }), "sw");
 const stateSub = L.text({ x: 220 + 2 * (MW + MG), base: 222, s: 38, c: "lilac", txt: "" });
-L.box({ x: RR - 400, y: 150, w: 400, h: 72, c: "lilac", label: "Ejection Safe", r: "lr", fs: 36 });
+// upright has no room for the pill beside the sub-line: the lit Safe button below says it
+if (!UP) L.box({ x: UW ? B.x1 - 400 : RR - 400, y: 150, w: 400, h: 72, c: "lilac", label: "Ejection Safe", r: "lr", fs: 36 });
 
 // ---------------- the systems column ----------------
-const gaugeRow = (y0, k, name, c) => {
+// each panel's rows run from its left edge X to its right edge XR (wide: 2660–3620)
+const gaugeRow = ([X, XR], y0, k, name, c) => {
   const base = rowBase(y0, k);
-  L.text({ x: RX, base, s: 40, c: "lilac", txt: name });
-  L.rect({ x: RX + BX, y: base - 26, w: RR - BRW - (RX + BX), h: 26, c: TRACK });
-  return { bar: fill(RX + BX, base - 26, RR - BRW - (RX + BX), 26, c), v: L.text({ x: RR, base, s: 52, c: "white", txt: "", align: "r" }), u: -1 };
+  L.text({ x: X, base, s: 40, c: "lilac", txt: name });
+  L.rect({ x: X + BX, y: base - 26, w: XR - BRW - (X + BX), h: 26, c: TRACK });
+  return { bar: fill(X + BX, base - 26, XR - BRW - (X + BX), 26, c), v: L.text({ x: XR, base, s: 52, c: "white", txt: "", align: "r" }), u: -1 };
 };
 const showBar = (g, k) => { k = L.clamp(k); if (Math.abs(k - g.u) > 0.0005) { g.u = k; tf(g.bar, `scaleX(${k.toFixed(4)})`); } };
-const buttonRow = (y, labels, lit, c, gap = 8, fs = 32) => {
-  const w = (RR - RX - (labels.length - 1) * gap) / labels.length;
+const buttonRow = ([X, XR], y, labels, lit, c, gap = 8, fs = 32) => {
+  const w = (XR - X - (labels.length - 1) * gap) / labels.length;
   return labels.map((label, i) => {
-    const b = cls(L.box({ x: RX + i * (w + gap), y, w, h: 64, c: lit.includes(i) ? c : DIM, label, fs,
+    const b = cls(L.box({ x: X + i * (w + gap), y, w, h: 64, c: lit.includes(i) ? c : DIM, label, fs,
       r: i === 0 ? "l" : i === labels.length - 1 ? "r" : null }), "sw");
     fg(b, lit.includes(i) ? "#000" : "lilac");
     return b;
@@ -118,42 +135,45 @@ const buttonRow = (y, labels, lit, c, gap = 8, fs = 32) => {
 };
 
 // containment field generators
-const [YA, YB, YC] = ROWS;
-L.header({ x: RX, y: YA, w: RR - RX, label: "Containment Field Generators", c1: "pink", c2: "lilac" });
+const GEN = SYS.gen, YA = GEN[2];
+L.header({ x: GEN[0], y: YA, w: GEN[1] - GEN[0], label: "Containment Field Generators", c1: "pink", c2: "lilac" });
 const gens = [["Generator A", "pink"], ["Generator B", "lilac"], ["Generator C", "pink"], ["Generator D", "lilac"]]
-  .map(([n, c], k) => gaugeRow(YA, k, n, c));
-buttonRow(rowTop(YA, 4), ["Primary EPS", "Secondary EPS", "Battery", "Fusion Backup"], [0], "pink");
+  .map(([n, c], k) => gaugeRow(GEN, YA, k, n, c));
+buttonRow(GEN, rowTop(YA, 4), ["Primary EPS", "Secondary EPS", "Battery", "Fusion Backup"], [0], "pink");
 
 // transfer to the reaction chamber
-L.header({ x: RX, y: YB, w: RR - RX, label: "Transfer to Reaction Chamber", c1: "lilac", c2: "pink" });
-const srcBox = cls(L.box({ x: RX, y: rowTop(YB, 0), w: BX - L.GAP, h: 64, c: "lilac", label: "Pod 03", fs: 32, r: "l" }), "sw");
-const CDX = RX + BX, CDW = RR - BX - CDX;                     // the magnetic conduit, between the two boxes
+const XF = SYS.xfer, [XX, XR, YB] = XF;
+L.header({ x: XX, y: YB, w: XR - XX, label: "Transfer to Reaction Chamber", c1: "lilac", c2: "pink" });
+const srcBox = cls(L.box({ x: XX, y: rowTop(YB, 0), w: BX - L.GAP, h: 64, c: "lilac", label: "Pod 03", fs: 32, r: "l" }), "sw");
+const CDX = XX + BX, CDW = XR - BX - CDX;                     // the magnetic conduit, between the two boxes
 const cdY = rowBase(YB, 0) - 26;
 L.rect({ x: CDX, y: cdY, w: CDW, h: 26, c: TRACK });
-L.box({ x: RR - BX + L.GAP, y: rowTop(YB, 0), w: BX - L.GAP, h: 64, c: "pink", label: "Reaction Chamber", fs: 32, r: "r" });
+L.box({ x: XR - BX + L.GAP, y: rowTop(YB, 0), w: BX - L.GAP, h: 64, c: "pink", label: "Reaction Chamber", fs: 32, r: "r" });
 const PER = 64;                                               // packets: a stripe pattern slid one period and back, seamless
 const cdClip = L.el("div", "clip", L.stage, { left: CDX + "px", top: cdY + "px", width: CDW + "px", height: "26px" });
 const packets = fill(-PER, 0, CDW + 2 * PER, 26, "butter", "0 0", cdClip);
 packets.style.background = `repeating-linear-gradient(to right, var(--butter) 0 34px, rgba(0,0,0,0) 34px ${PER}px)`;
 op(packets, 0);
-const reserve = gaugeRow(YB, 1, "Chamber Reserve", "pink");
-const flowG = gaugeRow(YB, 2, "Flow Rate", "butter");
-const conduit = gaugeRow(YB, 3, "Conduit Field", "lilac");
-const xferPill = cls(L.box({ x: RX, y: rowTop(YB, 4), w: RR - RX, h: 64, c: "plum", label: "", fs: 32, r: "lr" }), "sw");
+const reserve = gaugeRow(XF, YB, 1, "Chamber Reserve", "pink");
+const flowG = gaugeRow(XF, YB, 2, "Flow Rate", "butter");
+const conduit = gaugeRow(XF, YB, 3, "Conduit Field", "lilac");
+const xferPill = cls(L.box({ x: XX, y: rowTop(YB, 4), w: XR - XX, h: 64, c: "plum", label: "", fs: 32, r: "lr" }), "sw");
 
 // the ejection system: always safe
-L.header({ x: RX, y: YC, w: RR - RX, label: "Pod Ejection System", c1: "pink", c2: "plum" });
-buttonRow(rowTop(YC, 0), ["Safe", "Armed"], [0], "lilac");
-const plain = (k, name, txt, note) => {
-  L.text({ x: RX, base: rowBase(YC, k), s: 40, c: "lilac", txt: name });
-  L.text({ x: RR, base: rowBase(YC, k), s: 40, c: "plum", txt: note, align: "r" });
-  return L.text({ x: RX + BX, base: rowBase(YC, k), s: 52, c: "white", txt });
+const EJ = SYS.ej, [EX, ER, YC] = EJ;
+L.header({ x: EX, y: YC, w: ER - EX, label: "Pod Ejection System", c1: "pink", c2: "plum" });
+buttonRow(EJ, rowTop(YC, 0), ["Safe", "Armed"], [0], "lilac");
+// a row of three: name, reading, and a note at the right; X/XR: the panel's edges
+const plain = (k, name, txt, note, [X, XR, Y] = EJ) => {
+  L.text({ x: X, base: rowBase(Y, k), s: 40, c: "lilac", txt: name });
+  L.text({ x: XR, base: rowBase(Y, k), s: 40, c: "plum", txt: note, align: "r" });
+  return L.text({ x: X + BX, base: rowBase(Y, k), s: 52, c: "white", txt });
 };
 plain(1, "Pod Hatches", "Sealed", "12 of 12  ·  Interlocked");
 plain(2, "Ejection Rails", "De-energized", "0.0 MW");
 plain(3, "Authorization", "None Pending", "Captain  ·  Chief Engineer");
-const PG = 12, PBW = (RR - RX - 11 * PG) / 12;
-pods.forEach((p, i) => L.box({ x: RX + i * (PBW + PG), y: rowTop(YC, 4), w: PBW, h: 64, c: i === STANDBY ? "plum" : "lilac",
+const PG = 12, PBW = (ER - EX - 11 * PG) / 12;
+pods.forEach((p, i) => L.box({ x: EX + i * (PBW + PG), y: rowTop(YC, 4), w: PBW, h: 64, c: i === STANDBY ? "plum" : "lilac",
   label: String(i + 1).padStart(2, "0"), fs: 28, r: i === 0 ? "l" : i === 11 ? "r" : null }));
 
 // ---------------- the transfer cycle ----------------
@@ -161,10 +181,17 @@ pods.forEach((p, i) => L.box({ x: RX + i * (PBW + PG), y: rowTop(YC, 4), w: PBW,
 // tops it up through the magnetic conduit, a few grams a second, until it reads 92%.
 const DRAIN = 0.16, LOW = 80, HIGH = 92, RATE = 1.84;         // %/s; g/s at full flow
 let R = 82.1, xfer = null, flow = 0, sdBase = 47634.2;
+const hook = {};                                              // the upright and ultrawide panels listen here
+// A pod that a transfer leaves under RECHARGE% is recharged from the ship's stores (slowly, to FULL)
+// and sits out the rotation until it is full, so the pool of charged pods never runs dry.
+const RECHARGE = 52, FULL = 96, CHARGE = 0.4;                 // %; %; %/s
+const charged = (p) => p.i !== STANDBY && !p.charging && p.fill > 50;
 const startXfer = (t) => {
-  const pool = pods.filter((p) => p.i !== STANDBY && p.fill > 50 && (!xfer || p !== xfer.pod));
+  let pool = pods.filter((p) => charged(p) && (!xfer || p !== xfer.pod));
+  if (!pool.length) pool = pods.filter((p) => p.i !== STANDBY);          // never happens; a guard
   const pod = pool.reduce((a, b) => (b.fill > a.fill ? b : a));         // the fullest pod feeds the chamber
   xfer = { pod, t0: t, ending: false };
+  if (hook.begin) hook.begin(pod, t);
   swap([srcBox], () => L.set(srcBox, pod.name));
   swap([state], () => { L.set(state, "Antimatter Transfer Active"); fg(state, "butter"); });
   swap([xferPill], () => { L.set(xferPill, `Transferring  ·  ${pod.name} to Reaction Chamber`); bg(xferPill, "butter"); });
@@ -178,6 +205,158 @@ const endXfer = () => {
   swap([pod.pill], () => { L.set(pod.pill, "Sealed"); bg(pod.pill, "lilac"); });
 };
 L.set(xferPill, `Standby  ·  Next Transfer at ${LOW}% Reserve`);
+const startCharge = (pod, t) => {
+  pod.charging = true;
+  if (hook.charge) hook.charge(pod, t, false);
+  swap([pod.pill], () => { L.set(pod.pill, "Recharging"); bg(pod.pill, "pink"); });
+};
+const endCharge = (pod, t) => {
+  pod.charging = false;
+  if (hook.charge) hook.charge(pod, t, true);
+  swap([pod.pill], () => { L.set(pod.pill, "Sealed"); bg(pod.pill, "lilac"); });
+};
+
+// =====================================================================================
+// UPRIGHT AND ULTRAWIDE ONLY: the chamber reserve over the last 12 minutes (both), the containment
+// log and the transfer schedule (ultrawide). All fed by the transfer cycle above.
+// =====================================================================================
+if (NEW) {
+  const SPAN = 720, LO = 76, HI = 96;                         // seconds shown; the trace's scale, %
+  const INK = { pink: "#f4b6e6", butter: "#ffcc66", plum: "#9c6fb4", lilac: "#c7a0d8" };
+  // The past, so the trace and the log start full: the same cycle run ahead of time, from a
+  // reserve of 88% draining, then cut at the last moment it drained through today's 82.1%.
+  const past = (() => {
+    const h = 0.1, S = [], X = [];
+    let r = 88, f = 0, on = false, end = false, g = 0, t0 = 0, r0 = 0;
+    for (let n = 0; n <= 52000; n++) {
+      const t = n * h;
+      if (!on && r <= LOW) { on = true; end = false; t0 = t; g = 0; r0 = r; }
+      if (on && !end && r >= HIGH) end = true;
+      f += ((on && !end ? 1 : 0) - f) * Math.min(1, h * 0.9);
+      if (on && end && f < 0.004) { X.push({ t0, t1: t, g, r0 }); f = 0; on = false; }
+      r += (-DRAIN + f * 1.25) * h;
+      if (on) g += f * RATE * h;
+      if (n % 10 === 0) S.push([t, r, f]);
+    }
+    let i = S.length - 1;
+    while (i > 0 && !(S[i - 1][1] > R && S[i][1] <= R && S[i][2] === 0)) i--;
+    const now = S[i][0];
+    return { trace: S.filter(([t]) => t <= now && t >= now - SPAN - 10).map(([t, r, f]) => [t - now, r, f]),
+             xfers: X.filter((x) => x.t1 <= now).map((x) => ({ t0: x.t0 - now, t1: x.t1 - now, g: x.g, r0: x.r0 })) };
+  })();
+  const hist = past.trace;                                    // [t, reserve %, flow]
+
+  // ---------------- the trace ----------------
+  {
+    const [X, XR, Y] = NEW.trace;
+    L.header({ x: X, y: Y, w: XR - X, label: "Chamber Reserve  ·  Last 12 Minutes", c1: "pink", c2: "lilac" });
+    const PXL = X + 124, PT = rowTop(Y, 0), PB = rowTop(Y, 3) + 64, PW = XR - PXL, PHt = PB - PT;
+    const yOf = (v) => PHt * (1 - (v - LO) / (HI - LO));
+    L.rect({ x: PXL, y: PT, w: PW, h: PHt, c: BOTTLE });
+    [80, 85, 90, 95].forEach((v) => {
+      L.rect({ x: PXL, y: PT + yOf(v) - 1, w: PW, h: 2, c: DIM, free: true });
+      L.text({ x: PXL - 24, base: PT + yOf(v) + 0.36 * 30, s: 30, c: "lilac", txt: String(v), align: "r", legend: true });
+    });
+    L.text({ x: PXL, base: rowBase(Y, 4), s: 36, c: "lilac", txt: "12 Min Ago" });
+    L.text({ x: PXL + PW / 2, w: 800, align: "c", base: rowBase(Y, 4), s: 36, c: "plum", txt: `Top-Up at ${LOW}%  ·  Full at ${HIGH}%` });
+    L.text({ x: XR, base: rowBase(Y, 4), s: 36, c: "lilac", txt: "Now", align: "r" });
+    const cv = L.canvas({ x: PXL, y: PT, w: PW, h: PHt });
+    let tNow = 0;
+    const draw = () => {
+      const g = cv.g, xOf = (t) => PW - ((tNow - t) / SPAN) * PW;
+      g.clearRect(0, 0, PW, PHt);
+      // the thresholds, dashed
+      g.setLineDash([14, 10]); g.lineWidth = 3; g.strokeStyle = INK.plum;
+      for (const v of [LOW, HIGH]) { g.beginPath(); g.moveTo(0, yOf(v)); g.lineTo(PW, yOf(v)); g.stroke(); }
+      g.setLineDash([]);
+      // the reserve: filled beneath, a pink line, butter while a pod is feeding the chamber
+      g.beginPath(); g.moveTo(xOf(hist[0][0]), PHt);
+      for (const [t, r] of hist) g.lineTo(xOf(t), yOf(r));
+      g.lineTo(xOf(hist[hist.length - 1][0]), PHt); g.closePath();
+      g.fillStyle = "rgba(244,182,230,0.13)"; g.fill();
+      g.lineWidth = 4; g.lineJoin = "round"; g.lineCap = "round";
+      g.strokeStyle = INK.pink; g.beginPath();
+      hist.forEach(([t, r], k) => (k ? g.lineTo(xOf(t), yOf(r)) : g.moveTo(xOf(t), yOf(r)))); g.stroke();
+      g.strokeStyle = INK.butter;
+      for (let k = 1; k < hist.length; k++) {
+        if (hist[k][2] > 0.05 || hist[k - 1][2] > 0.05) {
+          g.beginPath(); g.moveTo(xOf(hist[k - 1][0]), yOf(hist[k - 1][1])); g.lineTo(xOf(hist[k][0]), yOf(hist[k][1])); g.stroke();
+        }
+      }
+    };
+    cv.onResize = draw;
+    hook.trace = (t) => {
+      tNow = t; hist.push([t, R, flow]);
+      while (hist.length > 2 && hist[1][0] < t - SPAN - 10) hist.shift();
+      draw();
+    };
+  }
+
+  // ---------------- the containment log (ultrawide) ----------------
+  const t0Ms = Date.now() - L.t * 1000;
+  const clock = (t) => { const d = new Date(t0Ms + t * 1000); return [d.getHours(), d.getMinutes(), d.getSeconds()].map((n) => String(n).padStart(2, "0")).join(":"); };
+  const SURVEY = 20;                                          // a field survey of the next pod every 20 s
+  const surveyAt = (t) => { const k = Math.round(t / SURVEY), p = pods[((k % 12) + 12) % 12];
+    return { t, ev: "Field Survey", note: `${p.name}  ·  ${fieldAt(p, t).toFixed(2)}%${p.i === STANDBY ? "  ·  Standby" : ""}` }; };
+  // the pod the next transfer will draw on: the fullest charged pod when it starts (no transfer is
+  // running then, so the pod feeding now still counts and leads the rotation while it stays fullest)
+  const nextPods = () => pods.filter(charged).sort((a, b) => b.fill - a.fill);
+  const done = past.xfers.map((x) => ({ t1: x.t1, g: x.g }));
+  let logAdd = null;
+  if (NEW.log) {
+    const [X, XR, Y] = NEW.log;
+    L.header({ x: X, y: Y, w: XR - X, label: "Containment Log", c1: "lilac", c2: "plum" });
+    // the past five entries: surveys every 20 s and the transfers (all from the pod that was fullest)
+    const feeder = nextPods()[0].name;
+    let entries = [];
+    for (let t = 0; t > -400; t -= SURVEY) entries.push(surveyAt(t));
+    for (const x of past.xfers.slice(-4)) {
+      entries.push({ t: x.t0, ev: "Transfer Begun", note: `${feeder}  ·  Reserve ${x.r0.toFixed(1)}%` });
+      entries.push({ t: x.t1, ev: "Transfer Complete", note: `${feeder}  ·  ${x.g.toFixed(1)} g Delivered` });
+    }
+    entries = entries.sort((a, b) => b.t - a.t).slice(0, 5);
+    const rows = [0, 1, 2, 3, 4].map((k) => [
+      cls(L.text({ x: X, base: rowBase(Y, k), s: 40, c: "lilac", txt: "" }), "sw"),
+      cls(L.text({ x: X + BX, base: rowBase(Y, k), s: 52, c: "white", txt: "" }), "sw"),
+      cls(L.text({ x: XR, base: rowBase(Y, k), s: 40, c: "plum", txt: "", align: "r" }), "sw")]);
+    const show = () => entries.forEach((e, k) => { L.set(rows[k][0], clock(e.t)); L.set(rows[k][1], e.ev); L.set(rows[k][2], e.note); });
+    show();
+    const add = (e) => { entries = [e, ...entries].slice(0, 5); swap(rows.flat(), show); };
+    let nextSurvey = SURVEY;
+    hook.log = (t) => { if (t >= nextSurvey) { add(surveyAt(nextSurvey)); nextSurvey += SURVEY; } };
+    hook.begin = (pod, t) => add({ t, ev: "Transfer Begun", note: `${pod.name}  ·  Reserve ${R.toFixed(1)}%` });
+    hook.charge = (pod, t, full) => add({ t, ev: full ? "Recharge Complete" : "Recharge Begun", note: `${pod.name}  ·  Fill ${pod.fill.toFixed(1)}%` });
+    logAdd = add;
+  }
+  hook.done = (x, t) => {
+    done.push({ t1: t, g: x.g || 0 });
+    while (done.length && done[0].t1 <= t - 3600) done.shift();            // only the last hour is read
+    if (logAdd) logAdd({ t, ev: "Transfer Complete", note: `${x.pod.name}  ·  ${(x.g || 0).toFixed(1)} g Delivered` });
+  };
+
+  // ---------------- the transfer schedule (ultrawide) ----------------
+  if (NEW.plan) {
+    const PLN = NEW.plan, [X, XR, Y] = PLN;
+    L.header({ x: X, y: Y, w: XR - X, label: "Transfer Schedule", c1: "pink", c2: "lilac" });
+    const vNext = plain(0, "Next Transfer", "", `At ${LOW}% Reserve`, PLN);
+    const vPod = plain(1, "Next Pod", "", "Fullest Pod First", PLN);
+    const vHour = plain(2, "Last Hour", "", "", PLN);
+    const nHour = vHour.previousElementSibling;               // the note beside it
+    plain(3, "Reserve Burn", (DRAIN * RATE / 1.25).toFixed(2) + " g/s", "Cruise Demand", PLN);
+    const rot = cls(L.box({ x: X, y: rowTop(Y, 4), w: XR - X, h: 64, c: "lilac", label: "", fs: 32, r: "lr" }), "sw");
+    hook.plan = (t) => {
+      if (xfer && !xfer.ending) L.set(vNext, "In Progress");                 // the same moment the pill says Standby
+      else { const s = Math.max(0, Math.ceil((R - LOW) / DRAIN)); L.set(vNext, `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`); }
+      const np = nextPods();
+      L.set(vPod, np.length ? np[0].name : "None Charged");
+      const hr = done.filter((d) => d.t1 > t - 3600);
+      L.set(vHour, `${hr.length} Transfers`);
+      L.set(nHour, `${hr.reduce((a, d) => a + d.g, 0).toFixed(1)} g Delivered`);
+      L.set(rot, "Rotation  ·  " + nextPods().slice(0, 5).map((p) => p.name).join("  ·  "));
+    };
+  }
+  hook.second = (t) => { if (hook.trace) hook.trace(t); if (hook.log) hook.log(t); if (hook.plan) hook.plan(t); };
+}
 
 let tPrev = null;
 L.tick((t) => {
@@ -186,9 +365,14 @@ L.tick((t) => {
   if (xfer && !xfer.ending && R >= HIGH) endXfer();
   const want = xfer && !xfer.ending ? 1 : 0;
   flow += (want - flow) * Math.min(1, dt * 0.9);              // the conduit eases up and down
-  if (xfer && xfer.ending && flow < 0.004) { flow = 0; xfer = null; }
+  if (xfer && xfer.ending && flow < 0.004) {
+    if (hook.done) hook.done(xfer, t);
+    if (xfer.pod.fill < RECHARGE) startCharge(xfer.pod, t);
+    flow = 0; xfer = null;
+  }
+  for (const p of pods) if (p.charging && (p.fill = Math.min(FULL, p.fill + CHARGE * dt)) >= FULL) endCharge(p, t);
   R += (-DRAIN + flow * 1.25) * dt;
-  if (xfer) { xfer.pod.fill -= flow * 0.045 * dt; xfer.pod.lit = flow; }
+  if (xfer) { xfer.pod.fill -= flow * 0.045 * dt; xfer.pod.lit = flow; xfer.g = (xfer.g || 0) + flow * RATE * dt; }
   // the antimatter: a slow glint rising through each bottle; in the feeding pod it runs down to the outlet
   for (const p of pods) {
     if (p.i === STANDBY) { op(p.band, 0); continue; }
@@ -208,9 +392,9 @@ L.tick((t) => {
 L.every(1000, (t) => {
   const sd = sdBase + t / 31557.6;
   const total = pods.reduce((a, p) => a + p.fill, 0) / 11;
-  L.set(stateSub, `Deck 42  ·  11 Pods Charged  ·  Stores at ${total.toFixed(1)}% Capacity  ·  Stardate ${sd.toFixed(1)}`);
+  L.set(stateSub, `Deck 42  ·  ${pods.filter(charged).length} Pods Charged  ·  Stores at ${total.toFixed(1)}% Capacity  ·  Stardate ${sd.toFixed(1)}`);
   for (const p of pods) {
-    const f = p.i === STANDBY ? 15.0 + 0.02 * Math.sin(t * 0.07 + p.phase) : p.field + 0.05 * Math.sin(t * 0.045 + p.phase);
+    const f = fieldAt(p, t);
     L.set(p.vField, f.toFixed(2) + "%");
     L.set(p.vFill, p.i === STANDBY ? "0.0%" : p.fill.toFixed(1) + "%");
     L.set(p.vTemp, (p.i === STANDBY ? 4.2 : 1.86 + 0.02 * Math.sin(t * 0.03 + p.phase)).toFixed(2) + " K");
@@ -224,6 +408,7 @@ L.every(1000, (t) => {
   showBar(flowG, flow); L.set(flowG.v, (flow * RATE).toFixed(2) + " g/s");
   const cf = 0.08 + 0.917 * smooth(flow * 1.4);
   showBar(conduit, cf); L.set(conduit.v, (cf * 100).toFixed(1) + "%");
+  if (hook.second) hook.second(t);
 }, 0);
 });
 </script></body></html>

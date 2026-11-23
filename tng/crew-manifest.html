@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Crew Manifest</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* text that is swapped fades out and back in; .boot (the start-up cascade) always wins */
@@ -19,8 +20,11 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: sidebar left, title top right ----------------
-const BAR = 64;
-L.title({ x: 3700, y: 40, h: BAR, c: "lilac", txt: "Personnel Records  •  Crew Manifest" });
+const BAR = 64, TITLE = "Personnel Records  •  Crew Manifest";
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+let FB;                                                    // the content box
+if (L.shape === "wide") {
+L.title({ x: 3700, y: 40, h: BAR, c: "lilac", txt: TITLE });
 // (L.title measures with a canvas, which sets this line ~11px wider than the page draws it; use the page's own width)
 const titleLeft = 3700 - document.querySelector("[data-title]").offsetWidth;
 L.box({ x: 3724, y: 40, w: 92, h: BAR, c: "plum", r: "r" });
@@ -35,6 +39,22 @@ L.text({ x: 258, base: 1712, s: 40, c: "#000", txt: "Personnel", align: "r", on:
 [[1540 + L.GAP, 600, "plum"], [2164 + L.GAP, 900, "peach"], [3088 + L.GAP, 3700 - (3088 + L.GAP), "lilac"]]
   .forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
 L.box({ x: 3724, y: 2056, w: 92, h: BAR, c: "plum", r: "r" });
+FB = { x0: 330, x1: 3816, y0: 140, y1: 2010 };
+} else {
+  // the same frame, drawn by the kit for this shape: type A, the same colours and sidebar labels. The kit
+  // draws the title and the long top bar in the main plum and puts the accent first along the bottom; the
+  // hand-built wide frame has them lilac, and plum then peach along the bottom, so those are recoloured.
+  const svg = document.getElementById("frame"), n0 = svg.querySelectorAll("rect").length;
+  FB = L.frame({ type: "A", title: TITLE, c: "plum", c2: "lilac", accent: "peach", foot: "Personnel",
+    side: [[140, "lilac", "PER 20"], [70, "peach", "Index"], [420, "plum", "Manifest"], [70, "ice", "Query"],
+           [300, "lilac", "Records"], [70, "peach", "Duty"], [216, "plum", "Postings"]] });
+  document.querySelector('[data-title="1"]').style.color = "var(--lilac)";
+  const made = [...svg.querySelectorAll("rect")].slice(n0);
+  const topBars = made.filter((r) => +r.getAttribute("y") === 40), foot = made.filter((r) => +r.getAttribute("y") > 1000);
+  topBars[topBars.length - 1].setAttribute("fill", "var(--lilac)");   // the long bar (the accent, if any, comes first)
+  foot[0].setAttribute("fill", "var(--plum)");
+  if (foot.length === 3) foot[1].setAttribute("fill", "var(--peach)");
+}
 
 const header = (x, y, w, label, lw, c1, c2, h = 56, fs = 32) => {
   if (!lw) lw = Math.round((L.textWidth(label, fs) + 64) / 10) * 10;
@@ -54,8 +74,24 @@ const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = L.ir
 const cap = (s) => s[0].toUpperCase() + s.slice(1);
 const DARK = "#2a1d33";                                   // the plum of an empty cell or gauge
 
-// Columns: the manifest 330–2160; the record 2220–3816, its values from 2488 and its second column from 3064.
-const LX = 330, LR = 2160, RX = 2220, VX = 2488, RX2 = 3064, RR = 3816;
+// ---------------- the grid, per shape ----------------
+// The crew, the readings and the motion below are written once; only these positions differ by shape.
+// wide (3840 × 2160): the manifest 330–2160 beside the record 2220–3816 (its values from 2488, its second
+//   column from 3064) over the duty roster; the strip of four panels along the bottom (1620).
+// upright (2160 × 3120): everything stacked at full width (330–2136): the manifest (seven rows a page);
+//   the record, its values on the manifest's Rank column (694) and its second column from 1316 (gaps as
+//   in wide); the duty roster, the week to the Department column (1196) and its four readings from 1316
+//   on the week's rows; then the strip two over two, split 330–1110 | 1170–2136: department strength (each
+//   count before its bar, the bars under the header's bar) beside species aboard (wide's legend spacing, which needs 966), then the personnel log under department
+//   strength (on its rows) beside rank structure under species aboard.
+// ultrawide (5040 × 2160): the wide layout as it is (the page pill where it was), and a third column 3876–5016
+//   under the watch's pill: the senior staff on the
+//   manifest's rows, the shift complement on the roster's reading rows, and quarters by deck in the strip.
+const LX = 330, LR = UP ? FB.x1 : 2160, RX = UP ? 330 : 2220, VX = UP ? 694 : RX + 268, RX2 = UP ? 1316 : 3064, RR = UP ? FB.x1 : 3816;
+const H1 = 1110, H2 = 1170;                                // upright: the strip's two columns end and start here
+const RH = UP ? 1028 : 280, DH = UP ? 1724 : 1000;         // the record's and the duty roster's headers
+const SY1 = UP ? 2132 : 1620, SY2 = UP ? 2580 : 1620;      // the strip: strength and species | rank and log
+const NX0 = 3876, NX1 = FB.x1;                             // ultrawide: the third column
 const NOW = 2370, SD = 47634.2;                          // the year, and today's stardate
 
 // ---------------- the crew ----------------
@@ -250,25 +286,30 @@ const crew = [];
   crew.sort((a, b) => a.display.toUpperCase().replace(/[^A-Z ,]/g, "").localeCompare(b.display.toUpperCase().replace(/[^A-Z ,]/g, "")));
 }
 const TOTAL = crew.length;                                 // 1,014
-const ROWS = 16, PAGES = Math.ceil(TOTAL / ROWS);
+const ROWS = UP ? 7 : 16, PAGES = Math.ceil(TOTAL / ROWS);
 const pageStart = (p) => Math.min(p * ROWS, TOTAL - ROWS);  // the last page shows the final sixteen
 const letterOf = (c) => c.display.toUpperCase().replace(/[^A-Z]/g, "")[0];
 
 // ---------------- status line ----------------
-L.text({ x: LX, cap: 150, s: 100, c: "lilac", txt: "All Personnel Accounted For" });
-const stateSub = L.text({ x: RX, base: 222, s: 38, c: "peach", txt: "" });
-const pagePill = L.box({ x: 3416, y: 150, w: 400, h: 72, c: "peach", label: "", r: "lr", fs: 36 });
+const stateEl = L.text({ x: LX, cap: 150, s: 100, c: "lilac", txt: "All Personnel Accounted For" });
+// (upright: the subtitle follows the state word, and the page pill closes the manifest's header bar)
+const stateSub = L.text({ x: UP ? LX + stateEl.offsetWidth + 40 : RX, base: 222, s: 38, c: "peach", txt: "" });
+const PILLW = 260;
+const pagePill = UP ? L.box({ x: LR - PILLW, y: 280, w: PILLW, h: 56, c: "peach", label: "", r: "r", fs: 32 })
+  : L.box({ x: 3416, y: 150, w: 400, h: 72, c: "peach", label: "", r: "lr", fs: 36 });
 
 // ---------------- the manifest ----------------
-header(LX, 280, LR - LX, "Crew Manifest", 340, "plum", "lilac");          // its bar starts where the Rank column does
-const COL = { name: LX, rank: 694, sp: 1010, dept: 1220, at: 1460, q: 1800 };
+header(LX, 280, UP ? LR - PILLW - L.GAP - LX : LR - LX, "Crew Manifest", 340, "plum", "lilac");   // its bar starts where the Rank column does
+const COL = UP ? { name: LX, rank: 694, sp: 986, dept: 1196, at: 1436, q: 1776 }       // upright: 24 narrower, from Rank's slack
+  : { name: LX, rank: 694, sp: 1010, dept: 1220, at: 1460, q: 1800 };
 [["Name", COL.name], ["Rank", COL.rank], ["Species", COL.sp], ["Department", COL.dept], ["Assignment", COL.at], ["Quarters", COL.q]]
   .forEach(([h, x]) => L.text({ x, base: 404, s: 36, c: "plum", txt: h }));
 L.text({ x: LR, base: 404, s: 36, c: "plum", txt: "Serial", align: "r" });
 const RP = 64, rowBase = (i) => 480 + i * RP;
 const ROWC = ["white", "lilac", "peach", "lilac", "white", "peach", "ice"];
 // the selection: a lilac band behind a row, whose text turns black on it
-const band = L.layer({ x: LX - 16, y: 0, w: LR - LX + 32, h: 52, cls: "band" });
+const BPAD = UP ? 12 : 16;                                 // upright: the band stays clear of the window's edge
+const band = L.layer({ x: LX - BPAD, y: 0, w: LR - LX + 2 * BPAD, h: 52, cls: "band" });
 band.style.opacity = 0;
 const rows = Array.from({ length: ROWS }, (_, i) => {
   const e = L.layer({ x: LX, y: rowBase(i) - 48, w: LR - LX, h: RP });
@@ -284,7 +325,7 @@ const fillRow = (r, c) => {
 const paintRow = (r, on) => r.t.forEach((e, k) => (e.style.color = on ? "#000" : V(ROWC[k])));
 
 // the index: where in the alphabet this page sits
-const IW = 55, IG = 16, IY = 1492;
+const IW = UP ? 56 : 55, IG = UP ? 14 : 16, IY = rowBase(ROWS - 1) + 52;   // 26 letters across the manifest (wide: 1492)
 const index = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map((ch, k) => {
   const b = L.box({ x: LX + k * (IW + IG), y: IY, w: IW, h: 48, c: DARK, label: ch, fs: 28, cls: "c idx" });
   b.style.color = "var(--plum)";
@@ -299,10 +340,11 @@ const paintIndex = (lo, hi, sel) => index.forEach((x) => {
 });
 
 // ---------------- the service record ----------------
-header(RX, 280, RR - RX, "Service Record", 0, "lilac", "plum");
-const recName = cls(L.text({ x: RX, base: 404, s: 52, c: "butter", txt: "" }), "fade");
-const recSerial = cls(L.text({ x: RR, base: 404, s: 52, c: "ice", txt: "", align: "r" }), "fade");
-const RB = (i) => 480 + i * 76;
+header(RX, RH, RR - RX, "Service Record", 0, "lilac", "plum");
+const recName = cls(L.text({ x: RX, base: RH + 124, s: 52, c: "butter", txt: "" }), "fade");
+const recSerial = cls(L.text({ x: RR, base: RH + 124, s: 52, c: "ice", txt: "", align: "r" }), "fade");
+const RB0 = UP ? RH + 200 : 480, RBP = UP ? 72 : 76;     // upright: a 72 pitch
+const RB = (i) => RB0 + i * RBP;
 const ATTR = ["Rank", "Position", "Department", "Species", "Born", "Commissioned", "Clearance"];
 const attrLab = ATTR.map((a, i) => cls(L.text({ x: RX, base: RB(i), s: 40, c: "lilac", txt: a }), "fade"));
 const attrVal = ATTR.map((a, i) => cls(L.text({ x: VX, base: RB(i), s: 48, c: "white", txt: "" }), "fade"));
@@ -314,14 +356,16 @@ const hon = [5, 6].map((i) => [cls(L.text({ x: RX2, base: RB(i), s: 40, c: "whit
   cls(L.text({ x: RR, base: RB(i), s: 40, c: "peach", txt: "", align: "r" }), "fade")]);
 
 // ---------------- the duty roster ----------------
-header(RX, 1000, RR - RX, "Duty Roster", VX - L.GAP - RX, "peach", "lilac");   // its bar starts where the week does
-const CW = 176, CG = 16, cellX = (d) => VX + d * (CW + CG);
-L.text({ x: RX, base: 1110, s: 36, c: "lilac", txt: "Stardate" });
+// (upright: the week's cells 80 wide and 10 apart, ending on the manifest's Department column)
+const CX0 = UP ? 1196 - 7 * 80 - 6 * 10 : VX;
+header(RX, DH, RR - RX, "Duty Roster", CX0 - L.GAP - RX, "peach", "lilac");   // its bar starts where the week does
+const CW = UP ? 80 : 176, CG = UP ? 10 : 16, cellX = (d) => CX0 + d * (CW + CG);
+L.text({ x: RX, base: DH + 110, s: 36, c: "lilac", txt: "Stardate" });
 for (let d = 0; d < 7; d++) {
   const sd = (SD + (d - TODAY) * 2.74).toFixed(1);
-  L.box({ x: cellX(d), y: 1080, w: CW, h: 40, c: d === TODAY ? "ice" : "plum", label: sd, fs: 28, cls: "c" });
+  L.box({ x: cellX(d), y: DH + 80, w: CW, h: 40, c: d === TODAY ? "ice" : "plum", label: sd, fs: 28, cls: "c" });
 }
-const CY = (s) => 1144 + s * 72;
+const CY = (s) => DH + 144 + s * 72;
 const cells = SHIFTS.map(([name], s) => {
   L.text({ x: RX, base: CY(s) + 42, s: 40, c: s === NOW_SHIFT ? "ice" : "lilac", txt: name });
   return Array.from({ length: 7 }, (_, d) => {
@@ -331,27 +375,34 @@ const cells = SHIFTS.map(([name], s) => {
   });
 });
 const STAT = ["Status", "Location"], STAT2 = ["Shift", "Shifts This Week"];
-const statVal = STAT.map((n, i) => { L.text({ x: RX, base: 1424 + i * 76, s: 40, c: "lilac", txt: n }); return cls(L.text({ x: VX, base: 1424 + i * 76, s: 48, c: "white", txt: "" }), "fade"); });
-const statVal2 = STAT2.map((n, i) => { L.text({ x: RX2, base: 1424 + i * 76, s: 40, c: "lilac", txt: n }); return cls(L.text({ x: RR, base: 1424 + i * 76, s: 48, c: "white", txt: "", align: "r" }), "fade"); });
-const onDuty = (c, d) => c.offN === 1 ? d !== c.off : d !== c.off && d !== (c.off + 1) % 7;
+// upright: the four readings on the record's second column, on the stardate's and the three shifts' baselines
+const STATB = (k) => [DH + 110, CY(0) + 42, CY(1) + 42, CY(2) + 42][k];
+const statVal = UP ? STAT.map((n, i) => { L.text({ x: RX2, base: STATB(i), s: 40, c: "lilac", txt: n }); return cls(L.text({ x: RR, base: STATB(i), s: 48, c: "white", txt: "", align: "r" }), "fade"); })
+  : STAT.map((n, i) => { L.text({ x: RX, base: 1424 + i * 76, s: 40, c: "lilac", txt: n }); return cls(L.text({ x: VX, base: 1424 + i * 76, s: 48, c: "white", txt: "" }), "fade"); });
+const statVal2 = STAT2.map((n, i) => { L.text({ x: RX2, base: UP ? STATB(i + 2) : 1424 + i * 76, s: 40, c: "lilac", txt: n }); return cls(L.text({ x: RR, base: UP ? STATB(i + 2) : 1424 + i * 76, s: 48, c: "white", txt: "", align: "r" }), "fade"); });
 
 // ---------------- department strength ----------------
-const BY = 1734, BP = 54;                                  // the bottom strip's rows
-small(LX, 1620, 1150 - LX, "Department Strength", "plum", "lilac");
+const BY = SY1 + 114, BY2 = SY2 + 114, BP = 54;           // the bottom strip's rows (wide: both 1734)
+const DR = UP ? H1 : 1150;                                 // department strength's right edge
+const dLW = small(LX, SY1, DR - LX, "Department Strength", "plum", "lilac");
+// wide: the bars 560–1060, the counts right-aligned on the edge. upright: each count ends where the header's
+// label does and its bar runs from there to the edge, under the header's bar, flush both ends.
+const DBX = UP ? LX + dLW + L.GAP : 560, DBW = UP ? DR - DBX : 500, DVX = UP ? LX + dLW : DR;
 const dmax = Math.max(...DEPTS.map((d) => d[1]));
 const deptRows = DEPTS.map(([name, n, c], i) => {
   const base = BY + i * BP;
   const lab = cls(L.text({ x: LX, base, s: 36, c: "lilac", txt: name }), "hl");
-  L.rect({ x: 560, y: base - 26, w: 500, h: 26, c: DARK });
-  const f = L.layer({ x: 560, y: base - 26, w: 500, h: 26, cls: "boot" });
+  L.rect({ x: DBX, y: base - 26, w: DBW, h: 26, c: DARK });
+  const f = L.layer({ x: DBX, y: base - 26, w: DBW, h: 26, cls: "boot" });
   f.style.background = V(c); f.style.transformOrigin = "0 0"; f.style.transform = `scaleX(${(n / dmax).toFixed(4)})`;
-  const v = cls(L.text({ x: 1150, base, s: 36, c: "white", txt: fmt(crew.filter((x) => x.dept === name).length), align: "r" }), "hl");
+  const v = cls(L.text({ x: DVX, base, s: 36, c: "white", txt: fmt(crew.filter((x) => x.dept === name).length), align: "r" }), "hl");
   return { name, lab, v };
 });
 
 // ---------------- species aboard ----------------
-small(1210, 1620, LR - 1210, "Species Aboard", "lilac", "plum");
-const DCX = 1375, DCY = 1850, R1 = 104, R2 = 158;
+const SPX = UP ? H2 : 1210;                                // species aboard's left edge
+small(SPX, SY1, LR - SPX, "Species Aboard", "lilac", "plum");
+const DCX = SPX + 165, DCY = BY + 116, R1 = 104, R2 = 158;
 const spCount = (name) => crew.filter((c) => LEGEND(c.sp) === name).length;
 const slices = [];
 {
@@ -367,9 +418,9 @@ const slices = [];
 }
 const ptr = L.svg("path", { d: "", fill: "var(--white)", class: "ptr" });
 ptr.style.opacity = 0;
-const spShare = cls(L.text({ x: DCX, base: 1846, s: 52, c: "white", txt: "", align: "c", w: 2 * R1 - 30 }), "fade");
-const spName = cls(L.text({ x: DCX, base: 1898, s: 36, c: "lilac", txt: "", align: "c", w: 2 * R1 - 30 }), "fade");
-const LEG = [1590, 1900], LEGW = 260;
+const spShare = cls(L.text({ x: DCX, base: DCY - 4, s: 52, c: "white", txt: "", align: "c", w: 2 * R1 - 30 }), "fade");
+const spName = cls(L.text({ x: DCX, base: DCY + 48, s: 36, c: "lilac", txt: "", align: "c", w: 2 * R1 - 30 }), "fade");
+const LEG = UP ? [SPX + 380, LR - 260] : [1590, 1900], LEGW = 260;
 const legend = SPECIES.map(([name, , c], i) => {
   const x = LEG[Math.floor(i / 5)], base = BY + (i % 5) * BP;
   L.rect({ x, y: base - 30, w: 34, h: 34, rx: 6, c });                    // (taller than the capitals: a key, not a bar)
@@ -380,25 +431,27 @@ L.text({ x: LEG[0], base: BY + 5 * BP, s: 36, c: "lilac", txt: "Species Represen
 L.text({ x: LR, base: BY + 5 * BP, s: 36, c: "white", txt: String(new Set(crew.map((c) => c.sp)).size), align: "r" });
 
 // ---------------- rank structure ----------------
-small(RX, 1620, 3004 - RX, "Rank Structure", "peach", "plum");
-const KW = 80, KG = 8, KB = 1960, KH = 180;
+const KX0 = UP ? H2 : RX, KX1 = UP ? FB.x1 : 3004;          // rank structure's edges (upright: under species aboard)
+small(KX0, SY2, KX1 - KX0, "Rank Structure", "peach", "plum");
+const KW = UP ? 94 : 80, KG = UP ? 15 : 8, KB = BY2 + 226, KH = 180;   // nine columns, flush both ends
 const rmax = Math.max(...RANKS.map((r) => r[3]));
 const rankCols = RANKS.map(([ab, , , n], i) => {
-  const x = RX + i * (KW + KG), h = Math.max(8, Math.round((KH * n) / rmax));
+  const x = KX0 + i * (KW + KG), h = Math.max(8, Math.round((KH * n) / rmax));
   const r = L.rect({ x, y: KB - h, w: KW, h, c: i < 6 ? "plum" : "lilac" });
   r.classList.add("rk");
   const cnt = crew.filter((c) => c.rank === i).length;
   const v = cls(L.text({ x: x + KW / 2, base: KB - h - 18, s: 36, c: "white", txt: fmt(cnt), align: "c", w: KW + KG }), "hl");
-  const lab = cls(L.text({ x: x + KW / 2, base: BY + 5 * BP, s: 36, c: "lilac", txt: ab, align: "c", w: KW + KG }), "hl");
+  const lab = cls(L.text({ x: x + KW / 2, base: BY2 + 5 * BP, s: 36, c: "lilac", txt: ab, align: "c", w: KW + KG }), "hl");
   return { r, v, lab, c: i < 6 ? "plum" : "lilac" };
 });
 
 // ---------------- personnel log ----------------
-small(RX2, 1620, RR - RX2, "Personnel Log", "ice", "lilac");
-const LOGN = 6, LOGX = RX2 + 150;
+const LGX = UP ? LX : RX2, LGR = UP ? H1 : RR;              // the log's edges (upright: under department strength)
+small(LGX, SY2, LGR - LGX, "Personnel Log", "ice", "lilac");
+const LOGN = 6, LOGX = LGX + 150;
 const logRows = Array.from({ length: LOGN }, (_, i) => ({
-  sd: L.text({ x: RX2, base: BY + i * BP, s: 36, c: "peach", txt: "" }),
-  tx: L.text({ x: LOGX, base: BY + i * BP, s: 36, c: "white", txt: "" }) }));
+  sd: L.text({ x: LGX, base: BY2 + i * BP, s: 36, c: "peach", txt: "" }),
+  tx: L.text({ x: LOGX, base: BY2 + i * BP, s: 36, c: "white", txt: "" }) }));
 let logSD = SD - 0.6;
 const logged = [];
 const logLine = (txt) => {
@@ -418,6 +471,66 @@ const EVENTS = [
   () => `Personnel file updated  ·  ${who(L.pick(crew))}`,
 ];
 
+// ---------------- ultrawide: the third column (senior staff, shift complement, quarters by deck) ----------------
+// Drawn from the same crew, with no chance in it (the wide layout's draws are untouched); like the charts,
+// it points at the open record through these hooks.
+const onRecord = [];
+const onDuty = (c, d) => c.offN === 1 ? d !== c.off : d !== c.off && d !== (c.off + 1) % 7;
+const working = (c) => c.shift === NOW_SHIFT && onDuty(c, TODAY);
+if (UW) {
+  // over the column, after the page pill: the watch under way and how many of it are on duty
+  const nowOn = crew.filter(working).length;
+  // (one segmented pill across the column: a plum lead-in, then the label)
+  L.box({ x: NX0, y: 150, w: NX1 - 680 - L.GAP - NX0, h: 72, c: "plum", r: "l" });
+  L.box({ x: NX1 - 680, y: 150, w: 680, h: 72, c: "lilac", label: `${SHIFTS[NOW_SHIFT][0]} Shift  ·  ${fmt(nowOn)} On Duty`, r: "r", fs: 36 });
+  // the senior staff, in the order of command, on the manifest's rows
+  header(NX0, 280, NX1 - NX0, "Senior Staff", 0, "ice", "plum");
+  const SC = { name: NX0, rank: 4130, pos: 4260, shift: 4660 };
+  [["Name", SC.name], ["Rank", SC.rank], ["Position", SC.pos], ["Shift", SC.shift]].forEach(([h, x]) => L.text({ x, base: 404, s: 36, c: "plum", txt: h }));
+  L.text({ x: NX1, base: 404, s: 36, c: "plum", txt: "Status", align: "r" });
+  const staff = SENIOR.map((s) => crew.find((c) => c.display === s[0])).map((c, i) => {
+    const base = rowBase(i), on = working(c);
+    const t = [[SC.name, c.display, "white"], [SC.rank, RANKS[c.rank][0], "lilac"], [SC.pos, c.pos, "peach"], [SC.shift, SHIFTS[c.shift][0], "lilac"]]
+      .map(([x, txt, col]) => cls(L.text({ x, base, s: 40, c: col, txt }), "hl"));
+    t.push(cls(L.text({ x: NX1, base, s: 40, c: on ? "ice" : "white", txt: on ? "On Duty" : "Off Duty", align: "r" }), "hl"));
+    return { c, t };
+  });
+  onRecord.push((c) => staff.forEach((r) => { const on = r.c === c; css(r.t[0], "color", on ? "var(--ice)" : "var(--white)"); css(r.t[2], "color", on ? "var(--white)" : "var(--peach)"); }));
+  // the shift complement: how many of each watch are on duty today, on the roster's reading rows
+  header(NX0, 1238, NX1 - NX0, "Shift Complement", 0, "peach", "lilac");
+  const TX = 4196, TW = 660;                               // the bars run up to the widest count
+  const shiftRows = SHIFTS.map(([name, hours], s) => {
+    const base = 1348 + s * 76, all = crew.filter((c) => c.shift === s), today = all.filter((c) => onDuty(c, TODAY)).length;
+    const lab = cls(L.text({ x: NX0, base, s: 40, c: "lilac", txt: name }), "hl");
+    L.text({ x: 4000, base, s: 36, c: s === NOW_SHIFT ? "ice" : "lilac", txt: hours });
+    L.rect({ x: TX, y: base - 26, w: TW, h: 26, c: DARK });
+    const f = L.layer({ x: TX, y: base - 26, w: TW, h: 26, cls: "boot" });
+    f.style.background = V(s === NOW_SHIFT ? "ice" : "plum"); f.style.transformOrigin = "0 0"; f.style.transform = `scaleX(${(today / all.length).toFixed(4)})`;
+    const v = cls(L.text({ x: NX1, base, s: 40, c: "white", txt: `${fmt(today)} of ${fmt(all.length)}`, align: "r" }), "hl");
+    return { lab, v };
+  });
+  onRecord.push((c) => shiftRows.forEach((r, s) => { const on = s === c.shift; css(r.lab, "color", on ? "var(--white)" : "var(--lilac)"); css(r.v, "color", on ? "var(--ice)" : "var(--white)"); }));
+  // quarters by deck: who lives where, the open record's deck lit
+  small(NX0, 1620, NX1 - NX0, "Quarters by Deck", "lilac", "plum");
+  // every deck anyone lives on (the senior staff's deck 2 as well as the crew's), so the bars sum to the complement
+  const QD = [...new Set(crew.map((c) => c.qd))].sort((a, b) => a - b);
+  const QW = 60, QG = 12;                                  // sixteen columns, flush both ends
+  const qn = QD.map((d) => crew.filter((c) => c.qd === d).length), qmax = Math.max(...qn);
+  const qCols = QD.map((d, i) => {
+    const x = NX0 + i * (QW + QG), h = Math.max(8, Math.round((KH * qn[i]) / qmax));
+    const r = L.rect({ x, y: KB - h, w: QW, h, c: "peach" });
+    r.classList.add("rk");
+    const v = cls(L.text({ x: x + QW / 2, base: KB - h - 18, s: 36, c: "white", txt: fmt(qn[i]), align: "c", w: QW + QG }), "hl");
+    const lab = cls(L.text({ x: x + QW / 2, base: BY2 + 5 * BP, s: 36, c: "lilac", txt: D2(d), align: "c", w: QW + QG }), "hl");
+    return { d, r, v, lab };
+  });
+  onRecord.push((c) => qCols.forEach((k) => {
+    const on = k.d === c.qd;
+    css(k.r, "fill", on ? "var(--ice)" : "var(--peach)");
+    css(k.v, "color", on ? "var(--ice)" : "var(--white)"); css(k.lab, "color", on ? "var(--white)" : "var(--lilac)");
+  }));
+}
+
 // ---------------- a guard: every record's words fit their places ----------------
 {
   const bad = [];
@@ -430,8 +543,9 @@ const EVENTS = [
     [RANKS[c.rank][1], c.pos, c.dept, c.sp, `${c.born}  ·  ${c.place}`, `${c.comm}  ·  Starfleet Academy`]
       .forEach((v) => fits(v, 48, RX2 - VX - 40, "record value"));
     [...c.hist, ...c.hon].forEach(([a, b]) => fits(a + "      " + b, 40, RR - RX2, "history"));
-    fits(`${c.at}  ·  Deck ${D2(c.deck)}`, 48, RX2 - VX - 40, "location");
-    fits(`Personnel file updated  ·  ${who(c)}`, 36, RR - LOGX, "log");
+    fits(`${c.at}  ·  Deck ${D2(c.deck)}`, 48, UP ? RR - RX2 - 140 : RX2 - VX - 40, "location");
+    fits(`Personnel file updated  ·  ${who(c)}`, 36, LGR - LOGX, "log");
+    if (UW && c.senior) { fits(c.display, 40, 4130 - NX0 - 40, "staff name"); fits(c.pos, 40, 4660 - 4260 - 40, "staff position"); }
   }
   if (bad.length) setTimeout(() => { throw new Error("crew-manifest: " + [...new Set(bad)].slice(0, 12).join(" | ")); });
 }
@@ -455,10 +569,10 @@ const showRecord = (c) => {
     b.style.background = look === "now" ? "var(--ice)" : look === "today" ? "var(--lilac)" : look === "on" ? "var(--plum)" : DARK;
     b.textContent = look === "now" ? "On Duty" : "";
   }));
-  const working = c.shift === NOW_SHIFT && onDuty(c, TODAY);
-  put(statVal[0], working ? "On Duty" : "Off Duty");
-  css(statVal[0], "color", working ? "var(--ice)" : "var(--white)");
-  const place = working ? [c.at, c.deck] : c.shift === 2 || Math.random() < 0.5 ? ["Quarters", c.qd] : L.pick(OFF_DUTY);
+  const isOn = working(c);
+  put(statVal[0], isOn ? "On Duty" : "Off Duty");
+  css(statVal[0], "color", isOn ? "var(--ice)" : "var(--white)");
+  const place = isOn ? [c.at, c.deck] : c.shift === 2 || Math.random() < 0.5 ? ["Quarters", c.qd] : L.pick(OFF_DUTY);
   put(statVal[1], `${place[0]}  ·  Deck ${D2(place[1])}`);
   put(statVal2[0], `${SHIFTS[c.shift][0]}  ·  ${SHIFTS[c.shift][1]}`);
   let done = 0, all = 0;                                     // today's Gamma and Alpha are over, Beta under way
@@ -479,6 +593,7 @@ const showRecord = (c) => {
     css(k.r, "fill", on ? "var(--ice)" : V(k.c));
     css(k.v, "color", on ? "var(--ice)" : "var(--white)"); css(k.lab, "color", on ? "var(--white)" : "var(--lilac)");
   });
+  onRecord.forEach((f) => f(c));
 };
 const recEls = [recName, recSerial, ...attrLab.slice(4, 6), ...attrVal, ...hist.flat(), ...hon.flat(), ...statVal, ...statVal2, spShare, spName];
 
@@ -499,7 +614,7 @@ const loadPage = (p) => {
   picks = pickRows(start); sel = -1;
   const lo = letterOf(crew[start]), hi = letterOf(crew[start + ROWS - 1]);
   paintIndex(lo, hi, "");
-  put(pagePill, `Page ${D2(p + 1)} of ${PAGES}`);
+  put(pagePill, `Page ${String(p + 1).padStart(String(PAGES).length, "0")} of ${PAGES}`);
   const abbr = (c) => c.short.replace(/^[a-z]{1,2}'/, "").slice(0, 3);
   put(stateSub, `Records ${fmt(start + 1)} – ${fmt(start + ROWS)} of ${fmt(TOTAL)}  ·  ${abbr(crew[start])} – ${abbr(crew[start + ROWS - 1])}  ·  Stardate ${SD.toFixed(1)}`);
 };

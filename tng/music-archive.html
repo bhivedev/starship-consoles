@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Music Archive</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* swapped text dips and comes back; colors change slowly; .boot (the start-up cascade) always wins */
@@ -38,12 +39,32 @@ const rng = (seed) => () => { seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(
 const minutes = () => (Date.now() - new Date().getTimezoneOffset() * 60000) / 60000;   // local minutes since the epoch
 const hhmm = (m) => { m = ((Math.floor(m) % 1440) + 1440) % 1440; return `${D2(Math.floor(m / 60))}:${D2(m % 60)}`; };
 
-// Two columns over a three-panel strip. Rows of 48 on a 60 grid, shared across each pair of panels.
-const A = [40, 2100], B = [2160, 3520];
+// ---------------- the grid, per shape ----------------
+// The library, the channels, the readings and the motion below are written once; only positions differ.
+// wide (3840 × 2160): two columns (40–2100 | 2160–3520) over a three-panel strip. Rows of 48 on a 60 grid,
+//   shared across each pair of panels; the strip on a 54 grid.
+// upright (2160 × 3120): Now Playing at full width (40–1840) as in wide; the composer catalog (40–1140) beside
+//   the audio analysis (1200–1840), whose spectrum stands taller than wide's, on a 54 grid; the performance
+//   archive at full width; requests (40–910) beside the channels (970–1840); the holdings as five columns
+//   across. The Archive Online pill closes the Now Playing header, so the status line has the width it needs.
+// ultrawide (5040 × 2160): the wide layout where it is, and a third column 3580–4720: a monitor of all six
+//   channels' recordings on the catalog's row band, their output levels on the archive's rows, and each
+//   channel's regular listeners in the strip.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const A = UP ? [40, 1840] : [40, 2100], B = [2160, 3520];
+const CATC = UP ? [40, 1140] : B, SPC = UP ? [1200, 1840] : B;    // the catalog's and the spectrum's columns
 const ROW0 = 428, P = 60, RH = 48, rowY = (i) => ROW0 + i * P, rowBase = (i) => rowY(i) + 37;
 const LROW0 = 1148, lrowY = (i) => LROW0 + i * P, lrowBase = (i) => lrowY(i) + 37;
-const STRIP = (i) => 1734 + i * 54;
-const P1 = [40, 1040], P2 = [1100, 2100], P3 = [2160, 3520];
+const STRIP = UP ? (i) => 2364 + i * 54 : (i) => 1734 + i * 54;
+const P1 = UP ? [40, 910] : [40, 1040], P2 = UP ? [970, 1840] : [1100, 2100], P3 = UP ? [40, 1840] : [2160, 3520];
+// the catalog's rows and the archive's: upright puts them on the strip's 54 grid (boxes 42 high)
+const CY = UP ? 1000 : 280, CP = UP ? 54 : P, CRH = UP ? 42 : RH;
+const crowY = UP ? (i) => 1148 + i * 54 : rowY, crowBase = UP ? (i) => crowY(i) + 36 : rowBase;
+const AY = UP ? 1680 : 1000, AP = UP ? 54 : P, ARH = UP ? 42 : RH;
+const arowY = UP ? (i) => 1828 + i * 54 : lrowY, arowBase = UP ? (i) => arowY(i) + 36 : lrowBase;
+const SY = UP ? 2250 : 1620;                                   // the strip's headers
+const ARCHW = 220;                                             // upright: the Archive Online pill on the Now Playing header
+const C = [3580, 4720];                                        // ultrawide: the third column
 
 // columns as wide as what they hold, the space left shared equally between them; returns each column's anchor
 const spread = (x0, x1, cols) => {
@@ -93,7 +114,7 @@ RECS.forEach((r, i) => { r.i = i; r.c = COMPOSERS[r.comp]; r.aboard = !!r.sd; })
 const ABOARD = RECS.filter((r) => r.aboard);                 // already in stardate order
 
 // a waveform for each recording: its loudness, bar by bar, phrase by phrase
-const NBAR = 172;
+const NBAR = UP ? 150 : 172;                                    // upright: fewer bars across the narrower page, as wide as wide's
 const KIND = {        // [centre band, width, phrase length in bars, breath depth]
   jazz: [11, 6.5, 22, 0.25], strings: [14, 7.5, 34, 0.12], violin: [17, 6, 18, 0.2], flute: [19, 3.8, 14, 0.75],
   piano: [13, 8, 26, 0.3], lyre: [18, 5, 20, 0.45], opera: [12, 7, 28, 0.2],
@@ -149,19 +170,21 @@ const elapsed = (c, t) => t - c.start;
 const state = cls(L.text({ x: A[0], cap: 150, s: 100, c: "butter", txt: "" }), "sw");
 const stateSub = cls(L.text({ x: 0, base: 222, s: 38, c: "lilac", txt: "" }), "sw");
 const placeSub = () => { stateSub.style.left = A[0] + state.offsetWidth + 48 + "px"; };
-const arch = L.box({ x: B[1] - 400, y: 150, w: 400, h: 72, c: "lilac", label: "Archive Online", r: "lr", fs: 36 });
+const arch = UP ? L.box({ x: A[1] - ARCHW, y: 280, w: ARCHW, h: 56, c: "lilac", label: "Archive Online", r: "r", fs: 32 })
+  : L.box({ x: (UW ? C[1] : B[1]) - 400, y: 150, w: 400, h: 72, c: "lilac", label: "Archive Online", r: "lr", fs: 36 });
 arch.style.willChange = "opacity";
 
 // a section header with a status pill at its right end
-const pillHeader = (col, y, label, c1, c2, texts, pc, h = 56) => {
+const pillHeader = (col, y, label, c1, c2, texts, pc, h = 56, r = "r") => {
   const fs = h >= 56 ? 32 : 28;
   const pw = Math.ceil(Math.max(...texts.map((s) => L.textWidth(s, fs))) / 10) * 10 + 90;
   L.header({ x: col[0], y, w: col[1] - col[0] - pw - L.GAP, label, c1, c2, h });
-  return cls(L.box({ x: col[1] - pw, y, w: pw, h, c: pc, label: "", fs, r: "r" }), "sw");
+  return cls(L.box({ x: col[1] - pw, y, w: pw, h, c: pc, label: "", fs, r }), "sw");
 };
 
 // ---------------- now playing: channel 1 ----------------
-const npPill = pillHeader(A, 280, "Now Playing", "violet", "lilac", ["Channel 01  ·  Ten Forward"], "butter");
+const npPill = UP ? pillHeader([A[0], A[1] - ARCHW - L.GAP], 280, "Now Playing", "violet", "lilac", ["Channel 01  ·  Ten Forward"], "butter", 56, "")
+  : pillHeader(A, 280, "Now Playing", "violet", "lilac", ["Channel 01  ·  Ten Forward"], "butter");
 L.set(npPill, "Channel 01  ·  Ten Forward");
 L.text({ x: A[0], base: 400, s: 36, c: INK, txt: "Ship's Library  ·  Music Archive  ·  Holographic Audio Capture" });
 const title = cls(L.text({ x: A[0], base: rowBase(1), s: 80, c: "white", txt: "" }), "sw");
@@ -169,7 +192,7 @@ const total = cls(L.text({ x: A[1], base: rowBase(1), s: 52, c: "lilac", txt: ""
 const elapsedTxt = cls(L.text({ x: A[1], base: rowBase(1), s: 80, c: "butter", txt: "", align: "r" }), "sw");
 const mvt = cls(L.text({ x: A[0], base: rowBase(2), s: 40, c: "lilac", txt: "" }), "sw");
 const remain = cls(L.text({ x: A[1], base: rowBase(2), s: 40, c: "lilac", txt: "", align: "r" }), "sw");
-const FX = [A[0], A[0] + 250, A[0] + 1100, A[0] + 1350];
+const FX = UP ? [A[0], A[0] + 250, SPC[0], SPC[0] + 250] : [A[0], A[0] + 250, A[0] + 1100, A[0] + 1350];   // upright: the second pair on the spectrum's edge
 const field = (i, k, label) => {
   L.text({ x: FX[2 * k], base: rowBase(i), s: 36, c: INK, txt: label });
   return cls(L.text({ x: FX[2 * k + 1], base: rowBase(i), s: 40, c: "white", txt: "" }), "sw");
@@ -196,7 +219,7 @@ const drawWave = (r, upto) => {
 };
 // minutes under the waveform: round marks only, none cut by the end
 const marks = Array.from({ length: 10 }, () => cls(L.text({ x: 0, base: rowBase(8), s: 32, c: INK, txt: "", legend: true }), "sw"));
-const markTicks = Array.from({ length: 10 }, () => fill(0, WY + WH + 4, 2, 12, DIM));
+const markTicks = Array.from({ length: 10 }, () => fill(L.shape === "wide" ? 0 : WX, WY + WH + 4, 2, 12, DIM));   // (wide's sit 40 left of their marks; kept there)
 const showMarks = (r) => {
   const step = r.len <= 150 ? 30 : r.len <= 400 ? 60 : 120;
   marks.forEach((m, k) => {
@@ -210,19 +233,19 @@ const showMarks = (r) => {
 };
 
 // ---------------- composer catalog ----------------
-const catPill = pillHeader(B, 280, "Composer Catalog", "lilac", "violet", ["6 Channels On Air"], "butter");
-const CBOX = 330;
+const catPill = pillHeader(CATC, CY, "Composer Catalog", "lilac", "violet", ["6 Channels On Air"], "butter");
+const CBOX = UP ? 220 : 330;
 const CATCOLS = [["Origin", CKEYS.map((k) => COMPOSERS[k].origin), "l"], ["Period", CKEYS.map((k) => COMPOSERS[k].period), "l"],
   ["Style", CKEYS.map((k) => COMPOSERS[k].style), "l"], ["Works", ["1,128"], "r"], ["Recordings", ["5,208"], "r"], ["On Air", ["01  ·  02  ·  03"], "r"]];
-const CATX = spread(B[0] + CBOX + 24, B[1], CATCOLS);
-L.text({ x: B[0], base: 400, s: 36, c: INK, txt: "Composer" });
-CATCOLS.forEach(([txt, , align], k) => L.text({ x: CATX[k], base: 400, s: 36, c: INK, txt, align }));
-const catBand = fill(B[0] + CBOX - 24, rowY(0), B[1] - B[0] - CBOX + 24, RH, BAND);
-catBand.style.borderRadius = `0 ${RH / 2}px ${RH / 2}px 0`;
+const CATX = spread(CATC[0] + CBOX + 24, CATC[1], CATCOLS);
+L.text({ x: CATC[0], base: CY + 120, s: 36, c: INK, txt: "Composer" });
+CATCOLS.forEach(([txt, , align], k) => L.text({ x: CATX[k], base: CY + 120, s: 36, c: INK, txt, align }));
+const catBand = fill(CATC[0] + CBOX - 24, crowY(0), CATC[1] - CATC[0] - CBOX + 24, CRH, BAND);
+catBand.style.borderRadius = `0 ${CRH / 2}px ${CRH / 2}px 0`;
 catBand.style.transition = "transform 1.2s cubic-bezier(.45,0,.55,1)";
 const cat = CKEYS.map((k, i) => {
-  const c = COMPOSERS[k], base = rowBase(i);
-  const box = cls(L.box({ x: B[0], y: rowY(i), w: CBOX, h: RH, c: "violet", label: c.box, fs: 28, r: "l" }), "rc");
+  const c = COMPOSERS[k], base = crowBase(i);
+  const box = cls(L.box({ x: CATC[0], y: crowY(i), w: CBOX, h: CRH, c: "violet", label: c.box, fs: 28, r: "l" }), "rc");
   const t = [c.origin, c.period, c.style, fmt(c.works), fmt(c.recs)].map((v, j) =>
     cls(L.text({ x: CATX[j], base, s: 36, c: j >= 3 ? "white" : "lilac", txt: v, align: CATCOLS[j][2] }), "rc"));
   const air = cls(L.text({ x: CATX[5], base, s: 36, c: "butter", txt: "", align: "r" }), "rc");
@@ -230,56 +253,61 @@ const cat = CKEYS.map((k, i) => {
 });
 
 // ---------------- performance archive: recorded aboard ----------------
-const arPill = pillHeader(A, 1000, "Performance Archive", "violet", "lilac", ["Recorded Aboard  ·  7"], "butter");
+const arPill = pillHeader(A, AY, "Performance Archive", "violet", "lilac", ["Recorded Aboard  ·  7"], "butter");
 L.set(arPill, `Recorded Aboard  ·  ${ABOARD.length}`);
 const ABOX = 214;
 const ARCOLS = [["Performer", ABOARD.map((r) => r.ps), "l"], ["Instrument", ABOARD.map((r) => r.inst), "l"], ["Composer", ABOARD.map((r) => r.c.sur), "l"],
   ["Work", ABOARD.map((r) => r.ws), "l"], ["Venue", ABOARD.map((r) => r.venue), "l"], ["Length", ["9:04"], "r"]];
 const ARX = spread(A[0] + ABOX + 24, A[1], ARCOLS);
-L.text({ x: A[0], base: 1120, s: 36, c: INK, txt: "Stardate" });
-ARCOLS.forEach(([txt, , align], k) => L.text({ x: ARX[k], base: 1120, s: 36, c: INK, txt, align }));
-const arBand = fill(A[0] + ABOX - 24, lrowY(0), A[1] - A[0] - ABOX + 24, RH, BAND);
-arBand.style.borderRadius = `0 ${RH / 2}px ${RH / 2}px 0`;
+L.text({ x: A[0], base: AY + 120, s: 36, c: INK, txt: "Stardate" });
+ARCOLS.forEach(([txt, , align], k) => L.text({ x: ARX[k], base: AY + 120, s: 36, c: INK, txt, align }));
+const arBand = fill(A[0] + ABOX - 24, arowY(0), A[1] - A[0] - ABOX + 24, ARH, BAND);
+arBand.style.borderRadius = `0 ${ARH / 2}px ${ARH / 2}px 0`;
 arBand.style.transition = "transform 1.2s cubic-bezier(.45,0,.55,1), opacity .8s ease";
 const archive = ABOARD.map((r, i) => {
-  const base = lrowBase(i);
-  const box = cls(L.box({ x: A[0], y: lrowY(i), w: ABOX, h: RH, c: "lilac", label: r.sd, fs: 28, r: "l" }), "rc");
+  const base = arowBase(i);
+  const box = cls(L.box({ x: A[0], y: arowY(i), w: ABOX, h: ARH, c: "lilac", label: r.sd, fs: 28, r: "l" }), "rc");
   const t = [r.ps, r.inst, r.c.sur, r.ws, r.venue, mss(r.len)].map((v, j) =>
     cls(L.text({ x: ARX[j], base, s: 36, c: j === 5 ? "white" : j === 0 ? "lilac" : INK, txt: v, align: ARCOLS[j][2] }), "rc"));
   return { r, box, t };
 });
 
 // ---------------- audio analysis: channel 1's spectrum ----------------
-const spPill = pillHeader(B, 1000, "Audio Analysis", "lilac", "violet", ["Channel 01"], "butter");
+const spPill = pillHeader(SPC, 1000, "Audio Analysis", "lilac", "violet", ["Channel 01"], "butter");
 L.set(spPill, "Channel 01");
-L.text({ x: B[0], base: 1120, s: 36, c: INK, txt: "Third-Octave Spectrum  ·  dB" });
+L.text({ x: SPC[0], base: 1120, s: 36, c: INK, txt: "Third-Octave Spectrum  ·  dB" });
 const HOLD = "Peak Hold", HW = L.textWidth(HOLD, 36);
-L.text({ x: B[1], base: 1120, s: 36, c: "lilac", txt: HOLD, align: "r" });
-L.rect({ x: B[1] - HW - 24 - 48, y: 1120 - 16, w: 48, h: 6, c: "butter" });
-const SX0 = B[0] + 100, SX1 = B[1], ST = lrowY(0) + 12, SB = lrowY(4) + RH, SH = SB - ST, NB = 30, SP = (SX1 - SX0) / NB;
+L.text({ x: SPC[1], base: 1120, s: 36, c: "lilac", txt: HOLD, align: "r" });
+L.rect({ x: SPC[1] - HW - 24 - 48, y: 1120 - 16, w: 48, h: 6, c: "butter" });
+// upright: the octave names on the catalog's eighth row, the readings on its last; the bars stand above them
+const SPLAB = UP ? crowBase(7) : lrowBase(5), SPRD = UP ? crowBase(8) : lrowBase(6);
+const SX0 = SPC[0] + 100, SX1 = SPC[1], ST = lrowY(0) + 12, SB = UP ? SPLAB - 49 : lrowY(4) + RH, SH = SB - ST, NB = 30, SP = (SX1 - SX0) / NB;
 [0, -20, -40, -60].forEach((db, k) => {
   const y = ST + (-db / 60) * SH;
   L.rect({ x: SX0, y: y - (k === 3 ? 2 : 1), w: SX1 - SX0, h: 2, c: k === 3 ? DIM : GRID, free: true });
   L.text({ x: SX0 - 24, base: y + 11, s: 32, c: INK, txt: String(db), align: "r", legend: true });
 });
 // octave centres under their bands
-[["63", 5], ["125", 8], ["250", 11], ["500", 14], ["1K", 17], ["2K", 20], ["4K", 23], ["8K", 26], ["16K", 29]].forEach(([txt, b]) =>
-  L.text({ x: SX0 + (b - 0.5) * SP, base: lrowBase(5), s: 32, c: INK, txt, align: "c", w: 80, legend: true }));
+// (upright: every other octave, the bands being narrower)
+[["63", 5], ["125", 8], ["250", 11], ["500", 14], ["1K", 17], ["2K", 20], ["4K", 23], ["8K", 26], ["16K", 29]].filter((o, k) => !UP || k % 2 === 0).forEach(([txt, b]) =>
+  L.text({ x: SX0 + (b - 0.5) * SP, base: SPLAB, s: 32, c: INK, txt, align: "c", w: 80, legend: true }));
 const bands = Array.from({ length: NB }, (_, b) => ({
   f: fill(SX0 + b * SP + 4, ST, SP - 8, SH, b % 2 ? "violet" : "#7d68e6", "50% 100%"),
   cap: fill(SX0 + b * SP + 4, ST - 3, SP - 8, 6, "butter"),
   v: -60, pk: -60, ph: 0,
 }));
-const RDX = [B[0], B[0] + 470, B[0] + 930];
+// (upright: the range ends on the column's edge, its label one gap before the widest value)
+const RDX = UP ? [SPC[0], SPC[0] + 250, SPC[1] - L.textWidth("00 dB", 40) - 24 - L.textWidth("Range", 36)] : [B[0], B[0] + 470, B[0] + 930];
 const rd = [["Average", 0], ["Peak", 1], ["Range", 2]].map(([label, k]) => {
-  L.text({ x: RDX[k], base: lrowBase(6), s: 36, c: INK, txt: label });
-  return L.text({ x: RDX[k] + L.textWidth(label, 36) + 24, base: lrowBase(6), s: 40, c: "white", txt: "" });
+  L.text({ x: RDX[k], base: SPRD, s: 36, c: INK, txt: label });
+  if (UP && k === 2) return L.text({ x: SPC[1], base: SPRD, s: 40, c: "white", txt: "", align: "r" });
+  return L.text({ x: RDX[k] + L.textWidth(label, 36) + 24, base: SPRD, s: 40, c: "white", txt: "" });
 });
 
 // ---------------- recent requests: the newest at the bottom ----------------
-const rqPill = pillHeader(P1, 1620, "Recent Requests", "violet", "lilac", ["Today  ·  999"], "butter", 48);
+const rqPill = pillHeader(P1, SY, "Recent Requests", "violet", "lilac", ["Today  ·  999"], "butter", 48);
 let todayCount = 212 + L.irand(0, 40);
-const RQX = [P1[0], P1[0] + 124, P1[0] + 424, P1[1]];
+const RQX = [P1[0], P1[0] + 124, P1[0] + (UP ? 384 : 424), P1[1]];
 const rq = Array.from({ length: 6 }, (_, i) => [
   L.text({ x: RQX[0], base: STRIP(i), s: 36, c: INK, txt: "" }), L.text({ x: RQX[1], base: STRIP(i), s: 36, c: "white", txt: "" }),
   L.text({ x: RQX[2], base: STRIP(i), s: 36, c: "lilac", txt: "" }), L.text({ x: RQX[3], base: STRIP(i), s: 36, c: "butter", txt: "", align: "r" }),
@@ -290,9 +318,9 @@ const showRequests = () => {
 };
 
 // ---------------- playback channels ----------------
-L.header({ x: P2[0], y: 1620, w: P2[1] - P2[0], label: "Playback Channels", c1: "lilac", c2: "violet", h: 48 });
-const CHX = [P2[0], P2[0] + 124, P2[0] + 400];
-const PBX0 = 1832, PBX1 = 1972;                                // progress, then the time left
+L.header({ x: P2[0], y: SY, w: P2[1] - P2[0], label: "Playback Channels", c1: "lilac", c2: "violet", h: 48 });
+const CHX = [P2[0], P2[0] + 124, P2[0] + (UP ? 360 : 400)];
+const PBX0 = UP ? P2[0] + 604 : 1832, PBX1 = UP ? P2[0] + 736 : 1972;   // (upright: ending 134 in from the edge)   // progress, then the time left
 const chRows = CH.map((c, i) => {
   const base = STRIP(i);
   L.box({ x: CHX[0], y: base - 36, w: 100, h: 42, c: i ? "violet" : "butter", label: c.id, fs: 28, r: "l" });
@@ -307,14 +335,32 @@ const chRows = CH.map((c, i) => {
 // ---------------- archive holdings by origin ----------------
 const ORIG = [["Earth", 61284, "violet"], ["Vulcan", 4816, "lilac"], ["Qo'noS", 2930, "violet"], ["Bajor", 1742, "lilac"], ["Kataan", 14, "violet"]];
 const HELD = ORIG.reduce((a, o) => a + o[1], 0);
-L.set(pillHeader(P3, 1620, "Archive Holdings", "lilac", "violet", ["Recordings 70,786"], "butter", 48), `Recordings ${fmt(HELD)}`);
+L.set(pillHeader(P3, UP ? 2688 : 1620, "Archive Holdings", "lilac", "violet", ["Recordings 70,786"], "butter", 48), `Recordings ${fmt(HELD)}`);
 const HB0 = P3[0] + 250, HB1 = P3[0] + 820, HX = [P3[0] + 1030, P3[1]];
 const LOG = (n) => Math.log10(Math.max(1, n)) / 5;            // 1 to 100,000 across the bar
+let hold;
+if (UP) {
+  // upright: five columns across, one origin each: its box and the count held, the log bar, the channels on air
+  const HW5 = 312, HG = 60, hx = (i) => P3[0] + i * (HW5 + HG), HR = [2802, 2856, 2910, 2964];
+  L.text({ x: P3[0], base: HR[0], s: 36, c: INK, txt: "Recordings Held  ·  Log Scale  ·  1 to 100,000" });
+  hold = ORIG.map(([name, n, c], i) => {
+    const x = hx(i);
+    const nm = cls(L.box({ x, y: HR[1] - 36, w: 180, h: 42, c, label: name, fs: 28, r: "l" }), "rc");
+    L.text({ x: x + HW5, base: HR[1], s: 36, c: "white", txt: fmt(n), align: "r" });
+    L.rect({ x, y: HR[2] - 26, w: HW5, h: 26, c: TRACK });
+    for (let d = 1; d < 5; d++) L.rect({ x: x + (HW5 * d) / 5 - 1, y: HR[2] - 30, w: 2, h: 4, c: DIM, free: true });
+    const f = fill(x, HR[2] - 26, HW5, 26, c);
+    tf(f, `scaleX(${LOG(n).toFixed(4)})`);
+    L.text({ x, base: HR[3], s: 36, c: INK, txt: "On Air" });
+    const air = cls(L.text({ x: x + HW5, base: HR[3], s: 36, c: "butter", txt: "", align: "r" }), "rc");
+    return { name, nm, air, c };
+  });
+} else {
 L.text({ x: P3[0], base: STRIP(0), s: 36, c: INK, txt: "Origin" });
 L.text({ x: HB0, base: STRIP(0), s: 36, c: INK, txt: "Recordings Held  ·  Log Scale" });
 L.text({ x: HX[0], base: STRIP(0), s: 36, c: INK, txt: "Held", align: "r" });
 L.text({ x: HX[1], base: STRIP(0), s: 36, c: INK, txt: "On Air", align: "r" });
-const hold = ORIG.map(([name, n, c], i) => {
+hold = ORIG.map(([name, n, c], i) => {
   const base = STRIP(i + 1);
   const nm = cls(L.box({ x: P3[0], y: base - 36, w: 220, h: 42, c, label: name, fs: 28, r: "l" }), "rc");
   L.rect({ x: HB0, y: base - 26, w: HB1 - HB0, h: 26, c: TRACK });
@@ -325,6 +371,7 @@ const hold = ORIG.map(([name, n, c], i) => {
   const air = cls(L.text({ x: HX[1], base, s: 36, c: "butter", txt: "", align: "r" }), "rc");
   return { name, nm, air, c };
 });
+}
 
 // ---------------- showing what plays ----------------
 const showOnAir = () => {
@@ -336,7 +383,7 @@ const showOnAir = () => {
     const sel = row.k === ch1.comp;
     bg(row.box, sel ? "butter" : "violet");
     row.t.forEach((t, j) => fg(t, sel ? "white" : j >= 3 ? "white" : "lilac"));
-    if (sel) tf(catBand, `translate3d(0,${i * P}px,0)`);
+    if (sel) tf(catBand, `translate3d(0,${i * CP}px,0)`);
   });
   hold.forEach((h) => {
     const n = CH.filter((c) => c.rec.c.origin === h.name).length;
@@ -348,7 +395,7 @@ const showOnAir = () => {
     bg(a.box, i === ai ? "butter" : "lilac");
     a.t.forEach((t, j) => fg(t, i === ai ? "white" : j === 5 ? "white" : j === 0 ? "lilac" : INK));
   });
-  if (ai >= 0) tf(arBand, `translate3d(0,${ai * P}px,0)`);
+  if (ai >= 0) tf(arBand, `translate3d(0,${ai * AP}px,0)`);
   op(arBand, ai >= 0 ? 1 : 0);
   L.set(catPill, `${CH.length} Channels On Air`);
   chRows.forEach((r) => L.set(r.rec, r.c.rec.short));
@@ -371,6 +418,80 @@ const showTimes = (t) => {
   L.set(elapsedTxt, mss(e)); L.set(remain, `Remaining  ${mss(r.len - Math.floor(e))}`);
   chRows.forEach((row) => L.set(row.left, mss(row.c.rec.len - Math.floor(Math.min(row.c.rec.len, elapsed(row.c, t))))));
 };
+
+// ---------------- ultrawide: the third column ----------------
+const uw = {};
+if (UW) {
+  // a monitor of every channel: its recording's loudness, the part played lit, its playhead
+  L.set(pillHeader(C, 280, "Channel Monitor", "violet", "lilac", ["All Channels"], "butter"), "All Channels");
+  L.text({ x: C[0], base: 400, s: 36, c: INK, txt: "Loudness Over Each Recording  ·  Playhead" });
+  const MX = C[0] + 124, MW = C[1] - MX, MB = 86, MBP = MW / MB, LH = 48;
+  uw.lanes = CH.map((c, k) => {
+    const y = 428 + k * 96;                                      // first and last on the catalog's first and last rows
+    L.box({ x: C[0], y, w: 100, h: LH, c: k ? "violet" : "butter", label: c.id, fs: 28, r: "l" });
+    L.rect({ x: MX, y: y + LH / 2 - 1, w: MW, h: 2, c: GRID, free: true });
+    const lay = L.layer({ x: MX, y, w: MW, h: LH, cls: "boot" });
+    const sv = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    sv.setAttribute("width", MW); sv.setAttribute("height", LH); sv.setAttribute("viewBox", `0 0 ${MW} ${LH}`);
+    sv.style.position = "absolute"; lay.appendChild(sv);
+    const bars = Array.from({ length: MB }, (_, i) => L.svg("rect", { x: (i * MBP + 2).toFixed(2), y: 0, width: (MBP - 4).toFixed(2), height: 0, rx: 2, fill: DIM }, sv));
+    const ph = fill(MX - 1, y - 6, 3, LH + 12, "white");
+    return { c, bars, ph, lit: 0, rec: null, on: k ? "var(--lilac)" : "var(--butter)" };
+  });
+  uw.draw = (ln, t) => {
+    const r = ln.c.rec, u = L.clamp(elapsed(ln.c, t) / r.len), upto = Math.floor(u * MB);
+    ln.bars.forEach((b, i) => {
+      const e = Math.max(r.env[Math.floor((i * NBAR) / MB)], r.env[Math.min(NBAR - 1, Math.floor((i * NBAR) / MB) + 1)]);
+      const h = Math.max(4, e * (LH - 6));
+      b.setAttribute("y", ((LH - h) / 2).toFixed(1)); b.setAttribute("height", h.toFixed(1));
+      b.setAttribute("fill", i < upto ? ln.on : DIM);
+    });
+    ln.lit = upto; ln.rec = r;
+  };
+  uw.lanes.forEach((ln) => uw.draw(ln, 0));
+
+  // the output of each channel and the library's mix, on the archive's rows
+  L.set(pillHeader(C, 1000, "Output Levels", "lilac", "violet", ["Mix  ·  Ship's Library"], "butter"), "Mix  ·  Ship's Library");
+  const OB0 = C[0] + 380, OB1 = C[1] - 124, LV0 = -40;          // the bars: -40 to 0 dB, running up to their readings
+  L.text({ x: C[0], base: 1120, s: 36, c: INK, txt: "Channel  ·  Location" });
+  L.text({ x: OB0, base: 1120, s: 36, c: INK, txt: "Output Level  ·  -40 to 0 dB" });
+  L.text({ x: C[1], base: 1120, s: 36, c: INK, txt: "Level", align: "r" });
+  uw.ow = OB1 - OB0;
+  const rows = CH.map((c) => [c.id, c.loc, c.n ? "violet" : "butter"]).concat([["Mix", "All Channels", "lilac"]]);
+  uw.out = rows.map(([id, loc, col], i) => {
+    L.box({ x: C[0], y: lrowY(i), w: 100, h: RH, c: col, label: id, fs: 28, r: "l" });
+    L.text({ x: C[0] + 124, base: lrowBase(i), s: 36, c: i === 6 ? "white" : i ? "lilac" : "white", txt: loc });
+    L.rect({ x: OB0, y: lrowY(i) + 11, w: OB1 - OB0, h: 26, c: TRACK });
+    for (let d = 1; d < 4; d++) L.rect({ x: OB0 + ((OB1 - OB0) * d) / 4 - 1, y: lrowY(i) + 7, w: 2, h: 4, c: DIM, free: true });
+    const f = fill(OB0, lrowY(i) + 11, OB1 - OB0, 26, col);
+    const pk = fill(OB0 - 2, lrowY(i) + 7, 4, 34, "white");
+    const v = L.text({ x: C[1], base: lrowBase(i), s: 36, c: "white", txt: "", align: "r" });
+    return { f, pk, v, lv: LV0, peak: LV0, ph: 0 };
+  });
+
+  // who listens on each channel, the one whose request is playing lit
+  L.set(pillHeader(C, 1620, "Channel Regulars", "violet", "lilac", ["Requesting Now"], "butter", 48), "Requesting Now");
+  const DOT = 48;                                               // a dot between names, clear of both
+  uw.regs = CH.map((c, i) => {
+    const base = STRIP(i);
+    L.box({ x: C[0], y: base - 36, w: 100, h: 42, c: i ? "violet" : "butter", label: c.id, fs: 28, r: "l" });
+    L.text({ x: C[0] + 124, base, s: 36, c: i ? "lilac" : "white", txt: c.loc });
+    let x = C[0] + 360;
+    const names = c.whoList.map((w, k) => {
+      if (k) { L.text({ x: x + DOT / 2, base, s: 36, c: DIM, txt: "·", align: "c", w: DOT }); x += DOT; }
+      const e = cls(L.text({ x, base, s: 36, c: INK, txt: w }), "rc");
+      x += L.textWidth(w, 36);
+      return [w, e];
+    });
+    const at = cls(L.text({ x: C[1], base, s: 36, c: "white", txt: "", align: "r" }), "sw");
+    return { c, names, at };
+  });
+  uw.showRegs = (t) => uw.regs.forEach((g) => {
+    g.names.forEach(([w, e]) => fg(e, w === g.c.whoNow ? "butter" : INK));
+    L.set(g.at, hhmm(minutes() + (g.c.start - t) / 60));
+  });
+  uw.showRegs(0);
+}
 
 // ---------------- the first moment ----------------
 drawWave(CH[0].rec, Math.floor((elapsed(CH[0], 0) / CH[0].rec.len) * NBAR));
@@ -431,5 +552,42 @@ L.every(250, (t) => {
     });
   }
 }, 0);
+
+if (UW) {
+  // the third column, running: playheads every frame, levels fifteen times a second, numbers twice
+  const level = (c, t) => {
+    const r = c.rec, e = r.env[Math.min(NBAR - 1, Math.floor(L.clamp(elapsed(c, t) / r.len) * NBAR))];
+    const quiet = elapsed(c, t) >= r.len ? 0.15 : 1;
+    return L.clamp(-7 + 22 * Math.log10(0.12 + 0.88 * e * quiet) + 1.2 * Math.sin(t * 0.9 + c.n * 1.7), -39, -1);
+  };
+  let uf = false, uT = null;
+  L.tick((t) => {
+    uw.lanes.forEach((ln) => {
+      if (ln.rec !== ln.c.rec) return;
+      const u = L.clamp(elapsed(ln.c, t) / ln.rec.len);
+      tf(ln.ph, `translate3d(${(u * (C[1] - C[0] - 124)).toFixed(2)}px,0,0)`);
+      const upto = Math.floor(u * ln.bars.length);
+      while (ln.lit < upto && ln.lit < ln.bars.length) ln.bars[ln.lit++].setAttribute("fill", ln.on);
+    });
+    if (!(uf = !uf)) return;
+    const dt = uT === null ? 0 : Math.min(0.2, t - uT); uT = t;
+    const goals = CH.map((c) => level(c, t));
+    goals.push(Math.min(-1, 10 * Math.log10(goals.reduce((a, g) => a + Math.pow(10, g / 10), 0)) - 4));
+    uw.out.forEach((o, i) => {
+      o.lv += (goals[i] - o.lv) * 0.15;
+      if (o.lv > o.peak) { o.peak = o.lv; o.ph = t; } else if (t - o.ph > 1) o.peak = Math.max(o.lv, o.peak - 6 * dt);
+      const w = uw.ow;
+      tf(o.f, `scaleX(${((o.lv - -40) / 40).toFixed(4)})`);
+      tf(o.pk, `translate3d(${(((o.peak - -40) / 40) * w).toFixed(2)}px,0,0)`);
+    });
+  });
+  L.every(500, () => uw.out.forEach((o) => L.set(o.v, `${o.lv.toFixed(1)} dB`)), 0);
+  L.every(250, (t) => {
+    const changed = uw.lanes.filter((ln) => ln.rec !== ln.c.rec);
+    if (!changed.length) return;
+    changed.forEach((ln) => uw.draw(ln, t));
+    swap(uw.regs.map((g) => g.at), () => uw.showRegs(L.t));
+  }, 0);
+}
 });
 </script></body></html>

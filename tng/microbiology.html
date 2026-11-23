@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Microbiology</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* text that is swapped dips and comes back; colors change slowly; .boot (the start-up cascade) always wins */
@@ -14,13 +15,30 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: sidebar left, title top right ----------------
-L.frame({ type: "A", title: "Microbiology  •  Culture Analysis", c: "olive", c2: "lilac", accent: "sand", foot: "Medical",
+const B = L.frame({ type: "A", title: "Microbiology  •  Culture Analysis", c: "olive", c2: "lilac", accent: "sand", foot: "Medical",
   side: [[140, "sand", "Med 05"], [70, "lilac", "Lab 2"], [420, "olive", "Microbiology"], [70, "plum", ""],
          [300, "lilac", "Cultures"], [70, "sand", ""], [216, "olive", "Pathology"]] });
 
-// Plates 330–2490 (four columns of 522, 24 apart); the right-hand column 2554–3816.
-// The bottom strip's three panels take the plate columns' edges: 330–1398 | 1422–2490 | 2554–3816.
-const X0 = 330, GR = 2490, RX = 2554, X1 = 3816;
+// ---------------- the grid, per shape ----------------
+// The data, readings and motion below are written once; only these positions differ by shape.
+// wide (3840 × 2160): plates 330–2490 (four columns of 522, 24 apart, three rows); the right-hand
+//   column 2554–3816 holds identification over growth curves. The bottom strip's three panels take
+//   the plate columns' edges: 330–1398 | 1422–2490 | 2554–3816.
+// upright (2160 × 3120): six plates, three columns of 586 (330–2136) by two rows; identification at
+//   full width below them; growth curves on plate columns 1–2 beside a microscope field on column 3;
+//   incubators | sensitivity split in two; the log on columns 1–2 beside the cells' measurements.
+// ultrawide (5040 × 2160): the wide plates and right-hand column unchanged, and a third column
+//   3880–5016: the microscope field over the cells' measurements, a fourth panel in the bottom strip.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const X0 = 330, GR = UP ? B.x1 : 2490, RX = UP ? X0 : 2554, X1 = UP ? B.x1 : 3816;
+const NC = UP ? 3 : 4, NR = UP ? 2 : 3;                      // plate columns and rows
+const PCOL = (i) => X0 + i * ((UP ? 586 : 522) + 24);       // a plate column's left edge
+const IY = UP ? 1216 : 280;                                  // identification's header
+const GX0 = UP ? X0 : RX, GX1 = UP ? PCOL(2) - 24 : X1, GY = UP ? 1776 : 1176;   // growth curves
+const SY = UP ? 2224 : 1620;                                 // the strip of incubators and sensitivity
+const IX1 = UP ? 1221 : 1398, SX = UP ? 1245 : 1422, SR = UP ? B.x1 : GR;
+const LX0 = UP ? X0 : RX, LX1 = UP ? PCOL(2) - 24 : X1, LHY = UP ? 2672 : 1620;  // the culture log
+const MX0 = UP ? PCOL(2) : 3880, MX1 = B.x1;                 // upright / ultrawide: microscope and cells
 const PANEL = "#15130a", TRACK = "#2c2914", RIM = "#77704a";
 const HOUR = 7.5;                                          // seconds of screen time for an hour in the incubator
 const LIFE = 48, ID_AT = 24, ID_LEN = 10;                  // hours on the plate; identification starts at 24 h and takes 10 s
@@ -72,15 +90,15 @@ const state = cls(L.text({ x: X0, cap: 150, s: BIG, c: "lilac", txt: "Incubating
 const sub = cls(L.text({ x: 0, base: 222, s: 38, c: "sand", txt: "Sickbay  ·  Microbiology Laboratory  ·  Deck 12  ·  Dr. B. Crusher" }), "sw");
 const placeSub = () => { sub.style.left = X0 + L.textWidth(state.textContent, BIG) + 48 + "px"; };
 placeSub();
-L.box({ x: X1 - 400, y: 150, w: 400, h: 72, c: "olive", label: "Biosafety Level 2", r: "lr", fs: 36 });
+L.box({ x: B.x1 - 400, y: 150, w: 400, h: 72, c: "olive", label: "Biosafety Level 2", r: "lr", fs: 36 });
 
 // ---------------- the plates ----------------
 L.header({ x: X0, y: 280, w: GR - X0, label: "Culture Plates  ·  Imaging Array", c1: "olive", c2: "lilac" });
-const PW = 522, PH = 384, PG = 24, PY = 360;
+const PW = UP ? 586 : 522, PH = 384, PG = 24, PY = 360;
 const R = 156, DX = 24, DY = 36, D = 2 * R;                 // the dish, in its panel
 const TX = 360, TW = PW - TX - 16;                           // the text column, in its panel
 const slots = [];
-for (let row = 0; row < 3; row++) for (let col = 0; col < 4; col++) {
+for (let row = 0; row < NR; row++) for (let col = 0; col < NC; col++) {
   const x0 = X0 + col * (PW + PG), y0 = PY + row * (PH + PG);
   L.rect({ x: x0, y: y0, w: PW, h: PH, c: PANEL, panel: true });
   const box = cls(L.box({ x: x0 + TX, y: y0 + DY, w: TW, h: 48, c: "olive", label: "", fs: 28 }), "sw");
@@ -107,13 +125,13 @@ for (let row = 0; row < 3; row++) for (let col = 0; col < 4; col++) {
 }
 
 // ---------------- identification ----------------
-L.header({ x: RX, y: 280, w: X1 - RX, label: "Identification", c1: "lilac", c2: "olive" });
-const TC = { src: 2718, org: 2995, morph: 3320, n: 3660, m: X1 };
+L.header({ x: RX, y: IY, w: X1 - RX, label: "Identification", c1: "lilac", c2: "olive" });
+const TC = UP ? { src: X0 + 234, org: X0 + 630, morph: X0 + 1096, n: X0 + 1582, m: X1 } : { src: 2718, org: 2995, morph: 3320, n: 3660, m: X1 };
 [["Source", TC.src, ""], ["Organism", TC.org, ""], ["Morphology", TC.morph, ""], ["Colonies", TC.n, "r"], ["Match", TC.m, "r"]]
-  .forEach(([txt, x, align]) => L.text({ x, base: 404, s: 36, c: "lilac", txt, align }));
-L.text({ x: RX, base: 404, s: 36, c: "lilac", txt: "Culture Plate" });
+  .forEach(([txt, x, align]) => L.text({ x, base: IY + 124, s: 36, c: "lilac", txt, align }));
+L.text({ x: RX, base: IY + 124, s: 36, c: "lilac", txt: "Culture Plate" });
 const BW = Math.round(L.textWidth("Culture Plate", 36));      // the plate boxes are as wide as their column's name
-const TP = 60, TY = 428, TB = 37.2;
+const TP = 60, TY = IY + 148, TB = 37.2;
 const rows = slots.map((s, i) => {
   const y = TY + i * TP, base = y + TB;
   return {
@@ -127,27 +145,28 @@ const rows = slots.map((s, i) => {
 });
 
 // ---------------- growth curves ----------------
-L.header({ x: RX, y: 1176, w: X1 - RX, label: "Growth Curves  ·  Log CFU", c1: "olive", c2: "sand" });
-const gName = cls(L.text({ x: RX, base: 1290, s: 36, c: "lilac", txt: "" }), "sw");
-const gLag = cls(L.text({ x: TC.org, base: 1290, s: 36, c: "white", txt: "" }), "sw");
-const gDbl = cls(L.text({ x: TC.morph, base: 1290, s: 36, c: "white", txt: "" }), "sw");
-const gPk = cls(L.text({ x: X1, base: 1290, s: 36, c: "white", txt: "", align: "r" }), "sw");
+L.header({ x: GX0, y: GY, w: GX1 - GX0, label: "Growth Curves  ·  Log CFU", c1: "olive", c2: "sand" });
+const GLAG = UP ? GX0 + 441 : TC.org, GDBL = UP ? GX0 + 766 : TC.morph;
+const gName = cls(L.text({ x: GX0, base: GY + 114, s: 36, c: "lilac", txt: "" }), "sw");
+const gLag = cls(L.text({ x: GLAG, base: GY + 114, s: 36, c: "white", txt: "" }), "sw");
+const gDbl = cls(L.text({ x: GDBL, base: GY + 114, s: 36, c: "white", txt: "" }), "sw");
+const gPk = cls(L.text({ x: GX1, base: GY + 114, s: 36, c: "white", txt: "", align: "r" }), "sw");
 // the chart is a panel the width of the column; its scale sits inside it, left of the plot
-const CY0 = 1312, CW = X1 - RX, CHh = 208, PL = 64, PWd = CW - PL;
-const chart = L.canvas({ x: RX, y: CY0, w: CW, h: CHh, panel: true });
+const CY0 = GY + 136, CW = GX1 - GX0, CHh = UP || UW ? 200 : 208, PL = 64, PWd = CW - PL;
+const chart = L.canvas({ x: GX0, y: CY0, w: CW, h: CHh, panel: true });
 const cY = (v) => 6 + ((10 - v) / 8) * (CHh - 12), cX = (h) => PL + (h / LIFE) * PWd;
-for (const v of [4, 6, 8]) L.text({ x: RX + PL - 18, base: CY0 + cY(v) + 11, s: 30, c: "sand", txt: String(v), align: "r", legend: true });
+for (const v of [4, 6, 8]) L.text({ x: GX0 + PL - 18, base: CY0 + cY(v) + 11, s: 30, c: "sand", txt: String(v), align: "r", legend: true });
 [[0, "l"], [12, "c"], [24, "c"], [36, "c"], [48, "r"]].forEach(([h, a]) =>
-  L.text({ x: a === "r" ? X1 : RX + cX(h), base: 1560, s: 30, c: "sand", txt: h === 48 ? "48 h" : String(h), align: a, w: 80, legend: true }));
+  L.text({ x: a === "r" ? GX1 : GX0 + cX(h), base: GY + 384, s: 30, c: "sand", txt: h === 48 ? "48 h" : String(h), align: a, w: 80, legend: true }));
 
 // ---------------- the bottom strip ----------------
-L.header({ x: X0, y: 1620, w: 1398 - X0, label: "Incubators", c1: "lilac", c2: "olive", h: 48 });
-L.header({ x: 1422, y: 1620, w: GR - 1422, label: "Antimicrobial Sensitivity", c1: "olive", c2: "plum", h: 48 });
-L.header({ x: RX, y: 1620, w: X1 - RX, label: "Culture Log", c1: "sand", c2: "lilac", h: 48 });
-const SB = (k) => 1734 + k * 54;
+L.header({ x: X0, y: SY, w: IX1 - X0, label: "Incubators", c1: "lilac", c2: "olive", h: 48 });
+L.header({ x: SX, y: SY, w: SR - SX, label: "Antimicrobial Sensitivity", c1: "olive", c2: "plum", h: 48 });
+L.header({ x: LX0, y: LHY, w: LX1 - LX0, label: "Culture Log", c1: "sand", c2: "lilac", h: 48 });
+const SB = (k) => SY + 114 + k * 54;
 
 // incubators: set points, held to a tenth
-const IC = { atm: 600, temp: 1000, co2: 1200, hum: 1398 };
+const IC = UP ? { atm: X0 + 210, temp: X0 + 540, co2: X0 + 700, hum: IX1 } : { atm: 600, temp: 1000, co2: 1200, hum: 1398 };
 [["Unit", X0, ""], ["Atmosphere", IC.atm, ""], ["Temp", IC.temp, "r"], ["CO2", IC.co2, "r"], ["Humidity", IC.hum, "r"]]
   .forEach(([txt, x, align]) => L.text({ x, base: SB(0), s: 36, c: "lilac", txt, align }));
 const INC = [["Incubator 1", "Aerobic", 37.0, 5.0, 92], ["Incubator 2", "Anaerobic", 37.0, 10.0, 88], ["Incubator 3", "Fungal", 30.0, 0.0, 85],
@@ -162,14 +181,14 @@ const incs = INC.map(([unit, atm, temp, co2, hum], k) => {
 });
 
 // sensitivity: the latest identified plate's discs
-const SX = 1422, SBX = 1640, SBR = 2180, SV = 2300;
+const SBX = UP ? SX + 200 : 1640, SBR = UP ? 1850 : 2180, SV = UP ? 1960 : 2300;
 const sSubj = cls(L.text({ x: SX, base: SB(0), s: 36, c: "white", txt: "" }), "sw");
-L.text({ x: GR, base: SB(0), s: 36, c: "lilac", txt: "Disc Diffusion  ·  mm", align: "r" });
+L.text({ x: SR, base: SB(0), s: 36, c: "lilac", txt: "Disc Diffusion  ·  mm", align: "r" });
 const sens = Array.from({ length: 5 }, (_, k) => {
   const base = SB(k + 1);
   L.rect({ x: SBX, y: base - 26, w: SBR - SBX, h: 26, c: TRACK });
   return { a: cls(L.text({ x: SX, base, s: 36, c: "sand", txt: "" }), "sw"), bar: fill(SBX, base - 26, SBR - SBX, 26, "olive"),
-           v: L.text({ x: SV, base, s: 36, c: "white", txt: "", align: "r" }), w: L.text({ x: GR, base, s: 36, c: "white", txt: "", align: "r" }),
+           v: L.text({ x: SV, base, s: 36, c: "white", txt: "", align: "r" }), w: L.text({ x: SR, base, s: 36, c: "white", txt: "", align: "r" }),
            from: 0, to: 0, cur: 0 };
 });
 const ZMAX = 40;
@@ -177,15 +196,15 @@ const verdict = (mm) => (mm >= 20 ? ["Susceptible", "olive"] : mm >= 15 ? ["Inte
 let sensT = -1e9, sensFor = null;
 
 // the log: oldest at the top, a new line arrives at the bottom
-const LG = { sd: RX, pl: RX + 130, ev: RX + 240 };
-const LN = 6, LP = 54, LY = SB(0) - 44;
+const LG = { sd: LX0, pl: LX0 + 130, ev: LX0 + 240 };
+const LN = UP ? 4 : 6, LP = 54, LY = LHY + 114 - 44;
 const logRows = Array.from({ length: LN }, (_, i) => {
-  const e = L.layer({ x: RX, y: LY, w: X1 - RX, h: LP });
+  const e = L.layer({ x: LX0, y: LY, w: LX1 - LX0, h: LP });
   const r = { e, slot: i,
     sd: L.text({ x: 0, base: 44, s: 36, c: "lilac", txt: "" }, e),
-    pl: L.text({ x: LG.pl - RX, base: 44, s: 36, c: "olive", txt: "" }, e),
-    ev: L.text({ x: LG.ev - RX, base: 44, s: 36, c: "sand", txt: "" }, e),
-    dt: L.text({ x: X1 - RX, base: 44, s: 36, c: "white", txt: "", align: "r", rightIn: true }, e) };
+    pl: L.text({ x: LG.pl - LX0, base: 44, s: 36, c: "olive", txt: "" }, e),
+    ev: L.text({ x: LG.ev - LX0, base: 44, s: 36, c: "sand", txt: "" }, e),
+    dt: L.text({ x: LX1 - LX0, base: 44, s: 36, c: "white", txt: "", align: "r", rightIn: true }, e) };
   L.move(e, 0, i * LP);
   return r;
 });
@@ -342,12 +361,240 @@ lastLogH = shownLog[LN - 1].h;
 logRows.forEach((r, i) => showLog(r, shownLog[i]));
 slots.forEach((s) => { showSlot(s); });
 
+// ---------------- upright / ultrawide: the latest identification under the microscope ----------------
+// A stained smear of the plate sensitivity is reading, and the cells measured from it. Stain colours:
+// crystal violet (Gram-positive), safranin (Gram-negative), lactophenol cotton blue (moulds, at 400×).
+// kind: how cells group; len / wid: microns; grp: cells per group; ret: % of the primary stain retained.
+const MIC = {
+  "Escherichia coli":           { kind: "rod", len: 2.0, wid: 0.6, grp: 2, ret: 6, arr: "Single  ·  Pairs" },
+  "Staphylococcus epidermidis": { kind: "cluster", len: 1.0, wid: 1.0, grp: 9, ret: 92, arr: "Grape-Like Clusters" },
+  "Micrococcus luteus":         { kind: "tetrad", len: 1.1, wid: 1.1, grp: 4, ret: 90, arr: "Tetrads" },
+  "Serratia marcescens":        { kind: "rod", len: 1.5, wid: 0.7, grp: 1, ret: 7, arr: "Single Cells" },
+  "Bacillus subtilis":          { kind: "chain", len: 3.0, wid: 0.9, grp: 4, ret: 88, arr: "Short Chains" },
+  "Pseudomonas fluorescens":    { kind: "rod", len: 2.2, wid: 0.6, grp: 1, ret: 5, arr: "Single Cells" },
+  "Chromobacterium violaceum":  { kind: "rod", len: 2.0, wid: 0.8, grp: 2, ret: 6, arr: "Single  ·  Pairs" },
+  "Streptococcus pyogenes":     { kind: "cocchain", len: 0.9, wid: 0.9, grp: 10, ret: 91, arr: "Chains" },
+  "Candida albicans":           { kind: "yeast", len: 5.0, wid: 3.6, grp: 2, ret: 86, arr: "Budding Yeast" },
+  "Aspergillus niger":          { kind: "mould", len: 4.0, wid: 3.5, grp: 8, ret: 84, arr: "Hyphae  ·  Conidial Heads" },
+  "Unclassified Bacillus":      { kind: "chain", len: 4.4, wid: 1.2, grp: 3, ret: 64, arr: "Short Chains" },
+};
+const INKS = { pos: ["#9a6ad8", "#b48ae6"], neg: ["#ee8cb6", "#f6b0cc"], blue: ["#7895ee", "#9ab0f4"] };
+let micro = null;
+if (UP || UW) {
+  const FY0 = UP ? GY + 80 : 360, FY1 = CY0 + CHh,              // the field ends level with the chart; captions share the hour labels' baseline
+        FW = MX1 - MX0, FH = FY1 - FY0;
+  L.header({ x: MX0, y: UP ? GY : 280, w: FW, label: UP ? "Microscopy" : "Microscopy  ·  Stained Smear", c1: "lilac", c2: "olive" });
+  L.rect({ x: MX0, y: FY0, w: FW, h: FH, c: PANEL, panel: true });
+  const layer = L.layer({ x: MX0, y: FY0, w: FW, h: FH });
+  const cv = L.canvas({ x: 0, y: 0, w: FW, h: FH }, layer);
+  const scaleTxt = cls(L.text({ x: MX1 - 24, base: FY1 - 48, s: 30, c: "sand", txt: "10 Microns", align: "r", legend: true }), "sw");
+  const capL = cls(L.text({ x: MX0, base: FY1 + 48, s: 36, c: "white", txt: "" }), "sw");
+  const capR = cls(L.text({ x: MX1, base: FY1 + 48, s: 36, c: UP ? "lilac" : "sand", txt: "", align: "r" }), "sw");
+  // the measurements: label | bar | value, on the bottom strip's rows
+  const KY = UP ? LHY : 1620, KB = (k) => KY + 114 + k * 54;
+  L.header({ x: MX0, y: KY, w: FW, label: "Cell Morphology", c1: "olive", c2: "lilac", h: 48 });
+  const KBX = MX0 + (UP ? 180 : 218), KBR = MX1 - (UP ? 158 : 176);
+  let stainT = null;
+  if (UW) {
+    stainT = cls(L.text({ x: MX0, base: KB(0), s: 36, c: "white", txt: "" }), "sw");
+    L.text({ x: MX1, base: KB(0), s: 36, c: "lilac", txt: "Mean of 40 Cells", align: "r" });
+  }
+  const AREA = FW * FH, CMAX = Math.round(((UP ? 1.6 : 1) * 1000 * AREA) / 1.3e6);
+  const ROWS = [["Cell Length", (p) => p.mic.len, 8, (v) => v.toFixed(1) + " Microns"],
+                ["Cell Width", (p) => p.mic.wid, 8, (v) => v.toFixed(1) + " Microns"],
+                ["Cells per Group", (p) => p.mic.grp, 12, (v) => Math.round(v) + (Math.round(v) === 1 ? " Cell" : " Cells")],
+                ["Stain Retained", (p) => p.mic.ret, 100, (v) => Math.round(v) + " Percent"],
+                ["Cells in Field", (p) => p.mic.n, CMAX, (v) => Math.round(v) + " Cells"]].filter((r) => UW || r[0] !== "Cells per Group");
+  // each value is a number then its unit: the numbers right-aligned just after the bars, the units in a column
+  // on the panel's edge, so every bar ends the same short way before its number (upright and ultrawide only)
+  const KVX = MX1 - (UP ? 98 : 100);
+  const bars = ROWS.map(([label, get, max, show], k) => {
+    const base = KB(k + (UW ? 1 : 0));
+    L.text({ x: MX0, base, s: 36, c: "lilac", txt: label });
+    fits(label, 36, KBX - MX0 - 30, "cell label");
+    L.rect({ x: KBX, y: base - 26, w: KBR - KBX, h: 26, c: TRACK });
+    return { get, max, show, bar: fill(KBX, base - 26, KBR - KBX, 26, "lilac"), v: L.text({ x: KVX, base, s: 36, c: "white", txt: "", align: "r" }),
+             u: L.text({ x: MX1, base, s: 36, c: "lilac", txt: "", align: "r" }), from: 0, to: 0, cur: 0 };
+  });
+  const S = 11;                                              // design px per micron at 1000× (400×: 4.4)
+  // a smear: groups of cells placed where they do not crowd; clear of the scale bar's corner
+  const smear = (p) => {
+    const m = MIC[p.org.name], k = m.kind, sc = k === "mould" ? S * 0.4 : S, out = [], groups = [];
+    const len = m.len * L.rand(0.94, 1.06), wid = m.wid * L.rand(0.94, 1.06);
+    const ink = k === "mould" ? "blue" : m.ret > 50 ? "pos" : "neg";
+    const M = 14, inField = (x, y, r) => x - r > M && y - r > M && x + r < FW - M && y + r < FH - M && !(x + r > FW - 190 && y + r > FH - 96);
+    const okAt = (x, y, r) => inField(x, y, r) && groups.every((g) => Math.hypot(g.x - x, g.y - y) > g.r + r + 10);
+    const cellCol = () => (p.org.novel && Math.random() < 0.3 ? INKS.neg : INKS[ink]);
+    const rod = (x, y, a, l, w, c) => out.push({ t: "rod", x, y, a, l, w, c });
+    const ball = (x, y, r, c) => out.push({ t: "ball", x, y, r, c });
+    if (k === "mould") {
+      // two or three hyphae across the field, and conidial heads: a vesicle ringed by chains of spores
+      const hw = wid * sc, rv = UP ? 36 : Math.min(70, (FH - 40) / 4.6);   // upright: small enough that two heads fit beside the scale bar
+      for (let h = 0; h < (UP ? 2 : 3); h++) {
+        let x = L.rand(0.1, h % 2 ? 0.6 : 0.9) * FW, y = h % 2 ? FH - M - hw : M + hw, a = h % 2 ? L.rand(-0.5, 0.5) : Math.PI + L.rand(-0.5, 0.5);
+        const pts = [[x, y]];
+        for (let i = 0; i < 40; i++) {
+          a += L.rand(-0.25, 0.25); x += Math.sin(a) * 40; y -= Math.cos(a) * 40;
+          if (x < M + hw || x > FW - M - hw || y < M + hw || y > FH - M - hw || (x + hw > FW - 190 && y + hw > FH - 96)) break;   // never across the scale bar
+          pts.push([x, y]);
+        }
+        out.push({ t: "hypha", pts, w: hw, c: INKS.blue });
+      }
+      let n = 0;
+      for (let i = 0, heads = 0; i < 400 && heads < (UW ? 4 : 2); i++) {
+        // upright: the first head at the left, so a second fits; ultrawide: one head in each quarter of the field
+        const R = rv * 2.25, q = heads % 2, v = heads >> 1;
+        const x = UP ? (heads ? L.rand(0, FW) : L.rand(M + R, M + R + 24)) : L.rand(q * FW / 2, (q + 1) * FW / 2), y = UP ? L.rand(0, FH) : L.rand(v * FH / 2, (v + 1) * FH / 2);
+        if (!okAt(x, y, R)) continue;
+        groups.push({ x, y, r: R }); heads++;
+        out.push({ t: "stalk", x, y, a: L.rand(0, 2 * Math.PI), l: rv * 2.2, w: hw * 0.8, c: INKS.blue });
+        ball(x, y, rv, INKS.blue);
+        const chains = Math.round((2 * Math.PI * rv) / (len * sc * 0.95)), cr = (len * sc) / 2;
+        for (let j = 0; j < chains; j++) {
+          const an = (j / chains) * 2 * Math.PI, links = Math.round(m.grp * L.rand(0.7, 1.15));
+          for (let q = 0; q < links; q++) {
+            const d = rv + cr + q * cr * 2 * 0.92, px = x + Math.sin(an) * d, py = y - Math.cos(an) * d;
+            if (d > R - cr) break;
+            ball(px, py, cr * 0.92, INKS.blue); n++;
+          }
+        }
+      }
+      return { out, n, len, wid, grp: m.grp, ret: m.ret + L.rand(-3, 3), sc };
+    }
+    const per = { rod: 300, chain: 90, cluster: 60, tetrad: 190, cocchain: 46, yeast: 120 }[k];
+    const goal = Math.round(((UP ? 1.6 : 1) * per * AREA) / 1.3e6);   // upright's small field: a little denser, so chains and clusters do not look sparse
+    let n = 0;
+    for (let i = 0; i < goal * 40 && groups.length < goal; i++) {
+      const x = L.rand(0, FW), y = L.rand(0, FH), a = L.rand(0, Math.PI), c = cellCol();
+      const l = len * sc, w = wid * sc, ux = Math.sin(a), uy = -Math.cos(a);
+      if (k === "rod") {
+        const two = Math.random() < (m.grp - 1) * 0.6, r = two ? l : l / 2 + 2;
+        if (!okAt(x, y, r)) continue;
+        groups.push({ x, y, r });
+        if (two) { rod(x - ux * (l / 2 + 1), y - uy * (l / 2 + 1), a, l, w, c); rod(x + ux * (l / 2 + 1), y + uy * (l / 2 + 1), a + L.rand(-0.15, 0.15), l, w, c); n += 2; }
+        else { rod(x, y, a, l, w, c); n++; }
+      } else if (k === "chain") {
+        const cnt = Math.max(1, Math.round(m.grp * L.rand(0.5, 1.5))), r = (cnt * (l + 3)) / 2 + 2;
+        if (!okAt(x, y, r)) continue;
+        groups.push({ x, y, r });
+        let bx = x - ux * (r - 2 - l / 2), by = y - uy * (r - 2 - l / 2), b = a;
+        for (let q = 0; q < cnt; q++) {
+          rod(bx, by, b, l, w, p.org.novel && Math.random() < 0.3 ? INKS.neg : c); n++;
+          const b2 = b + L.rand(-0.18, 0.18);
+          bx += (Math.sin(b) + Math.sin(b2)) / 2 * (l + 3); by -= (Math.cos(b) + Math.cos(b2)) / 2 * (l + 3); b = b2;
+        }
+      } else if (k === "cluster" || k === "tetrad" || k === "cocchain") {
+        const d = l, cnt = k === "tetrad" ? 4 : Math.max(3, Math.round(m.grp * L.rand(0.55, 1.45)));
+        const r = k === "tetrad" ? d + 2 : k === "cocchain" ? (cnt * d * 0.95) / 2 + 2 : d * (0.5 + 0.62 * Math.sqrt(cnt)) + 2;
+        if (!okAt(x, y, r)) continue;
+        groups.push({ x, y, r });
+        if (k === "tetrad") [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([i, j]) => ball(x + (i * ux - j * uy) * d * 0.51, y + (i * uy + j * ux) * d * 0.51, d / 2, c));
+        else if (k === "cocchain") {
+          let bx = x - ux * (r - 2 - d / 2), by = y - uy * (r - 2 - d / 2), b = a;
+          for (let q = 0; q < cnt; q++) { ball(bx, by, d / 2, c); b += L.rand(-0.3, 0.3); bx += Math.sin(b) * d * 0.95; by -= Math.cos(b) * d * 0.95; }
+        } else {
+          const pts = [];
+          for (let q = 0; q < cnt * 30 && pts.length < cnt; q++) {
+            const rr = Math.sqrt(Math.random()) * (r - 2 - d / 2), aa = L.rand(0, 2 * Math.PI), px = x + Math.sin(aa) * rr, py = y - Math.cos(aa) * rr;
+            if (pts.every(([qx, qy]) => Math.hypot(qx - px, qy - py) > d * 0.9)) pts.push([px, py]);
+          }
+          pts.forEach(([px, py]) => ball(px, py, d / 2, c));
+        }
+        n += k === "tetrad" ? 4 : cnt;
+      } else {                                                 // yeast: ovals, some with a bud
+        const bud = Math.random() < 0.45, r = l / 2 + (bud ? l * 0.55 : 0) + 2;
+        if (!okAt(x, y, r)) continue;
+        groups.push({ x, y, r });
+        out.push({ t: "oval", x, y, a, l, w, c }); n++;
+        if (bud) { const bl = l * 0.55; out.push({ t: "oval", x: x + ux * (l / 2 + bl / 2 - 3), y: y + uy * (l / 2 + bl / 2 - 3), a: a + L.rand(-0.4, 0.4), l: bl, w: bl * 0.8, c }); n++; }
+      }
+    }
+    return { out, n, len, wid, grp: m.grp, ret: m.ret + L.rand(-3, 3), sc };
+  };
+  const draw = () => {
+    const g = cv.g, p = cur;
+    g.clearRect(0, 0, FW, FH);
+    if (!p) return;
+    const capsule = (x, y, a, l, w) => {
+      const ux = Math.sin(a), uy = -Math.cos(a), h = Math.max(0, l / 2 - w / 2);
+      g.beginPath(); g.lineCap = "round"; g.lineWidth = w;
+      g.moveTo(x - ux * h, y - uy * h); g.lineTo(x + ux * h + 0.01, y + uy * h); g.stroke();
+    };
+    for (const o of p.mic.out) {
+      const [c0, c1] = o.c;
+      if (o.t === "hypha") {
+        g.strokeStyle = c0; g.globalAlpha = 0.7; g.lineWidth = o.w; g.lineCap = "round"; g.lineJoin = "round";
+        g.beginPath(); o.pts.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.stroke();
+        g.strokeStyle = "#15130a"; g.lineWidth = 2; g.globalAlpha = 0.5;      // septa
+        for (let i = 2; i < o.pts.length; i += 3) {
+          const [x0, y0] = o.pts[i - 1], [x1, y1] = o.pts[i], a = Math.atan2(x1 - x0, -(y1 - y0)), nx = Math.cos(a), ny = Math.sin(a);
+          g.beginPath(); g.moveTo(x1 - nx * o.w * 0.42, y1 - ny * o.w * 0.42); g.lineTo(x1 + nx * o.w * 0.42, y1 + ny * o.w * 0.42); g.stroke();
+        }
+      } else if (o.t === "stalk") {
+        g.strokeStyle = c0; g.globalAlpha = 0.7; capsule(o.x + Math.sin(o.a) * o.l / 2, o.y - Math.cos(o.a) * o.l / 2, o.a, o.l, o.w);
+      } else if (o.t === "ball") {
+        g.globalAlpha = 0.9; g.fillStyle = c0; g.beginPath(); g.arc(o.x, o.y, o.r, 0, 7); g.fill();
+        g.fillStyle = c1; g.globalAlpha = 0.45; g.beginPath(); g.arc(o.x - o.r * 0.25, o.y - o.r * 0.25, o.r * 0.45, 0, 7); g.fill();
+      } else if (o.t === "oval") {
+        g.save(); g.translate(o.x, o.y); g.rotate(o.a);
+        g.globalAlpha = 0.85; g.fillStyle = c0; g.beginPath(); g.ellipse(0, 0, o.w / 2, o.l / 2, 0, 0, 7); g.fill();
+        g.globalAlpha = 0.4; g.fillStyle = c1; g.beginPath(); g.ellipse(-o.w * 0.12, -o.l * 0.15, o.w * 0.22, o.l * 0.25, 0, 0, 7); g.fill();
+        g.restore();
+      } else {
+        g.globalAlpha = 0.9; g.strokeStyle = c0; capsule(o.x, o.y, o.a, o.l, o.w);
+      }
+    }
+    g.globalAlpha = 1;
+    g.fillStyle = "#d8c89e"; g.fillRect(FW - 24 - 110, FH - 24 - 8, 110, 8);  // the scale bar: 110 px
+  };
+  cv.onResize = draw;
+  const caption = (p) => {
+    const m = MIC[p.org.name], mould = m.kind === "mould";
+    L.set(capL, `${p.pl}  ·  ${p.org.name}`);
+    L.set(capR, UP ? (mould ? "400x" : "1000x") : `${p.org.morph}  ·  ${m.arr}`);
+    L.set(scaleTxt, mould ? "25 Microns" : "10 Microns");
+    if (stainT) L.set(stainT, mould ? "Lactophenol Cotton Blue  ·  400x" : "Gram Stain  ·  Oil Immersion  ·  1000x");
+  };
+  let cur = null, next = null, t0 = -1e9, swapAt = -1e9;
+  const words = [capL, capR, scaleTxt, ...(stainT ? [stainT] : [])];
+  micro = {
+    show(p, t) {
+      if (!p || p === cur || p === next) return;
+      if (!p.mic) p.mic = smear(p);
+      bars.forEach((b) => { b.from = b.cur; b.to = b.get(p); });
+      t0 = t;
+      if (t < 0 || !cur) { cur = p; caption(p); draw(); return; }
+      next = p; swapAt = t;
+      words.forEach((e) => e.classList.add("out"));
+    },
+    tick(t) {
+      // the field dims, the new smear is drawn, and it comes back; the bars ease to its measurements
+      if (next) {
+        const u = t - swapAt;
+        op(layer, 1 - L.clamp(u / 0.6));
+        if (u >= 0.6) { cur = next; next = null; caption(cur); draw(); words.forEach((e) => e.classList.remove("out")); swapAt = t; }
+      } else op(layer, L.clamp((t - swapAt) / 0.6));
+      const k = L.ease(L.clamp((t - t0) / 1.6));
+      bars.forEach((b) => {
+        b.cur = L.mix(b.from, b.to, k);
+        tf(b.bar, `scaleX(${L.clamp(b.cur / b.max).toFixed(4)})`);
+        const [n, ...unit] = b.show(k >= 1 ? b.to : b.cur).split(" ");
+        L.set(b.v, n); L.set(b.u, unit.join(" "));
+      });
+    },
+  };
+  for (const o of ORGS) {
+    fits(`P-0000  ·  ${o.name}`, 36, FW - (UP ? 120 : 470), "micro caption");
+    if (UW) fits(`${o.morph}  ·  ${MIC[o.name].arr}`, 36, FW - 420, "micro morphology");
+  }
+}
+
 // ---------------- the guard: every word fits its place ----------------
 for (const o of ORGS) {
   fits(o.med, 36, TW, "plate medium"); fits(o.name, 36, TC.morph - TC.org - 30, "organism"); fits(o.morph, 36, TC.n - TC.morph - 120, "morphology");
-  for (const s of o.src) { fits(s, 36, TC.org - TC.src - 30, "source"); fits("Inoculated  ·  " + s, 36, 3600 - LG.ev, "log"); }
-  fits(`P-0000  ·  ${o.name}`, 36, TC.org - RX - 30, "growth name");
-  fits("Identified  ·  " + o.name, 36, 3600 - LG.ev, "log");
+  for (const s of o.src) { fits(s, 36, TC.org - TC.src - 30, "source"); fits("Inoculated  ·  " + s, 36, LX1 - 216 - LG.ev, "log"); }
+  fits(`P-0000  ·  ${o.name}`, 36, GLAG - GX0 - 30, "growth name");
+  fits("Identified  ·  " + o.name, 36, LX1 - 216 - LG.ev, "log");
 }
 for (const a of [...BACT, ...FUNG]) fits(a, 36, SBX - SX - 30, "agent");
 if (bad.length) setTimeout(() => { throw new Error("microbiology: " + bad.join(" | ")); });
@@ -360,6 +607,7 @@ function showSens(p, t) {
   const agents = p.org.fungus ? FUNG : BACT;
   sens.forEach((r, k) => { r.from = r.cur; r.to = p.zones[k]; L.set(r.a, agents[k]); });
   L.set(sSubj, `${p.pl}  ·  ${p.org.name}`);
+  if (micro) micro.show(p, t);
 }
 let gFor = null;
 function showGrowth(p) {
@@ -475,6 +723,7 @@ L.tick((t) => {
     if (k >= 1) { L.set(r.w, wd); fg(r.w, c === "olive" ? "white" : c); bg(r.bar, c); } else if (k > 0) L.set(r.w, "");
   });
   stepLog(t);
+  if (micro) micro.tick(t);
 });
 
 // the colonies, a little at a time

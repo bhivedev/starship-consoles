@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Neurology</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* swapped text dips and comes back; colors change slowly; .boot (the start-up cascade) always wins */
@@ -17,12 +18,21 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: sidebar left, title top right ----------------
-L.frame({ type: "A", title: "Neurology  •  Neural Scan", c: "violet", c2: "pink", accent: "lilac", foot: "Neuro",
+const B = L.frame({ type: "A", title: "Neurology  •  Neural Scan", c: "violet", c2: "pink", accent: "lilac", foot: "Neuro",
   side: [[140, "lilac", "Sickbay"], [70, "plum", "03"], [420, "violet", "Neurology"], [70, "pink", "4757"],
          [300, "lilac", "EEG"], [70, "plum", "N3"], [216, "violet", "Medical"]] });
 
-// Six columns, 531 wide and 60 apart (330–3816). The EEG wall takes four; the map and log two.
-const X0 = 330, X1 = 3816, CP = 591, CW = 531, COL = (i) => X0 + i * CP;
+// ---------------- the grid, per shape ----------------
+// The data, readings and motion below are written once; only positions and sizes differ by shape.
+// wide (3840 × 2160): six columns, 531 wide and 60 apart (330–3816). The EEG wall takes four; the map and
+//   log two; the bottom strip three tables of two columns each.
+// upright (2160 × 3120): four columns, 420 wide and 42 apart (330–2136), one EEG chain to a column in
+//   shorter windows; the cortical map across the full width under them; then two rows of two tables on
+//   the wall's centre gutter (bands | evoked potentials, scan log | records). The subtitle has its own line.
+// ultrawide (5040 × 2160): the wide layout where it is, and a seventh panel (3876–5016): the amplitude
+//   spectrum (log scale) of the same signals over a spectral-analysis table, and electrode impedance in the bottom strip.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const X0 = 330, X1 = UP ? B.x1 : 3816, XR = B.x1, CP = UP ? 462 : 591, CW = UP ? 420 : 531, COL = (i) => X0 + i * CP;
 const INK = { pink: "#f4b6e6", lilac: "#c7a0d8", violet: "#8f7cf0", plum: "#9c6fb4", butter: "#ffcc66" };
 const WIN = "#130b22", GRID = "#2a1d44", TRACK = "#2a1c3c";
 const fmt = (v, dp = 0) => v.toLocaleString("en-US", { minimumFractionDigits: dp, maximumFractionDigits: dp });
@@ -44,17 +54,18 @@ const rnd = () => { seed = (seed + 0x6d2b79f5) | 0; let t = seed; t = Math.imul(
 // ---------------- status line ----------------
 const PATIENT = "Ensign Sam Lavelle";
 const state = cls(L.text({ x: X0, cap: 150, s: 100, c: "pink", txt: "Cortical Activity Normal" }), "sw");
-const sub = cls(L.text({ x: 0, base: 222, s: 38, c: "lilac", txt: "" }), "sw");
-const placeSub = () => { sub.style.left = X0 + state.offsetWidth + 40 + "px"; };
+const sub = cls(L.text({ x: 0, base: UP ? 284 : 222, s: 38, c: "lilac", txt: "" }), "sw");
+const placeSub = () => { sub.style.left = (UP ? X0 : X0 + state.offsetWidth + 40) + "px"; };
 placeSub();
 const PILL = "Biobed 3  ·  EEG Recording";
-L.box({ x: X1 - 400, y: 150, w: 400, h: 72, c: "lilac", label: PILL, r: "lr", fs: 36 });
+L.box({ x: XR - 400, y: 150, w: 400, h: 72, c: "lilac", label: PILL, r: "lr", fs: 36 });
 fits(PILL, 36, 400 - 40 - 30, "status pill");
 
 // =====================================================================================
 // THE EEG WALL: sixteen channels, a longitudinal bipolar montage, one chain to a column
 // =====================================================================================
-const ROW = (k) => 360 + 310 * k, WH = 270, TAB = 150;
+const WHY = UP ? 340 : 280;                                 // the chains' header line
+const ROW = UP ? (k) => 420 + 206 * k : (k) => 360 + 310 * k, RP = UP ? 206 : 310, WH = UP ? 180 : 270, TAB = UP ? 130 : 150;
 const WX = (i) => COL(i) + TAB + 12, WW = CW - TAB - 12;     // trace windows: 369 wide
 const CHAINS = [
   { name: "Left Temporal",      c1: "violet", c2: "lilac",  tab: "lilac", ink: INK.lilac, temporal: true,  side: 0, ch: ["Fp1–F7", "F7–T3", "T3–T5", "T5–O1"] },
@@ -70,7 +81,7 @@ const AMP = {
 const ALPHA_HZ = [10.2, 10.1];
 const chans = [];
 CHAINS.forEach((chain, i) => {
-  L.header({ x: COL(i), y: 280, w: CW, label: chain.name, c1: chain.c1, c2: chain.c2 });
+  L.header({ x: COL(i), y: WHY, w: CW, label: chain.name, c1: chain.c1, c2: chain.c2 });
   chain.ch.forEach((name, k) => {
     const y = ROW(k), A = AMP[chain.temporal ? "temp" : "para"];
     L.box({ x: COL(i), y, w: TAB, h: WH, c: chain.tab, label: name, fs: 32 });
@@ -110,7 +121,8 @@ const artefact = (c, t) => {
 };
 
 // ---------------- the traces scroll: two canvas tiles per column, slid as layers (tng/sickbay.html) ----------------
-const SPAN = 1200, SPEED = WW / 2, SC = 1.6, HALF = WH / 2 - 12;  // 2 s across a window; 1.6 px per µV
+// upright: shorter windows draw the same µV smaller, and run at wide's px per second (1.5 s across)
+const SPAN = UP ? 3 * RP + WH : 1200, SPEED = UP ? 184.5 : WW / 2, SC = UP ? 1.05 : 1.6, HALF = WH / 2 - 12;  // 2 s across a window; 1.6 px per µV
 const strips = CHAINS.map((chain, i) => {
   const box = L.el("div", "boot", L.stage, { position: "absolute", left: WX(i) + "px", top: ROW(0) + "px", width: WW + "px", height: SPAN + "px", overflow: "hidden" });
   const tiles = [0, 1].map((n) => {
@@ -138,7 +150,7 @@ const step = (dt) => {
     chans.forEach((c, i) => {
       const n = neural(c, simT), v = n + artefact(c, simT);
       c.ms += (n * n - c.ms) * (h / 2);                    // the reading: two seconds' RMS, artefact rejected
-      pts[i].push([x, c.k * 310 + WH / 2 - HALF * Math.tanh((v * SC) / HALF)]);
+      pts[i].push([x, c.k * RP + WH / 2 - HALF * Math.tanh((v * SC) / HALF)]);
     });
   }
   // recycle a tile that has left the view BEFORE drawing, so the sliver that crosses into it lands on it
@@ -168,10 +180,12 @@ allTiles.forEach((c) => (c.onResize = () => { filled = false; }));   // a resize
 // =====================================================================================
 // THE SYNAPTIC MAP: the cortex from above, two hemispheres of neurons; activity spreads in cascades
 // =====================================================================================
-const MX0 = COL(4), MY0 = ROW(0), MY1 = ROW(2) + WH;         // 2694–3816, 360–1250
-L.header({ x: MX0, y: 280, w: X1 - MX0, label: "Synaptic Activity  ·  Cortical Map", c1: "violet", c2: "pink" });
-L.rect({ x: MX0, y: MY0, w: X1 - MX0, h: MY1 - MY0, c: "#0f0819", panel: true });
-const MID = (MX0 + X1) / 2, GAPM = 11, HW = 240, BT = 400, BB = 1210;   // midline; half-gap; hemisphere width
+// wide: 2694–3816, 360–1250; upright: the full width, 1358–2040, the brain a little shorter
+const MX0 = UP ? X0 : COL(4), MX1 = X1, MY0 = UP ? 1358 : ROW(0), MY1 = UP ? 2040 : ROW(2) + WH, MHY = UP ? 1278 : 280;
+L.header({ x: MX0, y: MHY, w: MX1 - MX0, label: "Synaptic Activity  ·  Cortical Map", c1: "violet", c2: "pink" });
+L.rect({ x: MX0, y: MY0, w: MX1 - MX0, h: MY1 - MY0, c: "#0f0819", panel: true });
+const MID = (MX0 + MX1) / 2, GAPM = 11, HW = UP ? 230 : 240, BT = UP ? 1398 : 400, BB = UP ? 2000 : 1210;   // midline; half-gap; hemisphere width
+const CM = UP ? 150 : 220;                                 // callosal links: kept this far from the front and back
 const shapeW = (v) => HW * Math.pow(Math.sin(Math.PI * L.clamp(v)), 0.55) * (0.86 + 0.14 * v);   // front (top) a little narrower
 const mapG = L.svg("g", { class: "boot" });
 // the hemispheres: a straight inner edge along the fissure, a rounded outer one
@@ -203,13 +217,15 @@ for (const a of nodes) {
   nodes.filter((b) => b !== a && b.s === a.s).sort((p, q) => ((p.x - a.x) ** 2 + (p.y - a.y) ** 2) - ((q.x - a.x) ** 2 + (q.y - a.y) ** 2))
     .slice(0, 3).forEach((b) => link(a, b));
 }
-const inner = (s) => nodes.filter((n) => n.s === s && Math.abs(n.x - MID) < GAPM + 60 && n.y > BT + 220 && n.y < BB - 220).sort((a, b) => a.y - b.y);
+const inner = (s) => nodes.filter((n) => n.s === s && Math.abs(n.x - MID) < GAPM + 60 && n.y > BT + CM && n.y < BB - CM).sort((a, b) => a.y - b.y);
 const [innerL, innerR] = [inner(0), inner(1)];
 const callosal = [];
 innerL.forEach((a) => {
   const b = innerR.reduce((p, q) => (Math.abs(q.y - a.y) < Math.abs(p.y - a.y) ? q : p));
   if (Math.abs(b.y - a.y) < 40) { link(a, b); callosal.push(a, b); }
 });
+if (!callosal.length) bad.push("map: no callosal links");
+LOBES.forEach((l) => { if (!nodes.some((n) => n.lobe === l)) bad.push(`map: no ${l} neurons`); });
 let edges = "";
 const drawn = new Set();
 nodes.forEach((a, i) => a.nb.forEach((b) => { const j = nodes.indexOf(b), key = i < j ? `${i}-${j}` : `${j}-${i}`; if (!drawn.has(key)) { drawn.add(key); edges += `M${a.x.toFixed(1)},${a.y.toFixed(1)}L${b.x.toFixed(1)},${b.y.toFixed(1)}`; } }));
@@ -217,8 +233,8 @@ L.svg("path", { d: edges, stroke: "#3a2c66", "stroke-width": 2.5, fill: "none" }
 nodes.forEach((n) => { n.el = L.svg("circle", { cx: n.x.toFixed(1), cy: n.y.toFixed(1), r: 7.5, class: `nd ${n.lobe}` }, mapG); n.lit = -1; });
 
 // the readings either side of the brain: one hemisphere to a column
-const SB = (k) => 440 + 108 * k;
-const SCOL = [[MX0 + 32, MID - GAPM - HW - 36], [MID + GAPM + HW + 36, X1 - 32]];
+const SB = UP ? (k) => 1438 + 82 * k : (k) => 440 + 108 * k;
+const SCOL = [[MX0 + 32, MID - GAPM - HW - 36], [MID + GAPM + HW + 36, MX1 - 32]];
 const lobeRead = [{}, {}], sideVals = [[], []];
 SCOL.forEach(([a, b], s) => {
   L.text({ x: a, base: SB(0), s: 40, c: "pink", txt: s ? "Right Hemisphere" : "Left Hemisphere" });
@@ -276,8 +292,10 @@ const startCascade = (t, focus) => {
 // =====================================================================================
 // NEURAL SCAN LOG (under the map)
 // =====================================================================================
-L.header({ x: MX0, y: ROW(3), w: X1 - MX0, label: "Neural Scan Log", c1: "pink", c2: "lilac" });
-const LB = (k) => 1400 + 52 * k;
+// wide: under the map, four rows; upright: beside the records, six rows on their baselines
+const LOGX = UP ? X0 : MX0, LOGW = UP ? COL(1) + CW - X0 : X1 - MX0, LOGY = UP ? 2574 : ROW(3), LP = UP ? 54 : 52, LN = UP ? 6 : 4;
+L.header({ x: LOGX, y: LOGY, w: LOGW, label: "Neural Scan Log", c1: "pink", c2: "lilac", h: UP ? 48 : undefined });
+const LB = (k) => (UP ? 2688 : 1400) + LP * k;
 const slider = ({ x, top, w, n, pitch, build }) => {         // rows slide up; pushes queue, so the record stays in order
   const c = L.el("div", "clip boot", L.stage, { left: x + "px", top: top + "px", width: w + "px", height: n * pitch + 12 + "px" });
   const rows = Array.from({ length: n }, (_, i) => {
@@ -305,22 +323,24 @@ const slider = ({ x, top, w, n, pitch, build }) => {         // rows slide up; p
   });
   return st;
 };
-const log = slider({ x: MX0, top: LB(0) - 42, w: X1 - MX0, n: 4, pitch: 52, build: (e) => {
+const log = slider({ x: LOGX, top: LB(0) - 42, w: LOGW, n: LN, pitch: LP, build: (e) => {
   const tm = L.text({ x: 0, base: 42, s: 36, c: "peach", txt: "" }, e);
   const msg = L.text({ x: 200, base: 42, s: 36, c: "white", txt: "" }, e);
   [tm, msg].forEach((x) => x.classList.remove("boot"));
   return { fill: (d) => { L.set(tm, d.tm); L.set(msg, d.msg); msg.style.color = `var(--${d.c})`; } };
 } });
-function logPush(msg, c = "white") { fits(msg, 36, X1 - MX0 - 200, "log"); log.push({ tm: clockAgo(0), msg, c }); }
+function logPush(msg, c = "white") { fits(msg, 36, LOGW - 200, "log"); log.push({ tm: clockAgo(0), msg, c }); }
 
 // =====================================================================================
 // THE BOTTOM STRIP: frequency bands · evoked potentials · neurology records
 // =====================================================================================
+// wide: one strip, three tables; upright: bands | evoked under the map, the records beside the log
 const DB = (k) => 1734 + 54 * k;
-const A0 = COL(0), A1 = COL(1) + CW, B0 = COL(2), B1 = COL(3) + CW, C0 = COL(4);
-L.header({ x: A0, y: 1620, w: A1 - A0, label: "Frequency Bands  ·  Microvolts RMS", c1: "violet", c2: "pink", h: 48 });
-L.header({ x: B0, y: 1620, w: B1 - B0, label: "Evoked Potentials", c1: "pink", c2: "lilac", h: 48 });
-L.header({ x: C0, y: 1620, w: X1 - C0, label: "Neurology Records", c1: "lilac", c2: "violet", h: 48 });
+const DBA = UP ? (k) => 2218 + 54 * k : DB, DBC = UP ? (k) => 2688 + 54 * k : DB, SHY = UP ? 2104 : 1620, CHY = UP ? 2574 : 1620;
+const A0 = COL(0), A1 = COL(1) + CW, B0 = COL(2), B1 = COL(3) + CW, C0 = UP ? COL(2) : COL(4);
+L.header({ x: A0, y: SHY, w: A1 - A0, label: "Frequency Bands  ·  Microvolts RMS", c1: "violet", c2: "pink", h: 48 });
+L.header({ x: B0, y: SHY, w: B1 - B0, label: "Evoked Potentials", c1: "pink", c2: "lilac", h: 48 });
+L.header({ x: C0, y: CHY, w: X1 - C0, label: "Neurology Records", c1: "lilac", c2: "violet", h: 48 });
 
 // ---- frequency bands, from the same sums that draw the traces ----
 const mean = (f) => chans.reduce((a, c) => a + f(c), 0) / chans.length;
@@ -331,13 +351,13 @@ const BANDS = [
   ["Beta", "13 – 30 Hz", "lilac", () => mean((c) => c.bA) * Math.sqrt(0.61 / 2)],
   ["Gamma", "30 – 45 Hz", "butter", () => Math.sqrt((1.6 ** 2 + 1.2 ** 2 + 1) / 2)],
 ];
-const BS = { range: 200, bar: 420, barR: A1 - A0 - 170, max: 15 };
-L.text({ x: A0, base: DB(0), s: 36, c: "lilac", txt: "Band" });
-L.text({ x: A0 + BS.range, base: DB(0), s: 36, c: "lilac", txt: "Range" });
-L.text({ x: A0 + BS.barR, base: DB(0), s: 36, c: "plum", txt: "Scale 0 – 15", align: "r" });
-L.text({ x: A1, base: DB(0), s: 36, c: "lilac", txt: "Mean", align: "r" });
+const BS = UP ? { range: 150, bar: 300, barR: A1 - A0 - 170, max: 15 } : { range: 200, bar: 420, barR: A1 - A0 - 170, max: 15 };
+L.text({ x: A0, base: DBA(0), s: 36, c: "lilac", txt: "Band" });
+L.text({ x: A0 + BS.range, base: DBA(0), s: 36, c: "lilac", txt: "Range" });
+L.text({ x: A0 + BS.barR, base: DBA(0), s: 36, c: "plum", txt: "Scale 0 – 15", align: "r" });
+L.text({ x: A1, base: DBA(0), s: 36, c: "lilac", txt: "Mean", align: "r" });
 const bandRows = BANDS.map(([name, range, c, f], k) => {
-  const base = DB(k + 1);
+  const base = DBA(k + 1);
   L.text({ x: A0, base, s: 40, c: "white", txt: name });
   L.text({ x: A0 + BS.range, base, s: 36, c: "lilac", txt: range });
   L.rect({ x: A0 + BS.bar, y: base - 26, w: BS.barR - BS.bar, h: 26, c: TRACK });
@@ -345,10 +365,10 @@ const bandRows = BANDS.map(([name, range, c, f], k) => {
   bar.style.background = `var(--${c})`; bar.style.transformOrigin = "0 0";
   return { f, bar, v: L.text({ x: A1, base, s: 40, c: "white", txt: "", align: "r" }), shown: f(0) };
 });
-[5, 10].forEach((u) => L.rect({ x: A0 + BS.bar + ((BS.barR - BS.bar) * u) / BS.max - 1, y: DB(1) - 34, w: 2, h: DB(5) - DB(1) + 42, c: GRID, free: true }));
+[5, 10].forEach((u) => L.rect({ x: A0 + BS.bar + ((BS.barR - BS.bar) * u) / BS.max - 1, y: DBA(1) - 34, w: 2, h: DBA(5) - DBA(1) + 42, c: GRID, free: true }));
 
 // ---- evoked potentials: one pathway tested at a time ----
-const EP = { resp: 360, lat: 720, norm: 760, pill: B1 - B0 - 200 };
+const EP = UP ? { resp: 260, lat: 500, norm: 530, pill: B1 - B0 - 200 } : { resp: 360, lat: 720, norm: 760, pill: B1 - B0 - 200 };
 const TESTS = [
   { path: "Visual", resp: "P100", lat: 101.4, dp: 1, norm: "< 115 ms", focus: "oc", where: "Occipital Cortex", stim: "Pattern Reversal 2 Hz" },
   { path: "Brainstem Auditory", resp: "Wave V", lat: 5.62, dp: 2, norm: "< 6.20 ms", focus: "te", where: "Temporal Cortex", stim: "Click 11 Hz" },
@@ -356,10 +376,10 @@ const TESTS = [
   { path: "Motor", resp: "MEP", lat: 21.8, dp: 1, norm: "< 24.0 ms", focus: "fr", where: "Frontal Cortex", stim: "Transcranial Pulse" },
   { path: "Interhemispheric", resp: "Transfer", lat: 12.6, dp: 1, norm: "< 18.0 ms", focus: "cc", where: "Corpus Callosum", stim: "Lateralised Flash" },
 ];
-[["Pathway", 0], ["Response", EP.resp], ["Normal", EP.norm], ["Status", EP.pill]].forEach(([txt, x]) => L.text({ x: B0 + x, base: DB(0), s: 36, c: "lilac", txt }));
-L.text({ x: B0 + EP.lat, base: DB(0), s: 36, c: "lilac", txt: "Latency", align: "r" });
+[["Pathway", 0], ["Response", EP.resp], ["Normal", EP.norm], ["Status", EP.pill]].forEach(([txt, x]) => L.text({ x: B0 + x, base: DBA(0), s: 36, c: "lilac", txt }));
+L.text({ x: B0 + EP.lat, base: DBA(0), s: 36, c: "lilac", txt: "Latency", align: "r" });
 TESTS.forEach((T, k) => {
-  const base = DB(k + 1);
+  const base = DBA(k + 1);
   L.text({ x: B0, base, s: 40, c: "white", txt: T.path });
   L.text({ x: B0 + EP.resp, base, s: 36, c: "pink", txt: T.resp });
   T.v = cls(L.text({ x: B0 + EP.lat, base, s: 40, c: "white", txt: `${T.lat.toFixed(T.dp)} ms`, align: "r" }), "sw");
@@ -370,8 +390,8 @@ TESTS.forEach((T, k) => {
 });
 
 // ---- neurology records: earlier cases on file, in order ----
-const RC = { pat: 190, find: 520 };
-[["Stardate", 0], ["Patient", RC.pat], ["Finding", RC.find]].forEach(([txt, x]) => L.text({ x: C0 + x, base: DB(0), s: 36, c: "lilac", txt }));
+const RC = UP ? { pat: 150, find: 380 } : { pat: 190, find: 520 };
+[["Stardate", 0], ["Patient", RC.pat], ["Finding", RC.find]].forEach(([txt, x]) => L.text({ x: C0 + x, base: DBC(0), s: 36, c: "lilac", txt }));
 const RECORDS = [
   ["43657.0", "Lal", "Positronic Neural Net  ·  Cascade Failure"],
   ["44704.2", "Lt. R. Barclay", "Cytherian Neural Enhancement"],
@@ -379,15 +399,124 @@ const RECORDS = [
   ["45944.1", "Capt. J.-L. Picard", "Kataan Probe  ·  Nucleonic Beam Link"],
 ];
 RECORDS.forEach(([sd, who, what], k) => {
-  const base = DB(k + 1);
+  const base = DBC(k + 1);
   L.text({ x: C0, base, s: 36, c: "peach", txt: sd });
   L.text({ x: C0 + RC.pat, base, s: 36, c: "white", txt: who });
   L.text({ x: C0 + RC.find, base, s: 36, c: "lilac", txt: what });
   fits(who, 36, RC.find - RC.pat - 30, "record patient"); fits(what, 36, X1 - C0 - RC.find, "record finding");
 });
-const curSD = L.text({ x: C0, base: DB(5), s: 36, c: "peach", txt: "" });
-L.text({ x: C0 + RC.pat, base: DB(5), s: 36, c: "pink", txt: "Ens. S. Lavelle" });
-L.text({ x: C0 + RC.find, base: DB(5), s: 36, c: "pink", txt: "Routine Neural Scan  ·  In Progress" });
+const curSD = L.text({ x: C0, base: DBC(5), s: 36, c: "peach", txt: "" });
+L.text({ x: C0 + RC.pat, base: DBC(5), s: 36, c: "pink", txt: "Ens. S. Lavelle" });
+L.text({ x: C0 + RC.find, base: DBC(5), s: 36, c: "pink", txt: "Routine Neural Scan  ·  In Progress" });
+
+// =====================================================================================
+// ULTRAWIDE ONLY: THE SEVENTH PANEL (3876–5016)
+// =====================================================================================
+// the amplitude spectrum (log scale) of the same sums that draw the traces, a spectral-analysis table under it on the log's
+// rows, and the electrodes' impedance in the bottom strip
+const S0 = COL(6), S1 = XR;
+const SPEC = UW ? (() => {
+  L.header({ x: S0, y: 280, w: S1 - S0, label: "Spectrum  ·  Microvolts  ·  All Channels", c1: "lilac", c2: "violet" });
+  L.rect({ x: S0, y: ROW(0), w: S1 - S0, h: ROW(2) + WH - ROW(0), c: "#0f0819", panel: true });
+  // a log scale, as EEG spectra are read: 0.5 µV at the floor to 20 µV at the top (alpha's strongest is 19.7),
+  // so the small beta and gamma peaks show as well as the alpha peak
+  const PX0 = S0 + 124, PX1 = S1 - 40, PT = 470, PB = 1150, VMIN = 0.5, VMAX = 20, NB = 45, BP = (PX1 - PX0) / NB;
+  const frac = (v) => L.clamp(Math.log(v / VMIN) / Math.log(VMAX / VMIN));
+  const yv = (v) => PB - (PB - PT) * frac(v);
+  const bandOf = (f) => (f < 4 ? 0 : f < 8 ? 1 : f < 13 ? 2 : f < 30 ? 3 : 4);
+  for (let f = 1; f <= NB; f++) L.rect({ x: PX0 + (f - 1) * BP + 3, y: PT, w: BP - 6, h: PB - PT, c: TRACK, free: true });
+  [1, 2, 5, 10, 20].forEach((v) => L.rect({ x: PX0, y: yv(v) - 1, w: PX1 - PX0, h: 2, c: GRID, free: true }));
+  [0.5, 1, 2, 5, 10, 20].forEach((v) => L.text({ x: PX0 - 24, base: v > VMIN ? yv(v) + 0.36 * 30 : PB, s: 30, c: "lilac", txt: String(v), align: "r", legend: true }));
+  L.text({ x: PX0 - 24, base: 1206, s: 30, c: "plum", txt: "Hz", align: "r", legend: true });
+  [10, 20, 30, 40].forEach((f) => L.text({ x: PX0 + (f - 0.5) * BP, base: 1206, s: 30, c: "lilac", txt: String(f), align: "c", w: 80, legend: true }));
+  // the band names over their bins
+  [[1, 3], [4, 7], [8, 12], [13, 29], [30, 45]].forEach(([a, b], k) => {
+    const [name, , c] = BANDS[k];
+    L.text({ x: PX0 + ((a - 1 + b) / 2) * BP, base: 430, s: 36, c, txt: name, align: "c", w: 200 });
+  });
+  const bars = Array.from({ length: NB }, (_, i) => {
+    const e = L.layer({ x: PX0 + i * BP + 3, y: PT, w: BP - 6, h: PB - PT });
+    e.style.background = `var(--${BANDS[bandOf(i + 1)][2]})`; e.style.transformOrigin = "50% 100%";
+    return { e, f: i + 1, shown: 0 };
+  });
+  const mD = mean((c) => c.dA), mT = mean((c) => c.tA), mA = mean((c) => c.aA), mB = mean((c) => c.bA), AF = (ALPHA_HZ[0] + ALPHA_HZ[1]) / 2;
+  // theta and alpha wax and wane as in the traces; taken from the bands table's eased values, so the bars,
+  // the ratios and the table beside them always agree
+  const G = { a: 1, t: 1, next: 0 };
+  const follow = () => { G.a = (bandRows[2].shown * Math.SQRT2) / mA; G.t = (bandRows[1].shown * Math.SQRT2) / mT; };
+  follow();
+  const amp = (f) => {
+    const pk = (fc, a, w) => a * Math.exp(-(((f - fc) / w) ** 2));
+    return 0.5 + 2.2 / f + pk(1.7, mD, 1.1) + pk(2.9, 0.6 * mD, 1.1) + pk(6.1, mT * G.t, 1.1)
+      + pk(AF, mA * G.a, 0.9) + pk(18.7, 0.6 * mB, 1.4) + pk(23.3, 0.5 * mB, 1.4) + pk(31.7, 1.6, 1.1) + pk(38.3, 1.2, 1.1) + pk(44.9, 1.0, 1.1);
+  };
+
+  // spectral analysis: on the log's rows, two columns
+  L.header({ x: S0, y: ROW(3), w: S1 - S0, label: "Spectral Analysis", c1: "violet", c2: "pink" });
+  const SA = [[S0, S0 + 540], [S0 + 600, S1]];
+  const NAMES = [["Dominant Rhythm", "Spectral Edge 95%", "Relative Alpha", "Relative Theta"],
+                 ["Alpha / Theta Ratio", "Theta / Beta Ratio", "Delta / Alpha Ratio", "Artefacts Rejected"]];
+  const vals = NAMES.map((col, j) => col.map((name, k) => {
+    L.text({ x: SA[j][0], base: LB(k), s: 36, c: "lilac", txt: name });
+    return L.text({ x: SA[j][1], base: LB(k), s: 40, c: "white", txt: "", align: "r" });
+  }));
+  const read = () => {
+    // the dominant rhythm: the peak under the tallest bar from theta to alpha (4–13 Hz)
+    const top = bars.slice(3, 13).reduce((p, q) => (q.shown > p.shown ? q : p));
+    let best = 0, bf = top.f, tot = 0;
+    const pw = [];
+    for (let f = 0.5; f <= 45.001; f += 0.05) {
+      const a = amp(f);
+      if (Math.abs(f - top.f) <= 1 && a > best) { best = a; bf = f; }
+      pw.push([f, a * a]); tot += a * a;
+    }
+    let cum = 0, edge = 45;
+    for (const [f, p] of pw) { cum += p; if (cum >= 0.95 * tot) { edge = f; break; } }
+    // the bands from the same eased amplitudes (the bands table's sums, at this moment)
+    const r = [mD * Math.sqrt(1.36), mT * G.t, mA * G.a, mB * Math.sqrt(0.61), Math.sqrt(1.6 ** 2 + 1.2 ** 2 + 1)], sq = r.reduce((a, v) => a + v * v, 0);
+    L.set(vals[0][0], `${bf.toFixed(1)} Hz`);
+    L.set(vals[0][1], `${edge.toFixed(1)} Hz`);
+    L.set(vals[0][2], `${Math.round((100 * r[2] * r[2]) / sq)}%`);
+    L.set(vals[0][3], `${Math.round((100 * r[1] * r[1]) / sq)}%`);
+    L.set(vals[1][0], (r[2] / r[1]).toFixed(2));
+    L.set(vals[1][1], (r[1] / r[3]).toFixed(2));
+    L.set(vals[1][2], (r[0] / r[2]).toFixed(2));
+    L.set(vals[1][3], String(31 + blinkCount));
+  };
+
+  // electrode impedance: the nineteen scalp electrodes and the linked ear reference, four to a row
+  L.header({ x: S0, y: 1620, w: S1 - S0, label: "Electrode Impedance  ·  kOhm", c1: "violet", c2: "lilac", h: 48 });
+  const EL = [["Fp1", 3.1], ["Fp2", 2.8], ["F7", 3.6], ["F3", 2.4], ["Fz", 2.2], ["F4", 2.6], ["F8", 3.4], ["T3", 4.1],
+              ["C3", 2.3], ["Cz", 1.9], ["C4", 2.5], ["T4", 3.8], ["T5", 4.3], ["P3", 2.7], ["Pz", 2.1], ["P4", 2.9],
+              ["T6", 3.9], ["O1", 3.3], ["O2", 3.0], ["A1+A2", 1.6]];
+  const IX = (j) => S0 + 300 * j, IW = 240;
+  for (let j = 0; j < 4; j++) {
+    L.text({ x: IX(j), base: DB(0), s: 36, c: "lilac", txt: "Site" });
+    L.text({ x: IX(j) + IW, base: DB(0), s: 36, c: "lilac", txt: "kOhm", align: "r" });
+  }
+  const imp = EL.map(([name, z], i) => {
+    const x = IX(i % 4), base = DB(1 + Math.floor(i / 4));
+    L.text({ x, base, s: 40, c: "white", txt: name });
+    L.rect({ x: x + 116, y: base - 26, w: 56, h: 26, c: TRACK, free: true });   // free: a cell, not a title between bars
+    const bar = L.layer({ x: x + 116, y: base - 26, w: 56, h: 26 });
+    bar.style.background = "var(--lilac)"; bar.style.transformOrigin = "0 0";
+    return { z, bar, v: L.text({ x: x + IW, base, s: 40, c: "white", txt: "", align: "r" }), ph: i * 1.7 };
+  });
+  const showImp = (t) => imp.forEach((d) => {
+    const z = d.z + 0.08 * Math.sin(t * 0.04 + d.ph);
+    L.set(d.v, z.toFixed(1)); tf(d.bar, `scaleX(${(z / 5).toFixed(3)})`);
+  });
+  showImp(0);
+
+  const draw = () => { for (const b of bars) { b.shown = amp(b.f); tf(b.e, `scaleY(${frac(b.shown).toFixed(4)})`); } };
+  draw();
+  return { tick: (t) => {
+             follow();
+             draw();
+             if (t >= G.next) { G.next = t + 0.5; read(); }      // read twice a second, from the bars as drawn
+           },
+           slow: (t) => showImp(t) };
+})() : null;
 
 // =====================================================================================
 // RUNNING IT
@@ -418,11 +547,14 @@ L.set(sub, restSub());
 placeSub();
 
 // the log's record so far
-[["Neural Scan Started  ·  21 Electrodes  ·  Impedance Below 5 kOhm", "lilac", 94],
+const LOG0 = [["Neural Scan Started  ·  21 Electrodes  ·  Impedance Below 5 kOhm", "lilac", 94],
  ["Posterior Dominant Rhythm 10.2 Hz  ·  Symmetric  ·  Reactive", "white", 71],
  ["Interhemispheric Transfer 12.6 ms  ·  Within Normal Limits", "lilac", 40],
- ["Ocular Artefact  ·  Fp1  Fp2  ·  Rejected", "lilac", 17]]
-  .forEach(([msg, c, ago], k) => { fits(msg, 36, X1 - MX0 - 200, "log"); log.rows[k].fill({ tm: clockAgo(ago), msg, c }); });
+ ["Ocular Artefact  ·  Fp1  Fp2  ·  Rejected", "lilac", 17]];
+// upright's log is six rows: two earlier entries first
+(UP ? [["Electrodes Placed  ·  10–20 System  ·  Bipolar Montage", "white", 151],
+       ["Biobed 3 Cortical Sensors Calibrated", "lilac", 122]].concat(LOG0) : LOG0)
+  .forEach(([msg, c, ago], k) => { fits(msg, 36, LOGW - 200, "log"); log.rows[k].fill({ tm: clockAgo(ago), msg, c }); });
 const CALM = ["Posterior Dominant Rhythm 10.2 Hz  ·  Symmetric", "No Epileptiform Discharges", "Synaptic Mapping  ·  Sweep Complete",
               "Cortical Scan Archived to Medical Database", "Alpha Attenuates on Eye Opening  ·  Normal", "Sleep Architecture Absent  ·  Patient Awake"];
 let calmDeck = [];
@@ -509,6 +641,16 @@ L.every(1000, () => {
   if (!test) L.set(sub, restSub());
   L.set(curSD, stardate().toFixed(1));
 }, 0);
+if (SPEC) { L.tick(SPEC.tick); L.every(1000, SPEC.slow, 0); }
+
+// every line this screen shows later, measured now against this shape's room
+TESTS.forEach((T) => {
+  fits(`${T.resp} Test  ·  ${T.path} Pathway  ·  ${T.stim}`, 36, LOGW - 200, "log");
+  fits(`${T.resp} Latency ${T.lat.toFixed(T.dp)} ms  ·  Within Normal Limits`, 36, LOGW - 200, "log");
+  if (UP) fits(`${PATIENT}  ·  ${T.path} Pathway  ·  ${T.where}  ·  Sweep ${SWEEPS} / ${SWEEPS}`, 38, X1 - X0, "subtitle");
+});
+CALM.concat(["Ocular Artefact  ·  Fp1  Fp2  ·  Rejected"]).forEach((m) => fits(m, 36, LOGW - 200, "log"));
+if (UP) fits(`${PATIENT}  ·  Routine Neural Scan  ·  Stardate 47569.0`, 38, X1 - X0, "subtitle");
 
 if (bad.length) setTimeout(() => { throw new Error("neurology: " + bad.join(" | ")); });
 });

@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Communications</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .sbar { background: linear-gradient(to top, #2a4fd8, var(--sky) 55%, var(--ice)); transform-origin: 50% 100%; }
@@ -11,20 +12,53 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame ----------------
+// Wide keeps its hand-built frame. The other shapes use the kit's type A, which matches it but for
+// the top row (the kit puts its accent sky and its bar ice; the hand frame has lilac then sky), so
+// those pieces are recoloured.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
 const BAR = 64;
-const titleLeft = L.title({ x: 3700, y: 40, h: BAR, c: "ice", txt: "Communications  •  Subspace Array" });
-L.box({ x: 3724, y: 40, w: 92, h: BAR, c: "ice", r: "r" });
-L.elbow({ corner: "tl", x: 40, y: 40, w: 1360, h: 250, bw: 240, bh: BAR, R: 150, r: 60, c: "ice" });
-L.rect({ x: 1400 + L.GAP, y: 40, w: 300, h: BAR, c: "lilac" });
-L.rect({ x: 1724 + L.GAP, y: 40, w: titleLeft - L.GAP - (1724 + L.GAP), h: BAR, c: "sky" });
-[[298, 140, "lilac", "Comm 01"], [446, 70, "sky", "Hail"], [524, 420, "ice", "Subspace"], [952, 70, "plum", "UT"],
- [1030, 300, "lilac", "Relay"], [1338, 70, "pink", "Crypto"], [1416, 216, "ice", "Log"]]
-  .forEach(([y, h, c, label]) => L.box({ x: 40, y, w: 240, h, c, label }));
-L.elbow({ corner: "bl", x: 40, y: 1640, w: 1500, h: 480, bw: 240, bh: BAR, R: 150, r: 60, c: "lilac" });
-L.text({ x: 258, base: 1712, s: 40, c: "#000", txt: "Comms", align: "r", on: true });
-[[1540 + L.GAP, 600, "sky"], [2164 + L.GAP, 900, "ice"], [3088 + L.GAP, 3700 - (3088 + L.GAP), "lilac"]]
-  .forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
-L.box({ x: 3724, y: 2056, w: 92, h: BAR, c: "ice", r: "r" });
+let B;
+if (L.shape === "wide") {
+  const titleLeft = L.title({ x: 3700, y: 40, h: BAR, c: "ice", txt: "Communications  •  Subspace Array" });
+  L.box({ x: 3724, y: 40, w: 92, h: BAR, c: "ice", r: "r" });
+  L.elbow({ corner: "tl", x: 40, y: 40, w: 1360, h: 250, bw: 240, bh: BAR, R: 150, r: 60, c: "ice" });
+  L.rect({ x: 1400 + L.GAP, y: 40, w: 300, h: BAR, c: "lilac" });
+  L.rect({ x: 1724 + L.GAP, y: 40, w: titleLeft - L.GAP - (1724 + L.GAP), h: BAR, c: "sky" });
+  [[298, 140, "lilac", "Comm 01"], [446, 70, "sky", "Hail"], [524, 420, "ice", "Subspace"], [952, 70, "plum", "UT"],
+   [1030, 300, "lilac", "Relay"], [1338, 70, "pink", "Crypto"], [1416, 216, "ice", "Log"]]
+    .forEach(([y, h, c, label]) => L.box({ x: 40, y, w: 240, h, c, label }));
+  L.elbow({ corner: "bl", x: 40, y: 1640, w: 1500, h: 480, bw: 240, bh: BAR, R: 150, r: 60, c: "lilac" });
+  L.text({ x: 258, base: 1712, s: 40, c: "#000", txt: "Comms", align: "r", on: true });
+  [[1540 + L.GAP, 600, "sky"], [2164 + L.GAP, 900, "ice"], [3088 + L.GAP, 3700 - (3088 + L.GAP), "lilac"]]
+    .forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
+  L.box({ x: 3724, y: 2056, w: 92, h: BAR, c: "ice", r: "r" });
+  B = { x0: 330, x1: 3816, y0: 140, y1: 2010 };
+} else {
+  const svg = document.getElementById("frame"), n0 = svg.querySelectorAll("rect").length;
+  B = L.frame({ type: "A", title: "Communications  •  Subspace Array", c: "ice", c2: "lilac", accent: "sky", foot: "Comms",
+    side: [[140, "lilac", "Comm 01"], [70, "sky", "Hail"], [420, "ice", "Subspace"], [70, "plum", "UT"],
+           [300, "lilac", "Relay"], [70, "pink", "Crypto"], [216, "ice", "Log"]] });
+  // the top row as the hand frame has it: the accent lilac (when there is one), the long bar sky
+  const tops = [...svg.querySelectorAll("rect")].slice(n0).filter((r) => +r.getAttribute("y") === 40);
+  if (tops.length) tops[tops.length - 1].setAttribute("fill", "var(--sky)");
+  if (tops.length > 1) tops[0].setAttribute("fill", "var(--lilac)");
+}
+
+// ---------------- the grid, per shape ----------------
+// The channels, the traffic, the cycle and every reading are written once; only positions differ.
+// wide (3840 × 2160): three columns — channels over the translator (330–1230), the subspace band
+//   (1290–2610), the queue over the transmission (2670–3816); the log and the relay network below.
+// upright (2160 × 3120): the subspace band across the full width under the status line, then wide's
+//   left and right columns side by side (330–1203 | 1263–2136) on wide's own row rhythm: channels
+//   beside the queue, the translator beside the transmission, the log beside the relay network
+//   (its buoys labelled above and below the path in turn, to fit the half width).
+// ultrawide (5040 × 2160): wide's three columns unchanged, plus a fourth (3876–5016): a close look
+//   at the carrier in use over a channel traffic table; the relay path runs on to 5016 with four
+//   more buoys at wide's spacing.
+const X1 = B.x1;
+const H1 = 356, H2 = 1240, H3 = 1960, H4 = 2580;          // upright: band, channels | queue, translator | transmission, log | relay
+const LR = UP ? 1203 : 1230;                               // the left column's right edge
+const QR = UP ? 2136 : 3816;                               // the queue column's right edge
 
 const header = (x, y, w, label, lw, c1, c2) => {
   L.box({ x, y, w: lw, h: 56, c: c1, label, fs: 32, r: "l" });
@@ -93,20 +127,21 @@ const moving = () => (msg.dir === "In" ? ph.i === 2 : ph.i === 3);
 
 // ---------------- status line ----------------
 const stateTxt = L.text({ x: 330, cap: 150, s: 100, c: "ice", txt: "Monitoring" });
-const stateSub = L.text({ x: 1290, base: 222, s: 38, c: "lilac", txt: "" });
-const pill = L.box({ x: 3416, y: 150, w: 400, h: 72, c: "sky", label: "", r: "lr", fs: 36 });
+const stateSub = L.text({ x: UP ? 330 : 1290, base: UP ? 298 : 222, s: 38, c: "lilac", txt: "" });   // upright: a line of its own
+const pill = L.box({ x: UP || UW ? X1 - 400 : 3416, y: 150, w: 400, h: 72, c: "sky", label: "", r: "lr", fs: 36 });
 pill.style.willChange = "opacity";
 
 // ---------------- subspace channels ----------------
-header(330, 280, 900, "Subspace Channels", 380, "ice", "sky");
+header(330, UP ? H2 : 280, UP ? LR - 330 : 900, "Subspace Channels", 380, "ice", "sky");
+const MW = UP ? LR - 200 - 30 - 760 : 240;                 // the meters: upright ends them 30 before the pills
 chans.forEach((c, i) => {
-  const base = 404 + i * 76;
+  const base = (UP ? H2 + 124 : 404) + i * 76;
   L.box({ x: 330, y: base - 40, w: 90, h: 50, c: i % 2 ? "sky" : "ice", label: c.n, fs: 30 });
   L.text({ x: 452, base, s: 40, c: "ice", txt: c.name });
-  L.rect({ x: 760, y: base - 28, w: 240, h: 28, c: "#0c1a3a" });
-  c.meter = L.layer({ x: 760, y: base - 28, w: 240, h: 28 });
+  L.rect({ x: 760, y: base - 28, w: MW, h: 28, c: "#0c1a3a" });
+  c.meter = L.layer({ x: 760, y: base - 28, w: MW, h: 28 });
   c.meter.style.background = "var(--sky)"; c.meter.style.transformOrigin = "0 0";
-  c.pill = L.box({ x: 1030, y: base - 40, w: 200, h: 50, c: PILL[c.st], label: c.st, r: "lr", fs: 30 });
+  c.pill = L.box({ x: UP ? LR - 200 : 1030, y: base - 40, w: 200, h: 50, c: PILL[c.st], label: c.st, r: "lr", fs: 30 });
   c.shown = "";
 });
 L.every(2200, () => chans.forEach((c) => (c.goal = L.clamp(c.base * L.rand(0.85, 1.15), 0.04, 0.9))), 0.3);
@@ -118,27 +153,29 @@ L.every(3600, () => {
 }, 0.4);
 
 // ---------------- universal translator ----------------
-header(330, 1000, 900, "Universal Translator", 400, "lilac", "sky");
+const UY = UP ? H3 - 1000 : 0;                             // upright: the translator's rows move down by this
+header(330, UP ? H3 : 1000, UP ? LR - 330 : 900, "Universal Translator", 400, "lilac", "sky");
 const ut = ["Lexical", "Syntactic", "Semantic"].map((name, i) => {
-  const base = 1112 + i * 92;
+  const base = (UP ? 1112 + UY : 1112) + i * 92;
   L.text({ x: 330, base, s: 40, c: "lilac", txt: name });
-  L.rect({ x: 560, y: base - 30, w: 510, h: 30, c: "#1c1430" });
-  const f = L.layer({ x: 560, y: base - 30, w: 510, h: 30 });
+  L.rect({ x: 560, y: base - 30, w: UP ? LR - 160 - 560 : 510, h: 30, c: "#1c1430" });
+  const f = L.layer({ x: 560, y: base - 30, w: UP ? LR - 160 - 560 : 510, h: 30 });
   f.style.background = "var(--lilac)"; f.style.transformOrigin = "0 0";
-  const v = L.text({ x: 1230, base, s: 52, c: "white", txt: "", align: "r" });
+  const v = L.text({ x: LR, base, s: 52, c: "white", txt: "", align: "r" });
   return { f, v, u: 0.3, goal: 0.98, ph: i * 2.1 };
 });
-L.text({ x: 330, base: 1420, s: 40, c: "lilac", txt: "Confidence" });
-const conf = L.text({ x: 1230, base: 1420, s: 72, c: "lilac", txt: "", align: "r" });
-L.text({ x: 330, base: 1510, s: 40, c: "plum", txt: "Language" });
-const lang = L.text({ x: 1230, base: 1510, s: 52, c: "white", txt: "", align: "r" });
+L.text({ x: 330, base: 1420 + UY, s: 40, c: "lilac", txt: "Confidence" });
+const conf = L.text({ x: LR, base: 1420 + UY, s: 72, c: "lilac", txt: "", align: "r" });
+L.text({ x: 330, base: 1510 + UY, s: 40, c: "plum", txt: "Language" });
+const lang = L.text({ x: LR, base: 1510 + UY, s: 52, c: "white", txt: "", align: "r" });
 
 // ---------------- subspace band: spectrum over waterfall ----------------
-const SX = 1290, SW = 1320, ST = 380, SH = 380, SB = ST + SH;
-header(SX, 280, SW, "Subspace Band", 300, "sky", "ice");
+// upright: the full width, a shorter spectrum, and wide's bar pitch (86 bars of 21)
+const SX = UP ? 330 : 1290, SW = UP ? 1806 : 1320, ST = UP ? H1 + 100 : 380, SH = UP ? 300 : 380, SB = ST + SH;
+header(SX, UP ? H1 : 280, SW, "Subspace Band", 300, "sky", "ice");
 L.rect({ x: SX, y: ST, w: SW, h: SH, c: "#08102a" });
 for (let k = 1; k < 4; k++) L.rect({ x: SX, y: ST + (SH / 4) * k - 1, w: SW, h: 2, c: "#1a2a5c", free: true });
-const NB = 60, BP = SW / NB;
+const NB = UP ? 86 : 60, BP = SW / NB;
 const sbars = Array.from({ length: NB }, (_, i) => {
   const b = L.layer({ x: SX + i * BP + 3, y: ST + 16, w: BP - 6, h: SH - 16, cls: "sbar" });
   return { b, v: 0.1 };
@@ -171,7 +208,7 @@ L.tick((t) => {
 // The waterfall: a row of the band every frame, newest at the top, history sliding down. Two canvas
 // tiles sit one above the other in a clipped strip; moving them is compositing only, and each frame
 // draws just the newest row. A tile that slides out of sight below is cleared and moved to the top.
-const WT = SB + 76, WH = 1540 - WT, SPEED = 36;          // design px per second: about 18 s of history
+const WT = SB + 76, WH = (UP ? H2 - 80 : 1540) - WT, SPEED = 36;   // design px per second: about 18 s of history (upright 9 s)
 L.rect({ x: SX, y: WT, w: SW, h: WH, c: "#040a20" });
 const strip = L.el("div", "boot", L.stage, { position: "absolute", left: SX + "px", top: WT + "px", width: SW + "px", height: WH + "px", overflow: "hidden" });
 const tiles = [0, 1].map((k) => {
@@ -179,7 +216,7 @@ const tiles = [0, 1].map((k) => {
   c.cv.style.willChange = "transform"; c.idx = k;   // idx, not k: the kit keeps the pixel scale in c.k
   return c;
 });
-const NBIN = 160;
+const NBIN = UP ? 220 : 160;                             // upright: as many bins per pixel as wide
 // Each row is painted into a small source canvas and stretched across the strip. WebKit may defer a
 // drawImage until it flushes, reading the source as it is then — so rows take turns among several
 // sources (a single one painted the same row many times over).
@@ -238,21 +275,22 @@ L.tick((t) => {
 });
 
 // ---------------- message queue ----------------
-const QX = 2670, QW = 3816 - QX;
-header(QX, 280, QW, "Message Queue", 320, "lilac", "sky");
+const QX = UP ? 1263 : 2670, QW = QR - QX;
+header(QX, UP ? H2 : 280, QW, "Message Queue", 320, "lilac", "sky");
 // each message a tab (its direction) and a card: who, priority; subject, stardate
 const queue = Array.from({ length: 5 }, (_, i) => {
-  const y = 356 + i * 128, CX = QX + 128;
-  L.rect({ x: CX, y, w: 3816 - CX, h: 112, c: "#0c1a3a", panel: true });
+  const y = (UP ? H2 + 76 : 356) + i * 128, CX = QX + 128;
+  L.rect({ x: CX, y, w: QR - CX, h: 112, c: "#0c1a3a", panel: true });
   return {
     dir: L.box({ x: QX, y, w: 120, h: 112, c: "sky", label: "" }),
     who: L.text({ x: CX + 24, base: y + 48, s: 40, c: "ice", txt: "" }),
-    pri: L.text({ x: 3816 - 24, base: y + 48, s: 40, c: "sky", txt: "", align: "r" }),
+    pri: L.text({ x: QR - 24, base: y + 48, s: 40, c: "sky", txt: "", align: "r" }),
     sub: L.text({ x: CX + 24, base: y + 94, s: 36, c: "lilac", txt: "" }),
-    sd: L.text({ x: 3816 - 24, base: y + 94, s: 36, c: "sky", txt: "", align: "r" }),
+    sd: L.text({ x: QR - 24, base: y + 94, s: 36, c: "sky", txt: "", align: "r" }),
   };
 });
 const queued = [];
+let onQueued = null;                                     // ultrawide: the traffic table counts each message here
 const enqueue = (m) => {
   queued.unshift({ m, sd: logSd.toFixed(1) });          // logged at the same stardate as its log line
   if (queued.length > queue.length) queued.pop();
@@ -265,26 +303,108 @@ const enqueue = (m) => {
     r.sub.textContent = e.m.subject;
     r.sd.textContent = e.sd;
   });
+  if (onQueued) onQueued(queued[0]);
 };
 
 // ---------------- the transmission ----------------
-header(QX, 1000, QW, "Transmission", 300, "sky", "ice");
-const txLabels = ["Status", "From", "Priority", "Encryption"].map((name, i) => L.text({ x: QX, base: 1112 + i * 76, s: 40, c: "sky", txt: name }));
-const txVals = [0, 1, 2, 3].map((i) => L.text({ x: 2990, base: 1112 + i * 76, s: 52, c: "white", txt: "" }));   // a table: values start where the bars do
+const TV = UP ? QX + 320 : 2990, TBW = UP ? QR - 136 - TV : 690;   // the values' column, the bars' width
+header(QX, UP ? H3 : 1000, QW, "Transmission", 300, "sky", "ice");
+const txLabels = ["Status", "From", "Priority", "Encryption"].map((name, i) => L.text({ x: QX, base: 1112 + UY + i * 76, s: 40, c: "sky", txt: name }));
+const txVals = [0, 1, 2, 3].map((i) => L.text({ x: TV, base: 1112 + UY + i * 76, s: 52, c: "white", txt: "" }));   // a table: values start where the bars do
 const txBars = ["Transfer", "Cipher"].map((name, i) => {
-  const base = 1416 + i * 76;
+  const base = 1416 + UY + i * 76;
   const label = L.text({ x: QX, base, s: 40, c: "sky", txt: name });
-  L.rect({ x: 2990, y: base - 30, w: 690, h: 30, c: "#0c1a3a" });
-  const f = L.layer({ x: 2990, y: base - 30, w: 690, h: 30 });
+  L.rect({ x: TV, y: base - 30, w: TBW, h: 30, c: "#0c1a3a" });
+  const f = L.layer({ x: TV, y: base - 30, w: TBW, h: 30 });
   f.style.background = "var(--ice)"; f.style.transformOrigin = "0 0";
-  const v = L.text({ x: 3816, base, s: 52, c: "white", txt: "", align: "r" });
+  const v = L.text({ x: QR, base, s: 52, c: "white", txt: "", align: "r" });
   return { label, f, v, u: 1 };
 });
 
+// =====================================================================================
+// ULTRAWIDE ONLY: the fourth column (3876–5016)
+// =====================================================================================
+if (UW) {
+  const DX = 3876, DW = X1 - DX;
+  // the status row: the stardate of the last log line, in the transmission's value column
+  L.text({ x: QX, base: 222, s: 40, c: "lilac", txt: "Last Logged" });
+  const lastSd = L.text({ x: TV, base: 222, s: 52, c: "white", txt: "" });
+
+  // ---- carrier analysis: the carrier in use, close up, on the band's rows ----
+  header(DX, 280, DW, "Carrier Analysis", 340, "ice", "sky");
+  L.rect({ x: DX, y: ST, w: DW, h: SH, c: "#08102a" });
+  for (let k = 1; k < 4; k++) L.rect({ x: DX, y: ST + (SH / 4) * k - 1, w: DW, h: 2, c: "#1a2a5c", free: true });
+  const NZ = 52, ZP = DW / NZ, HW = 0.06;                 // the band's bar pitch; ±0.06 of the band either side
+  const zbars = Array.from({ length: NZ }, (_, i) => ({ b: L.layer({ x: DX + i * ZP + 3, y: ST + 16, w: ZP - 6, h: SH - 16, cls: "sbar" }), v: 0.1 }));
+  L.rect({ x: DX + DW / 2 - 2, y: SB + 6, w: 4, h: 12, c: "lilac", free: true });
+  const zch = L.text({ x: DX + DW / 2, base: SB + 56, s: 36, c: "lilac", txt: "", align: "c", w: 80, legend: true });
+  const ZC = DX + 620;                                     // the second pair of readings
+  L.text({ x: DX, base: 860, s: 40, c: "sky", txt: "Channel" });
+  const zName = L.text({ x: DX + 200, base: 860, s: 52, c: "white", txt: "" });
+  L.text({ x: ZC, base: 860, s: 40, c: "sky", txt: "Signal" });
+  const zSig = L.text({ x: X1, base: 860, s: 52, c: "white", txt: "", align: "r" });
+  L.text({ x: DX, base: 936, s: 40, c: "sky", txt: "Bandwidth" });
+  const zBw = L.text({ x: DX + 200, base: 936, s: 52, c: "white", txt: "" });
+  L.text({ x: ZC, base: 936, s: 40, c: "sky", txt: "Carrier" });
+  const zLock = L.text({ x: X1, base: 936, s: 52, c: "white", txt: "", align: "r" });
+  let fc = null;
+  const focus = () => (ph.i === 0 ? last : msg).ch;
+  L.tick((t) => {
+    const goal = focus().f;
+    fc = fc === null ? goal : fc + (goal - fc) * 0.03;    // slides calmly to the next carrier
+    for (let i = 0; i < NZ; i++) {
+      const s = zbars[i];
+      s.v += (level(fc - HW + ((i + 0.5) / NZ) * 2 * HW, t) - s.v) * 0.22;
+      s.b.style.transform = `scaleY(${L.clamp(s.v, 0.02, 1).toFixed(4)})`;
+    }
+  });
+  L.every(250, () => {
+    const c = focus(), locked = Math.abs(c.f - fc) < 0.002;
+    L.set(zch, c.n); L.set(zName, c.name);
+    L.set(zSig, Math.round(L.clamp(c.amp * 1.08) * 100) + "%");   // the length of its meter
+    L.set(zBw, (c.wid * 2000).toFixed(1) + " MHz");
+    L.set(zLock, locked ? "Locked" : "Tracking");
+    zLock.style.color = `var(--${locked ? "white" : "ice"})`;
+    L.set(lastSd, logSd.toFixed(1));
+  }, 0);
+
+  // ---- channel traffic: every message this watch, counted as it reaches the queue ----
+  header(DX, 1000, DW, "Channel Traffic", 320, "lilac", "sky");
+  const TI = DX + 620, TO = DX + 820;                      // the counts' right edges
+  L.text({ x: DX, base: 1112, s: 36, c: "sky", txt: "Channel" });
+  L.text({ x: TI, base: 1112, s: 36, c: "sky", txt: "In", align: "r" });
+  L.text({ x: TO, base: 1112, s: 36, c: "sky", txt: "Out", align: "r" });
+  L.text({ x: X1, base: 1112, s: 36, c: "sky", txt: "Last Contact", align: "r" });
+  // earlier in the watch, before the queue's history: [in, out, last contact]
+  const seed = [[6, 3, "47770.9"], [4, 2, "47770.6"], [2, 1, "47769.8"], [3, 1, "47770.2"], [5, 0, "47771.0"], [1, 0, "47768.4"], [1, 1, "47769.1"], [0, 0, ""]];
+  const tally = chans.map((c, i) => {
+    const base = 1112 + Math.round(((i + 1) * 380) / 8);  // eight rows down to the cipher's baseline
+    L.text({ x: DX, base, s: 36, c: "lilac", txt: c.n });
+    L.text({ x: DX + 70, base, s: 36, c: "ice", txt: c.name });
+    const r = { inN: seed[i][0], outN: seed[i][1], sd: seed[i][2],
+      i: L.text({ x: TI, base, s: 36, c: "white", txt: "", align: "r" }),
+      o: L.text({ x: TO, base, s: 36, c: "white", txt: "", align: "r" }),
+      l: L.text({ x: X1, base, s: 36, c: "sky", txt: "", align: "r" }) };
+    r.show = () => { L.set(r.i, String(r.inN)); L.set(r.o, String(r.outN)); L.set(r.l, r.sd || "None"); };
+    r.show();
+    return r;
+  });
+  // a watch is ten units of the log's stardate (47765.0–47775.0 is the one we arrive in, about 50
+  // messages long); when a message is logged in the next one the counts start again from nothing
+  const watchOf = (sd) => Math.floor((parseFloat(sd) - 47765) / 10);
+  let watchN = watchOf(logSd);
+  onQueued = (e) => {
+    if (watchOf(e.sd) !== watchN) { watchN = watchOf(e.sd); tally.forEach((t) => { t.inN = 0; t.outN = 0; t.show(); }); }
+    const r = tally[chans.indexOf(e.m.ch)];
+    if (e.m.dir === "In") r.inN++; else r.outN++;
+    r.sd = e.sd; r.show();
+  };
+}
+
 // ---------------- communications log ----------------
-small(330, 1620, 1170, "Communications Log", 400, "ice", "sky");
+small(330, UP ? H4 : 1620, UP ? LR - 330 : 1170, "Communications Log", 400, "ice", "sky");
 const logRows = Array.from({ length: 6 }, (_, i) => {
-  const base = 1734 + i * 54;
+  const base = (UP ? H4 + 114 : 1734) + i * 54;
   return { sd: L.text({ x: 330, base, s: 36, c: "lilac", txt: "" }), tx: L.text({ x: 520, base, s: 36, c: "ice", txt: "" }) };
 });
 const logged = [];
@@ -300,23 +420,27 @@ logLine("Relay buoy 115 handshake  ·  Signal nominal");
 msg = nextMsg();
 
 // ---------------- relay buoy network ----------------
-const RX = 1560, RW = 3816 - RX, RT = 1772, RHt = 232, RY = RT + 116;
-small(RX, 1620, RW, "Relay Buoy Network", 400, "lilac", "sky");
-L.text({ x: RX, base: 1734, s: 40, c: "lilac", txt: "Relay Path" });
-const path = L.text({ x: 3816, base: 1734, s: 52, c: "white", txt: "", align: "r" });
+// upright: half the width, so the buoys take turns labelling above and below the path (each its
+// name and its signal on one side), in a taller panel. Ultrawide: four more buoys at wide's spacing.
+const RX = UP ? QX : 1560, RW = (UP ? QR : UW ? X1 : 3816) - RX, RT = UP ? H4 + 138 : 1772, RHt = UP ? 252 : 232, RY = RT + (UP ? 126 : 116);
+small(RX, UP ? H4 : 1620, RW, "Relay Buoy Network", 400, "lilac", "sky");
+L.text({ x: RX, base: UP ? H4 + 114 : 1734, s: 40, c: "lilac", txt: "Relay Path" });
+const path = L.text({ x: RX + RW, base: UP ? H4 + 114 : 1734, s: 52, c: "white", txt: "", align: "r" });
 L.rect({ x: RX, y: RT, w: RW, h: RHt, c: "#08102a", panel: true });
-const nodeNames = ["Enterprise", "Buoy 114", "Buoy 115", "Relay Station 47", "Buoy 211", "Buoy 212", ""];
-const N0 = RX + 170, N1 = RX + RW - 170, NP = (N1 - N0) / (nodeNames.length - 1);
+const nodeNames = UW ? ["Enterprise", "Buoy 113", "Buoy 114", "Buoy 115", "Relay Station 47", "Buoy 209", "Buoy 210", "Buoy 211", "Buoy 212", "Relay Station 52", ""]
+  : ["Enterprise", "Buoy 114", "Buoy 115", "Relay Station 47", "Buoy 211", "Buoy 212", ""];
+const N0 = RX + (UP ? 90 : 170), N1 = RX + RW - (UP ? 140 : 170), NP = (N1 - N0) / (nodeNames.length - 1);
 const net = L.svg("g", { class: "boot" });
 L.svg("rect", { x: N0, y: RY - 3, width: N1 - N0, height: 6, fill: "#28407a" }, net);
 const nodes = nodeNames.map((name, i) => {
   const x = N0 + i * NP, end = i === 0 || i === nodeNames.length - 1;
   const dot = L.svg("circle", { cx: x, cy: RY, r: end ? 26 : 18, fill: end ? "var(--ice)" : "var(--lilac)" }, net);
-  const label = L.text({ x, base: RY - 46, s: 36, c: end ? "ice" : "lilac", txt: name, align: "c", w: 300 });
-  const val = L.text({ x, base: RY + 84, s: 36, c: "sky", txt: "", align: "c", w: 300 });
+  const lb = UP ? (i % 2 ? RY + 64 : RY - 80) : RY - 46, vb = UP ? (i % 2 ? RY + 106 : RY - 38) : RY + 84;
+  const label = L.text({ x, base: lb, s: 36, c: end ? "ice" : "lilac", txt: name, align: "c", w: 300 });
+  const val = L.text({ x, base: vb, s: 36, c: "sky", txt: "", align: "c", w: 300 });
   return { x, dot, label, val, sig: L.rand(0.94, 0.995) };
 });
-const pkts = Array.from({ length: 12 }, (_, j) => ({ e: L.layer({ x: 0, y: 0, cls: "pkt" }), j }));
+const pkts = Array.from({ length: UW ? 17 : 12 }, (_, j) => ({ e: L.layer({ x: 0, y: 0, cls: "pkt" }), j }));
 let travel = 0, pace = 70, pktT = null;
 L.every(3000, () => nodes.forEach((n) => (n.sig = L.clamp(n.sig + (Math.random() - 0.5) * 0.01, 0.93, 0.998))), 0.3);
 

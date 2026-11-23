@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Photon Torpedo Magazine</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* swapped text dips and comes back; colors change slowly; .boot (the start-up cascade) always wins */
@@ -14,12 +15,33 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: sidebar left, title top right ----------------
-L.frame({ type: "A", title: "Photon Torpedo Magazine  •  Storage", c: "mars", c2: "tan", accent: "peach", foot: "Tactical",
+const B = L.frame({ type: "A", title: "Photon Torpedo Magazine  •  Storage", c: "mars", c2: "tan", accent: "peach", foot: "Tactical",
   side: [[140, "tan", "Deck 25"], [70, "peach", "25-07"], [420, "mars", "Magazine"], [70, "tan", "Fwd"],
          [300, "mars", "Racks"], [70, "peach", "120"], [216, "tan", "Launcher"]] });
 
 // Two columns as Schoolroom's: 330–2490 | 2554–3816; the middle band and the strip split the left again at 1398 | 1422.
 const X0 = 330, ML = 1398, MR = 1422, GR = 2490, RX = 2554, X1 = 3816;
+
+// ---------------- the grid, per shape ----------------
+// The data, readings and motion below are written once; only these positions differ by shape.
+// wide (3840 × 2160): the magazine plan over the left two columns with the loading sequence beside it;
+//   inventory | yields | station readings across the middle; environment | launcher | log below.
+// upright (2160 × 3120): the plan across the full width (racks at a 56 pitch, the rail re-cut to its
+//   five stations), then four rows split 330–1330 | 1394–2136 on a 54px grid: sequence | yields,
+//   inventory | station readings, environment | launcher, log | magazine totals (the two big counts
+//   that sit on the wide status line, and the antimatter aboard; the stardate keeps its place top right).
+// ultrawide (5040 × 2160): the wide layout where it is, and a fourth column 3880–5016: rack occupancy
+//   beside the sequence (on its 80px grid), antimatter by yield in the middle band, the inspection
+//   queue in the strip, and an antimatter count on the status line.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const XR = B.x1;                                           // the status line's right edge
+const DX0 = 3880, DX1 = B.x1;                              // ultrawide: the fourth column
+// each panel's left, right and header line
+const G = UP ? { plan: [330, 2136], seq: [330, 1330, 1024], yld: [1394, 2136, 1024], inv: [330, 1330, 1558], sr: [1394, 2136, 1558],
+                 env: [330, 1330, 2038], lch: [1394, 2136, 2038], log: [330, 1330, 2518], tot: [1394, 2136, 2518] }
+             : { plan: [X0, GR], seq: [RX, X1, 280], yld: [MR, GR, 1000], inv: [X0, ML, 1000], sr: [RX, X1, 1000],
+                 env: [X0, ML, 1620], lch: [MR, GR, 1620], log: [RX, X1, 1620] };
+const ROW54 = (y) => (k) => y + 114 + 54 * k;              // upright: rows under a header at y
 const TRACK = "#2e1d15", SLOT = "#4a3328", TUBEC = "#47271b", GRID = "#5a3a2c";
 const cls = (e, ...c) => (e.classList.add(...c), e);
 const op = (e, v) => { v = v < 0.005 ? "0" : v > 0.995 ? "1" : v.toFixed(3); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
@@ -90,8 +112,12 @@ const WORDS = ["Standing By", "Retrieving", "Transferring", "Inspecting", "Loadi
                "Loading Tube", "Sealing Breech", "Unloading Tube", "Safing Warhead", "Offloading", "Stowing", "Returning"];
 const state = cls(L.text({ x: X0, cap: 150, s: BIG, c: "mars", txt: "" }), "sw");
 const sub = cls(L.text({ x: X0, base: 222, s: 38, c: "tan", txt: "" }), "sw");
-const reading = (x, label, align) => {
+const reading = (x, label, align, x1, base) => {
   const lw = L.textWidth(label, 40);
+  if (align === "p") {                                     // upright's totals panel: label left, value right, one baseline
+    L.text({ x, base, s: 40, c: "tan", txt: label });
+    return { v: L.text({ x: x1, base, s: BIG, c: "white", txt: "", align: "r" }), place: () => {} };
+  }
   if (align === "r") {
     const v = L.text({ x, cap: 150, s: BIG, c: "white", txt: "00000.0", align: "r" });
     const lab = L.text({ x: 0, base: 222, s: 40, c: "tan", txt: label });
@@ -101,112 +127,127 @@ const reading = (x, label, align) => {
   return { v: L.text({ x: x + lw + 36, cap: 150, s: BIG, c: "white", txt: "" }), place: () => {} };
 };
 const placeSub = () => { sub.style.left = X0 + L.textWidth(state.textContent, BIG) + 48 + "px"; };
-const rAboard = reading(MR, "Rounds Aboard");
-const rReady = reading(RX, "Torpedoes Ready");
-const rSD = reading(X1, "Stardate", "r");
+const rAboard = UP ? reading(G.tot[0], "Rounds Aboard", "p", G.tot[1], ROW54(G.tot[2])(1)) : reading(MR, "Rounds Aboard");
+const rReady = UP ? reading(G.tot[0], "Torpedoes Ready", "p", G.tot[1], ROW54(G.tot[2])(3)) : reading(RX, "Torpedoes Ready");
+const rSD = reading(XR, "Stardate", "r");
+const rAM = UW ? reading(DX0, "Antimatter Kg") : UP ? reading(G.tot[0], "Antimatter Kg", "p", G.tot[1], ROW54(G.tot[2])(5)) : null;
+// where the state and its subtitle must end: before the first reading (upright: before the stardate)
+const STR = UP ? XR - L.textWidth("47457.3", BIG) - 36 - L.textWidth("Stardate", 40) : MR;
 
 // ---------------- the magazine plan: racks, transfer lift, loading rail, breech, tube ----------------
-L.header({ x: X0, y: 280, w: GR - X0, label: "Magazine Plan  ·  Forward Racks", c1: "mars", c2: "tan" });
+const PX1 = G.plan[1];                                     // the plan's right edge (wide 2490)
+L.header({ x: X0, y: 280, w: PX1 - X0, label: "Magazine Plan  ·  Forward Racks", c1: "mars", c2: "tan" });
 const RY = (r) => 372 + r * 80, RB = (r) => RY(r) + 44;    // a rack's top; its count's baseline (shared with the sequence rows)
-const CX0 = 454, PITCH = 64, RAILY = 828, LIFTX = 370;
-const cellC = (r, s) => [CX0 + 32 + PITCH * s, RY(r) + 28];
+// upright: the same 24 slots at a 56 pitch (44 wide, the same 12 between), a shorter rack label
+const CX0 = 454, PITCH = UP ? 56 : 64, CELL = UP ? 44 : 52, RAILY = 828, LIFTX = 370;
+const cellC = (r, s) => [CX0 + PITCH / 2 + PITCH * s, RY(r) + 28];
 const liftAt = (y) => [LIFTX, y], HOME = [LIFTX, RAILY];
-const ST = { ins: 1124, wh: 1624, br: 2049, tube: 2344 };
+// the stations on the rail: the centres of their segments below it
+const ST = UP ? { ins: 969, wh: 1379, br: 1734, tube: 2002 } : { ins: 1124, wh: 1624, br: 2049, tube: 2344 };
+const TUBEX = UP ? 1868 : 2198;
 L.rect({ x: 330, y: 372, w: 80, h: 484, c: TRACK, noalign: true });            // the transfer lift's shaft
-L.rect({ x: 330, y: 800, w: 1860, h: 56, c: TRACK, noalign: true });           // the loading rail
-L.rect({ x: 2198, y: 800, w: 292, h: 56, c: TUBEC, noalign: true });           // the launch tube
+L.rect({ x: 330, y: 800, w: TUBEX - 8 - 330, h: 56, c: TRACK, noalign: true }); // the loading rail
+L.rect({ x: TUBEX, y: 800, w: PX1 - TUBEX, h: 56, c: TUBEC, noalign: true });  // the launch tube
 const cells = [], rackBox = [], rackN = [];
 for (let r = 0; r < NR; r++) {
   L.rect({ x: CX0, y: RY(r), w: NS * PITCH, h: 56, c: TRACK });
-  cells.push(range(NS).map((s) => { const [x, y] = cellC(r, s); return cls(L.rect({ x: x - 26, y: y - 16, w: 52, h: 32, rx: 16, c: SLOT, free: true }), "cell"); }));
-  rackBox.push(cls(L.box({ x: CX0 + NS * PITCH + 24, y: RY(r), w: 300, h: 56, c: RACK_C[r], label: `Rack ${RACK[r]}`, fs: 32, r: "r" }), "sw"));
-  rackN.push(L.text({ x: GR, base: RB(r), s: 40, c: "white", txt: "", align: "r" }));
+  cells.push(range(NS).map((s) => { const [x, y] = cellC(r, s); return cls(L.rect({ x: x - CELL / 2, y: y - 16, w: CELL, h: 32, rx: 16, c: SLOT, free: true }), "cell"); }));
+  rackBox.push(cls(L.box({ x: CX0 + NS * PITCH + 24, y: RY(r), w: UP ? 168 : 300, h: 56, c: RACK_C[r], label: `Rack ${RACK[r]}`, fs: 32, r: "r" }), "sw"));
+  rackN.push(L.text({ x: PX1, base: RB(r), s: 40, c: "white", txt: "", align: "r" }));
 }
 const showCell = (r, s) => { const rd = slots[r][s]; fillOf(cells[r][s], rd ? KIND[rd.kind].c : SLOT); };
 range(NR).forEach((r) => range(NS).forEach((s) => showCell(r, s)));
-const SEGS = [["Transfer", 330, 900], ["Inspection", 908, 1340], ["Warhead Loading", 1348, 1900], ["Breech", 1908, 2190], ["Tube 1", 2198, 2490]];
+const SEGS = UP ? [["Transfer", 330, 780], ["Inspection", 788, 1150], ["Warhead Loading", 1158, 1600], ["Breech", 1608, 1860], ["Tube 1", 1868, 2136]]
+                : [["Transfer", 330, 900], ["Inspection", 908, 1340], ["Warhead Loading", 1348, 1900], ["Breech", 1908, 2190], ["Tube 1", 2198, 2490]];
 const segEls = SEGS.map(([lab, a, b], i) => cls(L.box({ x: a, y: 880, w: b - a, h: 48, c: "tan", label: lab, fs: 28, r: i === 0 ? "l" : i === 4 ? "r" : null }), "sw"));
 // moving parts: the breech door, the round in the tube, the round on the cradle, the cradle
-const door = fill(2186, 788, 16, 80, "peach", "50% 50%");
-const capsule = (c) => { const e = cls(L.layer({ x: 0, y: 0, w: 52, h: 32 }), "cap"); e.style.background = cv(c); e._bg = cv(c); op(e, 0); return e; };
-const tubeCap = capsule("mars"); L.move(tubeCap, ST.tube - 26, RAILY - 16);
+const door = fill(TUBEX - 12, 788, 16, 80, "peach", "50% 50%");
+const capsule = (c) => { const e = cls(L.layer({ x: 0, y: 0, w: CELL, h: 32 }), "cap"); e.style.background = cv(c); e._bg = cv(c); op(e, 0); return e; };
+const tubeCap = capsule("mars"); L.move(tubeCap, ST.tube - CELL / 2, RAILY - 16);
 const carryCap = capsule("mars");
-const cradle = L.layer({ x: 0, y: 0, w: 68, h: 48 });
+const cradle = L.layer({ x: 0, y: 0, w: CELL + 16, h: 48 });
 Object.assign(cradle.style, { border: "4px solid var(--white)", borderRadius: "12px" });
 const placeCradle = (p) => {
-  tf(cradle, `translate3d(${(p[0] - 34).toFixed(1)}px,${(p[1] - 24).toFixed(1)}px,0)`);
-  if (carried) tf(carryCap, `translate3d(${(p[0] - 26).toFixed(1)}px,${(p[1] - 16).toFixed(1)}px,0)`);
+  tf(cradle, `translate3d(${(p[0] - (CELL + 16) / 2).toFixed(1)}px,${(p[1] - 24).toFixed(1)}px,0)`);
+  if (carried) tf(carryCap, `translate3d(${(p[0] - CELL / 2).toFixed(1)}px,${(p[1] - 16).toFixed(1)}px,0)`);
 };
 placeCradle(HOME);
 if (tube) { bg(tubeCap, KIND[tube.kind].c); op(tubeCap, 1); }
 
 // ---------------- loading sequence: the round in hand, and its five steps ----------------
-L.header({ x: RX, y: 280, w: X1 - RX, label: "Loading Sequence", c1: "tan", c2: "mars" });
-const SQ = { where: 2880, bar: 3170, barR: 3560 };
-const qCase = cls(L.text({ x: RX, base: RB(0), s: 40, c: "white", txt: "" }), "sw");
-const qKind = cls(L.text({ x: SQ.where, base: RB(0), s: 36, c: "tan", txt: "" }), "sw");
-const qRoute = cls(L.text({ x: X1, base: RB(0), s: 36, c: "peach", txt: "", align: "r" }), "sw");
-[["Step", RX, ""], ["Station", SQ.where, ""], ["Progress", SQ.bar, ""], ["State", X1, "r"]]
-  .forEach(([txt, x, align]) => L.text({ x, base: RB(1), s: 36, c: "peach", txt, align }));
+const [QX0, QX1, QY] = G.seq, rSeq = UP ? ROW54(QY) : RB;
+L.header({ x: QX0, y: QY, w: QX1 - QX0, label: "Loading Sequence", c1: "tan", c2: "mars" });
+const SQ = UP ? { where: 640, bar: 910, barR: 1180 } : { where: 2880, bar: 3170, barR: 3560 };
+const qCase = cls(L.text({ x: QX0, base: rSeq(0), s: 40, c: "white", txt: "" }), "sw");
+const qKind = cls(L.text({ x: SQ.where, base: rSeq(0), s: 36, c: "tan", txt: "" }), "sw");
+const qRoute = cls(L.text({ x: QX1, base: rSeq(0), s: 36, c: "peach", txt: "", align: "r" }), "sw");
+[["Step", QX0, ""], ["Station", SQ.where, ""], ["Progress", SQ.bar, ""], ["State", QX1, "r"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: rSeq(1), s: 36, c: "peach", txt, align }));
 const qRows = range(5).map((k) => {
-  const base = RB(k + 2);
+  const base = rSeq(k + 2);
   L.rect({ x: SQ.bar, y: base - 20, w: SQ.barR - SQ.bar, h: 20, c: TRACK });
-  return { name: cls(L.text({ x: RX, base, s: 36, c: "white", txt: "" }), "sw"),
+  return { name: cls(L.text({ x: QX0, base, s: 36, c: "white", txt: "" }), "sw"),
            where: cls(L.text({ x: SQ.where, base, s: 36, c: "tan", txt: "" }), "sw"),
            bar: cls(fill(SQ.bar, base - 20, SQ.barR - SQ.bar, 20, "mars"), "sw"),
-           st: cls(L.text({ x: X1, base, s: 36, c: "white", txt: "", align: "r" }), "sw"), s: "" };
+           st: cls(L.text({ x: QX1, base, s: 36, c: "white", txt: "", align: "r" }), "sw"), s: "" };
 });
 
 // ---------------- inventory ----------------
 const MB = (k) => 1116 + 84 * k;
-const BAR = [640, 1160, 1732, 2252], BH = 20;
-L.header({ x: X0, y: 1000, w: ML - X0, label: "Inventory  ·  Forward Magazine", c1: "mars", c2: "tan" });
-L.text({ x: X0, base: MB(0), s: 36, c: "peach", txt: "Stores" });
-L.text({ x: BAR[0], base: MB(0), s: 36, c: "peach", txt: "Stowage" });
-L.text({ x: ML, base: MB(0), s: 36, c: "peach", txt: "Count", align: "r" });
+const BAR = UP ? [640, 1092, 1644] : [640, 1160, 1732, 2252], BH = 20;
+const [IX0, IX1, IY] = G.inv, rInv = UP ? ROW54(IY) : MB;
+L.header({ x: IX0, y: IY, w: IX1 - IX0, label: "Inventory  ·  Forward Magazine", c1: "mars", c2: "tan" });
+L.text({ x: IX0, base: rInv(0), s: 36, c: "peach", txt: "Stores" });
+L.text({ x: BAR[0], base: rInv(0), s: 36, c: "peach", txt: "Stowage" });
+L.text({ x: IX1, base: rInv(0), s: 36, c: "peach", txt: "Count", align: "r" });
 const INV = [["Photon Torpedoes", "ready", () => countKind("ready"), CAP.ready], ["Torpedo Casings", "casing", () => countKind("casing"), CAP.casing],
              ["Class 1 Probes", "p1", () => countKind("p1"), CAP.p1], ["Class 2 Probes", "p2", () => countKind("p2"), CAP.p2],
              ["Tube 1", "ready", () => (tube ? 1 : 0), 1]];
 const inv = INV.map(([name, k, f, cap], i) => {
-  const base = MB(i + 1);
-  L.text({ x: X0, base, s: 36, c: "tan", txt: name });
+  const base = rInv(i + 1);
+  L.text({ x: IX0, base, s: 36, c: "tan", txt: name });
   L.rect({ x: BAR[0], y: base - BH, w: BAR[1] - BAR[0], h: BH, c: TRACK });
   const v = f();
-  return { f, cap, bar: fill(BAR[0], base - BH, BAR[1] - BAR[0], BH, KIND[k].c), n: L.text({ x: ML, base, s: 36, c: "white", txt: "", align: "r" }),
+  return { f, cap, bar: fill(BAR[0], base - BH, BAR[1] - BAR[0], BH, KIND[k].c), n: L.text({ x: IX1, base, s: 36, c: "white", txt: "", align: "r" }),
            from: v, to: v, cur: v, t0: -10 };
 });
 
 // ---------------- warhead yields: the photon torpedoes by yield setting ----------------
-L.header({ x: MR, y: 1000, w: GR - MR, label: "Warhead Yields  ·  Photon Torpedoes", c1: "tan", c2: "peach" });
-const YC = BINS.map((_, i) => 1590 + 188 * i), YB = 1404, YH = 246, YMAX = 30;
+const [YX0, YX1, YY] = G.yld;
+// the rows: the counts over the chart, the yield and the load under it (upright: on the sequence's 54px rows)
+const YR = UP ? { n: YY + 114, yi: YY + 384, ld: YY + 438 } : { n: MB(0), yi: MB(4), ld: MB(5) };
+L.header({ x: YX0, y: YY, w: YX1 - YX0, label: "Warhead Yields  ·  Photon Torpedoes", c1: "tan", c2: "peach" });
+const YC = UP ? BINS.map((_, i) => 1520 + 118 * i) : BINS.map((_, i) => 1590 + 188 * i), YB = UP ? YY + 330 : 1404, YH = UP ? 174 : 246, YMAX = 30;
+const YHW = UP ? 40 : 60, YGX = UP ? 1452 : 1490, YLX = UP ? 1432 : 1470;   // half a bar; the grid's start; the scale's right edge
 for (const v of [0, 10, 20, 30]) {
   const y = YB - (YH * v) / YMAX;
-  if (v) L.rect({ x: 1490, y: y - 1, w: GR - 1490, h: 2, c: GRID, free: true });
-  L.text({ x: 1470, base: y + 11, s: 30, c: "tan", txt: String(v), align: "r", legend: true });
+  if (v) L.rect({ x: YGX, y: y - 1, w: (UP ? YC[4] + YHW : YX1) - YGX, h: 2, c: GRID, free: true });   // upright: the grid stops at the last bar
+  L.text({ x: YLX, base: y + 11, s: 30, c: "tan", txt: String(v), align: "r", legend: true });
 }
-L.text({ x: MR, base: MB(0), s: 36, c: "peach", txt: "Rounds" });
-L.text({ x: MR, base: MB(4), s: 36, c: "peach", txt: "Yield" });
-L.text({ x: MR, base: MB(5), s: 36, c: "peach", txt: "Load" });
+L.text({ x: YX0, base: YR.n, s: 36, c: "peach", txt: "Rounds" });
+L.text({ x: YX0, base: YR.yi, s: 36, c: "peach", txt: "Yield" });
+L.text({ x: YX0, base: YR.ld, s: 36, c: "peach", txt: "Load" });
 const yields = BINS.map((b, i) => {
-  L.rect({ x: YC[i] - 60, y: YB - YH, w: 120, h: YH, c: TRACK });
-  L.text({ x: YC[i], w: 200, base: MB(4), s: 36, c: "white", txt: `${b} %`, align: "c" });
-  L.text({ x: YC[i], w: 200, base: MB(5), s: 36, c: "tan", txt: `${KG(i).toFixed(2)} Kg`, align: "c" });
-  return { bar: fill(YC[i] - 60, YB - YH, 120, YH, "mars", "50% 100%"), n: L.text({ x: YC[i], w: 200, base: MB(0), s: 36, c: "white", txt: "", align: "c" }),
+  L.rect({ x: YC[i] - YHW, y: YB - YH, w: 2 * YHW, h: YH, c: TRACK });
+  L.text({ x: YC[i], w: 200, base: YR.yi, s: 36, c: "white", txt: `${b} %`, align: "c" });
+  L.text({ x: YC[i], w: 200, base: YR.ld, s: 36, c: "tan", txt: `${KG(i).toFixed(2)} Kg`, align: "c" });
+  return { bar: fill(YC[i] - YHW, YB - YH, 2 * YHW, YH, "mars", "50% 100%"), n: L.text({ x: YC[i], w: 200, base: YR.n, s: 36, c: "white", txt: "", align: "c" }),
            from: 0, to: 0, cur: 0, t0: -10 };
 });
 { const n = binCounts(); yields.forEach((y, i) => { y.from = y.to = y.cur = n[i]; }); }
 
 // ---------------- station readings: the round on the cradle ----------------
-L.header({ x: RX, y: 1000, w: X1 - RX, label: "Station Readings", c1: "peach", c2: "mars" });
-const SRB = [3010, 3520];
-L.text({ x: RX, base: MB(0), s: 36, c: "peach", txt: "Reading" });
-L.text({ x: SRB[0], base: MB(0), s: 36, c: "peach", txt: "Level" });
-L.text({ x: X1, base: MB(0), s: 36, c: "peach", txt: "Value", align: "r" });
+const [SX0, SX1, SY] = G.sr, rSr = UP ? ROW54(SY) : MB;
+L.header({ x: SX0, y: SY, w: SX1 - SX0, label: "Station Readings", c1: "peach", c2: "mars" });
+const SRB = UP ? [1684, 1986] : [3010, 3520];
+L.text({ x: SX0, base: rSr(0), s: 36, c: "peach", txt: "Reading" });
+L.text({ x: SRB[0], base: rSr(0), s: 36, c: "peach", txt: "Level" });
+L.text({ x: SX1, base: rSr(0), s: 36, c: "peach", txt: "Value", align: "r" });
 const SR = ["Casing Integrity", "Guidance Package", "Warp Sustainer", "Antimatter Load", "Magnetic Containment"].map((name, i) => {
-  const base = MB(i + 1);
-  L.text({ x: RX, base, s: 36, c: "tan", txt: name });
+  const base = rSr(i + 1);
+  L.text({ x: SX0, base, s: 36, c: "tan", txt: name });
   L.rect({ x: SRB[0], y: base - BH, w: SRB[1] - SRB[0], h: BH, c: TRACK });
-  return { bar: fill(SRB[0], base - BH, SRB[1] - SRB[0], BH, i < 3 ? "tan" : "mars"), v: cls(L.text({ x: X1, base, s: 36, c: "white", txt: "", align: "r" }), "sw"),
+  return { bar: fill(SRB[0], base - BH, SRB[1] - SRB[0], BH, i < 3 ? "tan" : "mars"), v: cls(L.text({ x: SX1, base, s: 36, c: "white", txt: "", align: "r" }), "sw"),
            cur: 0, target: 0 };
 });
 const pct = (v) => `${v.toFixed(1)} %`;
@@ -227,15 +268,18 @@ function showReadings(rd, sweep) {
 }
 
 // ---------------- the bottom strip ----------------
-L.header({ x: X0, y: 1620, w: ML - X0, label: "Magazine Environment", c1: "tan", c2: "mars", h: 48 });
-L.header({ x: MR, y: 1620, w: GR - MR, label: "Forward Launcher", c1: "mars", c2: "peach", h: 48 });
-L.header({ x: RX, y: 1620, w: X1 - RX, label: "Magazine Log", c1: "peach", c2: "tan", h: 48 });
+const [EX0, EX1, EY] = G.env, [LX0, LX1, LYH] = G.lch, [GX0, GX1, GY] = G.log;
+L.header({ x: EX0, y: EY, w: EX1 - EX0, label: "Magazine Environment", c1: "tan", c2: "mars", h: 48 });
+L.header({ x: LX0, y: LYH, w: LX1 - LX0, label: "Forward Launcher", c1: "mars", c2: "peach", h: 48 });
+L.header({ x: GX0, y: GY, w: GX1 - GX0, label: "Magazine Log", c1: "peach", c2: "tan", h: 48 });
+if (UP) L.header({ x: G.tot[0], y: G.tot[2], w: G.tot[1] - G.tot[0], label: "Magazine Totals", c1: "mars", c2: "tan", h: 48 });
 const SB = (k) => 1734 + k * 54;
+const rEnv = UP ? ROW54(EY) : SB, rLch = UP ? ROW54(LYH) : SB, rLog = UP ? ROW54(GY) : SB;
 
 // environment: steady readings that drift a little
-L.text({ x: X0, base: SB(0), s: 36, c: "peach", txt: "Reading" });
-L.text({ x: BAR[0], base: SB(0), s: 36, c: "peach", txt: "Level" });
-L.text({ x: ML, base: SB(0), s: 36, c: "peach", txt: "Value", align: "r" });
+L.text({ x: EX0, base: rEnv(0), s: 36, c: "peach", txt: "Reading" });
+L.text({ x: BAR[0], base: rEnv(0), s: 36, c: "peach", txt: "Level" });
+L.text({ x: EX1, base: rEnv(0), s: 36, c: "peach", txt: "Value", align: "r" });
 const ENV = [
   { name: "Temperature", v: 284.6, lo: 284.2, hi: 285.0, d: 0.1, min: 270, max: 300, f: (v) => `${v.toFixed(1)} K` },
   { name: "Pressure", v: 101.3, lo: 101.2, hi: 101.4, d: 0.05, min: 90, max: 110, f: (v) => `${v.toFixed(1)} Kpa` },
@@ -243,23 +287,23 @@ const ENV = [
   { name: "Blast Shielding", v: 100, lo: 100, hi: 100, d: 0, min: 0, max: 100, f: (v) => pct(v) },
   { name: "Isolation Field", v: 99.6, lo: 99.4, hi: 99.8, d: 0.1, min: 0, max: 100, f: (v) => pct(v) },
 ].map((e, i) => {
-  const base = SB(i + 1);
-  L.text({ x: X0, base, s: 36, c: "tan", txt: e.name });
+  const base = rEnv(i + 1);
+  L.text({ x: EX0, base, s: 36, c: "tan", txt: e.name });
   L.rect({ x: BAR[0], y: base - BH, w: BAR[1] - BAR[0], h: BH, c: TRACK });
-  return Object.assign(e, { bar: fill(BAR[0], base - BH, BAR[1] - BAR[0], BH, i === 3 ? "mars" : "tan"), n: L.text({ x: ML, base, s: 36, c: "white", txt: "", align: "r" }), cur: (e.v - e.min) / (e.max - e.min) });
+  return Object.assign(e, { bar: fill(BAR[0], base - BH, BAR[1] - BAR[0], BH, i === 3 ? "mars" : "tan"), n: L.text({ x: EX1, base, s: 36, c: "white", txt: "", align: "r" }), cur: (e.v - e.min) / (e.max - e.min) });
 });
 const showEnv = () => ENV.forEach((e) => L.set(e.n, e.f(e.v)));
 showEnv();
 L.every(4000, () => { const e = L.pick(ENV); if (!e.d) return; e.v = L.clamp(e.v + L.pick([-1, 1]) * e.d, e.lo, e.hi); L.set(e.n, e.f(e.v)); }, 0.3);
 
 // the launcher: the tube, its breech door, the warhead in it
-L.text({ x: MR, base: SB(0), s: 36, c: "peach", txt: "System" });
-L.text({ x: BAR[2], base: SB(0), s: 36, c: "peach", txt: "Status" });
-L.text({ x: GR, base: SB(0), s: 36, c: "peach", txt: "Detail", align: "r" });
+L.text({ x: LX0, base: rLch(0), s: 36, c: "peach", txt: "System" });
+L.text({ x: BAR[2], base: rLch(0), s: 36, c: "peach", txt: "Status" });
+L.text({ x: LX1, base: rLch(0), s: 36, c: "peach", txt: "Detail", align: "r" });
 const LR = ["Tube 1", "Breech Door", "Warhead", "Firing Interlock", "Launch Sequencer"].map((name, i) => {
-  const base = SB(i + 1);
-  L.text({ x: MR, base, s: 36, c: "tan", txt: name });
-  return { st: cls(L.text({ x: BAR[2], base, s: 36, c: "white", txt: "" }), "sw"), dt: cls(L.text({ x: GR, base, s: 36, c: "white", txt: "", align: "r" }), "sw") };
+  const base = rLch(i + 1);
+  L.text({ x: LX0, base, s: 36, c: "tan", txt: name });
+  return { st: cls(L.text({ x: BAR[2], base, s: 36, c: "white", txt: "" }), "sw"), dt: cls(L.text({ x: LX1, base, s: 36, c: "white", txt: "", align: "r" }), "sw") };
 });
 let cycles = L.irand(2300, 2600), doorK = 0, doorWord = "Sealed";
 function showLauncher() {
@@ -272,15 +316,15 @@ function showLauncher() {
 }
 
 // the log: oldest at the top, a new line arrives at the bottom
-const LG = { id: RX + 150, ev: RX + 290 };
-const LN = 6, LPH = 54, LY = SB(0) - 44;
+const LG = { id: GX0 + 150, ev: GX0 + 290 };
+const LN = 6, LPH = 54, LY = rLog(0) - 44;
 const logRows = range(LN).map((i) => {
-  const e = L.layer({ x: RX, y: LY, w: X1 - RX, h: LPH });
+  const e = L.layer({ x: GX0, y: LY, w: GX1 - GX0, h: LPH });
   const r = { e, slot: i,
     sd: L.text({ x: 0, base: 44, s: 36, c: "tan", txt: "" }, e),
-    id: L.text({ x: LG.id - RX, base: 44, s: 36, c: "white", txt: "" }, e),
-    ev: L.text({ x: LG.ev - RX, base: 44, s: 36, c: "sand", txt: "" }, e),
-    dt: L.text({ x: X1 - RX, base: 44, s: 36, c: "white", txt: "", align: "r", rightIn: true }, e) };
+    id: L.text({ x: LG.id - GX0, base: 44, s: 36, c: "white", txt: "" }, e),
+    ev: L.text({ x: LG.ev - GX0, base: 44, s: 36, c: "sand", txt: "" }, e),
+    dt: L.text({ x: GX1 - GX0, base: 44, s: 36, c: "white", txt: "", align: "r", rightIn: true }, e) };
   L.move(e, 0, i * LPH);
   return r;
 });
@@ -425,24 +469,93 @@ function place(r, s) {
 function tubeIn() { tube = carried; carried = null; op(carryCap, 0); bg(tubeCap, KIND[tube.kind].c); op(tubeCap, 1); }
 function tubeOut() { carried = tube; tube = null; op(tubeCap, 0); bg(carryCap, KIND[carried.kind].c); op(carryCap, 1); showReadings(carried); }
 
+// ---------------- ultrawide: the fourth column (3880–5016) ----------------
+const slow = [], perFrame = [];                            // its updates, a few times a second and every frame (empty in other shapes)
+if (UW) {
+  const OB = [4290, 4856];                                 // the column's bars
+  const eased = (bar, f, cap, show) => {                   // a bar that eases to its count; the count follows the bar
+    const v = { from: f(), to: f(), cur: f(), t0: -10 };
+    perFrame.push((t) => {
+      const n = f(); if (n !== v.to) { v.from = v.cur; v.to = n; v.t0 = t; }
+      v.cur = L.mix(v.from, v.to, L.ease(L.clamp((t - v.t0) / 1.2))); scaleX(bar, v.cur / cap); show(v.cur);
+    });
+  };
+  // rack occupancy: on the sequence's rows beside it
+  L.header({ x: DX0, y: 280, w: DX1 - DX0, label: "Rack Occupancy", c1: "peach", c2: "tan" });
+  [["Rack", DX0, ""], ["Stores", DX0 + 180, ""], ["Occupancy", OB[0], ""], ["Count", DX1, "r"]]
+    .forEach(([txt, x, align]) => L.text({ x, base: RB(0), s: 36, c: "peach", txt, align }));
+  const STORES = ["Photon Torpedoes", "Photon Torpedoes", "Torpedo Casings", "Torpedo Casings", "Probes"];
+  const occRow = (k, name, stores, c, f, cap) => {
+    const base = RB(k);
+    L.text({ x: DX0, base, s: 36, c: "tan", txt: name });
+    L.text({ x: DX0 + 180, base, s: 36, c: "white", txt: stores });
+    L.rect({ x: OB[0], y: base - BH, w: OB[1] - OB[0], h: BH, c: TRACK });
+    const n = L.text({ x: DX1, base, s: 36, c: "white", txt: "", align: "r" });
+    eased(fill(OB[0], base - BH, OB[1] - OB[0], BH, c), f, cap, (v) => L.set(n, `${Math.round(v)} / ${cap}`));
+  };
+  range(NR).forEach((r) => occRow(r + 1, `Rack ${RACK[r]}`, STORES[r], RACK_C[r], () => slots[r].filter(Boolean).length, NS));
+  occRow(6, "Total", "All Racks", "sand", () => slots.reduce((a, row) => a + row.filter(Boolean).length, 0), NR * NS);
+
+  // antimatter by yield setting: the warheads' load, following the yield bars
+  L.header({ x: DX0, y: 1000, w: DX1 - DX0, label: "Antimatter  ·  By Yield", c1: "mars", c2: "peach" });
+  [["Yield", DX0, ""], ["Rounds", DX0 + 180, ""], ["Antimatter", OB[0], ""], ["Total", DX1, "r"]]
+    .forEach(([txt, x, align]) => L.text({ x, base: MB(0), s: 36, c: "peach", txt, align }));
+  BINS.forEach((b, i) => {
+    const base = MB(i + 1);
+    L.text({ x: DX0, base, s: 36, c: "tan", txt: `${b} %` });
+    const n = L.text({ x: DX0 + 180, base, s: 36, c: "white", txt: "" });
+    L.rect({ x: OB[0], y: base - BH, w: OB[1] - OB[0], h: BH, c: TRACK });
+    const bar = fill(OB[0], base - BH, OB[1] - OB[0], BH, "mars");
+    const kg = L.text({ x: DX1, base, s: 36, c: "white", txt: "", align: "r" });
+    perFrame.push(() => { const k = yields[i].cur; scaleX(bar, (k * KG(i)) / 15); L.set(n, String(Math.round(k))); L.set(kg, kgTxt(Math.round(k) * KG(i))); });
+  });
+  slow.push(() => L.set(rAM.v, allRounds().reduce((a, rd) => a + rd.am, 0).toFixed(1)));
+
+  // the inspection queue: the racked rounds longest since inspection, the next one first, with the integrity it last read
+  L.header({ x: DX0, y: 1620, w: DX1 - DX0, label: "Inspection Queue  ·  Next Due", c1: "tan", c2: "peach", h: 48 });
+  const QC = [DX0, DX0 + 170, DX0 + 340, DX0 + 720];
+  [["Casing", QC[0], ""], ["Rack", QC[1], ""], ["Stores", QC[2], ""], ["Integrity", QC[3], ""], ["Elapsed", DX1, "r"]]
+    .forEach(([txt, x, align]) => L.text({ x, base: SB(0), s: 36, c: "peach", txt, align }));
+  const iq = range(5).map((k) => {
+    const base = SB(k + 1);
+    return { id: cls(L.text({ x: QC[0], base, s: 36, c: "white", txt: "" }), "sw"), rk: cls(L.text({ x: QC[1], base, s: 36, c: "tan", txt: "" }), "sw"),
+             kd: cls(L.text({ x: QC[2], base, s: 36, c: "sand", txt: "" }), "sw"), sd: cls(L.text({ x: QC[3], base, s: 36, c: "tan", txt: "" }), "sw"),
+             el: cls(L.text({ x: DX1, base, s: 36, c: "white", txt: "", align: "r" }), "sw") };
+  });
+  let iqKey = "", iqList = [];
+  const showIQ = () => iq.forEach((row, k) => { const rd = iqList[k]; L.set(row.id, rd.id); L.set(row.rk, slotName(...rd.home)); L.set(row.kd, KIND[rd.kind].name); L.set(row.sd, pct(rd.integ)); });
+  const elapsed = () => iq.forEach((row, k) => { if (iqList[k]) L.set(row.el, `${((L.t - iqList[k].insp) / 60).toFixed(1)} Hrs`); });
+  slow.push(() => {
+    const list = []; slots.forEach((row) => row.forEach((rd) => rd && list.push(rd)));
+    const top = list.sort((a, b) => a.insp - b.insp).slice(0, 5), key = top.map((rd) => rd.id).join();
+    if (key === iqKey) return elapsed();
+    const first = !iqKey; iqKey = key;
+    if (first) { iqList = top; showIQ(); elapsed(); }
+    else swap(iq.flatMap((r) => [r.id, r.rk, r.kd, r.sd, r.el]), () => { iqList = top; showIQ(); elapsed(); });
+  });
+}
+
+if (UP) slow.push(() => L.set(rAM.v, allRounds().reduce((a, rd) => a + rd.am, 0).toFixed(1)));
+
 // ---------------- the guard: every word fits its place ----------------
 for (const w of WORDS) for (const sb of ["Casing 0417  ·  Warhead Loading", "Forward Magazine  ·  Deck 25", "Casing 0417  ·  Rack A-24"])
-  fits(w, BIG, MR - 72 - X0 - 48 - L.textWidth(sb, 38), "state + subtitle");
+  fits(w, BIG, STR - 72 - X0 - 48 - L.textWidth(sb, 38), "state + subtitle");
 for (const n of ["Retrieve", "Transfer", "Casing Inspection", "Warhead Loading", "Antimatter Offload", "Yield Verification", "Breech Open",
-                 "Tube Load", "Breech Seal", "Tube Extraction", "Warhead Safing", "Stow"]) fits(n, 36, SQ.where - RX - 36, "step");
+                 "Tube Load", "Breech Seal", "Tube Extraction", "Warhead Safing", "Stow"]) fits(n, 36, SQ.where - QX0 - 36, "step");
 for (const n of ["Rack A-24", "Warhead Loading", "Inspection", "Transfer"]) fits(n, 36, SQ.bar - SQ.where - 36, "station");
-for (const n of ["Complete", "Active", "Pending"]) fits(n, 36, X1 - SQ.barR - 36, "state word");
-fits("Casing 0417", 40, SQ.where - RX - 36, "casing");
-for (const k in KIND) fits(KIND[k].name, 36, X1 - SQ.where - L.textWidth("Rack C-14 to A-07", 36) - 48, "kind");
-fits("Magnetic Containment", 36, SRB[0] - RX - 36, "reading"); fits("100.0 %", 36, X1 - SRB[1] - 36, "value"); fits("Testing", 36, X1 - SRB[1] - 36, "value");
-for (const [n] of INV) fits(n, 36, BAR[0] - X0 - 36, "inventory");
-for (const e of ENV) { fits(e.name, 36, BAR[0] - X0 - 36, "env"); fits(e.f(e.hi), 36, ML - BAR[1] - 36, "env value"); }
-fits("Launch Sequencer", 36, BAR[2] - MR - 36, "launcher"); fits("Standby", 36, GR - BAR[2] - L.textWidth("Yield 100 %  ·  1.50 Kg", 36) - 48, "launcher");
-fits("Awaiting Round", 36, GR - BAR[2] - L.textWidth("Loaded", 36) - 48, "launcher");
-fits("Class 2 Probe Launched  ·  Typhon Expanse", 36, X1 - LG.ev - L.textWidth("Rack E-18", 36) - 48, "log");
-fits("Warhead Loaded  ·  Yield 100 %", 36, X1 - LG.ev - L.textWidth("1.50 Kg", 36) - 48, "log");
-fits("Casing Inspection Passed", 36, X1 - LG.ev - L.textWidth("Integrity 99.9 %", 36) - 48, "log");
-fits("0417", 36, LG.ev - LG.id - 30, "log id"); fits("47457.3", 36, LG.id - RX - 30, "log stardate");
+for (const n of ["Complete", "Active", "Pending"]) fits(n, 36, QX1 - SQ.barR - 36, "state word");
+fits("Casing 0417", 40, SQ.where - QX0 - 36, "casing");
+for (const k in KIND) fits(KIND[k].name, 36, QX1 - SQ.where - L.textWidth("Rack C-14 to A-07", 36) - 48, "kind");
+fits("Magnetic Containment", 36, SRB[0] - SX0 - 36, "reading"); fits("100.0 %", 36, SX1 - SRB[1] - 36, "value"); fits("Testing", 36, SX1 - SRB[1] - 36, "value");
+for (const [n] of INV) fits(n, 36, BAR[0] - IX0 - 36, "inventory");
+for (const e of ENV) { fits(e.name, 36, BAR[0] - EX0 - 36, "env"); fits(e.f(e.hi), 36, EX1 - BAR[1] - 36, "env value"); }
+fits("Launch Sequencer", 36, BAR[2] - LX0 - 36, "launcher"); fits("Standby", 36, LX1 - BAR[2] - L.textWidth("Yield 100 %  ·  1.50 Kg", 36) - 48, "launcher");
+fits("Awaiting Round", 36, LX1 - BAR[2] - L.textWidth("Loaded", 36) - 48, "launcher");
+fits("Class 2 Probe Launched  ·  Typhon Expanse", 36, GX1 - LG.ev - L.textWidth("Rack E-18", 36) - 48, "log");
+fits("Warhead Loaded  ·  Yield 100 %", 36, GX1 - LG.ev - L.textWidth("1.50 Kg", 36) - 48, "log");
+fits("Casing Inspection Passed", 36, GX1 - LG.ev - L.textWidth("Integrity 99.9 %", 36) - 48, "log");
+fits("0417", 36, LG.ev - LG.id - 30, "log id"); fits("47457.3", 36, LG.id - GX0 - 30, "log stardate");
+if (UP) { fits("Rounds Aboard", 40, G.tot[1] - G.tot[0] - L.textWidth("120", BIG) - 48, "totals"); fits("Rack E", 32, 168 - 40, "rack label"); }
 if (bad.length) setTimeout(() => { throw new Error("torpedo-magazine: " + bad.join(" | ")); });
 
 // ---------------- the starting picture ----------------
@@ -519,6 +632,7 @@ function readings() {
   if (qRd) L.set(qKind, KIND[qRd.kind].name);
   L.set(rSD.v, sdAt(L.t)); rSD.place();
   showLauncher();
+  slow.forEach((f) => f());
 }
 readings();
 L.every(250, readings, 0);
@@ -573,6 +687,7 @@ L.tick((t) => {
   SR.forEach((r) => { r.cur += (r.target - r.cur) * 0.14; scaleX(r.bar, r.cur); });
   ENV.forEach((e) => { const k = (e.v - e.min) / (e.max - e.min); e.cur += (k - e.cur) * 0.05; scaleX(e.bar, e.cur); });
   stepLog(t);
+  perFrame.forEach((f) => f(t));
 });
 });
 </script></body></html>

@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Medical Tricorder</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* readings that are swapped fade out and back; colors change slowly; .boot (the start-up cascade) always wins */
@@ -16,9 +17,25 @@ L.ready(() => {
 // ---------------- the frame: wide, no sidebars — the scan is the screen ----------------
 L.frame({ type: "D", title: "Medical Tricorder  •  Scan Readout", c: "ice", c2: "peach", accent: "sky" });
 
-const LX = 40, LR = 856, MX = 920, MR = 2936, RX = 3000, RR = 3816;     // three columns, 64 apart
-const ROW0 = 428, ROW1 = 1128, PITCH = 88;                               // rows of 64 on an 88 grid
-const rowBase = (y0, i) => y0 + i * PITCH + 52.5;
+// ---------------- the grid, per shape ----------------
+// The patients, the scan, its readings and its motion are written once below; only positions differ.
+// wide (3840 × 2160): three columns 64 apart — patient, vitals, log | bioscan, progress | waveforms,
+//   record, findings — on an 88 row grid.
+// upright (2160 × 3120): four bands down the page on three 656 columns (40, 760, 1480): patient beside the
+//   waveforms (columns 2–3); the bioscan at full width, its blocks at wide width on a 176 row pitch;
+//   vitals, record and findings on one 76 row grid; the log beside scan progress (columns 2–3).
+// ultrawide (5040 × 2160): the bioscan at its wide size, centred, with a 536 flank either side (920, 3600):
+//   scan history, species norm and the tricorder by the patient; the waveforms run across the right
+//   flank, with waveform analysis and systems read under them (built at the end).
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const LX = 40, LR = UP ? 696 : 856, MX = UP ? 40 : UW ? 1520 : 920, MR = UP ? 2136 : UW ? 3536 : 2936,
+      RX = UP ? 1480 : UW ? 4200 : 3000, RR = UP ? 2136 : UW ? 5016 : 3816;
+const WAX = UP ? 760 : UW ? 3600 : RX;                                   // waveforms' left edge
+const RCX = UP ? 760 : RX, RCR = UP ? 1416 : RR;                         // medical record
+const PGX = UP ? 760 : MX, PGR = UP ? 2136 : MR;                         // scan progress
+const BIOY = UP ? 924 : 280, LOWY = UP ? 2088 : 1000, BOTY = UP ? 2636 : 1620;   // headers: bioscan, vitals, log
+const ROW0 = 428, ROW1 = LOWY + 128, PITCH = UP ? 76 : 88, RH = UP ? 56 : 64;    // rows of 64 on an 88 grid (upright: 56 on 76)
+const rowBase = (y0, i) => y0 + i * PITCH + (UP ? 48.5 : 52.5);
 const TRACK = "#0e1a2e", BLOCK = "#0a1424";
 const col = (c) => (c.startsWith("#") ? c : `var(--${c})`);
 const fill = (x, y, w, h, c, parent, origin = "0 0") => {
@@ -104,11 +121,12 @@ const takeScan = (p) => {
 
 // ---------------- status line ----------------
 const stateTxt = L.text({ x: LX, cap: 150, s: 100, c: "ice", txt: "" });
-const stateSub = L.text({ x: MX, base: 222, s: 38, c: "peach", txt: "" });         // on the scan column's line
+const stateSub = L.text({ x: UP ? WAX : MX, base: 222, s: 38, c: "peach", txt: "" });         // on the scan column's line
 L.box({ x: RR - 400, y: 150, w: 400, h: 72, c: "peach", label: "Condition Stable", r: "lr", fs: 36 });
 const stardate0 = 47634.8 + Math.random() * 0.05;
-L.text({ x: RX, base: 222, s: 40, c: "ice", txt: "Stardate" });
-const sdVal = L.text({ x: RX + L.textWidth("Stardate", 40) + 24, base: 222, s: 52, c: "white", txt: "" });
+const SDX = UW ? WAX : RX;                                // ultrawide: on the waveforms' edge, not the record's
+L.text({ x: SDX, base: 222, s: 40, c: "ice", txt: "Stardate" });
+const sdVal = L.text({ x: SDX + L.textWidth("Stardate", 40) + 24, base: 222, s: 52, c: "white", txt: "" });
 const stardate = (t = L.t) => (stardate0 + t / 3600 / 8.766).toFixed(1);
 
 // ---------------- patient (top left) ----------------
@@ -117,7 +135,7 @@ L.text({ x: LX, base: 400, s: 36, c: "ice", txt: "Record" });
 const physNote = sw(L.text({ x: LR, base: 400, s: 36, c: "ice", txt: "", align: "r" }));
 const PT = ["Name", "Species", "Assignment", "Age", "Blood", "Location"].map((label, i) => {
   const base = rowBase(ROW0, i);
-  L.box({ x: LX, y: ROW0 + i * PITCH, w: 220, h: 64, c: ["ice", "sky", "peach"][i % 3], label, fs: 32, r: "l" });
+  L.box({ x: LX, y: ROW0 + i * PITCH, w: 220, h: RH, c: ["ice", "sky", "peach"][i % 3], label, fs: 32, r: "l" });
   return { v: sw(L.text({ x: LX + 244, base, s: 52, c: "white", txt: "" })), c: sw(L.text({ x: LR, base, s: 36, c: "sky", txt: "", align: "r" })) };
 });
 const showPatient = (p) => {
@@ -127,12 +145,12 @@ const showPatient = (p) => {
 };
 
 // ---------------- vital signs (lower left): read against the species' own norm ----------------
-L.header({ x: LX, y: 1000, w: LR - LX, label: "Vital Signs", c1: "peach", c2: "ice" });
-[["Sign", LX], ["Against Species Norm", LX + 244], ["Reading", LR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: 1100, s: 36, c: "ice", txt, align }));
-const GX = LX + 244, GW = 380, NORMAT = 0.6;               // the norm sits at 60% of every gauge
+L.header({ x: LX, y: LOWY, w: LR - LX, label: "Vital Signs", c1: "peach", c2: "ice" });
+[["Sign", LX], ["Against Species Norm", LX + 244], ["Reading", LR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: LOWY + 100, s: 36, c: "ice", txt, align }));
+const GX = LX + 244, GW = UP ? 214 : 380, NORMAT = 0.6;               // the norm sits at 60% of every gauge
 const VIT = ["Heart Rate", "Blood Pressure", "Respiration", "Temperature", "Blood Oxygen"].map((label, i) => {
   const y = ROW1 + i * PITCH, base = rowBase(ROW1, i), c = ["peach", "ice", "sky", "peach", "ice"][i];
-  L.box({ x: LX, y, w: 220, h: 64, c, label, fs: 32, r: "l" });
+  L.box({ x: LX, y, w: 220, h: RH, c, label, fs: 32, r: "l" });
   L.rect({ x: GX, y: base - 26, w: GW, h: 26, c: TRACK });
   const f = fill(GX, base - 26, GW, 26, c); f.classList.add("grow"); f.style.transform = "scaleX(0)";
   L.rect({ x: GX + GW * NORMAT - 2, y: base - 34, w: 4, h: 42, c: "white", free: true });   // the norm
@@ -148,32 +166,34 @@ const showVital = (i) => {
 const clearVitals = () => VIT.forEach((g) => { g.on = false; L.set(g.v, "Awaiting"); color(g.v, "slate"); g.f.style.transform = "scaleX(0)"; });
 
 // ---------------- the bioscan: fifteen system blocks, swept from crown to sole ----------------
-L.header({ x: MX, y: 280, w: MR - MX, label: "Bioscan  ·  Organ Systems", c1: "peach", c2: "ice" });
-L.text({ x: MX, base: 400, s: 36, c: "ice", txt: "Scan Plane  ·  cm" });
-L.text({ x: MR, base: 400, s: 36, c: "ice", txt: "Dr. Beverly Crusher  ·  Full Bioscan", align: "r" });
-const PY = 428, PH = 1116;
+L.header({ x: MX, y: BIOY, w: MR - MX, label: "Bioscan  ·  Organ Systems", c1: "peach", c2: "ice" });
+L.text({ x: MX, base: BIOY + 120, s: 36, c: "ice", txt: "Scan Plane  ·  cm" });
+L.text({ x: MR, base: BIOY + 120, s: 36, c: "ice", txt: "Dr. Beverly Crusher  ·  Full Bioscan", align: "r" });
+const PY = BIOY + 148, PH = UP ? 956 : 1116;
 L.rect({ x: MX, y: PY, w: MR - MX, h: PH, c: "#050c1a", panel: true });
-const Y0 = 466, SPAN = 1040, PXCM = SPAN / 200;           // the scale: 0–200 cm, centred in the panel
-const BW = 520, BH = 176, BG = 44, RP = 208;              // blocks: three columns, five rows of 208
-const BX = [1104, 1104 + BW + BG, 1104 + 2 * (BW + BG)];  // 1104 · 1668 · 2232, centred on 1928
+const Y0 = PY + 38, SPAN = UP ? 880 : 1040, PXCM = SPAN / 200;   // the scale: 0–200 cm, centred in the panel
+const BW = 520, BH = UP ? 152 : 176, BG = 44, RP = UP ? 176 : 208;   // blocks: three columns, five rows of 208 (upright 176)
+const DX = UP ? -840 : UW ? 600 : 0;                      // the diagram centred on its panel (wide: on 1928)
+const BX = [1104 + DX, 1104 + DX + BW + BG, 1104 + DX + 2 * (BW + BG)];  // 1104 · 1668 · 2232
+const BN = UP ? 56 : 60, BM = UP ? 98 : 112, BT = UP ? 116 : 136, BTH = UP ? 14 : 16;   // a block's lines and level bar
 for (let cm = 0; cm <= 200; cm += 10) {
   const y = Y0 + cm * PXCM, major = cm % 20 === 0, w = major ? 28 : 14;
-  L.rect({ x: 1076 - w, y: y - 2, w, h: 4, c: "sky", free: true });
-  L.rect({ x: 2780, y: y - 2, w, h: 4, c: "sky", free: true });
-  if (major) L.text({ x: 1036, base: y + 12, s: 34, c: "sky", txt: String(cm), align: "r", legend: true });
+  L.rect({ x: 1076 + DX - w, y: y - 2, w, h: 4, c: "sky", free: true });
+  L.rect({ x: 2780 + DX, y: y - 2, w, h: 4, c: "sky", free: true });
+  if (major) L.text({ x: 1036 + DX, base: y + 12, s: 34, c: "sky", txt: String(cm), align: "r", legend: true });
 }
 const blocks = SYS.map(([name, measure], i) => {
   const r = Math.floor(i / 3), k = i % 3, x = BX[k], y = Y0 + 16 + r * RP, c = SYSC[k];
   L.rect({ x, y, w: BW, h: BH, c: BLOCK, panel: true });
   const tint = fill(x, y, BW, BH, c); tint.style.opacity = 0; tint.style.transformOrigin = "50% 0"; tint.classList.add("fade");
   const edge = fill(x, y, 12, BH, c); edge.style.opacity = 0.25; edge.classList.add("fade");
-  L.rect({ x: x + 32, y: y + 136, w: BW - 64, h: 16, c: TRACK });
-  const lvl = fill(x + 32, y + 136, BW - 64, 16, c); lvl.classList.add("grow"); lvl.style.transform = "scaleX(0)";
+  L.rect({ x: x + 32, y: y + BT, w: BW - 64, h: BTH, c: TRACK });
+  const lvl = fill(x + 32, y + BT, BW - 64, BTH, c); lvl.classList.add("grow"); lvl.style.transform = "scaleX(0)";
   return { i, r, x, y, c, tint, edge, lvl, state: -1,
-    name: sw(L.text({ x: x + 32, base: y + 60, s: 40, c: "slate", txt: name })),
-    val: sw(L.text({ x: x + BW - 32, base: y + 60, s: 52, c: "white", txt: "", align: "r" })),
-    meas: sw(L.text({ x: x + 32, base: y + 112, s: 36, c: "slate", txt: measure })),
-    stat: sw(L.text({ x: x + BW - 32, base: y + 112, s: 36, c: "slate", txt: "", align: "r" })) };
+    name: sw(L.text({ x: x + 32, base: y + BN, s: 40, c: "slate", txt: name })),
+    val: sw(L.text({ x: x + BW - 32, base: y + BN, s: 52, c: "white", txt: "", align: "r" })),
+    meas: sw(L.text({ x: x + 32, base: y + BM, s: 36, c: "slate", txt: measure })),
+    stat: sw(L.text({ x: x + BW - 32, base: y + BM, s: 36, c: "slate", txt: "", align: "r" })) };
 });
 const setBlock = (b, state) => {
   if (b.state === state) return; b.state = state;
@@ -195,19 +215,19 @@ const setBlock = (b, state) => {
 
 // the sweep: a bright plane with a fading wake, and its depth on a tag at the right-hand scale
 const clip = L.layer({ x: MX, y: PY, w: MR - MX, h: PH }); clip.style.overflow = "hidden";
-const WAKE = 150, SWX = 1048 - MX;
+const WAKE = 150, SWX = 1048 + DX - MX;
 const sweep = L.layer({ x: 0, y: 0, w: 1876, h: WAKE + 30 }, clip);
 L.el("div", "", sweep, { position: "absolute", left: SWX + "px", top: "0px", width: 2808 - 1048 + "px", height: WAKE + "px",
   background: "linear-gradient(to bottom, rgba(143,211,255,0), rgba(143,211,255,.07) 60%, rgba(143,211,255,.22) 97%, #d8efff 97.4%)" });
-const tag = L.box({ x: 2820 - MX, y: WAKE - 24, w: 96, h: 44, c: "ice", label: "", fs: 30, r: "lr", cls: "c" }, sweep);
+const tag = L.box({ x: 2820 + DX - MX, y: WAKE - 24, w: 96, h: 44, c: "ice", label: "", fs: 30, r: "lr", cls: "c" }, sweep);
 tag.style.paddingRight = "0";
 sweep.style.opacity = 0;
 
 // ---------------- waveforms (top right) ----------------
-L.header({ x: RX, y: 280, w: RR - RX, label: "Waveforms", c1: "sky", c2: "peach" });
-L.text({ x: RX, base: 400, s: 36, c: "ice", txt: "Channel" });
+L.header({ x: WAX, y: 280, w: RR - WAX, label: "Waveforms", c1: "sky", c2: "peach" });
+L.text({ x: WAX, base: 400, s: 36, c: "ice", txt: "Channel" });
 L.text({ x: RR, base: 400, s: 36, c: "ice", txt: "Live  ·  25 mm/s", align: "r" });
-const WX = RX + 224, WW = RR - WX, CH = 136, CG = 48;
+const WX = WAX + 224, WW = RR - WX, CH = UP ? 124 : 136, CG = UP ? 32 : 48;
 let beatPhase = 0, breath = 0;
 const ecg = () => {                                         // P, QRS, T: one heartbeat per 60/HR seconds
   const p = beatPhase, g = (c, w, a) => a * Math.exp(-Math.pow((p - c) / w, 2));
@@ -220,8 +240,8 @@ const CHANS = [
 ];
 CHANS.forEach((ch, i) => {
   const y = ROW0 + i * (CH + CG);
-  L.box({ x: RX, y, w: 200, h: CH, c: ch.c, label: ch.name, fs: 32 });
-  ch.num = L.text({ x: RX + 22, cap: y + 18, s: 72, c: "#000", txt: "", on: true });
+  L.box({ x: WAX, y, w: 200, h: CH, c: ch.c, label: ch.name, fs: 32 });
+  ch.num = L.text({ x: WAX + 22, cap: y + 18, s: 72, c: "#000", txt: "", on: true });
   L.rect({ x: WX, y, w: WW, h: CH, c: "#081022" });
   for (let k = 1; k < 4; k++) L.rect({ x: WX + (WW / 4) * k - 1, y, w: 2, h: CH, c: "#16264c", free: true });
   L.rect({ x: WX, y: y + CH / 2 - 1, w: WW, h: 2, c: "#16264c", free: true });
@@ -279,14 +299,14 @@ L.tick((t) => {
 });
 
 // ---------------- medical record (lower right): this scan against the last physical ----------------
-L.header({ x: RX, y: 1000, w: RR - RX, label: "Medical Record", c1: "ice", c2: "peach" });
-const RC1 = RX + 440, RC2 = RX + 640;
-[["Reading", RX], ["Record", RC1, "r"], ["Scan", RC2, "r"], ["Change", RR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: 1100, s: 36, c: "ice", txt, align }));
+L.header({ x: RCX, y: LOWY, w: RCR - RCX, label: "Medical Record", c1: "ice", c2: "peach" });
+const RC1 = RCX + (UP ? 360 : 440), RC2 = RCX + (UP ? 520 : 640);
+[["Reading", RCX], ["Record", RC1, "r"], ["Scan", RC2, "r"], ["Change", RCR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: LOWY + 100, s: 36, c: "ice", txt, align }));
 const RECS = [[1, "Synaptic"], [2, "Cortisol"], [4, "Cardiac Output"], [8, "Filtration"], [12, "Bone Density"]].map(([sys, label], i) => {
   const base = rowBase(ROW1, i);
-  L.box({ x: RX, y: ROW1 + i * PITCH, w: 220, h: 64, c: ["sky", "ice", "peach"][i % 3], label, fs: 32, r: "l" });
+  L.box({ x: RCX, y: ROW1 + i * PITCH, w: 220, h: RH, c: ["sky", "ice", "peach"][i % 3], label, fs: 32, r: "l" });
   return { sys, rec: sw(L.text({ x: RC1, base, s: 40, c: "sky", txt: "", align: "r" })),
-    v: sw(L.text({ x: RC2, base, s: 52, c: "white", txt: "", align: "r" })), d: sw(L.text({ x: RR, base, s: 40, c: "ice", txt: "", align: "r" })) };
+    v: sw(L.text({ x: RC2, base, s: 52, c: "white", txt: "", align: "r" })), d: sw(L.text({ x: RCR, base, s: 40, c: "ice", txt: "", align: "r" })) };
 });
 const recValue = (r) => { const [name, , , base, dp] = SYS[r.sys]; return (P.rec && P.rec[name]) ?? (P.sys[name] ?? base) * (1 + ((r.sys * 7) % 5 - 2) * 0.004); };
 const recText = (r) => (+recValue(r)).toFixed(SYS[r.sys][4]) + (SYS[r.sys][2] === "%" ? "%" : "");
@@ -299,9 +319,9 @@ const showRecord = (r) => {
 };
 
 // ---------------- scan log (bottom left) ----------------
-L.header({ x: LX, y: 1620, w: LR - LX, label: "Scan Log", c1: "ice", c2: "sky", h: 48 });
+L.header({ x: LX, y: BOTY, w: LR - LX, label: "Scan Log", c1: "ice", c2: "sky", h: 48 });
 const logRows = Array.from({ length: 5 }, (_, i) => {
-  const base = 1734 + i * 54;
+  const base = BOTY + 114 + i * 54;
   return { tm: L.text({ x: LX, base, s: 36, c: "sky", txt: "" }), tx: L.text({ x: LX + 180, base, s: 36, c: "ice", txt: "" }) };
 });
 const logged = [];
@@ -311,10 +331,10 @@ const log = (txt, tm = clock()) => {
 };
 
 // ---------------- scan progress (bottom middle) ----------------
-L.header({ x: MX, y: 1620, w: MR - MX, label: "Scan Progress", c1: "peach", c2: "ice", h: 48 });
-const SEGW = 384, segX = (i) => MX + i * (SEGW + 24);
+L.header({ x: PGX, y: BOTY, w: PGR - PGX, label: "Scan Progress", c1: "peach", c2: "ice", h: 48 });
+const SEGW = UP ? 256 : 384, segX = (i) => PGX + i * (SEGW + 24);
 const segs = REGIONS.map((label, i) => {
-  const b = L.box({ x: segX(i), y: 1772, w: SEGW, h: 80, c: TRACK, label: "", fs: 30, r: i === 0 ? "l" : i === 4 ? "r" : null });
+  const b = L.box({ x: segX(i), y: BOTY + 152, w: SEGW, h: 80, c: TRACK, label: "", fs: 30, r: i === 0 ? "l" : i === 4 ? "r" : null });
   b.style.overflow = "hidden";
   const f = fill(0, 0, SEGW, 80, "peach", b); f.style.transform = "scaleX(0)";
   const s = L.el("span", "sw", b, { position: "relative", color: "var(--ice)" }); s.textContent = label;
@@ -322,18 +342,23 @@ const segs = REGIONS.map((label, i) => {
 });
 const cell = (i, label, base, right) => {
   L.text({ x: segX(i), base, s: 40, c: "ice", txt: label });
-  return right ? L.text({ x: MR, base, s: 52, c: "white", txt: "", align: "r" }) : L.text({ x: segX(i + 1), base, s: 52, c: "white", txt: "" });
+  return right ? L.text({ x: PGR, base, s: 52, c: "white", txt: "", align: "r" }) : L.text({ x: segX(i + 1), base, s: 52, c: "white", txt: "" });
 };
-const pRegion = cell(0, "Region", 1734), pSystems = cell(2, "Systems", 1734), pPlane = cell(4, "Scan Plane", 1734, true);
-L.rect({ x: MX, y: 1876, w: segX(2) - 24 - MX, h: 16, c: "sky" });
-L.rect({ x: segX(2), y: 1876, w: MR - segX(2), h: 16, c: "ice" });
-const pPower = cell(0, "Power Cell", 1950), pRes = cell(2, "Resolution", 1950), pLink = cell(4, "Uplink", 1950, true);
+const pRegion = cell(0, "Region", BOTY + 114), pSystems = cell(2, "Systems", BOTY + 114), pPlane = cell(4, "Scan Plane", BOTY + 114, true);
+L.rect({ x: PGX, y: BOTY + 256, w: segX(2) - 24 - PGX, h: 16, c: "sky" });
+L.rect({ x: segX(2), y: BOTY + 256, w: PGR - segX(2), h: 16, c: "ice" });
+const pPower = cell(0, "Power Cell", BOTY + 330), pRes = UP ? cell(4, "Resolution", BOTY + 330, true) : cell(2, "Resolution", BOTY + 330),
+      pLink = UP ? cell(2, "Uplink", BOTY + 330) : cell(4, "Uplink", BOTY + 330, true);   // upright: "Transferring" needs the wider place
 L.set(pRes, "0.1 mm");
 
 // ---------------- findings (bottom right) ----------------
-L.header({ x: RX, y: 1620, w: RR - RX, label: "Findings", c1: "sky", c2: "peach", h: 48 });
+// upright: on the vitals' and record's 76 grid, with column heads
+if (UP) {
+  L.header({ x: RX, y: LOWY, w: RR - RX, label: "Findings", c1: "sky", c2: "peach" });
+  [["Region", RX], ["Finding", RX + 180], ["Status", RR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: LOWY + 100, s: 36, c: "ice", txt, align }));
+} else L.header({ x: RX, y: 1620, w: RR - RX, label: "Findings", c1: "sky", c2: "peach", h: 48 });
 const FIND = REGIONS.map((region, i) => {
-  const base = 1734 + i * 54;
+  const base = UP ? rowBase(ROW1, i) : 1734 + i * 54;
   L.text({ x: RX, base, s: 36, c: ["ice", "peach", "sky", "ice", "peach"][i], txt: region });
   return { tx: sw(L.text({ x: RX + 180, base, s: 36, c: "slate", txt: "" })), st: sw(L.text({ x: RR, base, s: 36, c: "slate", txt: "", align: "r" })) };
 });
@@ -430,5 +455,121 @@ L.every(1000, () => CHANS.forEach((ch, i) => L.set(ch.num, !ch.on || !scan ? "�
 const t0 = Date.now();
 const ago = (s) => { const d = new Date(t0 - s * 1000); return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
 log("Medical peripheral attached", ago(96)); log("Tricorder calibrated", ago(71)); log("Uplink to Sickbay established", ago(40));
+
+// ---------------- ultrawide: a 536 flank either side of the bioscan ----------------
+// left, by the patient: earlier scans, the species' own norms against this scan, the tricorder itself;
+// right, under the waveforms: what the traces measure, and which systems have been read. All read from
+// the scan above, a few times a second; no timers of their own and no random numbers.
+if (UW) {
+  const FL = 920, FR = 3600, FW = 536;
+  const mine = [];                                        // this flank's readings fade with the rest at the clear
+  const own = (e) => (mine.push(sw(e)), e);
+
+  // left, top: scan history — each scan, as it is uplinked, on the patient's rows
+  L.header({ x: FL, y: 280, w: FW, label: "Scan History", c1: "sky", c2: "ice" });
+  [["Time", FL], ["Patient", FL + 150], ["Result", FL + FW, "r"]].forEach(([txt, x, align]) => L.text({ x, base: 400, s: 36, c: "ice", txt, align }));
+  const hist = Array.from({ length: 6 }, (_, i) => {
+    const base = rowBase(ROW0, i);
+    return { tm: L.text({ x: FL, base, s: 36, c: "sky", txt: "" }), who: L.text({ x: FL + 150, base, s: 52, c: "white", txt: "" }),
+             res: L.text({ x: FL + FW, base, s: 36, c: "sky", txt: "", align: "r" }) };
+  });
+  const past = [[11520, "Captain Picard", 0], [9060, "Cmdr. Riker", 0], [6840, "Chief O'Brien", 1], [4380, "Ensign Ro", 0],
+                [2520, "Lt. Cmdr. La Forge", 0], [1260, "Lt. Lavelle", 0]].map(([s, who, w]) => [ago(s), who, w]);
+  const showHist = () => hist.forEach((r, i) => {
+    const [tm, who, w] = past[i];
+    L.set(r.tm, tm); L.set(r.who, who); L.set(r.res, w ? "Monitor" : "Nominal"); color(r.res, w ? "butter" : "sky");
+    color(r.who, i === past.length - 1 ? "white" : "ice");
+  });
+  showHist();
+
+  // left, middle: species norm — the norm each vital gauge reads against, and how far this scan is from it
+  L.header({ x: FL, y: 1000, w: FW, label: "Species Norm", c1: "ice", c2: "peach" });
+  const spNote = own(L.text({ x: FL + FW, base: 1100, s: 36, c: "ice", txt: "", align: "r" }));
+  L.text({ x: FL, base: 1100, s: 36, c: "ice", txt: "Norm" });
+  L.text({ x: FL + 168, base: 1100, s: 36, c: "ice", txt: "Variance" });
+  const VX = FL + 168, VW = 220;                          // a two-way bar: below the norm to the left, above to the right
+  const NV = VIT.map((_, i) => {
+    const base = rowBase(ROW1, i), c = ["peach", "ice", "sky", "peach", "ice"][i];
+    L.rect({ x: VX, y: base - 26, w: VW, h: 26, c: TRACK });
+    const up = fill(VX + VW / 2, base - 26, VW / 2, 26, c), dn = fill(VX, base - 26, VW / 2, 26, c, undefined, "100% 0");
+    [up, dn].forEach((f) => { f.classList.add("grow"); f.style.transform = "scaleX(0)"; });
+    L.rect({ x: VX + VW / 2 - 2, y: base - 34, w: 4, h: 42, c: "white", free: true });
+    return { up, dn, k: null, n: own(L.text({ x: FL, base, s: 52, c: "ice", txt: "" })), v: own(L.text({ x: FL + FW, base, s: 52, c: "slate", txt: "", align: "r" })) };
+  });
+  const normText = (n) => [`${n.hr} BPM`, `${n.bp[0]}/${n.bp[1]}`, `${n.rr} /min`, `${n.temp.toFixed(1)} °C`, `${n.o2}%`];
+  const variance = (i) => { const n = scan.norm; return [scan.hr / n.hr - 1, scan.bp[0] / n.bp[0] - 1, scan.rr / n.rr - 1, scan.temp - n.temp, scan.o2 / n.o2 - 1][i]; };
+  const sign = (v) => (v >= 0 ? "+" : "−");
+
+  // left, bottom: the tricorder
+  L.header({ x: FL, y: 1620, w: FW, label: "Tricorder", c1: "peach", c2: "ice", h: 48 });
+  const TRI = ["Model", "Peripheral", "Sensor Mode", "Scans Stored", "Sensor Range"].map((label, i) => {
+    const base = 1734 + i * 54;
+    L.text({ x: FL, base, s: 36, c: "sky", txt: label });
+    return L.text({ x: FL + FW, base, s: 36, c: "ice", txt: "", align: "r" });
+  });
+  L.set(TRI[0], "TR-590 Mark X"); L.set(TRI[1], "Medical scanner"); L.set(TRI[4], "3.5 m");
+  let stored = 214;
+
+  // right, middle: waveform analysis — what the three traces measure, once each is live
+  L.header({ x: FR, y: 1000, w: FW, label: "Waveform Analysis", c1: "sky", c2: "peach" });
+  [["Measure", FR], ["Value", FR + FW, "r"]].forEach(([txt, x, align]) => L.text({ x, base: 1100, s: 36, c: "ice", txt, align }));
+  const WA = ["Rhythm", "R-R Interval", "Pulse Pressure", "Breath Cycle", "EEG Rhythm"].map((label, i) => {
+    L.box({ x: FR, y: ROW1 + i * PITCH, w: 220, h: RH, c: ["peach", "ice", "peach", "ice", "sky"][i], label, fs: 32, r: "l" });
+    return own(L.text({ x: FR + FW, base: rowBase(ROW1, i), s: 52, c: "slate", txt: "", align: "r" }));
+  });
+  const waText = (i) => {
+    if (i === 0) return "Sinus";
+    if (i === 1) return `${Math.round(60000 / scan.hr)} ms`;
+    if (i === 2) return `${scan.bp[0] - scan.bp[1]} mmHg`;
+    if (i === 3) return `${(60 / scan.rr).toFixed(1)} s`;
+    const hz = +scan.sys[1].v / 9.4;
+    return `${hz > 12 ? "Beta" : "Alpha"}  ${hz.toFixed(1)} Hz`;
+  };
+  const WA_CH = [0, 0, 0, 1, 2];                          // the channel each measure is read from
+
+  // right, bottom: systems read — the bioscan's fifteen blocks, region by region, on the findings' rows
+  L.header({ x: FR, y: 1620, w: FW, label: "Systems Read", c1: "peach", c2: "sky", h: 48 });
+  const PIPS = blocks.map((b) => {
+    const e = L.box({ x: FR + (b.i % 3) * 184, y: 1734 + b.r * 54 - 33, w: 168, h: 40, c: TRACK, label: SYS[b.i][0], fs: 24, cls: "sw" });
+    e.style.color = "var(--slate)";
+    return { e, k: null };
+  });
+
+  let upFor = -1;
+  L.every(250, (t) => {
+    if (!scan) return;
+    const u = t - c0, out = logStep >= 3;
+    mine.forEach((e) => e.classList.toggle("out", out));
+    // species norm and variance
+    L.set(spNote, P.species);
+    const nt = normText(scan.norm);
+    NV.forEach((r, i) => {
+      L.set(r.n, nt[i]);
+      const on = VIT[i].on && !out, v = on ? Math.round(variance(i) * (i === 3 ? 10 : 1000)) / (i === 3 ? 10 : 1000) : 0;   // rounded first: never "−0.0"
+      L.set(r.v, on ? (i === 3 ? `${sign(v)}${Math.abs(v).toFixed(1)} °C` : `${sign(v)}${Math.abs(100 * v).toFixed(1)}%`) : "Awaiting");
+      color(r.v, on ? "white" : "slate");
+      const k = on ? L.clamp(Math.abs(v) / (i === 3 ? 1 : 0.2)).toFixed(4) : "0";
+      const key = `${v >= 0}/${k}`;
+      if (r.k !== key) { r.k = key; tf(r.up, `scaleX(${v >= 0 ? k : 0})`); tf(r.dn, `scaleX(${v < 0 ? k : 0})`); }
+    });
+    // waveform analysis
+    WA.forEach((e, i) => { const on = CHANS[WA_CH[i]].on; L.set(e, on ? waText(i) : "Awaiting"); color(e, on ? "white" : "slate"); });
+    // systems read: lit in the system's colour once read (butter to monitor), white while the plane is in it
+    PIPS.forEach((p, i) => {
+      const b = blocks[i], st = out ? 0 : b.state, d = scan.sys[i];
+      const k = st === 2 ? (d.warn ? "butter" : b.c) : st === 1 ? "white" : "";
+      if (p.k === k) return; p.k = k;
+      p.e.style.background = k ? `var(--${k})` : TRACK; p.e.style.color = k ? "#000" : "var(--slate)";
+    });
+    // the tricorder, and the scan history once the record is uplinked
+    L.set(TRI[2], u < CAL ? "Calibrating" : u < SWEEP_END ? "Full bioscan" : u < SWEEP_END + ANA ? "Analysis" : "Standby");
+    if (logStep >= 2 && upFor !== c0) {
+      upFor = c0; stored++;
+      const again = past.findIndex((e) => e[1] === P.title);   // a patient appears once: their latest scan
+      past.splice(again >= 0 ? again : 0, 1); past.push([clock(), P.title, Object.keys(P.warn || {}).length > 0 ? 1 : 0]); showHist();
+    }
+    L.set(TRI[3], `${stored} records`);
+  }, 0);
+}
 });
 </script></body></html>

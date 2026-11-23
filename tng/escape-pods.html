@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Escape Pods</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .sw { transition: background-color .8s ease, color .8s ease; }
@@ -12,9 +13,30 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: sidebar left, title top right ----------------
-L.frame({ type: "A", title: "Escape Pods  •  Lifeboats", c: "mars", c2: "sand", accent: "peach", foot: "Lifeboats",
+const FB = L.frame({ type: "A", title: "Escape Pods  •  Lifeboats", c: "mars", c2: "sand", accent: "peach", foot: "Lifeboats",
   side: [[140, "sand", "Pods 01"], [70, "peach", "Bays"], [420, "mars", "Boats 384"], [70, "tan", "Muster"],
          [300, "sand", "Drills"], [70, "peach", "Seats"], [216, "mars", "Evacuation"]] });
+
+// ---------------- the layout, per shape ----------------
+// The boats, checks, readouts and motion below are written once; only these positions differ by shape.
+// wide (3840 × 2160): the twelve bay monitors four by three (330–2786), totals and the drill schedule
+//   down the right (2846–3816); log, five-check sequence and muster stations along the bottom (1620).
+// upright (2160 × 3120): the monitors three by four down the page (27 apart, flush 330–2136); the
+//   subtitle drops to a second line with the coverage at its right; below, the check beside a
+//   five-row drill schedule, then log, totals and muster stations, the last baseline on the floor.
+// ultrawide (5040 × 2160): wide unchanged, plus a new column 3876–5016: the boats under service
+//   (the red cells, with the latest returns), the launch tests coming due, and the readiness rounds.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const X1 = FB.x1;
+const SUBB = UP ? 286 : 222;                                 // the subtitle's baseline
+const NC = UP ? 3 : 4;                                       // monitors per row
+// [left, right, header y] of each lower panel
+const PT = UP ? [1060, 1610, 2598] : [2846, 3816, 280];      // evacuation totals
+const PD = UP ? [1310, 2136, 2154] : [2846, 3816, 728];      // drill schedule
+const PG = UP ? [330, 1020, 2598] : [330, 1538, 1620];       // readiness log
+const PK = UP ? [330, 1270, 2154] : [1578, 2786, 1620];      // readiness check
+const PM = UP ? [1650, 2136, 2598] : [2846, 3816, 1620];     // muster stations
+const DN = UP ? 5 : 11, DBACK = UP ? 3 : 8;                  // drill rows, and how many of them are past
 
 const BODY = "#1c100d", TRACK = "#2e1a16", DOWN_DIM = "#5a2418";
 const col = (c) => (c.startsWith("#") ? c : `var(--${c})`);
@@ -89,22 +111,22 @@ const readyIn = (B) => B.pods.filter((p) => p.ok).length;
 const readyAll = () => BAYS.reduce((a, B) => a + readyIn(B), 0);
 
 // ================= status line =================
-const COL = [330, 954, 1578, 2202], MW = 584, RX0 = 2846, RX1 = 3816;
+const COL = UP ? [330, 941, 1552] : [330, 954, 1578, 2202], MW = 584, RX0 = 2846, RX1 = 3816;
 const stateTxt = L.text({ x: COL[0], cap: 150, s: 100, c: "sand", txt: "Evacuation Stations Ready" });
-const subX = COL.find((x) => x >= COL[0] + stateTxt.offsetWidth + 40) || COL[1];
-const subTxt = L.text({ x: subX, base: 222, s: 38, c: "peach", txt: "" });
+const subX = UP ? COL[0] : COL.find((x) => x >= COL[0] + stateTxt.offsetWidth + 40) || COL[1];
+const subTxt = L.text({ x: subX, base: SUBB, s: 38, c: "peach", txt: "" });
 const subFor = (id, round, n) => `Readiness Check in ${id}  ·  Round ${String(round % 10000).padStart(4, "0")}  ·  ${n} of 384 Boats Ready  ·  ${fmt(n * SEATS)} Seats`;
-const pill = L.box({ x: RX1 - 400, y: 150, w: 400, h: 72, c: "sand", label: "", r: "lr", fs: 36, cls: "sw" });
+const pill = L.box({ x: (UP || UW ? X1 : RX1) - 400, y: 150, w: 400, h: 72, c: "sand", label: "", r: "lr", fs: 36, cls: "sw" });
 
 // ================= the wall: twelve bay monitors, four by three =================
 // Everything in the upper half sits on one grid of baselines, 64 apart, so the monitors and the
 // right-hand tables share their lines.
-const ROWY = [280, 728, 1176], P = 24, BH = 38;
+const ROWY = UP ? [340, 788, 1236, 1684] : [280, 728, 1176], P = 24, BH = 38;
 const LW = Math.ceil(widest(BAYS.map((B) => B.id), 32) + 88);
 const ML = widest(["Seats", "Last Test"], 40), MR = widest(["Power", "Checked"], 40);
 const VA = Math.ceil(L.textWidth("32 / 32", 52));
 BAYS.forEach((B) => {
-  const x = COL[B.b % 4], y = ROWY[Math.floor(B.b / 4)];
+  const x = COL[B.b % NC], y = ROWY[Math.floor(B.b / NC)];
   const l = x + P, r = x + MW - P, m1 = l + 252, m2 = m1 + 36;
   B.head = L.box({ x, y, w: LW, h: 56, c: B.saucer ? "mars" : "peach", label: B.id, fs: 32, r: "l" });
   B.bar = L.box({ x: x + LW + L.GAP, y, w: MW - LW - L.GAP, h: 56, c: "sand", label: B.deck, fs: 28, cls: "sw" });
@@ -128,7 +150,7 @@ BAYS.forEach((B) => {
   L.text({ x: m2, base: base(1), s: 40, c: "sand", txt: "Power" });
   B.powerTxt = L.text({ x: r, base: base(1), s: 52, c: "white", txt: "", align: "r" });
   L.text({ x: l, base: base(2), s: 40, c: "sand", txt: "Last Test" });
-  L.text({ x: m1, base: base(2), s: 52, c: "tan", txt: B.lastTest.toFixed(1), align: "r" });
+  B.lastTxt = L.text({ x: m1, base: base(2), s: 52, c: "tan", txt: B.lastTest.toFixed(1), align: "r" });
   L.text({ x: m2, base: base(2), s: 40, c: "sand", txt: "Checked" });
   B.checkTxt = L.text({ x: r, base: base(2), s: 52, c: "white", txt: "", align: "r" });
   fits(B.lastTest.toFixed(1), 52, m1 - l - ML - 24, "last test");
@@ -138,23 +160,30 @@ BAYS.forEach((B) => {
 });
 
 // ================= evacuation totals (top right) =================
-const TOT_LAB = ["Pods Ready", "Seats Ready", "Saucer", "Stardrive"];
-const TLW = widest(TOT_LAB, 40), TVW = widest(["1,536 / 1,536"], 52);
-const TBX = RX0 + TLW + 32, TBX1 = RX1 - TVW - 32;
-L.header({ x: RX0, y: 280, w: RX1 - RX0, label: "Evacuation Totals", c1: "mars", c2: "sand" });
-const covTxt = L.text({ x: RX0, base: 396, s: 36, c: "sand", txt: "" });
-L.text({ x: RX1, base: 396, s: 36, c: "tan", txt: "Four Seats per Boat", align: "r" });
+// upright: five rows on the log's 54 grid (a fifth, Spare Seats, so the last lands on the floor), table
+// type, and each value starts just after its bar, so no bar stops short of its number
+const TOT_LAB = UP ? ["Pods Ready", "Seats Ready", "Saucer", "Stardrive", "Spare Seats"] : ["Pods Ready", "Seats Ready", "Saucer", "Stardrive"];
+const TVS = UP ? 40 : 52, TBH = UP ? 28 : BH;
+const TLW = widest(TOT_LAB, 40), TVW = widest(UP ? ["1,536 / 1,536", "1,014 / 1,014"] : ["1,536 / 1,536"], TVS);
+const [TX0, TX1, TY] = PT;
+const TBX = TX0 + TLW + 32, TBX1 = UP ? TX1 - TVW - 24 : TX1 - TVW - 32;
+L.header({ x: TX0, y: TY, w: TX1 - TX0, label: "Evacuation Totals", c1: "mars", c2: "sand", h: UP ? 48 : 56 });
+// upright: the coverage line rides on the subtitle's line, at the right; the caption starts the panel
+const covTxt = UP ? L.text({ x: X1, base: SUBB, s: 36, c: "sand", txt: "", align: "r" }) : L.text({ x: TX0, base: 396, s: 36, c: "sand", txt: "" });
+if (UP) L.text({ x: TX0, base: TY + 96, s: 36, c: "tan", txt: "Four Seats per Boat" });
+else L.text({ x: TX1, base: 396, s: 36, c: "tan", txt: "Four Seats per Boat", align: "r" });
 const totals = TOT_LAB.map((label, i) => {
-  const base = 460 + 64 * i;
-  L.text({ x: RX0, base, s: 40, c: "sand", txt: label });
-  L.rect({ x: TBX, y: base - BH, w: TBX1 - TBX, h: BH, c: TRACK });
-  return { fill: grow(TBX, base - BH, TBX1 - TBX, BH, ["sand", "peach", "mars", "peach"][i]),
-           val: L.text({ x: RX1, base, s: 52, c: "white", txt: "", align: "r" }) };
+  const base = UP ? TY + 156 + 54 * i : 460 + 64 * i;
+  L.text({ x: TX0, base, s: 40, c: "sand", txt: label });
+  L.rect({ x: TBX, y: base - TBH, w: TBX1 - TBX, h: TBH, c: TRACK });
+  return { fill: grow(TBX, base - TBH, TBX1 - TBX, TBH, ["sand", "peach", "mars", "peach", "tan"][i]),
+           val: UP ? L.text({ x: TBX1 + 24, base, s: TVS, c: "white", txt: "" }) : L.text({ x: TX1, base, s: 52, c: "white", txt: "", align: "r" }) };
 });
 
 // ================= drill schedule (right, rows 2 and 3) =================
 // One drill a day at 1900, on a rota of scenarios; eight behind, the next, and two after it.
-L.header({ x: RX0, y: 728, w: RX1 - RX0, label: "Drill Schedule", c1: "sand", c2: "mars" });
+const [DX0, DX1, DY] = PD;
+L.header({ x: DX0, y: DY, w: DX1 - DX0, label: "Drill Schedule", c1: "sand", c2: "mars", h: UP ? 48 : 56 });
 const SCEN = [["Abandon Ship", "All Decks"], ["Hull Breach", "Decks 8 to 12"], ["Saucer Separation", "Saucer"],
   ["Quantum Filament", "Decks 1 to 10"], ["Warp Core Breach", "Stardrive"], ["Fire Suppression", "Decks 19 to 31"],
   ["Muster", "Saucer"], ["Hull Breach", "Decks 31 to 36"], ["Muster", "Stardrive"]];
@@ -162,18 +191,18 @@ const DRILL_H = 19;
 const DCAP = ["Stardate", "Scenario", "Sections", "Muster", "Status"];
 const DW = [widest(["Stardate", "47799.9"], 40), widest(SCEN.map((s) => s[0]), 40), widest(SCEN.map((s) => s[1]), 40),
   widest(["Muster", "Pending", "00:00"], 40), widest(["Status", "Scheduled", "Complete", "In 00:00"], 40)];
-const dcols = columns(RX0, RX1, DW);
+const dcols = columns(DX0, DX1, DW);
 const DAL = ["l", "l", "l", "r", "r"];
 const dx = (j) => (DAL[j] === "l" ? dcols[j][0] : dcols[j][1]);
-DCAP.forEach((txt, j) => L.text({ x: dx(j), base: 844, s: 36, c: "sand", txt, align: DAL[j] }));
-const drows = Array.from({ length: 11 }, (_, i) => DCAP.map((_, j) =>
-  L.text({ x: dx(j), base: 908 + 64 * i, s: 40, c: "sand", txt: "", align: DAL[j] })));
+DCAP.forEach((txt, j) => L.text({ x: dx(j), base: UP ? DY + 96 : 844, s: 36, c: "sand", txt, align: DAL[j] }));
+const drows = Array.from({ length: DN }, (_, i) => DCAP.map((_, j) =>
+  L.text({ x: dx(j), base: UP ? DY + 156 + 54 * i : 908 + 64 * i, s: 40, c: "sand", txt: "", align: DAL[j] })));
 const dayNo = (d = now()) => Math.floor((d.getTime() - d.getTimezoneOffset() * 60000) / 864e5);
 const writeDrills = () => {
   const d = now(), h = d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600, today = dayNo(d);
   const next = h < DRILL_H ? 0 : 1;                          // days from today to the next drill
-  for (let i = 0; i < 11; i++) {
-    const off = next - 8 + i, day = today + off, sc = SCEN[((day % SCEN.length) + SCEN.length) % SCEN.length];
+  for (let i = 0; i < DN; i++) {
+    const off = next - DBACK + i, day = today + off, sc = SCEN[((day % SCEN.length) + SCEN.length) % SCEN.length];
     const r = rng(day * 7 + 3), done = off < next, isNext = off === next;
     const m = Math.round(200 + r() * 110 + (sc[1] === "All Decks" ? 60 : 0));
     let status = done ? "Complete" : "Scheduled";
@@ -188,16 +217,16 @@ const writeDrills = () => {
 };
 
 // ================= check log (bottom left) =================
-const GX0 = COL[0], GX1 = COL[1] + MW;
-L.header({ x: GX0, y: 1620, w: GX1 - GX0, label: "Readiness Log", c1: "mars", c2: "peach", h: 48 });
+const [GX0, GX1, GY] = PG;
+L.header({ x: GX0, y: GY, w: GX1 - GX0, label: "Readiness Log", c1: "mars", c2: "peach", h: 48 });
 const LOGW = [widest(["Ship Time", "00:00:00"], 36), widest(["Bay", "Bay 00"], 36),
   widest(["Readiness Check  ·  32 Boats", "Boat 00  ·  Life Support Serviced"], 36), widest(["Result", "Out of Service", "In Service"], 36)];
 const lcols = columns(GX0, GX1, LOGW);
 const LAL = ["l", "l", "l", "r"];
 ["Ship Time", "Bay", "Event", "Result"].forEach((txt, j) =>
-  L.text({ x: LAL[j] === "l" ? lcols[j][0] : lcols[j][1], base: 1716, s: 36, c: "sand", txt, align: LAL[j] }));
+  L.text({ x: LAL[j] === "l" ? lcols[j][0] : lcols[j][1], base: GY + 96, s: 36, c: "sand", txt, align: LAL[j] }));
 const LOGN = 5, LP = 54;
-const logClip = L.el("div", "clip", L.stage, { left: GX0 + "px", top: 1776 - 46 + "px", width: GX1 - GX0 + "px", height: LOGN * LP + 4 + "px" });
+const logClip = L.el("div", "clip", L.stage, { left: GX0 + "px", top: GY + 156 - 46 + "px", width: GX1 - GX0 + "px", height: LOGN * LP + 4 + "px" });
 const logRows = Array.from({ length: LOGN + 1 }, (_, i) => {
   const e = L.layer({ x: 0, y: 0, w: GX1 - GX0, h: LP }, logClip);
   const cells = LOGW.map((_, j) => L.text({ x: LAL[j] === "l" ? lcols[j][0] - GX0 : lcols[j][1] - GX0, base: 46, s: 36,
@@ -231,14 +260,14 @@ L.tick((t) => {                                               // all slide up on
 });
 
 // ================= readiness check (bottom middle): the five checks on the bay being tested =================
-const KX0 = COL[2], KX1 = COL[3] + MW;
-L.header({ x: KX0, y: 1620, w: KX1 - KX0, label: "Readiness Check", c1: "butter", c2: "mars", h: 48 });
-const kCap = L.text({ x: KX0, base: 1716, s: 36, c: "butter", txt: "" });
-const kRound = L.text({ x: KX1, base: 1716, s: 36, c: "sand", txt: "", align: "r" });
+const [KX0, KX1, KY] = PK;
+L.header({ x: KX0, y: KY, w: KX1 - KX0, label: "Readiness Check", c1: "butter", c2: "mars", h: 48 });
+const kCap = L.text({ x: KX0, base: KY + 96, s: 36, c: "butter", txt: "" });
+const kRound = L.text({ x: KX1, base: KY + 96, s: 36, c: "sand", txt: "", align: "r" });
 const KNW = widest(STAGES, 36), KCW = widest(["32 / 32"], 36), KRW = widest(["Checking", "Pending", "1 Fault", "Pass"], 36);
 const KRES = KX1, KCNT = KX1 - KRW - 40, KBX = KX0 + KNW + 32, KBX1 = KCNT - KCW - 32;
 const stages = STAGES.map((name, i) => {
-  const base = 1776 + LP * i;
+  const base = KY + 156 + LP * i;
   L.text({ x: KX0, base, s: 36, c: "sand", txt: name });
   L.rect({ x: KBX, y: base - 28, w: KBX1 - KBX, h: 28, c: TRACK });
   return { fill: grow(KBX, base - 28, KBX1 - KBX, 28, "butter"),
@@ -247,16 +276,17 @@ const stages = STAGES.map((name, i) => {
 });
 
 // ================= muster stations (bottom right) =================
-L.header({ x: RX0, y: 1620, w: RX1 - RX0, label: "Muster Stations", c1: "peach", c2: "sand", h: 48 });
+const [MX0, MX1, MY] = PM;
+L.header({ x: MX0, y: MY, w: MX1 - MX0, label: "Muster Stations", c1: "peach", c2: "sand", h: 48 });
 const bayList = (g) => `${pad2(g.bays[0] + 1)}-${pad2(g.bays[g.bays.length - 1] + 1)}`;
 const MCAP = ["Bays", "Muster Group", "Crew", "Seats"];
 const MWS = [widest(["Bays", "00-00"], 36), widest(GROUPS.map((g) => g.name), 36), widest(["Crew", "000"], 36), widest(["Seats", "000"], 36)];
-const mcols = columns(RX0, RX1, MWS);
+const mcols = columns(MX0, MX1, MWS);
 const MAL = ["l", "l", "r", "r"];
 const mx = (j) => (MAL[j] === "l" ? mcols[j][0] : mcols[j][1]);
-MCAP.forEach((txt, j) => L.text({ x: mx(j), base: 1716, s: 36, c: "sand", txt, align: MAL[j] }));
+MCAP.forEach((txt, j) => L.text({ x: mx(j), base: MY + 96, s: 36, c: "sand", txt, align: MAL[j] }));
 const mrows = GROUPS.map((g, i) => {
-  const base = 1776 + LP * i;
+  const base = MY + 156 + LP * i;
   L.text({ x: mx(0), base, s: 36, c: "peach", txt: bayList(g) });
   L.text({ x: mx(1), base, s: 36, c: "sand", txt: g.name });
   L.text({ x: mx(2), base, s: 36, c: "white", txt: String(g.crew), align: "r" });
@@ -267,6 +297,115 @@ const mrows = GROUPS.map((g, i) => {
 const PRE = 1.5, STAGE = 3, POST = 1.5, SLOT = PRE + 5 * STAGE + POST, ROUND = SLOT * 12;
 const E0 = Date.now() / 1000;
 let cur = null;                                               // the check under way
+
+// ================= ultrawide only: the new column (3876–5016) =================
+// Boats under service (every red cell, oldest first, then the latest returns, newest first), the
+// launch tests coming due, and the readiness rounds. Fed by hooks from the shared check cycle; wide
+// and upright never build it (svc stays null), and nothing here draws on Math.random.
+let svc = null;
+if (UW) {
+  const NX0 = 3876, NX1 = X1, sr = rng(Math.floor(Date.now() / 3.6e6) + 77), T0 = Date.now();
+  const ago = (min) => new Date(T0 - min * 60000);
+  // --- boats under service: header on the monitors' first row, rows on the 64 grid to 1100 ---
+  L.header({ x: NX0, y: 280, w: NX1 - NX0, label: "Boats Under Service", c1: "mars", c2: "tan" });
+  const SCAP = ["Bay", "Boat", "Work", "Since", "Status"];
+  const SW = [widest(["Bay", "Bay 00"], 40), widest(["Boat", "Boat 00"], 40), widest(FAULT.concat(FIXED), 40),
+    widest(["Since", "00:00"], 40), widest(["Status", "Out of Service", "In Service"], 40)];
+  const scols = columns(NX0, NX1, SW), SAL = ["l", "l", "l", "l", "r"];
+  const sx = (j) => (SAL[j] === "l" ? scols[j][0] : scols[j][1]);
+  SCAP.forEach((txt, j) => L.text({ x: sx(j), base: 396, s: 36, c: "sand", txt, align: SAL[j] }));
+  const SN = 11, srows = Array.from({ length: SN }, (_, i) => SCAP.map((_, j) =>
+    L.text({ x: sx(j), base: 460 + 64 * i, s: 40, c: "sand", txt: "", align: SAL[j] })));
+  const downs = [], ups = [];                                // {B, i, why, t}
+  BAYS.forEach((B) => B.pods.forEach((p, i) => { if (!p.ok) downs.push({ B, i, why: p.why, t: ago(25 + sr() * 300) }); }));
+  // now and then one of those boats failed in a recent round: date it to its bay's turn in that round,
+  // in the check that failed, so the rounds' fault counts and this list agree
+  const R0 = Math.floor(E0 / ROUND), rf = {};               // faults found in each round
+  for (let r = R0 - 2, q = 0; r >= R0 - 6 && q < downs.length; r--) {
+    if (rng(r * 977 + 5)() >= 0.3) continue;
+    const d = downs[q++];
+    d.t = new Date((r * ROUND + d.B.b * SLOT + PRE + (d.why + 0.5) * STAGE) * 1000);
+    rf[r] = 1;
+  }
+  downs.sort((a, b) => a.t - b.t);
+  const used = new Set(downs.map((d) => d.B.b * 100 + d.i));
+  for (let k = 0; k < 10; k++) {                            // the watch's earlier repairs
+    let b, i; do { b = Math.floor(sr() * 12); i = Math.floor(sr() * PODS); } while (used.has(b * 100 + i));
+    used.add(b * 100 + i);
+    ups.push({ B: BAYS[b], i, why: Math.floor(sr() * 5), t: ago(30 + k * 41 + sr() * 30) });
+  }
+  const writeSvc = () => {
+    const rows = downs.map((d) => [d, false]).concat(ups.map((u) => [u, true])).slice(0, SN);
+    srows.forEach((cells, k) => {
+      const [r, back] = rows[k] || [null, false];
+      const vals = r ? [r.B.id, `Boat ${pad2(r.i + 1)}`, back ? FIXED[r.why] : FAULT[r.why], shipTime(r.t, false), back ? "In Service" : "Out of Service"] : ["", "", "", "", ""];
+      const cols = !r ? [] : back ? ["peach", "tan", "tan", "tan", k === downs.length ? "butter" : "sand"] : ["peach", "white", "white", "tan", "mars"];
+      vals.forEach((v, j) => { L.set(cells[j], v); if (r) fg(cells[j], cols[j]); });
+    });
+  };
+  // --- launch tests due: header on the monitors' third row, rows on the drill schedule's grid ---
+  L.header({ x: NX0, y: 1176, w: NX1 - NX0, label: "Launch Tests Due", c1: "sand", c2: "peach" });
+  const TCYC = 24;                                           // a full launch test every 24 days
+  const LCAP = ["Bay", "Deck", "Last Test", "Next Test", "Due"];
+  const LW2 = [widest(["Bay", "Bay 00"], 40), widest(BAYS.map((B) => B.deck), 40), widest(["Last Test", "47799.9"], 40),
+    widest(["Next Test", "47799.9"], 40), widest(["Due", "In 00 Days"], 40)];
+  const tcols = columns(NX0, NX1, LW2), TAL = ["l", "l", "r", "r", "r"];
+  const tx = (j) => (TAL[j] === "l" ? tcols[j][0] : tcols[j][1]);
+  LCAP.forEach((txt, j) => L.text({ x: tx(j), base: 1292, s: 36, c: "sand", txt, align: TAL[j] }));
+  // days are counted from when the screen started, so a due date counts down through midnight (the
+  // stardate of the clock face starts again from SD0 each day); a test that falls due is run, and
+  // the bay's next one is 24 days on
+  const SDL = stardate(), MS0 = Date.now(), sdNow = () => SDL + (Date.now() - MS0) / 864e5 * 2.74;
+  const byDue = () => BAYS.slice().sort((a, b) => a.lastTest - b.lastTest).slice(0, 4);
+  let due = byDue();
+  const trows = due.map((B, i) => LCAP.map((_, j) => L.text({ x: tx(j), base: 1356 + 64 * i, s: 40,
+    c: ["peach", "sand", "tan", "white", "butter"][j], txt: "", align: TAL[j] })));
+  const writeTests = () => {
+    for (const B of BAYS) while (B.lastTest + TCYC * 2.74 <= sdNow()) {
+      B.lastTest += TCYC * 2.74; if (B.lastTxt) L.set(B.lastTxt, B.lastTest.toFixed(1));
+    }
+    due = byDue();
+    due.forEach(writeTest);
+  };
+  const writeTest = (B, i) => {
+    const next = B.lastTest + TCYC * 2.74, days = Math.max(1, Math.ceil((next - sdNow()) / 2.74));
+    [B.id, B.deck, B.lastTest.toFixed(1), next.toFixed(1), days === 1 ? "Tomorrow" : `In ${days} Days`].forEach((v, j) => L.set(trows[i][j], v));
+  };
+  // --- readiness rounds: the bottom strip, rows on the log's 54 grid; the current round last ---
+  L.header({ x: NX0, y: 1620, w: NX1 - NX0, label: "Readiness Rounds", c1: "tan", c2: "mars", h: 48 });
+  const RCAP = ["Round", "Began", "Ended", "Bays Checked", "Faults"];
+  const RW = [widest(["Round", "0000"], 36), widest(["Began", "00:00:00"], 36), widest(["Ended", "00:00:00", "Under Way"], 36),
+    widest(["Bays Checked", "12 / 12"], 36), widest(["Faults", "None", "2 Faults"], 36)];
+  const rcols = columns(NX0, NX1, RW), RAL = ["l", "l", "l", "r", "r"];
+  const rx = (j) => (RAL[j] === "l" ? rcols[j][0] : rcols[j][1]);
+  RCAP.forEach((txt, j) => L.text({ x: rx(j), base: 1716, s: 36, c: "sand", txt, align: RAL[j] }));
+  const rrows = Array.from({ length: 5 }, (_, i) => RCAP.map((_, j) =>
+    L.text({ x: rx(j), base: 1776 + LP * i, s: 36, c: "sand", txt: "", align: RAL[j] })));
+  const nFault = (n) => (n ? `${n} Fault${n > 1 ? "s" : ""}` : "None");
+  const writeRounds = (t) => {
+    const E = E0 + t, R = Math.floor(E / ROUND), bi = Math.floor((E % ROUND) / SLOT);
+    const doneHere = cur && cur.round === R && cur.finished ? bi + 1 : bi;
+    rrows.forEach((cells, i) => {
+      const r = R - 4 + i, now_ = r === R;
+      const vals = [String(r % 10000).padStart(4, "0"), shipTime(new Date(r * ROUND * 1000)),
+        now_ ? "Under Way" : shipTime(new Date((r + 1) * ROUND * 1000)), `${now_ ? doneHere : 12} / 12`, nFault(rf[r] || 0)];
+      const cols = ["peach", "tan", now_ ? "butter" : "tan", now_ ? "butter" : "white", rf[r] ? "mars" : "sand"];
+      vals.forEach((v, j) => { L.set(cells[j], v); fg(cells[j], cols[j]); });
+    });
+  };
+  svc = {
+    down: (B, i, why, round) => { downs.push({ B, i, why, t: now() }); rf[round] = (rf[round] || 0) + 1; writeSvc(); },
+    up: (B, i, why) => {
+      const k = downs.findIndex((d) => d.B === B && d.i === i);
+      if (k >= 0) downs.splice(k, 1);
+      ups.unshift({ B, i, why, t: now() }); ups.length = Math.min(ups.length, 12);
+      writeSvc();
+    },
+  };
+  writeSvc(); writeTests();
+  L.every(60000, writeTests, 0);
+  L.every(250, writeRounds, 0);
+}
 const writeBay = (B) => {
   const n = readyIn(B);
   L.set(B.readyTxt, `${n} / ${PODS}`);
@@ -276,7 +415,9 @@ const writeBay = (B) => {
 };
 const writeTotals = () => {
   const all = readyAll(), sau = BAYS.filter((B) => B.saucer).reduce((a, B) => a + readyIn(B), 0), sd = all - sau;
-  [[all, 384], [all * SEATS, 384 * SEATS], [sau, 256], [sd, 128]].forEach(([v, of], i) => {
+  const rows = [[all, 384], [all * SEATS, 384 * SEATS], [sau, 256], [sd, 128]];
+  if (UP) rows.push([Math.max(0, all * SEATS - COMPLEMENT), 384 * SEATS - COMPLEMENT]);   // upright's fifth: seats beyond the complement
+  rows.forEach(([v, of], i) => {
     L.set(totals[i].val, `${fmt(v)} / ${fmt(of)}`);
     tf(totals[i].fill, `scaleX(${(v / of).toFixed(4)})`);
   });
@@ -337,6 +478,7 @@ L.tick((t) => {
       const pod = B.pods[list[f.k]];
       pod.ok = false; pod.why = s;
       pushLog([shipTime(), B.id, `Boat ${pad2(list[f.k] + 1)}  ·  ${FAULT[s]}`, "Out of Service", "mars"]);
+      if (svc) svc.down(B, list[f.k], s, cur.round);
       writeBay(B); writeTotals();
     }
   }
@@ -370,6 +512,7 @@ L.every(30000, (t) => {
   const [B, i] = L.pick(down), pod = B.pods[i];
   pod.ok = true;
   pushLog([shipTime(), B.id, `Boat ${pad2(i + 1)}  ·  ${FIXED[pod.why]}`, "In Service", "butter"]);
+  if (svc) svc.up(B, i, pod.why);
   writeBay(B); writeTotals();
 }, 0.3);
 
@@ -388,13 +531,20 @@ L.every(250, (t) => {
 L.every(5000, writeDrills, 0);
 
 // ---------------- a guard: every line fits its place ----------------
-for (const n of [370, 384]) for (const b of ["Bay 01", "Bay 08", "Bay 11"]) {
+if (UP) {                                                    // upright: subtitle, then the coverage at the right
+  const cw = L.textWidth("Complement 1,014  ·  Coverage 150%", 36);
+  for (const n of [370, 384]) for (const b of ["Bay 01", "Bay 08", "Bay 11"]) {
+    const x1 = subX + L.textWidth(subFor(b, 4444, n), 38);
+    if (x1 > X1 - cw - 60) bad.push("subtitle runs into the coverage");
+    for (const e of [914, 941, 1525, 1552, 1774]) if (Math.abs(e - x1) > 4 && Math.abs(e - x1) <= 124) bad.push(`subtitle end ${Math.round(x1)} near ${e}`);
+  }
+} else for (const n of [370, 384]) for (const b of ["Bay 01", "Bay 08", "Bay 11"]) {
   const x1 = subX + L.textWidth(subFor(b, 4444, n), 38);
-  if (x1 > RX1 - 460) bad.push("subtitle too long");
+  if (x1 > (UW ? X1 : RX1) - 460) bad.push("subtitle too long");
   for (const e of [914, 954, 1538, 1578, 2162, 2202, 2786, 2846]) if (Math.abs(e - x1) > 4 && Math.abs(e - x1) <= 124) bad.push(`subtitle end ${Math.round(x1)} near ${e}`);
 }
 fits("Bay 00  ·  Deck 04 Starboard  ·  32 Boats in Service", 36, KX1 - KX0 - L.textWidth("Bay 00 of 12  ·  Round 0000", 36) - 60, "check caption");
-fits("Complement 1,014  ·  Coverage 150%", 36, RX1 - RX0 - L.textWidth("Four Seats per Boat", 36) - 60, "coverage");
+if (!UP) fits("Complement 1,014  ·  Coverage 150%", 36, TX1 - TX0 - L.textWidth("Four Seats per Boat", 36) - 60, "coverage");
 fits("Bay 00  ·  1 Fault", 36, 400 - 70, "pill");
 if (bad.length) setTimeout(() => { throw new Error("escape-pods: " + bad.join(" | ")); });
 });

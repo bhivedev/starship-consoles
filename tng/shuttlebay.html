@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Shuttlebay</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* a shuttle on the bay plan: a rounded block with its name */
@@ -15,6 +16,20 @@
 const L = LCARS;
 L.ready(() => {
 
+// ---------------- the shape ----------------
+// The data, readings and motion are written once; only positions and sizes differ by shape.
+// wide (3840 × 2160): the bay plan, roster and bottom strip on the left (40–2380), the launch cycle,
+//   flight plan and log on the right (2440–3520).
+// upright (2160 × 3120): the bay plan across the top (narrower pads, smaller craft, the corridor
+//   readings moved to their own panel), then two columns (40–910 | 970–1840): launch cycle | flight
+//   plan; the roster at full width; atmosphere | tractor; flight log | space doors.
+//   The craft move in the wide plan's coordinates; MX and MY map them onto the upright plan.
+// ultrawide (5040 × 2160): the wide layout as it is, plus a column at 3580–4720: the mission queue,
+//   pad assignments and the bay's deck crew.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide", WIDE = !UP && !UW;
+const SIDE = [[140, "sky", "Bay 02"], [70, "orange", "Flight"], [420, "ice", "Cycle"], [70, "peach", "13-02"],
+              [300, "sky", "Roster"], [70, "orange", "Atmos"], [216, "ice", "Tractor"]];
+if (WIDE) {
 // ---------------- the frame, mirrored: sidebar on the right, title at top left ----------------
 const BAR = 64, TS = BAR / (L.BASELINE - L.CAP_TOP);
 L.box({ x: 40, y: 40, w: 92, h: BAR, c: "ice", r: "l" });
@@ -31,6 +46,32 @@ L.text({ x: 3794, base: 1712, s: 40, c: "#000", txt: "Shuttlebay", align: "r", o
 L.box({ x: 40, y: 2056, w: 92, h: BAR, c: "orange", r: "l" });
 [[132 + L.GAP, 700, "peach"], [132 + L.GAP + 700 + L.GAP, 900, "sky"]].forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
 L.rect({ x: 132 + 3 * L.GAP + 1600, y: 2056, w: 2600 - L.GAP - (132 + 3 * L.GAP + 1600), h: BAR, c: "orange" });
+}
+// upright and ultrawide: the same frame, hand-built as wide is, with the kit's type-B geometry for the shape
+// (ultrawide: right-hand pieces out by 1200; upright: taller, shorter elbows), in wide's colours
+const B = WIDE ? { x0: 40, x1: 3520, y0: 140, y1: 2010 } : (() => {
+  const D = L.W - 3840, Y = L.H - 2160, G = L.GAP, BAR = 64;
+  const ex = UP ? 3816 + D - 640 : 2600 + D, ew = UP ? 640 : 1216;
+  L.box({ x: 40, y: 40, w: 92, h: BAR, c: "ice", r: "l" });
+  const tr = L.titleLeft({ x: 132 + G, y: 40, h: BAR, c: "ice", txt: "Shuttlebay 2  •  Flight Control" });
+  const aw = UP ? 180 : 320;
+  L.rect({ x: tr + G, y: 40, w: aw, h: BAR, c: "orange" });
+  L.rect({ x: tr + aw + 2 * G, y: 40, w: ex - G - (tr + aw + 2 * G), h: BAR, c: "ice" });
+  L.elbow({ corner: "tr", x: ex, y: 40, w: ew, h: 250, bw: 240, bh: BAR, R: 150, r: 60, c: "ice" });
+  const total = SIDE.reduce((a, h) => a + h[0], 0) + 8 * (SIDE.length - 1), k = (1632 + Y - 298) / total;
+  let y = 298;
+  SIDE.forEach(([h, c, label], i) => {
+    const hh = i === SIDE.length - 1 ? 1632 + Y - y : Math.round(h * k);
+    L.box({ x: 3576 + D, y, w: 240, h: hh, c, label }); y += hh + 8;
+  });
+  L.elbow({ corner: "br", x: ex, y: 1640 + Y, w: ew, h: 480, bw: 240, bh: BAR, R: 150, r: 60, c: "orange" });
+  L.text({ x: 3794 + D, base: 1712 + Y, s: 40, c: "#000", txt: "Shuttlebay", align: "r", on: true });
+  L.box({ x: 40, y: 2056 + Y, w: 92, h: BAR, c: "orange", r: "l" });
+  (UP ? [[132 + G, 420, "peach"], [132 + 2 * G + 420, ex - G - (132 + 2 * G + 420), "orange"]]
+      : [[132 + G, 700, "peach"], [132 + 2 * G + 700, 900, "sky"], [132 + 3 * G + 1600, ex - G - (132 + 3 * G + 1600), "orange"]])
+    .forEach(([x, w, c]) => L.rect({ x, y: 2056 + Y, w, h: BAR, c }));
+  return { x0: 40, x1: 3520 + D, y0: 140, y1: 2010 + Y };
+})();
 
 const header = (x, y, w, label, lw, c1, c2, h = 56, fs = 32) => {
   L.box({ x, y, w: lw, h, c: c1, label, fs, r: "l" });
@@ -78,15 +119,31 @@ const nextMission = () => MISSIONS[missionN++ % MISSIONS.length];
 let sd = 47781.2;
 
 // ---------------- the bay plan ----------------
-header(C1, 280, C1R - C1, "Shuttlebay 2  ·  Flight Deck", 480, "ice", "sky");
-const IN_T = 396, IN_B = 912, LANE = 654, DOOR = 1720, DOOR_W = 52;
-const PLAN_W = 1772 - 40, PLAN_H = 286;
+const PR = UP ? B.x1 : C1R;                            // the plan's right edge
+header(C1, 280, PR - C1, "Shuttlebay 2  ·  Flight Deck", 480, "ice", "sky");
+const IN_T = 396, IN_B = UP ? 848 : 912, LANE = UP ? 622 : 654, DOOR = UP ? 1396 : 1720, DOOR_W = 52;
+const LANE_M = 654, DOOR_M = 1720;                                   // the centre line where the craft move (the wide plan's coordinates)
+const PLAN_W = (UP ? 1448 : 1772) - 40, PLAN_H = UP ? 254 : 286;
+// upright: the wide plan's coordinates (where the craft move) onto the upright plan, through the pad centres
+const KN = [[80, 80], [350, 300], [770, 625], [1170, 950], [1570, 1275]];
+// past the last pad the plan is shorter than wide's, so the scale eases off along a square-root curve (from
+// 0.84 at the last pad, a 3% step, down to 0.58 at the outer marker): through the doors at 1394, the corridor's
+// start at 1461 and the outer marker at 1740, the craft fully inside the corridor. A launching craft's on-screen
+// speed eases off gently instead of stepping down twice at the doors.
+const MX_A = 465 / (Math.sqrt(1300) - Math.sqrt(620));
+const MX = (x) => {
+  if (x <= 80) return x;
+  for (let i = 1; i < KN.length; i++) if (x <= KN[i][0]) { const [a, b] = KN[i - 1], [c, d] = KN[i]; return b + ((x - a) * (d - b)) / (c - a); }
+  return 1275 + MX_A * (Math.sqrt(x - 950) - Math.sqrt(620));
+};
+const MY = (y) => 622 + ((y - 654) * 142) / 162;
+const PADX = { 100: 100, 520: 425, 920: 750, 1320: 1075 };
 L.elbow({ corner: "tl", x: 40, y: 368, w: PLAN_W, h: PLAN_H, bw: 40, bh: 28, R: 64, r: 22, c: "sky" });
 L.elbow({ corner: "bl", x: 40, y: LANE, w: PLAN_W, h: PLAN_H, bw: 40, bh: 28, R: 64, r: 22, c: "sky" });
 L.rect({ x: 40, y: LANE - 40, w: 40, h: 80, c: "sky", free: true });   // the two walls meet without a seam
 L.rect({ x: 80, y: IN_T, w: DOOR - 80, h: IN_B - IN_T, c: "#081730", panel: true });
 // pads: [label, x, centre y]; the launch pad sits on the centre line
-const PAD_W = 380, PAD_H = 160;
+const PAD_W = UP ? 300 : 380, PAD_H = UP ? 140 : 160;
 const PADS = [
   { label: "Service", x: 100, y: 412 }, { label: "Pad 01", x: 520, y: 412 }, { label: "Pad 02", x: 920, y: 412 }, { label: "Pad 03", x: 1320, y: 412 },
   { label: "Pad 04", x: 100, y: 736 }, { label: "Pad 05", x: 520, y: 736 }, { label: "Pad 06", x: 920, y: 736 }, { label: "Pad 07", x: 1320, y: 736 },
@@ -95,30 +152,38 @@ const LP = { label: "Launch", x: 100, y: 590, h: 128 };
 const padCentre = (p) => [p.x + 250, p.y + (p.h || PAD_H) / 2];
 // the centre line, inside and beyond the doors
 const lines = L.svg("g", { class: "boot" });
-for (let x = 500; x < DOOR - 30; x += 80) L.svg("rect", { x, y: LANE - 3, width: 40, height: 6, fill: "#1d355e" }, lines);
+for (let x = UP ? 440 : 500; x < DOOR - 30; x += 80) L.svg("rect", { x, y: LANE - 3, width: 40, height: 6, fill: "#1d355e" }, lines);
 for (const p of PADS) {
-  L.rect({ x: p.x, y: p.y, w: PAD_W, h: PAD_H, c: "#11264a", panel: true });
-  p.lbl = L.text({ x: p.x + 24, base: p.y + PAD_H / 2 + 13, s: 36, c: "sky", txt: p.label });
+  const px = UP ? PADX[p.x] : p.x, py = UP ? (p.y === 412 ? 410 : 694) : p.y;
+  L.rect({ x: px, y: py, w: PAD_W, h: PAD_H, c: "#11264a", panel: true });
+  p.lbl = L.text({ x: px + 24, base: py + PAD_H / 2 + 13, s: 36, c: "sky", txt: p.label });
 }
-L.rect({ x: LP.x, y: LP.y, w: PAD_W, h: LP.h, c: "#1a2f55", panel: true });
+L.rect({ x: LP.x, y: UP ? 566 : LP.y, w: PAD_W, h: UP ? 112 : LP.h, c: "#1a2f55", panel: true });
 L.text({ x: LP.x + 24, base: LANE + 13, s: 36, c: "orange", txt: LP.label });
 
 // the approach corridor beyond the doors
-const OX = 1812, OR = C1R;
-L.rect({ x: OX, y: 572, w: OR - OX, h: 4, c: "#2a4a7a", free: true });
-L.rect({ x: OX, y: 732, w: OR - OX, h: 4, c: "#2a4a7a", free: true });
+const OX = UP ? 1462 : 1812, OR = PR;
+L.rect({ x: OX, y: UP ? 550 : 572, w: OR - OX, h: 4, c: "#2a4a7a", free: true });
+L.rect({ x: OX, y: UP ? 690 : 732, w: OR - OX, h: 4, c: "#2a4a7a", free: true });
 for (let x = OX + 40; x < OR - 40; x += 96) L.svg("path", { d: `M${x},${LANE - 22} l18,22 l-18,22 h-12 l18,-22 l-18,-22 Z`, fill: "#1d355e" }, lines);
 // range from the doors, in metres
 const PXM = 18, RANGE_TICKS = [0, 10, 20, 30];
 RANGE_TICKS.forEach((m, k) => {
-  const x = OX + m * PXM;
-  L.rect({ x: x - 2, y: 744, w: 4, h: 22, c: "sky", free: true });
-  L.text({ x, base: 806, s: 32, c: "sky", txt: k === RANGE_TICKS.length - 1 ? m + " m" : String(m), align: "c", w: 120, legend: true });
+  // upright: evenly spaced from the corridor's start to where 30 m falls (within 10 px of the curve), on whole pixels
+  const x = UP ? OX + Math.round(((MX(1812 + 30 * PXM) - OX) * m) / 30) : OX + m * PXM;
+  L.rect({ x: x - 2, y: UP ? 702 : 744, w: 4, h: 22, c: "sky", free: true });
+  L.text({ x, base: UP ? 762 : 806, s: 32, c: "sky", txt: k === RANGE_TICKS.length - 1 ? m + " m" : String(m), align: "c", w: 120, legend: true });
 });
 const toPad = (x) => Math.max(0, (x - 350) / PXM);   // metres from the launch pad
 // status of the doors, the field and the corridor, above and below it
-const DOX = OX, DVX = OX + 200;
-const outside = [["Doors", 432], ["Field", 492], ["Corridor", 548], ["Tractor", 870], ["Traffic", 930]].map(([k, base]) => {
+// (upright: in a panel of their own, under the tractor, with the bay's state as a sixth line)
+const DOX = UP ? 970 : OX, DVX = UP ? 1170 : OX + 200;
+if (UP) {
+  header(970, 2598, 870, "Space Doors  ·  Approach", 380, "orange", "peach", 48, 28);
+  L.text({ x: OX, base: 512, s: 36, c: "sky", txt: "Approach Corridor" });
+}
+const outside = (UP ? [["Doors"], ["Field"], ["Corridor"], ["Tractor"], ["Traffic"], ["Bay"]].map(([k], i) => [k, 2712 + i * 50])
+  : [["Doors", 432], ["Field", 492], ["Corridor", 548], ["Tractor", 870], ["Traffic", 930]]).map(([k, base]) => {
   L.text({ x: DOX, base, s: 36, c: "sky", txt: k });
   return L.text({ x: DVX, base, s: 40, c: "white", txt: "" });
 });
@@ -140,10 +205,10 @@ const doorT = fill(DOOR - 80, 0, DOOR_W, HALF, "orange", "50% 0", clip);
 const doorB = fill(DOOR - 80, HALF + 8, DOOR_W, HALF, "orange", "50% 100%", clip);
 // the craft
 FLEET.forEach((s) => {
-  s.e = L.layer({ x: 0, y: 0, w: 220, h: 72, cls: "craft" }, clip);
+  s.e = L.layer({ x: 0, y: 0, w: UP ? 170 : 220, h: 72, cls: "craft" }, clip);
   s.e.style.background = `var(--${s.c})`; s.e.textContent = s.name;
 });
-const placeCraft = (s, x, y) => { s.x = x; s.y = y; const [lx, ly] = local(x - 110, y - 36); L.move(s.e, lx, ly); };
+const placeCraft = (s, x, y) => { s.x = x; s.y = y; const [lx, ly] = UP ? local(MX(x) - 85, MY(y) - 36) : local(x - 110, y - 36); L.move(s.e, lx, ly); };
 
 // where everyone starts
 const byName = (n) => FLEET.find((s) => s.name === n);
@@ -153,7 +218,7 @@ at(byName("Galileo"), PADS[1]); at(byName("El-Baz"), PADS[3]); at(byName("Onizuk
 const away = [];                                      // in flight, first back first
 [["Magellan", MISSIONS[7]], ["Curie", MISSIONS[1]]].forEach(([n, m], k) => {
   const s = byName(n); s.status = "Away"; s.mission = `${m[1]}  ·  ${m[0]}`; s.from = m[0]; s.due = (sd + 0.4 + k * 0.6).toFixed(1); s.op = 0;
-  s.e.style.opacity = 0; placeCraft(s, 2600, LANE); away.push(s);
+  s.e.style.opacity = 0; placeCraft(s, 2600, LANE_M); away.push(s);
 });
 missionN = 2;
 let onLP = null;                                      // the craft on the launch pad
@@ -176,60 +241,65 @@ const route = (s, pts, t0, gap = 0.3) => {
 const STATE_W = Math.max(...PHASES.map(([n]) => L.textWidth(n, 100)), L.textWidth("Recovery", 100));
 const state = L.text({ x: C1, cap: 150, s: 100, c: "ice", txt: "" });
 const sub = L.text({ x: C1 + Math.ceil(STATE_W / 10) * 10 + 60, base: 222, s: 38, c: "peach", txt: "" });
-const pill = L.box({ x: C3R - 400, y: 150, w: 400, h: 72, c: "sky", label: "", r: "lr", fs: 36 });
+const pill = L.box({ x: UP ? B.x1 - 340 : UW ? B.x1 - 400 : C3R - 400, y: 150, w: UP ? 340 : 400, h: 72, c: "sky", label: "", r: "lr", fs: 36 });
 pill.style.transition = "background-color 1s ease";
 
 // ---------------- the launch cycle ----------------
-header(C3, 280, C3R - C3, "Launch Cycle", 320, "orange", "peach");
-const PT0 = 368, PP = 96, PH = 72, TRK = C3 + 300 + L.GAP, TRKW = C3R - 130 - TRK;
+const LX = UP ? 40 : C3, LXR = UP ? 910 : C3R;
+header(LX, UP ? 940 : 280, LXR - LX, "Launch Cycle", 320, "orange", "peach");
+const PT0 = UP ? 1028 : 368, PP = UP ? 84 : 96, PH = UP ? 64 : 72, TRK = LX + 300 + L.GAP, TRKW = LXR - 130 - TRK;
 const phaseRows = PHASES.map(([name, d], i) => {
   const y = PT0 + i * PP;
-  const box = L.box({ x: C3, y, w: 300, h: PH, c: "sky", label: name, fs: 30, r: "l" });
+  const box = L.box({ x: LX, y, w: 300, h: PH, c: "sky", label: name, fs: 30, r: "l" });
   L.rect({ x: TRK, y, w: TRKW, h: PH, c: "#0c1b36" });
   const bar = fill(TRK, y, TRKW, PH, "orange");
   bar.style.transform = "scaleX(0)";
-  const time = L.text({ x: C3R, base: y + PH / 2 + 18, s: 52, c: "white", txt: d.toFixed(1), align: "r" });
+  const time = L.text({ x: LXR, base: y + PH / 2 + 18, s: 52, c: "white", txt: d.toFixed(1), align: "r" });
   return { box, bar, time, d, look: "", k: -1 };
 });
 
 // ---------------- the roster ----------------
-header(C1, 1000, C1R - C1, "Shuttle Roster", 340, "sky", "ice");
-const RC = { cls: 310, reg: 470, pilot: 780, loc: 1120, mis: 1400, st: 1900 };
-const HB = 1110, RB = 1172, RP = 62;
+const RR = UP ? B.x1 : C1R;
+header(C1, UP ? 1576 : 1000, RR - C1, "Shuttle Roster", 340, "sky", "ice");
+const RC = UP ? { cls: 310, reg: 420, pilot: 620, loc: 860, mis: 1050, st: 1440 } : { cls: 310, reg: 470, pilot: 780, loc: 1120, mis: 1400, st: 1900 };
+const HB = UP ? 1686 : 1110, RB = UP ? 1748 : 1172, RP = UP ? 58 : 62;
 [["Craft", C1], ["Class", RC.cls], ["Registry", RC.reg], ["Pilot", RC.pilot], ["Location", RC.loc], ["Mission", RC.mis], ["Status", RC.st]]
   .forEach(([h, x]) => L.text({ x, base: HB, s: 36, c: "sky", txt: h }));
-L.text({ x: C1R, base: HB, s: 36, c: "sky", txt: "Time", align: "r" });
+L.text({ x: RR, base: HB, s: 36, c: "sky", txt: "Time", align: "r" });
 FLEET.forEach((s, i) => {
   const base = RB + i * RP;
-  L.box({ x: C1, y: base - 41, w: 240, h: 52, c: s.c, label: s.name, fs: 30, r: "l" });
+  L.box({ x: C1, y: base - (UP ? 39 : 41), w: 240, h: UP ? 48 : 52, c: s.c, label: s.name, fs: 30, r: "l" });
   L.text({ x: RC.cls, base, s: 40, c: s.c, txt: s.type });
   L.text({ x: RC.reg, base, s: 40, c: "sky", txt: s.reg });
   L.text({ x: RC.pilot, base, s: 40, c: "white", txt: s.pilot });
   s.row = { loc: L.text({ x: RC.loc, base, s: 40, c: "ice", txt: "" }), mis: L.text({ x: RC.mis, base, s: 40, c: "white", txt: "" }),
-            st: L.text({ x: RC.st, base, s: 40, c: "white", txt: "" }), tm: L.text({ x: C1R, base, s: 40, c: "white", txt: "", align: "r" }) };
+            st: L.text({ x: RC.st, base, s: 40, c: "white", txt: "" }), tm: L.text({ x: RR, base, s: 40, c: "white", txt: "", align: "r" }) };
 });
 
 // ---------------- the flight plan ----------------
-header(C3, 1000, C3R - C3, "Flight Plan", 300, "peach", "orange");
-const FV = C3 + 290;
+const FX = UP ? 970 : C3, FXR = UP ? B.x1 : C3R, FHB = UP ? 1050 : HB;
+header(FX, UP ? 940 : 1000, FXR - FX, "Flight Plan", 300, "peach", "orange");
+const FV = FX + 290;
 const plan = ["Craft", "Operation", "Pilot", "Destination", "Heading", "Departure", "Velocity", "Clearance"].map((k, i) => {
-  const base = HB + i * RP;
-  return { k: L.text({ x: C3, base, s: 36, c: "peach", txt: k }), v: L.text({ x: FV, base, s: 40, c: "white", txt: "" }) };
+  const base = FHB + i * (UP ? 64 : 62);
+  return { k: L.text({ x: FX, base, s: 36, c: "peach", txt: k }), v: L.text({ x: FV, base, s: 40, c: "white", txt: "" }) };
 });
 const setPlan = (rows) => rows.forEach(([k, v], i) => { put(plan[i].k, k); put(plan[i].v, v); });
 
 // ---------------- bay atmosphere ----------------
-header(C1, 1620, MID - C1, "Bay Atmosphere", 340, "ice", "sky", 48, 28);
+// the bottom strip's rows: wide 1734 + 54k; upright two strips, 2274 + 50k and 2712 + 50k
+const SB = UP ? 2274 : 1734, SP = UP ? 50 : 54, AR = UP ? 910 : MID;
+header(C1, UP ? 2160 : 1620, AR - C1, "Bay Atmosphere", 340, "ice", "sky", 48, 28);
 const AV = 400;
 const ATM = [["Pressure", "kPa"], ["Temperature", "°C"], ["Humidity", "%"], ["Oxygen", "kPa"], ["Pump Flow", "m³/s"], ["Forcefield", "%"]]
   .map(([k, u], i) => {
-    const base = 1734 + i * 54;
+    const base = SB + i * SP;
     L.text({ x: C1, base, s: 36, c: "ice", txt: k });
     L.text({ x: AV + 20, base, s: 36, c: "sky", txt: u });
     return L.text({ x: AV, base, s: 44, c: "white", txt: "", align: "r" });
   });
 // the cycle's pressure and field, drawn once; a cursor runs along them
-const GX = 560, GW = MID - GX, GY = 1700, GH = 304;
+const GX = 560, GW = AR - GX, GY = UP ? 2240 : 1700, GH = UP ? 284 : 304;
 L.rect({ x: GX, y: GY, w: GW, h: GH, c: "#071630" });
 const graph = L.svg("g", { class: "boot" });
 START.slice(1).forEach((s) => L.svg("rect", { x: GX + (s / CYCLE) * GW - 1, y: GY, width: 2, height: GH, fill: "#1a2f58" }, graph));
@@ -245,12 +315,13 @@ L.svg("polyline", { points: curve(pressureAt, 24), fill: "none", stroke: "var(--
 const cursor = fill(GX - 2, GY, 4, GH, "white");
 
 // ---------------- tractor and docking ----------------
-header(C2, 1620, C1R - C2, "Tractor  ·  Docking Control", 440, "orange", "peach", 48, 28);
-const TV = 1760, TB = 1940, TBW = C1R - TB;
+const TX = UP ? 970 : C2, TXR = UP ? B.x1 : C1R;
+header(TX, UP ? 2160 : 1620, TXR - TX, "Tractor  ·  Docking Control", 440, "orange", "peach", 48, 28);
+const TV = UP ? 1340 : 1760, TB = UP ? 1420 : 1940, TBW = TXR - TB;
 const TR = [["Emitter Output", "%"], ["Beam Power", "MW"], ["Target Range", "m"], ["Velocity", "m/s"], ["Docking Clamps", ""], ["Guidance", ""]]
   .map(([k, u], i) => {
-    const base = 1734 + i * 54;
-    L.text({ x: C2, base, s: 36, c: "peach", txt: k });
+    const base = SB + i * SP;
+    L.text({ x: TX, base, s: 36, c: "peach", txt: k });
     if (u) L.text({ x: TV + 20, base, s: 36, c: "orange", txt: u });
     const r = { v: L.text({ x: TV, base, s: i < 4 ? 44 : 40, c: "white", txt: "", align: "r" }), base };
     if (i < 4) {
@@ -270,10 +341,11 @@ const guides = ["Bay Control", "Pilot"].map((k, i) => {
 });
 
 // ---------------- flight log ----------------
-header(C3, 1620, C3R - C3, "Flight Log", 280, "sky", "ice", 48, 28);
+const GLX = UP ? 40 : C3, GLXR = UP ? 910 : C3R;
+header(GLX, UP ? 2598 : 1620, GLXR - GLX, "Flight Log", 280, "sky", "ice", 48, 28);
 const logRows = Array.from({ length: 6 }, (_, i) => {
-  const base = 1734 + i * 54;
-  return { sd: L.text({ x: C3, base, s: 36, c: "orange", txt: "" }), tx: L.text({ x: C3 + 170, base, s: 36, c: "ice", txt: "" }) };
+  const base = (UP ? 2712 : 1734) + i * SP;
+  return { sd: L.text({ x: GLX, base, s: 36, c: "orange", txt: "" }), tx: L.text({ x: GLX + 170, base, s: 36, c: "ice", txt: "" }) };
 });
 const logged = [];
 const log = (txt) => {
@@ -297,14 +369,14 @@ const beginCycle = (n, T) => {
       const s = onLP, free = PADS.slice(1).filter((p) => !FLEET.some((f) => f.pad === p));
       const pad = free.sort((a, b) => Math.abs(padCentre(a)[0] - s.x) - Math.abs(padCentre(b)[0] - s.x))[0];
       const [px, py] = padCentre(pad);
-      ready = route(s, [[s.x, s.y], [px, LANE], [px, py]], T + 0.5) + 0.2;
+      ready = route(s, [[s.x, s.y], [px, LANE_M], [px, py]], T + 0.5) + 0.2;
       s.pad = pad; s.status = "Docked"; s.mission = "Standby"; onLP = null;
       log(`${s.name}  ·  to ${pad.label}`);
     }
     // the craft docked longest goes next
     const d = docked().filter((s) => s.status === "Docked").sort((a, b) => (a.since || 0) - (b.since || 0))[0];
     const [x0, y0] = [d.x, d.y], [lx, ly] = padCentre(LP);
-    route(d, [[x0, y0], [x0, LANE], [lx, ly]], ready);
+    route(d, [[x0, y0], [x0, LANE_M], [lx, ly]], ready);
     const [dest, task] = nextMission();
     d.status = "Prelaunch"; d.mission = `${task}  ·  ${dest}`; d.pad = null; d.dest = dest;
     d.legs.push({ t0: T + P_GO + 0.6, dur: 5.8, x0: lx, y0: ly, x1: 2620, y1: ly, ease: (k) => k * k });
@@ -313,8 +385,8 @@ const beginCycle = (n, T) => {
   } else {
     const r = away[0];
     const [lx, ly] = padCentre(LP);
-    r.legs = [{ t0: T + P_GO + 0.5, dur: 6.2, x0: 2250, y0: LANE, x1: lx, y1: ly, ease: smooth }];
-    placeCraft(r, 2250, LANE);
+    r.legs = [{ t0: T + P_GO + 0.5, dur: 6.2, x0: 2250, y0: LANE_M, x1: lx, y1: ly, ease: smooth }];
+    placeCraft(r, 2250, LANE_M);
     cyc.craft = r; cyc.heading = heading();
   }
 };
@@ -364,7 +436,7 @@ L.tick((t) => {
     if (r.status !== "Docked") {
       const op = c < P_DEP ? 0 : smooth(L.clamp((c - P_DEP) / 2));
       css(r.e, "opacity", op.toFixed(3));
-      if (c < P_GO + 0.5) placeCraft(r, 2250, LANE);
+      if (c < P_GO + 0.5) placeCraft(r, 2250, LANE_M);
     } else css(r.e, "opacity", "1");
   } else {
     const d = cyc.craft;
@@ -373,7 +445,7 @@ L.tick((t) => {
   // the beam: from the launch pad to the craft it holds
   const towing = !cyc.launch && c >= P_GO && c < P_CLOSE;
   const r = cyc.craft;
-  const bw = towing ? L.clamp((r.x - 110 - BEAM_X) / (OR - BEAM_X)) : 0;
+  const bw = towing ? (UP ? L.clamp((MX(r.x) - 85 - BEAM_X) / (OR - BEAM_X)) : L.clamp((r.x - 110 - BEAM_X) / (OR - BEAM_X))) : 0;
   const bOp = towing ? smooth(L.clamp((c - P_GO) / 0.5)) * L.clamp(bw * 12) * (0.85 + 0.15 * Math.sin(t * 3.1)) : 0;
   css(beam, "opacity", bOp.toFixed(3));
   if (bOp > 0) css(beam, "transform", `scaleX(${bw.toFixed(4)})`);
@@ -384,6 +456,70 @@ L.tick((t) => {
   });
   css(cursor, "transform", `translate3d(${((c / CYCLE) * GW).toFixed(2)}px,0,0)`);
 });
+
+// ---------------- ultrawide only: the mission queue, pad assignments and deck crew (3580–4720) ----------------
+let extra = null;
+if (UW) {
+  const X = 3580, XR = B.x1;
+  // the missions still to fly, in order: each on the next launch cycle after the one before
+  header(X, 280, XR - X, "Mission Queue", 320, "peach", "orange");
+  const queue = Array.from({ length: 6 }, (_, i) => {
+    const y = PT0 + i * PP;
+    const box = L.box({ x: X, y, w: 300, h: PH, c: "sky", label: "", fs: 30, r: "l" });
+    L.rect({ x: X + 300 + L.GAP, y, w: 640 - L.GAP, h: PH, c: "#0c1b36", panel: true });
+    return { box, dest: L.text({ x: X + 300 + L.GAP + 28, base: y + PH / 2 + 18, s: 44, c: "white", txt: "" }),
+             cyc: L.text({ x: XR, base: y + PH / 2 + 18, s: 40, c: "sky", txt: "", align: "r" }) };
+  });
+  queue[0].box.style.background = "var(--orange)";
+  // who is on each pad (a craft named for launch shows Prelaunch until it moves off; then the pad is Clear)
+  header(X, 1000, XR - X, "Pad Assignments", 340, "sky", "ice");
+  const pads = PADS.map((p, i) => {
+    const base = HB + i * RP;
+    L.text({ x: X, base, s: 36, c: "sky", txt: p.label });
+    return { p, name: L.text({ x: X + 200, base, s: 40, c: "white", txt: "" }), cls: L.text({ x: X + 420, base, s: 40, c: "sky", txt: "" }),
+             pilot: L.text({ x: X + 580, base, s: 40, c: "white", txt: "" }), st: L.text({ x: XR, base, s: 40, c: "sky", txt: "", align: "r" }) };
+  });
+  // the deck crew: on the flight deck while the bay holds air, clear of it from depressurizing until the cycle ends
+  header(X, 1620, XR - X, "Deck Crew  ·  Bay 2", 320, "orange", "peach", 48, 28);
+  const CREW = [["Flight Controller", "Lt. (j.g.) Lavelle", "Control Room", "Control Room"],
+                ["Deck Chief", "CPO Tanaka", "Flight Deck", "Control Room"],
+                ["Tractor Operator", "Ens. Gomez", "Tractor Console", "Tractor Console"],
+                ["Atmosphere Control", "Ens. Mendon", "Control Room", "Control Room"],
+                ["Shuttle Maintenance", "Ens. Taurik", "Service Bay", "Clear of Bay"],
+                ["Medical Standby", "Nurse Ogawa", "Flight Deck", "Airlock 2"]];
+  const crew = CREW.map(([role, who, aboard, clear], i) => {
+    const base = 1734 + i * 54;
+    L.text({ x: X, base, s: 36, c: "peach", txt: role });
+    L.text({ x: X + 320, base, s: 40, c: "white", txt: who });
+    return { aboard, clear, lamp: L.box({ x: X + 660, y: base - 33, w: 180, h: 40, c: "slate", label: "", fs: 26 }),
+             at: L.text({ x: XR, base, s: 40, c: "sky", txt: "", align: "r" }) };
+  });
+  const DECK = ["Flight Deck", "Service Bay"];
+  // the status line's third part, over the column: the head of the queue and its countdown
+  const qNext = L.text({ x: X, base: 222, s: 38, c: "peach", txt: "" });
+  extra = (t, c, p) => {
+    const n = cycleN, next = n + (n % 2 === 0 ? 2 : 1);
+    put(qNext, `Next in Queue  ·  ${MISSIONS[missionN % MISSIONS.length][0]}  ·  Launch T– ${mss(next * CYCLE + P_GO + 0.6 - t)}`);
+    queue.forEach((q, k) => {
+      const [dest, task] = MISSIONS[(missionN + k) % MISSIONS.length];
+      put(q.box, task); put(q.dest, dest); put(q.cyc, "Cycle " + String(1407 + next + 2 * k).padStart(4, "0"));
+    });
+    pads.forEach((r) => {
+      const [cx, cy] = padCentre(r.p);
+      const f = FLEET.find((s) => s.pad === r.p) || FLEET.find((s) => s.status === "Prelaunch" && Math.abs(s.x - cx) < 1 && Math.abs(s.y - cy) < 1);
+      put(r.name, f ? f.name : "—"); put(r.cls, f ? f.type : ""); put(r.pilot, f ? f.pilot : "");
+      css(r.name, "color", f ? `var(--${f.c})` : "var(--slate)");
+      const st = !f ? "Clear" : f.status === "Maintenance" ? "Maintenance" : f.status === "Prelaunch" ? "Prelaunch" : f.legs.length ? "Taxiing In" : "Docked";
+      put(r.st, st); css(r.st, "color", `var(--${st === "Clear" ? "slate" : st === "Maintenance" ? "mars" : st === "Docked" ? "sky" : "orange"})`);
+    });
+    const out = c >= P_DEP;
+    crew.forEach((r) => {
+      const at = out ? r.clear : r.aboard, inBay = DECK.includes(at);
+      put(r.at, at); put(r.lamp, inBay ? "In Bay" : "Clear");
+      css(r.lamp, "background", inBay ? "var(--peach)" : "var(--slate)");
+    });
+  };
+}
 
 // readings, four times a second
 const STATUS_C = { Docked: "sky", Prelaunch: "orange", Launching: "orange", Away: "white", Inbound: "butter", Maintenance: "mars" };
@@ -421,7 +557,7 @@ L.every(250, (t) => {
     if (f.status === "Maintenance") { loc = "Service Bay"; tm = "Refit 6 h"; }
     else if (f.status === "Docked") loc = f === onLP && !f.legs.length ? "Launch Pad" : f.legs.length ? "Taxiing" : f.pad.label;
     else if (f.status === "Prelaunch") { loc = f.legs.length > 1 ? "Taxiing" : "Launch Pad"; tm = "T– " + mss(launchAt - t); }
-    else if (f.status === "Launching") { loc = f.x < DOOR ? "Launch Pad" : "Corridor"; tm = "Launched"; }
+    else if (f.status === "Launching") { loc = f.x < DOOR_M ? "Launch Pad" : "Corridor"; tm = "Launched"; }
     else if (f.status === "Inbound") {
       loc = !launch && c >= P_GO ? "Tractor Tow" : !launch && c >= P_DEP ? "Outer Marker" : "In Flight";
       tm = "ETA " + mss(nextRec - t);
@@ -473,6 +609,8 @@ L.every(250, (t) => {
   put(outside[2], p === 3 ? (launch ? "Outbound  ·  " + s.name : "Inbound  ·  " + s.name) : !launch && p > 0 && p < 3 ? "Holding  ·  " + s.name : "Clear");
   put(outside[3], towing ? "Locked  ·  " + s.name : emitter ? "Acquiring" : "Standby");
   put(outside[4], `${away.length} Away  ·  ${FLEET.length - away.length} Aboard`);
+  if (UP) put(outside[5], pill.textContent);
+  if (UW) extra(t, c, p);
 }, 0);
 });
 </script></body></html>

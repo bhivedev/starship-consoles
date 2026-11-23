@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Navigation</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   #scan { position: absolute; left: 1060px; top: 1140px; width: 1680px; height: 948px; overflow: hidden;
@@ -18,20 +19,38 @@
 const L = LCARS;
 L.ready(() => {
 
+// ---------------- the layout, per shape ----------------
+// The readouts, the scan and all the motion are written once; only positions and sizes differ.
+// wide (3840 × 2160): as it always was, every number literal.
+// upright (2160 × 3120): the readout bracket across the top; under it the left column and the two
+//   button columns exactly as wide, with the scan (1076 × 948) and its titles, pills and bars to
+//   their right; at the foot, the gold right-hand panel turned on its side: number grid, calibrate
+//   buttons and the navigation dial side by side.
+// ultrawide (5040 × 2160): the wide layout with the scan side 1200 longer (bracket, readouts, bars,
+//   a title rail and the scan itself, with more contacts and a fourth reticle); the right-hand
+//   panel moves out 1200.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const DX = L.W - 3840;                                   // how far the right-hand edge moves
+const RB = UP ? -604 : UW ? 1200 : 0;                    // the scan side's right edge: 2740 + RB
+
 // ---------------- header ----------------
-L.box({ x: 3726, y: 24, w: 90, h: 72, c: "gold", r: "r" });
-const navLeft = L.title({ x: 3726 - L.GAP, y: 24, h: 72, c: "gold", txt: "Navigation" });
+L.box({ x: 3726 + DX, y: 24, w: 90, h: 72, c: "gold", r: "r" });
+const navLeft = L.title({ x: 3726 + DX - L.GAP, y: 24, h: 72, c: "gold", txt: "Navigation" });
 L.rect({ x: 0, y: 24, w: navLeft - L.GAP, h: 72, c: "gold" });
 
 // ---------------- the readout bracket, top left ----------------
-L.elbow({ corner: "tl", x: 44, y: 130, w: 2416, h: 230, bw: 180, bh: 60, R: 110, r: 40, c: "gold" });
-L.elbow({ corner: "bl", x: 44, y: 368, w: 2696, h: 200, bw: 180, bh: 40, R: 100, r: 36, c: "gold" });
-L.rect({ x: 2480, y: 130, w: 110, h: 60, c: "gold" });
-L.rect({ x: 2610, y: 130, w: 130, h: 60, c: "tan" });
-const readout = L.numbers({ x: 284, y: 206, s: 42, rows: 6, blank: 0.12, c: "sky",
-  cols: [{ w: 110, n: 4 }, { w: 110, n: 4 }, { w: 110, n: 4 }, { w: 330, n: 13 }, { w: 70, n: 1 },
+L.elbow({ corner: "tl", x: 44, y: 130, w: 2416 + RB, h: 230, bw: 180, bh: 60, R: 110, r: 40, c: "gold" });
+L.elbow({ corner: "bl", x: 44, y: 368, w: 2696 + RB, h: 200, bw: 180, bh: 40, R: 100, r: 36, c: "gold" });
+L.rect({ x: 2480 + RB, y: 130, w: 110, h: 60, c: "gold" });
+L.rect({ x: 2610 + RB, y: 130, w: 130, h: 60, c: "tan" });
+const readCols = [{ w: 110, n: 4 }, { w: 110, n: 4 }, { w: 110, n: 4 }, { w: 330, n: 13 }, { w: 70, n: 1 },
          { w: 120, n: 4 }, { w: 120, n: 4 }, { w: 120, n: 4 }, { w: 120, n: 4 }, { w: 120, n: 4 }, { w: 120, n: 4 },
-         { w: 120, n: 3 }, { w: 70, n: 1 }, { w: 70, n: 1 }, { w: 600, n: 24, c: "ice" }] });
+         { w: 120, n: 3 }, { w: 70, n: 1 }, { w: 70, n: 1 }, { w: 600, n: 24, c: "ice" }];
+const readout = L.numbers({ x: 284, y: 206, s: 42, rows: 6, blank: 0.12, c: "sky",
+  cols: UP ? [...readCols.slice(0, 8), ...readCols.slice(11, 14), { w: 380, n: 24, c: "ice" }]      // 284 → 2014
+      : UW ? [...readCols.slice(0, 14), { w: 120, n: 4 }, { w: 120, n: 4 }, { w: 120, n: 4 }, { w: 330, n: 13 }, { w: 70, n: 1 },
+              { w: 120, n: 4 }, { w: 120, n: 4 }, { w: 200, n: 6 }, readCols[14]]                   // 1200 more
+      : readCols });
 L.every(110, () => readout.tick(2));
 
 // ---------------- left column ----------------
@@ -106,44 +125,89 @@ init.style.alignItems = "flex-start"; init.style.paddingTop = "10px";
 
 // the bars that run out over the scan
 const seg = (y, list) => list.forEach(([x, w, c, label]) => L.box({ x, y, w, h: 40, c, label, fs: 24 }));
+if (UP) {                                                // 1170 → 2136
+  seg(1020, [[1170, 250, "navy", "16-85245"], [1430, 220, "ice", ""], [1660, 220, "sky", "16-85245"], [1890, 216, "sky", "16-85245"], [2116, 20, "sky", ""]]);
+  seg(1070, [[1170, 250, "ice", "16-85245"], [1430, 220, "navy", ""], [1660, 220, "navy", "16-85245"], [1890, 216, "slate", "16-85245"], [2116, 20, "ice", ""]]);
+} else if (UW) {                                         // 1170 → 3940
+  seg(1020, [[1170, 330, "navy", "16-85245"], [1510, 400, "ice", ""], [1920, 400, "sky", "16-85245"], [2330, 370, "sky", "16-85245"],
+             [2710, 390, "ice", ""], [3110, 400, "sky", "16-85245"], [3520, 390, "navy", "16-85245"], [3920, 20, "sky", ""]]);
+  seg(1070, [[1170, 330, "ice", "16-85245"], [1510, 400, "navy", ""], [1920, 400, "navy", "16-85245"], [2330, 370, "slate", "16-85245"],
+             [2710, 390, "navy", ""], [3110, 400, "slate", "16-85245"], [3520, 390, "ice", "16-85245"], [3920, 20, "ice", ""]]);
+} else {
 seg(1020, [[1170, 330, "navy", "16-85245"], [1510, 400, "ice", ""], [1920, 400, "sky", "16-85245"], [2330, 370, "sky", "16-85245"], [2710, 30, "sky", ""]]);
 seg(1070, [[1170, 330, "ice", "16-85245"], [1510, 400, "navy", ""], [1920, 400, "navy", "16-85245"], [2330, 370, "slate", "16-85245"], [2710, 30, "ice", ""]]);
-const prog = L.layer({ x: 1510, y: 1070, w: 400, h: 40 });
+}
+const prog = UP ? L.layer({ x: 1430, y: 1070, w: 220, h: 40 }) : L.layer({ x: 1510, y: 1070, w: 400, h: 40 });
 prog.style.background = "var(--ice)"; prog.style.transformOrigin = "0 0";
 
 // ---------------- titles and the small readouts ----------------
-L.text({ x: 2740, y: 590, s: 132, c: "sky", txt: "Long Range Scan 28741", align: "r" });
+const lrTitle = L.text({ x: 2740 + RB, y: 590, s: 132, c: "sky", txt: "Long Range Scan 28741", align: "r" });
+if (UW) {   // ultrawide: a rail runs in from the bars' left edge to one gap before the title
+  const tl = 2740 + RB - lrTitle.offsetWidth, ry = 590 + L.CAP_TOP * 132, rh = (L.BASELINE - L.CAP_TOP) * 132;
+  L.box({ x: 1170, y: ry, w: 330, h: rh, c: "navy", label: "28741", fs: 24, r: "l" });
+  L.box({ x: 1510, y: ry, w: 400, h: rh, c: "ice" });
+  L.box({ x: 1920, y: ry, w: tl - L.GAP - 1920, h: rh, c: "sky", label: "Sector 21503", fs: 24 });
+}
+const miniCols = [{ w: 60, n: 2 }, { w: 70, n: 3 }, { w: 80, n: 4 }, { w: 250, n: 13 }, { w: 60, n: 2 }, { w: 60, n: 2 }, { w: 20, n: 0 },
+         { w: 60, n: 2 }, { w: 90, n: 4 }, { w: 80, n: 4 }, { w: 0, n: 0 }];
 const mini = L.numbers({ x: 1180, y: 734, s: 34, rows: 5, blank: 0.3, c: "sky",
-  cols: [{ w: 60, n: 2 }, { w: 70, n: 3 }, { w: 80, n: 4 }, { w: 250, n: 13 }, { w: 60, n: 2 }, { w: 60, n: 2 }, { w: 20, n: 0 },
-         { w: 60, n: 2 }, { w: 90, n: 4 }, { w: 80, n: 4 }, { w: 0, n: 0 }] });
+  cols: UP ? miniCols.slice(0, 3)                                         // 1180 → 1390, clear of the pills
+      : UW ? [...miniCols.slice(0, 10), ...miniCols.slice(0, 10), { w: 120, n: 4 }, { w: 120, n: 4 }, { w: 130, n: 5 }]
+      : miniCols });
 L.every(170, () => mini.tick(1));
 const pills = [[2040, 730, "slate", "78-105"], [2280, 730, "olive", "7-4656"], [2520, 730, "sky", "16-85245"],
                [2040, 836, "olive", "7-4205"], [2280, 836, "sunset", "1-701E"], [2520, 836, "ice", "16-85245"]]
-  .map(([x, y, c, label]) => L.box({ x, y, w: 220, h: 92, c, label, r: "lr", fs: 38 }));
-L.text({ x: 2740, y: 936, s: 70, c: "sky", txt: "Scan Parameters 581257-365", align: "r" });
+  .map(([x, y, c, label]) => L.box({ x: x + RB, y, w: 220, h: 92, c, label, r: "lr", fs: 38 }));
+L.text({ x: 2740 + RB, y: 936, s: 70, c: "sky", txt: "Scan Parameters 581257-365", align: "r" });
 
 // ---------------- the scan ----------------
 const scan = L.el("div", "boot", L.stage); scan.id = "scan";
-const SW = 1680, SH = 948;
+const SW = UP ? 1076 : UW ? 2880 : 1680, SH = 948;
+if (L.shape !== "wide") scan.style.width = SW + "px";      // left 1060, top 1140 as wide
 const starLayer = L.layer({ x: 0, y: 0, w: SW * 2, h: SH }, scan);
 const stars = L.canvas({ x: 0, y: 0, w: SW * 2, h: SH }, starLayer);
 { // stars in the first half, copied into the second, so the drift wraps without a seam
-  const pts = L.stars(stars, 520, ["#3550d8", "#2a44c0", "#5c7dff", "#8aa4ff"], 3.4);
+  const pts = L.stars(stars, L.shape === "wide" ? 520 : Math.round(520 * SW / 1680), ["#3550d8", "#2a44c0", "#5c7dff", "#8aa4ff"], 3.4);
   const first = pts.filter((p) => p[0] < SW);
   pts.length = 0;
   for (const p of first) pts.push(p, [p[0] + SW, p[1], p[2], p[3]]); }
 const grid = L.svg("svg", { width: SW, height: SH, viewBox: `0 0 ${SW} ${SH}`, style: "position:absolute;left:0;top:0" }, scan);
+// the plotted course (drawn below); fixed here so the grid labels can keep clear of it
+const course0 = [[180, 760], [520, 610], [860, 640], [1180, 400], [1540, 250]];
+// other shapes: the destination sits 230 px past a grid line, as in wide (line 1310, star 1540),
+// so its name never meets that line's label: upright line 454 → 684, ultrawide line 2150 → 2380
+const KX = UP ? 684 / 1540 : 2380 / 1540;
+const course = L.shape === "wide" ? course0 : course0.map(([x, y]) => [Math.round(x * KX), y]);
 const gx = [0.04, 0.27, 0.53, 0.78], gy = [0.14, 0.43, 0.72];
+if (L.shape === "wide") {
 gx.forEach((u) => L.svg("rect", { x: u * SW, y: 0, width: 4, height: SH, fill: "#2648e8" }, grid));
 gy.forEach((u) => L.svg("rect", { x: 0, y: u * SH, width: SW, height: 4, fill: "#2648e8" }, grid));
 gy.forEach((v) => gx.forEach((u) => {
   const lb = L.el("div", "glabel", scan); lb.style.left = u * SW + 12 + "px"; lb.style.top = v * SH + 14 + "px"; lb.textContent = L.digits(4);
 }));
+} else {   // the grid keeps wide's spacing (420 px), with as many lines as the scan's width holds
+  const gpx = gx.map((u) => u * 1680).filter((x) => x < SW - 140);
+  while (gpx[gpx.length - 1] + 420 < SW - 140) gpx.push(gpx[gpx.length - 1] + 420);
+  gpx.forEach((x) => L.svg("rect", { x, y: 0, width: 4, height: SH, fill: "#2648e8" }, grid));
+  gy.forEach((u) => L.svg("rect", { x: 0, y: u * SH, width: SW, height: 4, fill: "#2648e8" }, grid));
+  gy.forEach((v) => gpx.forEach((x) => {
+    if (x < 200 && v < 0.2) return;                     // the big readout sits over this one
+    const lb = L.el("div", "glabel", scan); lb.style.left = x + 12 + "px"; lb.style.top = v * SH + 14 + "px"; lb.textContent = L.digits(4);
+    // a label the dashed course runs through (or within 16 px of) is left out
+    const x0 = x + 12 - 16, x1 = x + 12 + lb.offsetWidth + 16, y0 = v * SH + 14 - 16, y1 = v * SH + 14 + lb.offsetHeight + 16;
+    const hit = course.slice(1).some(([bx, by], i) => {
+      const [ax, ay] = course[i];
+      for (let k = 0; k <= 40; k++) { const px = ax + (bx - ax) * k / 40, py = ay + (by - ay) * k / 40;
+        if (px > x0 && px < x1 && py > y0 && py < y1) return true; }
+      return false;
+    });
+    if (hit) lb.remove();
+  }));
+}
 const big = L.el("div", "t", scan, { left: "40px", top: "34px", fontSize: "78px", color: "var(--olive)", lineHeight: "1.05" });
 big.innerHTML = "259584<br>50893.1";
 
 // a plotted course, and the ship travelling it
-const course = [[180, 760], [520, 610], [860, 640], [1180, 400], [1540, 250]];
 grid.appendChild(Object.assign(document.createElementNS("http://www.w3.org/2000/svg", "polyline"), {}));
 const pl = grid.lastChild;
 pl.setAttribute("points", course.map((p) => p.join(",")).join(" "));
@@ -152,6 +216,7 @@ course.forEach(([x, y], i) => L.svg("circle", { cx: x, cy: y, r: i === course.le
   stroke: "#ffcc66", "stroke-width": 4 }, grid));
 const dest = L.el("div", "t", scan, { left: "1440px", top: "176px", fontSize: "36px", color: "var(--butter)" });
 dest.textContent = L.pick(["Starbase 74", "Deep Space 9", "Starbase 133", "Bajor Sector", "Deneb IV", "Rigel Colonies"]);
+if (L.shape !== "wide") dest.style.left = course[course.length - 1][0] - 100 + "px";
 const ship = L.layer({ x: 0, y: 0, w: 34, h: 32, cls: "ship" }, scan);
 const shipLbl = L.layer({ x: 0, y: 0, w: 400, h: 80 }, scan);
 shipLbl.className += " t"; shipLbl.style.fontSize = "30px"; shipLbl.style.color = "var(--butter)"; shipLbl.style.lineHeight = "1.15";
@@ -165,7 +230,7 @@ const along = (d) => {
   }
   const e = course[course.length - 1]; return [e[0], e[1], 0];
 };
-const trip = 150;   // seconds, start to finish
+const trip = L.shape === "wide" ? 150 : Math.round(150 * total / 1503);   // seconds, start to finish (wide's course: 1503 px)
 const tripStart = L.rand(0, 0.5) * trip;
 L.tick((t) => {
   const d = (((t + tripStart) % trip) / trip) * total, [x, y, a] = along(d);
@@ -178,7 +243,7 @@ L.every(1000, (t) => {
 }, 0);
 
 // contacts: blips that answer the sweep
-const blips = Array.from({ length: 9 }, () => {
+const blips = Array.from({ length: UP ? 6 : UW ? 15 : 9 }, () => {
   const b = L.layer({ x: 0, y: 0, w: 18, h: 18, cls: "blip" }, scan);
   b.x = L.rand(60, SW - 60); b.y = L.rand(60, SH - 60); b.hit = -9;
   L.move(b, b.x - 9, b.y - 9); b.style.opacity = 0.25;
@@ -187,7 +252,7 @@ const blips = Array.from({ length: 9 }, () => {
 
 // the sweep
 const sweep = L.layer({ x: 0, y: 0, w: 260, h: SH }, scan); sweep.id = "sweep";
-const SWEEP = 7.5;
+const SWEEP = L.shape === "wide" ? 7.5 : 1.5 + 6 * (SW + 260) / 1940;   // the same speed across any width
 L.tick((t) => {
   const u = (t % SWEEP) / (SWEEP - 1.5);
   const x = -260 + u * (SW + 260);
@@ -217,8 +282,19 @@ const reticle = (withCoords) => {
   }
   return r;
 };
-const rets = [reticle(true), reticle(false), reticle(false)];
-const retarget = (r, t) => { r.from = r.pos; r.to = [L.rand(120, SW - 260), L.rand(110, SH - 180)]; r.t0 = t; r.dur = L.rand(1.6, 3); r.next = t + r.dur + L.rand(3, 7); };
+const rets = UW ? [reticle(true), reticle(false), reticle(false), reticle(false)] : [reticle(true), reticle(false), reticle(false)];
+const retarget = L.shape === "wide"
+  ? (r, t) => { r.from = r.pos; r.to = [L.rand(120, SW - 260), L.rand(110, SH - 180)]; r.t0 = t; r.dur = L.rand(1.6, 3); r.next = t + r.dur + L.rand(3, 7); }
+  : (r, t) => {   // other shapes: pick a spot clear of where the other reticles are going, so they don't pile up
+      let to, best = -1;
+      for (let k = 0; k < 8; k++) {
+        const c = [L.rand(120, SW - 260), L.rand(110, SH - 180)];
+        const d = Math.min(...rets.filter((o) => o !== r).map((o) => Math.max(Math.abs(o.to[0] - c[0]) / 1.6, Math.abs(o.to[1] - c[1]) / 2)));
+        if (d > best) { best = d; to = c; }
+        if (d > 160) break;
+      }
+      r.from = r.pos; r.to = to; r.t0 = t; r.dur = L.rand(1.6, 3); r.next = t + r.dur + L.rand(3, 7);
+    };
 rets.forEach((r, i) => (r.next = 1.5 + i * 2.2));
 L.tick((t) => {
   for (const r of rets) {
@@ -239,32 +315,45 @@ L.every(140, () => {
 L.every(900, () => { big.innerHTML = `${L.digits(6)}<br>${L.digits(5)}.${L.irand(0, 9)}`; });
 
 // ---------------- the right-hand panel ----------------
-L.elbow({ corner: "tl", x: 2800, y: 130, w: 1016, h: 560, bw: 120, bh: 60, R: 220, r: 90, c: "gold" });
-L.rect({ x: 2800, y: 698, w: 120, h: 640, c: "gold" });
-L.rect({ x: 2800, y: 1346, w: 120, h: 90, c: "tan" });
-L.elbow({ corner: "bl", x: 2800, y: 1444, w: 1016, h: 644, bw: 120, bh: 60, R: 220, r: 90, c: "gold" });
+// upright: the panel turned on its side across the foot of the page (y 2124 → 3072): the number
+// grid at the left, the calibrate buttons in a column, the dial at the right
+const PX = UP ? -2756 : UW ? 1200 : 0, PY = UP ? 1964 : 0;   // the grid's move from wide
+if (UP) {
+  L.elbow({ corner: "tl", x: 44, y: 2124, w: 2092, h: 380, bw: 120, bh: 40, R: 180, r: 60, c: "gold" });
+  L.rect({ x: 44, y: 2512, w: 120, h: 170, c: "gold" });
+  L.rect({ x: 44, y: 2690, w: 120, h: 90, c: "tan" });
+  L.elbow({ corner: "bl", x: 44, y: 2788, w: 2092, h: 284, bw: 120, bh: 40, R: 180, r: 60, c: "gold" });
+} else {
+L.elbow({ corner: "tl", x: 2800 + PX, y: 130, w: 1016, h: 560, bw: 120, bh: 60, R: 220, r: 90, c: "gold" });
+L.rect({ x: 2800 + PX, y: 698, w: 120, h: 640, c: "gold" });
+L.rect({ x: 2800 + PX, y: 1346, w: 120, h: 90, c: "tan" });
+L.elbow({ corner: "bl", x: 2800 + PX, y: 1444, w: 1016, h: 644, bw: 120, bh: 60, R: 220, r: 90, c: "gold" });
+}
 
 const pal = [["violet", "navy", "orange", "ice"], ["violet", "navy", "", "ice"], ["", "", "navy", "peach"], ["orange", "peach", "orange", "orange"],
   ["orange", "peach", "orange", "peach"], ["navy", "navy", "", "peach"], ["", "", "orange", "peach"], ["ice", "ice", "peach", "navy"], ["orange", "navy", "peach", "violet"]];
 const bigNums = [];
 pal.forEach(([a, b, c, d], i) => {
-  const y = 246 + i * 88;
-  if (a) L.box({ x: 2984, y, w: 60, h: 70, c: a, r: "l" });
-  if (b) L.box({ x: 3050, y, w: 190, h: 70, c: b, label: "2-256", fs: 26 });
-  const n = L.text({ x: 3390, y: y - 6, s: 92, c: i % 3 === 0 ? "orange" : "peach", txt: String(L.irand(2, 48)), align: "r" });
+  const y = 246 + PY + i * 88;
+  if (a) L.box({ x: 2984 + PX, y, w: 60, h: 70, c: a, r: "l" });
+  if (b) L.box({ x: 3050 + PX, y, w: 190, h: 70, c: b, label: "2-256", fs: 26 });
+  const n = L.text({ x: 3390 + PX, y: y - 6, s: 92, c: i % 3 === 0 ? "orange" : "peach", txt: String(L.irand(2, 48)), align: "r" });
   bigNums.push(n);
-  L.box({ x: 3412, y, w: 24, h: 70, c: i % 2 ? "orange" : "navy" });
-  if (c) L.box({ x: 3446, y, w: 190, h: 70, c, label: "2-256", r: "r", fs: 26 });
-  L.box({ x: 3660, y, w: 140, h: 70, c: d, label: "2-256", r: "lr", fs: 26 });
+  L.box({ x: 3412 + PX, y, w: 24, h: 70, c: i % 2 ? "orange" : "navy" });
+  if (c) L.box({ x: 3446 + PX, y, w: 190, h: 70, c, label: "2-256", r: "r", fs: 26 });
+  L.box({ x: 3660 + PX, y, w: 140, h: 70, c: d, label: "2-256", r: "lr", fs: 26 });
 });
 L.every(1700, () => { const n = L.pick(bigNums); n.textContent = L.irand(2, 48); });
 
+if (UP) [["ice", "Calibrate"], ["orange", "1800"], ["butter", "Reset"], ["orange", "1802"], ["peach", "2002"], ["peach", "2004"]]
+  .forEach(([c, label], i) => L.box({ x: 1086, y: 2348 + i * 86, w: 160, h: 70, c, label, r: i > 3 ? "lr" : "", fs: 30 }));
+else
 [[2984, 1060, 240, "ice", "Calibrate", ""], [3234, 1060, 110, "orange", "1800", "l"], [3350, 1060, 150, "butter", "Reset", ""],
  [3506, 1060, 110, "orange", "1802", "r"], [3640, 1060, 160, "peach", "2002", "lr"], [3640, 1146, 160, "peach", "2004", "lr"]]
-  .forEach(([x, y, w, c, label, r]) => L.box({ x, y, w, h: 70, c, label, r, fs: 30 }));
+  .forEach(([x, y, w, c, label, r]) => L.box({ x: x + PX, y, w, h: 70, c, label, r, fs: 30 }));
 
 // the navigation dial
-const cx = 3380, cy = 1610;
+const cx = UP ? 1702 : 3380 + PX, cy = UP ? 2598 : 1610;
 const dial = L.svg("g", { class: "boot" });
 const seg2 = (r1, r2, a0, a1, c, label) => {
   L.svg("path", { d: L.arc(cx, cy, r1, r2, a0, a1), fill: `var(--${c})` }, dial);

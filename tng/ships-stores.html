@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Ship's Stores</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .sw { transition: background-color .8s ease, color .8s ease; }
@@ -15,12 +16,30 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame, mirrored: sidebar on the right, title at top left ----------------
-L.frame({ type: "B", title: "Ship's Stores  •  Supply", c: "tan", c2: "orange", accent: "peach", foot: "Stores",
+const B = L.frame({ type: "B", title: "Ship's Stores  •  Supply", c: "tan", c2: "orange", accent: "peach", foot: "Stores",
   side: [[140, "orange", "Stores 39"], [70, "peach", "Supply"], [420, "tan", "Inventory"], [70, "butter", "Manifest"],
          [300, "orange", "Requisitions"], [70, "peach", "Bay 2"], [216, "tan", "Quartermaster"]] });
 
 // two columns: inventory and requisitions 40–2080, the resupply and the bay 2140–3520
 const L0 = 40, L1 = 2080, R0 = 2140, R1 = 3520;
+
+// ---------------- the grid, per shape ----------------
+// The data, readings and motion below are written once; only these positions differ by shape.
+// wide (3840 × 2160): as above, two columns over a bottom strip of three panels.
+// upright (2160 × 3120, content 40–1840): the inventory chart full width; the resupply (40–1160)
+//   beside Cargo Bay 2 (1220–1840, its 32 slots four across and eight down); the requisitions full
+//   width; the log (40–900) beside the next pallets (960–1840); the departments, three by two, at the foot.
+// ultrawide (5040 × 2160, content 40–4720): the wide columns unchanged, and a third (3580–4720):
+//   the reorder watch, the pallets held in the bay, and what was stowed this shift.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const CL1 = UP ? 1840 : L1;                                        // the chart and the requisitions: right edge
+const RS0 = UP ? 40 : R0, RS1 = UP ? 1160 : R1, RSY = UP ? 976 : 280;   // the resupply: edges, header line
+const BY0 = UP ? 1220 : R0, BY1 = UP ? 1840 : R1, BYY = UP ? 976 : 1000; // cargo bay 2
+const QY = UP ? 1672 : 1000;                                         // the requisitions' header line
+const SY = UP ? 2316 : 1620;                                         // the strip under them: log, next pallets
+const N0 = 3580, N1 = B.x1;                                          // ultrawide: the third column
+const bad = [];                                                      // words that would not fit their places
+const fits = (txt, s, w, where) => { if (!UP && !UW) return; if (L.textWidth(txt, s) > w) bad.push(`${where}: "${txt}"`); };
 const TRACK = "#2a1e12", DARK = "#3a2a18";
 const pad = (n, k = 2) => String(n).padStart(k, "0");
 const op = (e, v) => { v = v < 0.005 ? "0" : v > 0.995 ? "1" : v.toFixed(3); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
@@ -64,15 +83,17 @@ const note = (t, txt, who) => { log.push([clockAt(t), txt, who]); if (log.length
 // ---------------- status line ----------------
 const BIG = 100, stateTxt = L.text({ x: L0, cap: 150, s: BIG, c: "orange", txt: "" });
 const sub = L.text({ x: L0, base: 222, s: 38, c: "tan", txt: "" });
-const remPill = L.box({ x: R1 - 480, y: 150, w: 480, h: 72, c: "peach", label: "", r: "lr", fs: 36 });
+const remPill = L.box({ x: B.x1 - 480, y: 150, w: 480, h: 72, c: "peach", label: "", r: "lr", fs: 36 });
 
 // ---------------- inventory by category: a column each ----------------
-L.header({ x: L0, y: 280, w: L1 - L0, label: "Inventory by Category  ·  Percent of Capacity", c1: "tan", c2: "orange" });
-const YT = 440, YB = 760, CH = YB - YT, CX0 = 152, CP = 164, CW = 124;
+L.header({ x: L0, y: 280, w: CL1 - L0, label: "Inventory by Category  ·  Percent of Capacity", c1: "tan", c2: "orange" });
+// upright: twelve columns on a 147 pitch, the last flush with the content edge, the scale closer in
+// (columns 119 wide from 104, so the last name runs past the edge by no more than wide's does)
+const YT = 440, YB = 760, CH = YB - YT, CX0 = UP ? 104 : 152, CP = UP ? 147 : 164, CW = UP ? 119 : 124;
 const yOf = (v) => YB - (v / 100) * CH;
 // the key, on the line under the header, flush right; the overall figure flush left
 const KEY = [["On Hand", "orange", 20], ["In Cargo Bay 2", "tan", 20], [`Reorder Point ${REORDER}%`, "mars", 4]];
-let kx = L1 - KEY.reduce((a, [txt]) => a + 66 + L.textWidth(txt, 36), 0) - 56 * (KEY.length - 1);
+let kx = CL1 - KEY.reduce((a, [txt]) => a + 66 + L.textWidth(txt, 36), 0) - 56 * (KEY.length - 1);
 KEY.forEach(([txt, c, h]) => {
   L.rect({ x: kx, y: 404 - 13 - h / 2, w: 48, h, c });
   L.text({ x: kx + 66, base: 404, s: 36, c: "peach", txt });
@@ -81,8 +102,8 @@ KEY.forEach(([txt, c, h]) => {
 const allT = L.text({ x: L0, base: 404, s: 36, c: "white", txt: "" });
 for (const v of [0, 20, 40, 60, 80, 100]) {
   const y = yOf(v);
-  L.rect({ x: CX0, y: y - 1, w: L1 - CX0, h: 2, c: "#3a2c1c", free: true });
-  L.text({ x: 128, base: y + 10.8, s: 30, c: "lilac", txt: String(v), align: "r", legend: true });
+  L.rect({ x: CX0, y: y - 1, w: CL1 - CX0, h: 2, c: "#3a2c1c", free: true });
+  L.text({ x: UP ? CX0 - 24 : 128, base: y + 10.8, s: 30, c: "lilac", txt: String(v), align: "r", legend: true });
 }
 CATS.forEach((c, i) => {
   const x = CX0 + i * CP;
@@ -93,7 +114,7 @@ CATS.forEach((c, i) => {
   L.text({ x: x + CW / 2, base: 876, s: 40, c: "tan", txt: c.name, align: "c", w: CP });
 });
 // the reorder point, drawn over the columns
-const rl = fill(CX0, yOf(REORDER) - 2, L1 - CX0, 4, "mars");
+const rl = fill(CX0, yOf(REORDER) - 2, CL1 - CX0, 4, "mars");
 op(rl, 0.85);
 L.tick(() => CATS.forEach((c) => {
   const d = c.n - c.shown, g = c.n + c.bay - c.gshown;
@@ -108,12 +129,12 @@ L.tick(() => CATS.forEach((c) => {
 L.every(500, () => L.set(allT, `All Stores  ${Math.round(CATS.reduce((a, c) => a + c.shown, 0) / CATS.length)}% of Capacity`), 0);
 
 // ---------------- resupply: the cargo transporter, starbase to bay ----------------
-L.header({ x: R0, y: 280, w: R1 - R0, label: "Resupply  ·  Starbase 74", c1: "orange", c2: "tan" });
-const manT = L.text({ x: R0, base: 404, s: 36, c: "peach", txt: "" });
-L.text({ x: R1, base: 404, s: 36, c: "lilac", txt: "Holding Position  ·  Range 16 km", align: "r" });
-const DY = 436, DH = 180, BW = 320;
-const CHX0 = R0 + BW + L.GAP, CHX1 = R1 - BW - L.GAP;            // the channel between the two
-L.box({ x: R0, y: DY, w: BW, h: DH, c: "tan", label: "Starbase 74", r: "l" });
+L.header({ x: RS0, y: RSY, w: RS1 - RS0, label: "Resupply  ·  Starbase 74", c1: "orange", c2: "tan" });
+const manT = L.text({ x: RS0, base: RSY + 124, s: 36, c: "peach", txt: "" });
+L.text({ x: RS1, base: RSY + 124, s: 36, c: "lilac", txt: "Holding Position  ·  Range 16 km", align: "r" });
+const DY = RSY + 156, DH = 180, BW = UP ? 224 : 320;
+const CHX0 = RS0 + BW + L.GAP, CHX1 = RS1 - BW - L.GAP;            // the channel between the two
+L.box({ x: RS0, y: DY, w: BW, h: DH, c: "tan", label: "Starbase 74", r: "l" });
 L.box({ x: CHX1 + L.GAP, y: DY, w: BW, h: DH, c: "orange", label: "Cargo Bay 2", r: "r" });
 L.rect({ x: CHX0, y: DY, w: CHX1 - CHX0, h: DH, c: "#1c140c", panel: true });
 const PW = 120, PH = 100, PY = DY + 22;
@@ -133,18 +154,18 @@ const stream = L.layer({ x: SX + PW + 24, y: PY + PH / 2 - 24, w: STW, h: 48, cl
 const bars = L.layer({ x: -32, y: 0, w: STW + 64, h: 48, cls: "bars" }, stream);
 op(stream, 0);
 const PHASES = [["Target Lock", "peach"], ["Dematerialize", "butter"], ["Pattern Buffer", "orange"], ["Rematerialize", "butter"]];
-const PGW = (R1 - R0 - 3 * 16) / 4;
-const phaseBox = PHASES.map(([name], k) => L.box({ x: R0 + k * (PGW + 16), y: 640, w: PGW, h: 48, c: DARK, label: name, fs: 28,
+const PGW = (RS1 - RS0 - 3 * 16) / 4;
+const phaseBox = PHASES.map(([name], k) => L.box({ x: RS0 + k * (PGW + 16), y: RSY + 360, w: PGW, h: 48, c: DARK, label: name, fs: 28,
   r: k === 0 ? "l" : k === 3 ? "r" : null, cls: "sw" }));
 const showPhase = (k) => phaseBox.forEach((b, j) => { const c = PHASES[j][1]; bg(b, j <= k ? c : DARK); fg(b, j <= k ? "#000" : c); op(b, j < k ? 0.5 : 1); });
-const RD = [["Pallet", R0, "l"], ["Contents", CHX0, "l"], ["Mass", CHX1, "r"], ["Pattern Integrity", R1, "r"]].map(([txt, x, align]) => {
-  L.text({ x, base: 760, s: 40, c: "tan", txt, align });
-  return L.text({ x, base: 820, s: 52, c: "white", txt: "", align });
+const RD = [["Pallet", RS0, "l"], ["Contents", CHX0, "l"], ["Mass", CHX1, "r"], ["Pattern Integrity", RS1, "r"]].map(([txt, x, align]) => {
+  L.text({ x, base: RSY + 480, s: 40, c: "tan", txt, align });
+  return L.text({ x, base: RSY + 540, s: 52, c: "white", txt: "", align });
 });
-L.text({ x: R0, base: 876, s: 40, c: "tan", txt: "Received" });
-L.rect({ x: CHX0, y: 876 - 26, w: CHX1 - CHX0, h: 26, c: TRACK });
-const recBar = fill(CHX0, 876 - 26, CHX1 - CHX0, 26, "orange");
-const recT = L.text({ x: R1, base: 876, s: 40, c: "white", txt: "", align: "r" });
+L.text({ x: RS0, base: RSY + 596, s: 40, c: "tan", txt: "Received" });
+L.rect({ x: CHX0, y: RSY + 596 - 26, w: CHX1 - CHX0, h: 26, c: TRACK });
+const recBar = fill(CHX0, RSY + 596 - 26, CHX1 - CHX0, 26, "orange");
+const recT = L.text({ x: RS1, base: RSY + 596, s: 40, c: "white", txt: "", align: "r" });
 
 // ---------------- the manifest ----------------
 const man = { no: 2207, total: 140, done: L.irand(34, 58), pal: 0, next: [] };
@@ -161,13 +182,13 @@ const fillNext = () => { while (man.next.length < 7) man.next.push(newPallet());
 const palName = (p) => "P-" + pad(p.no, 3);
 
 // ---------------- requisitions: a queue, each moving through its stages ----------------
-L.header({ x: L0, y: 1000, w: L1 - L0, label: "Requisitions  ·  Open", c1: "orange", c2: "tan" });
-const QC = { dept: 224, item: 520, qty: 1000, to: 1040, st: 1360 };
+L.header({ x: L0, y: QY, w: CL1 - L0, label: "Requisitions  ·  Open", c1: "orange", c2: "tan" });
+const QC = UP ? { dept: 224, item: 400, qty: 740, to: 780, st: 1060 } : { dept: 224, item: 520, qty: 1000, to: 1040, st: 1360 };
 const STAGES = ["Submitted", "Approved", "Picking", "In Transit", "Delivered"];
-const SGW = (L1 - QC.st - 4 * 12) / 5;
+const SGW = (CL1 - QC.st - 4 * 12) / 5;
 [["Number", L0, "l"], ["Department", QC.dept, "l"], ["Item", QC.item, "l"], ["Qty", QC.qty, "r"], ["Deliver To", QC.to, "l"]]
-  .forEach(([txt, x, align]) => L.text({ x, base: 1124, s: 36, c: "lilac", txt, align }));
-STAGES.forEach((s, k) => L.text({ x: QC.st + k * (SGW + 12) + SGW, base: 1124, s: 36, c: "lilac", txt: s, align: "r" }));
+  .forEach(([txt, x, align]) => L.text({ x, base: QY + 124, s: 36, c: "lilac", txt, align }));
+STAGES.forEach((s, k) => L.text({ x: QC.st + k * (SGW + 12) + SGW, base: QY + 124, s: 36, c: "lilac", txt: s, align: "r" }));
 const REQS = [
   ["Engineering", "EPS conduit sections", "Conduit", 4, 12, ["Main Engineering", "Deck 22", "Jefferies Tube 25"]],
   ["Engineering", "Isolinear chips", "Isolinear", 12, 48, ["Main Engineering", "Computer Core"]],
@@ -199,9 +220,9 @@ const newReq = (busy) => {
   return { no: ++rqNo, dept, item, cat: byName(cat), qty: L.irand(q0, q1), to: L.pick(to), amt: L.rand(0.8, 1.8),
            dur: DUR.map(([a, b]) => L.rand(a, b)) };
 };
-const RY = 1148, RP = 68, RH = 56, RB = 45.2, RN = 6;
+const RY = QY + 148, RP = 68, RH = 56, RB = 45.2, RN = 6;
 const rows = Array.from({ length: RN }, (_, i) => {
-  const e = L.layer({ x: L0, y: RY, w: L1 - L0, h: RH });
+  const e = L.layer({ x: L0, y: RY, w: CL1 - L0, h: RH });
   const at = (x) => x - L0;
   const r = {
     e, slot: i, s: 0, u: 0,
@@ -237,13 +258,15 @@ const styleRows = () => rows.forEach((r) => { bg(r.box, r.slot === 0 ? "butter" 
 styleRows();
 
 // ---------------- cargo bay 2: receiving ----------------
-L.header({ x: R0, y: 1000, w: R1 - R0, label: "Cargo Bay 2  ·  Receiving", c1: "tan", c2: "orange" });
-L.text({ x: R0, base: 1124, s: 36, c: "tan", txt: "Pallets in Bay" });
-const bayT = L.text({ x: R0 + L.textWidth("Pallets in Bay", 36) + 24, base: 1124, s: 36, c: "white", txt: "" });
-const stowT = L.text({ x: R1, base: 1124, s: 36, c: "lilac", txt: "", align: "r" });
-const GC = 8, GR = 4, GG = 16, GW = (R1 - R0 - (GC - 1) * GG) / GC, GH = (1544 - RY - (GR - 1) * GG) / GR;
+L.header({ x: BY0, y: BYY, w: BY1 - BY0, label: "Cargo Bay 2  ·  Receiving", c1: "tan", c2: "orange" });
+L.text({ x: BY0, base: BYY + 124, s: 36, c: "tan", txt: "Pallets in Bay" });
+const bayT = L.text({ x: BY0 + L.textWidth("Pallets in Bay", 36) + 24, base: BYY + 124, s: 36, c: "white", txt: "" });
+const stowT = L.text({ x: BY1, base: UP ? RSY + 596 : 1124, s: 36, c: "lilac", txt: "", align: "r" });
+// upright: four across and eight down, the top level with the transporter diagram's, down to 1524 above the stowing line
+const GC = UP ? 4 : 8, GR = UP ? 8 : 4, GG = UP ? 12 : 16, GY = UP ? DY : RY;
+const GW = (BY1 - BY0 - (GC - 1) * GG) / GC, GH = UP ? (1524 - GY - (GR - 1) * GG) / GR : (1544 - RY - (GR - 1) * GG) / GR;
 const slots = Array.from({ length: GC * GR }, (_, k) => {
-  const x = R0 + (k % GC) * (GW + GG), y = RY + Math.floor(k / GC) * (GH + GG);
+  const x = BY0 + (k % GC) * (GW + GG), y = GY + Math.floor(k / GC) * (GH + GG);
   L.rect({ x, y, w: GW, h: GH, c: "#1c140c", noalign: true });
   const e = L.layer({ x, y, w: GW, h: GH });
   const b = L.box({ x: 0, y: 0, w: GW, h: GH, c: "tan", label: "", fs: 28, cls: "sw" }, e);
@@ -274,7 +297,7 @@ const styleBay = () => {
   slots.forEach((s) => bg(s.b, s.p && s.order === newest ? "butter" : "tan"));
 };
 // stowing: the crew takes the oldest pallet in the bay down to the stores
-let nextStow = L.rand(3, 6), crews = 2;
+let nextStow = L.rand(3, 6), crews = 2, onStow = null;              // onStow: the ultrawide stowing list listens
 const stow = (t) => {
   const held = slots.filter((s) => s.p && s.goal === 1);
   if (!held.length) return;
@@ -282,6 +305,7 @@ const stow = (t) => {
   s.goal = 0;
   const c = s.p.cat;
   c.bay = Math.max(0, c.bay - s.p.amt); c.n = Math.min(98, c.n + s.p.amt);
+  if (onStow) onStow(t, s.p);
 };
 const showStow = () => L.set(stowT, `Stowing to Ship's Stores, Deck 39  ·  ${crews} Crews`);
 showStow();
@@ -409,10 +433,10 @@ L.tick((t) => {
 });
 
 // ---------------- the bottom strip: log, departments, the next pallets ----------------
-const LOGR = 1380;
-L.header({ x: L0, y: 1620, w: LOGR - L0, label: "Stores Log", c1: "tan", c2: "peach", h: 48 });
+const LOGR = UP ? 900 : 1380;
+L.header({ x: L0, y: SY, w: LOGR - L0, label: "Stores Log", c1: "tan", c2: "peach", h: 48 });
 const logRows = Array.from({ length: 6 }, (_, i) => {
-  const base = 1734 + i * 54;
+  const base = SY + 114 + i * 54;
   return { tm: L.text({ x: L0, base, s: 36, c: "orange", txt: "" }), tx: L.text({ x: 220, base, s: 36, c: "peach", txt: "" }),
            who: L.text({ x: LOGR, base, s: 36, c: "lilac", txt: "", align: "r" }) };
 });
@@ -422,13 +446,18 @@ function showLog() {
 }
 
 const DX = 1440, DSCALE = 40;
-L.header({ x: DX, y: 1620, w: L1 - DX, label: "Filled This Shift", c1: "orange", c2: "tan", h: 48 });
+// upright: at the foot (2796), full width, the six departments three across and two down (columns
+// 620 apart, each bar as long as wide's; 20 high, not 26, so a name between two bars is not read as a title)
+const FY = UP ? 2796 : 1620;
+L.header({ x: UP ? L0 : DX, y: FY, w: UP ? CL1 - L0 : L1 - DX, label: "Filled This Shift", c1: "orange", c2: "tan", h: 48 });
 const DBX = DX + 300, DBW = L1 - DBX;
 const deptRows = DEPTS.map((d, i) => {
-  const base = 1734 + i * 54;
-  L.text({ x: DX, base, s: 36, c: "tan", txt: d });
-  L.rect({ x: DBX, y: base - 26, w: DBW, h: 26, c: TRACK });
-  return { d, bar: fill(DBX, base - 26, DBW, 26, i % 2 ? "tan" : "orange"), n: L.text({ x: DBX - 24, base, s: 36, c: "white", txt: "", align: "r" }), shown: filled[d] };
+  const base = UP ? FY + 114 + Math.floor(i / 3) * 54 : 1734 + i * 54;
+  const dx = UP ? L0 + (i % 3) * 620 : DX, dbx = UP ? dx + 220 : DBX, dbw = UP ? 340 : DBW, by = UP ? base - 23 : base - 26, bh = UP ? 20 : 26;
+  L.text({ x: dx, base, s: 36, c: "tan", txt: d });
+  fits(d, 36, dbx - 24 - L.textWidth("40", 36) - 40 - dx, "department");
+  L.rect({ x: dbx, y: by, w: dbw, h: bh, c: TRACK });
+  return { d, bar: fill(dbx, by, dbw, bh, i % 2 ? "tan" : "orange"), n: L.text({ x: dbx - 24, base, s: 36, c: "white", txt: "", align: "r" }), shown: filled[d] };
 });
 L.tick(() => deptRows.forEach((r) => {
   const d = filled[r.d] - r.shown;
@@ -437,14 +466,15 @@ L.tick(() => deptRows.forEach((r) => {
   L.set(r.n, Math.round(r.shown));
 }));
 
-const MH = L.header({ x: R0, y: 1620, w: R1 - R0, label: "Next Pallets  ·  Manifest SB74-0000", c1: "peach", c2: "orange", h: 48 });
+const NX0 = UP ? 960 : R0, NX1 = UP ? CL1 : R1;
+const MH = L.header({ x: NX0, y: SY, w: NX1 - NX0, label: "Next Pallets  ·  Manifest SB74-0000", c1: "peach", c2: "orange", h: 48 });
 const manHdr = [...document.querySelectorAll(".bx")].pop();
-const MC = { cat: R0 + 160, what: R0 + 420, mass: R1 - 260 };
+const MC = UP ? { cat: NX0 + 130, what: NX0 + 310, mass: NX1 - 180 } : { cat: R0 + 160, what: R0 + 420, mass: R1 - 260 };
 const manRows = Array.from({ length: 6 }, (_, i) => {
-  const base = 1734 + i * 54;
-  return { no: L.text({ x: R0, base, s: 36, c: "orange", txt: "" }), cat: L.text({ x: MC.cat, base, s: 36, c: "tan", txt: "" }),
+  const base = SY + 114 + i * 54;
+  return { no: L.text({ x: NX0, base, s: 36, c: "orange", txt: "" }), cat: L.text({ x: MC.cat, base, s: 36, c: "tan", txt: "" }),
            what: L.text({ x: MC.what, base, s: 36, c: "peach", txt: "" }), mass: L.text({ x: MC.mass, base, s: 36, c: "white", txt: "", align: "r" }),
-           st: L.text({ x: R1, base, s: 36, c: "lilac", txt: "", align: "r" }) };
+           st: L.text({ x: NX1, base, s: 36, c: "lilac", txt: "", align: "r" }) };
 });
 function showManifest() {
   L.set(manHdr, `Next Pallets  ·  Manifest SB74-${man.no}`);
@@ -488,6 +518,118 @@ L.every(250, () => {
   L.set(sub, tr.st === "reconcile" ? `Manifest SB74-${man.no} received in full  ·  Cargo Bay 2  ·  Ship's Stores, Deck 39`
     : `Starbase 74 to Cargo Bay 2  ·  Manifest SB74-${man.no}  ·  Ship's Stores, Deck 39`);
 }, 0);
+
+// =====================================================================================
+// ULTRAWIDE ONLY: THE THIRD COLUMN (3580–4720) — the reorder watch, the pallets held, what was stowed
+// =====================================================================================
+if (UW) {
+  const NC = { bar: N0 + 170, barW: 300, hand: N0 + 600, bay: N0 + 780, queued: N0 + 920 };
+  // ---- the reorder watch: the six lowest categories, re-ranked every half second ----
+  L.header({ x: N0, y: 280, w: N1 - N0, label: "Reorder Watch  ·  Lowest Stocks", c1: "peach", c2: "tan" });
+  [["Category", N0, "l"], ["On Hand", NC.hand, "r"], ["In Bay", NC.bay, "r"], ["Queued", NC.queued, "r"], ["Status", N1, "r"]]
+    .forEach(([txt, x, align]) => L.text({ x, base: 404, s: 36, c: "lilac", txt, align }));
+  const watchRows = Array.from({ length: 6 }, (_, i) => {
+    const base = 476 + i * 80;
+    L.rect({ x: NC.bar, y: base - 26, w: NC.barW, h: 26, c: TRACK });
+    const bar = fill(NC.bar, base - 26, NC.barW, 26, "orange");
+    const tick = fill(NC.bar + NC.barW * REORDER / 100 - 2, base - 32, 4, 38, "mars"); op(tick, 0.85);
+    return { bar, c: null, shown: 0,
+      name: L.text({ x: N0, base, s: 40, c: "tan", txt: "" }), hand: L.text({ x: NC.hand, base, s: 40, c: "white", txt: "", align: "r" }),
+      bay: L.text({ x: NC.bay, base, s: 40, c: "peach", txt: "", align: "r" }), queued: L.text({ x: NC.queued, base, s: 40, c: "white", txt: "", align: "r" }),
+      st: L.text({ x: N1, base, s: 40, c: "tan", txt: "", align: "r" }) };
+  });
+  const showWatch = () => {
+    const low = CATS.slice().sort((a, b) => a.n - b.n).slice(0, 6);
+    watchRows.forEach((r, i) => {
+      const c = low[i], q = man.next.filter((p) => p.cat === c).length;
+      if (r.c !== c) { r.c = c; if (!r.shown) r.shown = c.shown; }
+      L.set(r.name, c.name); L.set(r.hand, Math.round(c.shown) + "%");
+      L.set(r.bay, c.bay > 0.05 ? "+" + c.bay.toFixed(1) + "%" : "—"); L.set(r.queued, q || "—");
+      const [w, col] = c.shown < REORDER ? ["Below Reorder", "mars"] : c.bay > 0.05 || q ? ["Restocking", "butter"] : ["Adequate", "tan"];
+      L.set(r.st, w); fg(r.st, col); fg(r.hand, c.shown < REORDER ? "mars" : "white");
+    });
+  };
+  L.tick(() => watchRows.forEach((r) => {
+    if (!r.c) return;
+    const d = r.c.shown - r.shown;
+    r.shown = Math.abs(d) < 0.01 ? r.c.shown : r.shown + d * 0.08;
+    tf(r.bar, `scaleX(${(r.shown / 100).toFixed(4)})`); bg(r.bar, r.shown < REORDER ? "mars" : "orange");
+  }));
+  showWatch(); L.every(500, showWatch, 0);
+
+  // ---- the pallets held in the bay, newest first: the same ones "Pallets in Bay" counts ----
+  L.header({ x: N0, y: 1000, w: N1 - N0, label: "Cargo Bay 2  ·  Pallets Held", c1: "tan", c2: "orange" });
+  const HC = { cat: N0 + 150, what: N0 + 340, pos: N0 + 720 };
+  [["Pallet", N0, "l"], ["Category", HC.cat, "l"], ["Contents", HC.what, "l"], ["Position", HC.pos, "l"], ["Status", N1, "r"]]
+    .forEach(([txt, x, align]) => L.text({ x, base: 1124, s: 36, c: "lilac", txt, align }));
+  const heldRows = Array.from({ length: 6 }, (_, i) => {
+    const base = RY + RB + i * RP;                                   // level with the requisitions' rows
+    const t = (x, c, align) => L.text({ x, base, s: 40, c, txt: "", align });
+    return { no: t(N0, "orange"), cat: t(HC.cat, "tan"), what: t(HC.what, "peach"), pos: t(HC.pos, "tan"), st: t(N1, "lilac", "r") };
+  });
+  const showHeld = () => {
+    const held = slots.filter((s) => s.p && (s !== tr.slot || tr.got)).sort((a, b) => b.order - a.order);
+    const newest = held.length ? held[0].order : -1;
+    heldRows.forEach((r, i) => {
+      const s = held[i], p = s && s.p, k = s ? slots.indexOf(s) : 0;
+      L.set(r.no, p ? palName(p) : ""); L.set(r.cat, p ? p.cat.name : "");
+      L.set(r.what, p ? p.contents || p.cat.contents[p.no % 2] : "");
+      L.set(r.pos, s ? `Row ${Math.floor(k / GC) + 1}  ·  Slot ${(k % GC) + 1}` : "");
+      L.set(r.st, !s ? "" : s.goal === 0 ? "Stowing" : s.order === newest ? "Received" : "Held");
+      fg(r.what, s && s.order === newest ? "white" : "peach");
+    });
+  };
+  showHeld(); L.every(250, showHeld, 0);
+
+  // ---- what the crews have stowed this shift, newest at the foot ----
+  L.header({ x: N0, y: 1620, w: N1 - N0, label: "Stowed This Shift  ·  Deck 39", c1: "orange", c2: "peach", h: 48 });
+  const stowed = [];
+  const stowRows = Array.from({ length: 6 }, (_, i) => {
+    const base = 1734 + i * 54, t = (x, c, align) => L.text({ x, base, s: 36, c, txt: "", align });
+    return { tm: t(N0, "orange"), cat: t(HC.cat, "tan"), what: t(HC.what, "peach"), amt: t(N1, "white", "r") };
+  });
+  const showStowed = () => stowRows.forEach((r, i) => {
+    const e = stowed.slice(-6)[i];
+    L.set(r.tm, e ? e.tm : ""); L.set(r.cat, e ? e.cat : ""); L.set(r.what, e ? e.what : ""); L.set(r.amt, e ? e.amt : "");
+  });
+  const addStow = (t, p, c) => {
+    stowed.push({ tm: clockAt(t), cat: c.name, what: p.contents || c.contents[p.no % 2], amt: `+${p.amt.toFixed(1)}%  to  ${Math.round(c.n)}%` });
+    if (stowed.length > 12) stowed.shift();
+    showStowed();
+  };
+  // as found: six pallets stowed earlier in the watch; each level is worked back from today's, so a
+  // category stowed twice reads one stow plus the next ("+1.8% to 56%", then "+2.2% to 58%")
+  const seeds = Array.from({ length: 6 }, (_, k) => { const c = L.pick(CATS); return { c, p: { no: man.done - 30 + k * 3, cat: c, amt: L.rand(1.2, 2.4) } }; });
+  const lvl = new Map();
+  for (let k = 5; k >= 0; k--) { const s = seeds[k], to = lvl.has(s.c) ? lvl.get(s.c) : s.c.n; s.to = to; lvl.set(s.c, to - s.p.amt); }
+  seeds.forEach((s, k) => addStow(-330 + k * 56, s.p, { name: s.c.name, contents: s.c.contents, n: s.to }));
+  onStow = (t, p) => addStow(t, p, p.cat);
+
+  CATS.forEach((c) => c.contents.forEach((w) => { fits(w, 40, HC.pos - 40 - HC.what, "held contents"); fits(w, 36, N1 - L.textWidth("+2.4%  to  98%", 36) - 40 - HC.what, "stowed contents"); }));
+  fits("Below Reorder", 40, N1 - NC.queued - 60, "watch status");
+}
+
+// ---------------- the longest words each new layout must hold (rows on layers escape the audit) ----------------
+{
+  const tw = (txt, s) => L.textWidth(txt, s);
+  // neighbouring category names, centred under their columns, keep 24 apart
+  CATS.forEach((c, i) => { if ((UP || UW) && i && (tw(CATS[i - 1].name, 40) + tw(c.name, 40)) / 2 > CP - 24) bad.push(`categories: "${CATS[i - 1].name}" | "${c.name}"`); });
+  REQS.forEach(([dept, item, , , , to]) => {
+    fits(dept, 40, QC.item - 40 - QC.dept, "department");
+    fits(item, 40, QC.qty - tw("96", 40) - 40 - QC.item, "item");
+    to.forEach((d) => fits(d, 40, QC.st - 40 - QC.to, "deliver to"));
+  });
+  CATS.forEach((c) => c.contents.forEach((w) => {
+    fits(w, 52, CHX1 - tw("3.8 t", 52) - 40 - CHX0, "contents");
+    fits(w, 36, MC.mass - tw("3.8 t", 36) - 40 - MC.what, "next pallets");
+  }));
+  const who = Math.max(...["Starbase 74", "Cargo Bay 2", "Stores", ...DEPTS].map((w) => tw(w, 36)));
+  [...ROUTINE.map(([txt]) => txt), "Manifest SB74-2207 confirmed by Cmdr. Quinteros", "Manifest SB74-2207 complete, 160 pallets received",
+   "Manifest SB74-2207 opened, 160 pallets", "RQ-4477 delivered, Transporter Room 3", "Hull Plating below reorder point, 34%"]
+    .forEach((txt) => fits(txt, 36, LOGR - who - 40 - 220, "log"));
+  fits(`Manifest SB74-2207 received in full  ·  Cargo Bay 2  ·  Ship's Stores, Deck 39`, 38, B.x1 - 480 - 40 - (L0 + tw("Reconciling", BIG) + 56), "status");
+}
+if (bad.length) setTimeout(() => { throw new Error("ships-stores: " + bad.join(" | ")); });
 
 fillNext(); showMan(); showBay(); styleBay();
 });

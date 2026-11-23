@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Duty Roster</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .blk { transition: background-color 1.2s ease; }
@@ -13,9 +14,19 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: wide, no sidebars ----------------
-L.frame({ type: "D", title: "Duty Roster  •  Shift Scheduling", c: "gold", c2: "peach", accent: "tan" });
+const B = L.frame({ type: "D", title: "Duty Roster  •  Shift Scheduling", c: "gold", c2: "peach", accent: "tan" });
 
-const X0 = 40, X1 = 3816, DARK = "#2a2010", GRID = "#3a2c12", TRACK = "#33260f";
+// ---------------- the grid, per shape ----------------
+// The roster, readouts and motion below are written once; only positions and sizes differ by shape.
+// wide (3840 × 2160): the Gantt at 96 px an hour with the coverage review beside it, row for row;
+//   promotions, roster changes and watch strength along the foot.
+// upright (2160 × 3120): the Gantt across the full width at 71 px an hour; under it the coverage
+//   review in two halves of six departments, the key beside the review time; then promotions beside
+//   watch strength (on the review's halves), and the roster changes across the foot.
+// ultrawide (5040 × 2160): a longer day, 146 px an hour, the review column as wide; the foot splits
+//   on the watches: promotions under Gamma, changes under Alpha, the duty mix at the cursor under Beta.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const X0 = B.x0, X1 = B.x1, DARK = "#2a2010", GRID = "#3a2c12", TRACK = "#33260f";
 const col = (c) => (c.startsWith("#") ? c : `var(--${c})`);
 const pad2 = (n) => String(n).padStart(2, "0");
 const fmt = (n) => Math.round(n).toLocaleString("en");
@@ -29,9 +40,9 @@ const clock = () => { const d = new Date(); return d.getHours() + d.getMinutes()
 // ---------------- the grid ----------------
 // The Gantt: department column, then 24 hours at 96 px an hour. The right column reads the roster
 // at the review cursor, row for row. The bottom strip splits under the Alpha watch and the Gantt's end.
-const LW = 400, TX0 = X0 + LW + L.GAP, HOUR = 96, TX1 = TX0 + 24 * HOUR;      // 464 → 2768
+const LW = UP ? 368 : 400, TX0 = X0 + LW + L.GAP, HOUR = UP ? 71 : UW ? 146 : 96, TX1 = TX0 + 24 * HOUR;   // wide 464 → 2768
 const RX0 = TX1 + 64, RX1 = X1;                                              // 2832 → 3816
-const HY = 280, CAP = 400, BAND = 428, ROW0 = 508, PITCH = 88, RH = 64;
+const HY = 280, CAP = 400, BAND = 428, ROW0 = 508, PITCH = UP ? 72 : 88, RH = UP ? 56 : 64;
 const rowY = (i) => ROW0 + i * PITCH, rowBase = (i) => rowY(i) + 52.5;      // a 32px box label's baseline
 const tx = (h) => TX0 + h * HOUR;
 
@@ -63,11 +74,13 @@ const SD0 = 47566.4, stardate = (t) => SD0 + t / 3600 / 8.766;   // a unit of st
 const SDX = TX1 - Math.ceil(L.textWidth("47566.8", 52)) - 24 - Math.ceil(L.textWidth("Stardate", 40));
 L.text({ x: SDX, base: 222, s: 40, c: "peach", txt: "Stardate" });
 const sdVal = L.text({ x: SDX + Math.ceil(L.textWidth("Stardate", 40)) + 24, base: 222, s: 52, c: "white", txt: "" });
-// the key: what a bar's colour means, over the right-hand column
-{
-  const keys = Object.values(TYPES), KG = 16, KW = (RX1 - RX0 - KG * (keys.length - 1)) / keys.length;
-  keys.forEach(([name, c], i) => L.box({ x: Math.round(RX0 + i * (KW + KG)), y: 166, w: Math.round(KW), h: 56, c, label: name, fs: 28, r: i === 0 ? "l" : null }));
-}
+// the key: what a bar's colour means, over the right-hand column (upright: beside the review time)
+const keyRow = (KX0, KX1, KY) => {
+  const keys = Object.values(TYPES), KG = 16, KW = (KX1 - KX0 - KG * (keys.length - 1)) / keys.length;
+  keys.forEach(([name, c], i) => L.box({ x: Math.round(KX0 + i * (KW + KG)), y: KY, w: Math.round(KW), h: 56, c, label: name, fs: 28, r: i === 0 ? "l" : null }));
+};
+if (!UP) keyRow(RX0, RX1, 166);
+const bad = [];                                            // new shapes: words that would not fit their places
 
 // ---------------- the Gantt ----------------
 L.header({ x: X0, y: HY, w: TX1 - X0, label: "Duty Roster  ·  All Departments  ·  24 Hours", c1: "gold", c2: "peach" });
@@ -107,25 +120,57 @@ const cursor = L.layer({ x: 0, y: BAND - 4, w: 4, h: GB - BAND + 8 });
 cursor.style.background = "var(--white)";
 
 // ---------------- coverage review: the roster read at the cursor ----------------
-L.header({ x: RX0, y: HY, w: RX1 - RX0, label: "Coverage Review", c1: "peach", c2: "gold" });
-const allNames = ROSTER.flatMap((r) => r.blocks.flatMap((b) => [b.name, b.alt || ""]));
-// three columns spread evenly: the name flush left, the duty (a colour chip and its word), the hours flush right
-const RNW = widest(allNames, 40), RDW = 60 + widest(Object.values(TYPES).map((t) => t[0]), 40), RHW = widest(["0000 – 0000"], 40);
-const RGAP = Math.floor((RX1 - RX0 - RNW - RDW - RHW) / 2);
-const RN = RX0, RCH = RX0 + RNW + RGAP, RT = RCH + 60;
-L.text({ x: RN, base: CAP, s: 36, c: "peach", txt: "Assigned" });
-L.text({ x: RCH, base: CAP, s: 36, c: "peach", txt: "Duty" });
-L.text({ x: RX1, base: CAP, s: 36, c: "peach", txt: "Hours", align: "r" });
-const bandBase = BAND + 56 - 6 - 0.17 * 32;                   // the watch band's label baseline
-L.text({ x: RX0, base: bandBase, s: 40, c: "peach", txt: "Review" });
-const revTime = L.text({ x: RX0 + Math.ceil(L.textWidth("Review", 40)) + 24, base: bandBase, s: 52, c: "white", txt: "" });
-const revWatch = L.text({ x: RX1, base: bandBase, s: 40, c: "gold", txt: "", align: "r" });
-const reads = ROSTER.map((r, i) => {
-  const base = rowBase(i);
-  const chip = L.box({ x: RCH, y: base - 32, w: 36, h: 32, c: "gold", label: "" });
-  return { chip, name: L.text({ x: RN, base, s: 40, c: "white", txt: "" }), ty: L.text({ x: RT, base, s: 40, c: "peach", txt: "" }),
-           hrs: L.text({ x: RX1, base, s: 40, c: "gold", txt: "", align: "r" }), cur: null };
-});
+let revTime, revWatch, COVER_FOOT = 0;
+let reads;
+if (UP) {
+  // two halves of six departments under the Gantt, each with its department named
+  const CH = GB + 80, HALF = [[X0, X0 + (X1 - X0 - 64) / 2], [X0 + (X1 - X0 + 64) / 2, X1]];   // 40–1056 | 1120–2136
+  L.header({ x: X0, y: CH, w: X1 - X0, label: "Coverage Review  ·  The Roster at the Cursor", c1: "peach", c2: "gold" });
+  const allNames = ROSTER.flatMap((r) => r.blocks.flatMap((b) => [b.name, b.alt || ""]));
+  const DW = widest(ROSTER.map((r) => r.dept), 40), RNW = widest(allNames, 40);
+  const RDW = 60 + widest(Object.values(TYPES).map((t) => t[0]), 40), RHW = widest(["0000 – 0000"], 40);
+  const cols = HALF.map(([h0, h1]) => {
+    const g = Math.floor((h1 - h0 - DW - RNW - RDW - RHW) / 3), n = h0 + DW + g, ch = n + RNW + g;
+    L.text({ x: h0, base: CH + 120, s: 36, c: "peach", txt: "Department" });
+    L.text({ x: n, base: CH + 120, s: 36, c: "peach", txt: "Assigned" });
+    L.text({ x: ch, base: CH + 120, s: 36, c: "peach", txt: "Duty" });
+    L.text({ x: h1, base: CH + 120, s: 36, c: "peach", txt: "Hours", align: "r" });
+    return { h0, h1, n, ch };
+  });
+  const KY = CH + 148, kBase = KY + 56 - 6 - 0.17 * 32;
+  L.text({ x: X0, base: kBase, s: 40, c: "peach", txt: "Review" });
+  revTime = L.text({ x: X0 + Math.ceil(L.textWidth("Review", 40)) + 24, base: kBase, s: 52, c: "white", txt: "" });
+  revWatch = L.text({ x: HALF[0][1], base: kBase, s: 40, c: "gold", txt: "", align: "r" });
+  keyRow(HALF[1][0], HALF[1][1], KY);
+  reads = ROSTER.map((r, i) => {
+    const k = cols[Math.floor(i / 6)], base = CH + 276 + 64 * (i % 6);
+    L.text({ x: k.h0, base, s: 40, c: "peach", txt: r.dept });
+    const chip = L.box({ x: k.ch, y: base - 32, w: 36, h: 32, c: "gold", label: "" });
+    return { chip, name: L.text({ x: k.n, base, s: 40, c: "white", txt: "" }), ty: L.text({ x: k.ch + 60, base, s: 40, c: "peach", txt: "" }),
+             hrs: L.text({ x: k.h1, base, s: 40, c: "gold", txt: "", align: "r" }), cur: null };
+  });
+  COVER_FOOT = CH + 276 + 64 * 5;
+} else {
+  L.header({ x: RX0, y: HY, w: RX1 - RX0, label: "Coverage Review", c1: "peach", c2: "gold" });
+  const allNames = ROSTER.flatMap((r) => r.blocks.flatMap((b) => [b.name, b.alt || ""]));
+  // three columns spread evenly: the name flush left, the duty (a colour chip and its word), the hours flush right
+  const RNW = widest(allNames, 40), RDW = 60 + widest(Object.values(TYPES).map((t) => t[0]), 40), RHW = widest(["0000 – 0000"], 40);
+  const RGAP = Math.floor((RX1 - RX0 - RNW - RDW - RHW) / 2);
+  const RN = RX0, RCH = RX0 + RNW + RGAP, RT = RCH + 60;
+  L.text({ x: RN, base: CAP, s: 36, c: "peach", txt: "Assigned" });
+  L.text({ x: RCH, base: CAP, s: 36, c: "peach", txt: "Duty" });
+  L.text({ x: RX1, base: CAP, s: 36, c: "peach", txt: "Hours", align: "r" });
+  const bandBase = BAND + 56 - 6 - 0.17 * 32;                   // the watch band's label baseline
+  L.text({ x: RX0, base: bandBase, s: 40, c: "peach", txt: "Review" });
+  revTime = L.text({ x: RX0 + Math.ceil(L.textWidth("Review", 40)) + 24, base: bandBase, s: 52, c: "white", txt: "" });
+  revWatch = L.text({ x: RX1, base: bandBase, s: 40, c: "gold", txt: "", align: "r" });
+  reads = ROSTER.map((r, i) => {
+    const base = rowBase(i);
+    const chip = L.box({ x: RCH, y: base - 32, w: 36, h: 32, c: "gold", label: "" });
+    return { chip, name: L.text({ x: RN, base, s: 40, c: "white", txt: "" }), ty: L.text({ x: RT, base, s: 40, c: "peach", txt: "" }),
+             hrs: L.text({ x: RX1, base, s: 40, c: "gold", txt: "", align: "r" }), cur: null };
+  });
+}
 const blockAt = (r, h) => r.blocks.find((b) => h >= b.a && h < b.b) || r.blocks[r.blocks.length - 1];
 const showRead = (i, h) => {
   const r = ROSTER[i], b = blockAt(r, h), v = reads[i];
@@ -142,21 +187,25 @@ const hourOf = (ph) => L.clamp((ph - 2) / 92) * 24;           // fade in 2 s, wa
 const alphaOf = (ph) => L.clamp(ph / 2) * L.clamp((PASS - ph) / 3);
 
 // ---------------- watch strength ----------------
-const BH = 1620, BCAP = 1716, BROW = (i) => 1776 + i * 54;
+const BH = UP ? COVER_FOOT + 80 : 1620, BCAP = BH + 96, BROW = (i) => BH + 156 + i * 54;   // wide 1620, 1716, 1776
 const STRENGTH = { Gamma: 196, Alpha: 344, Beta: 278, Leave: 12, Detached: 8 };   // 838 Starfleet personnel
-const SX0 = RX0, SX1 = RX1;
+const SX0 = UP ? (X1 + X0 + 64) / 2 : RX0, SX1 = RX1;          // upright: under the review's right half
 L.header({ x: SX0, y: BH, w: SX1 - SX0, label: "Watch Strength", c1: "gold", c2: "peach", h: 48 });
 L.text({ x: SX0, base: BCAP, s: 36, c: "peach", txt: "Starfleet Personnel" });
 L.text({ x: SX1, base: BCAP, s: 36, c: "white", txt: `${fmt(838)}  ·  ${fmt(1014)} Aboard`, align: "r" });
 const SROWS = [["Gamma", "Gamma Watch", "tan"], ["Alpha", "Alpha Watch", "gold"], ["Beta", "Beta Watch", "peach"], ["Leave", "On Leave", "butter"], ["Detached", "Detached Duty", "orange"]];
-const SBX = SX0 + widest(SROWS.map((s) => s[1]), 36) + 40, SBW = SX1 - 120 - SBX;
+// new shapes: the number stands right before its bar and the bar runs flush to the panel's edge
+// (no gap between a bar and its value); wide keeps its numbers at the edge, 120 past the bars
+const VALW = Math.ceil(L.textWidth("000", 40));
+const SLW = widest(SROWS.map((s) => s[1]), 36) + 40, SVX = UP || UW ? SX0 + SLW + VALW : SX1;
+const SBX = UP || UW ? SVX + 24 : SX0 + SLW, SBW = UP || UW ? SX1 - SBX : SX1 - 120 - SBX;
 const gauges = SROWS.map(([key, name, c], i) => {
   const base = BROW(i);
   L.text({ x: SX0, base, s: 36, c: "peach", txt: name });
   L.rect({ x: SBX, y: base - 26, w: SBW, h: 26, c: TRACK });
   const f = L.layer({ x: SBX, y: base - 26, w: SBW, h: 26, cls: "fl" });
   f.style.background = col(c); f.style.transform = "scaleX(0)";
-  return { key, f, v: L.text({ x: SX1, base, s: 40, c: "white", txt: "", align: "r" }) };
+  return { key, f, v: L.text({ x: SVX, base, s: 40, c: "white", txt: "", align: "r" }) };
 });
 const showStrength = () => gauges.forEach((g) => {
   const n = STRENGTH[g.key], k = (n / 400).toFixed(4);
@@ -165,7 +214,7 @@ const showStrength = () => gauges.forEach((g) => {
 });
 
 // ---------------- promotions board ----------------
-const PX0 = X0, PX1 = tx(8) - 64;                             // ends under the Alpha watch, a column gap short
+const PX0 = X0, PX1 = UP ? (X1 + X0 - 64) / 2 : tx(8) - 64;     // ends under the Alpha watch, a column gap short (upright: the left half)
 L.header({ x: PX0, y: BH, w: PX1 - PX0, label: "Promotions Board", c1: "peach", c2: "gold", h: 48 });
 const CANDS = [
   ["Ens. Sam Lavelle", "Conn", "Cmdr. Riker", "Under Review"],
@@ -174,7 +223,11 @@ const CANDS = [
   ["Ens. Alyssa Ogawa", "Medical", "Dr. Crusher", "Recommended"],
   ["Ens. Ortiz", "Operations", "Lt. Cmdr. Data", "Pending"],
 ];
-const PN = PX0 + 128, PP = PN + widest(CANDS.map((c) => c[0]), 36) + 48, PE = PP + widest(CANDS.map((c) => c[1]), 36) + 48;
+let PN = PX0 + 128, PP = PN + widest(CANDS.map((c) => c[0]), 36) + 48, PE = PP + widest(CANDS.map((c) => c[1]), 36) + 48;
+if (UP || UW) {                                                // the new shapes: the four columns spread evenly
+  const w = [0, 1, 2, 3].map((k) => widest(CANDS.map((c) => c[k]), 36)), g = Math.floor((PX1 - PN - w[0] - w[1] - w[2] - w[3]) / 3);
+  PP = PN + w[0] + g; PE = PP + w[1] + g;
+}
 [["Candidate", PN, "l"], ["Post", PP, "l"], ["Evaluated By", PE, "l"], ["Status", PX1, "r"]]
   .forEach(([txt, x, align]) => L.text({ x, base: BCAP, s: 36, c: "peach", txt, align }));
 const cands = CANDS.map(([who, post, by, st], i) => {
@@ -190,17 +243,46 @@ const BOARD = 24;                                              // the board take
 const boardAt = (t) => Math.floor((t + 5) / BOARD) % CANDS.length;
 
 // ---------------- roster changes ----------------
-const GX0 = tx(8), GX1 = TX1;
-L.header({ x: GX0, y: BH, w: GX1 - GX0, label: "Roster Changes", c1: "gold", c2: "tan", h: 48 });
+// (upright: across the foot, the kind of change in a column of its own; ultrawide: under the Alpha watch)
+const GX0 = UP ? X0 : tx(8), GX1 = UW ? tx(16) - 64 : TX1;
+const LH = UP ? BROW(4) + 80 : BH, LCAP = LH + 96, LROW = UP ? (i) => LH + 156 + i * 54 : BROW;
+L.header({ x: GX0, y: LH, w: GX1 - GX0, label: "Roster Changes", c1: "gold", c2: "tan", h: 48 });
 const GE = GX0 + 128, GBY = GX1;
-[["Time", GX0, "l"], ["Change", GE, "l"], ["Approved By", GBY, "r"]].forEach(([txt, x, align]) => L.text({ x, base: BCAP, s: 36, c: "peach", txt, align }));
+const LEAVE = [["Ens. Calloway", "Beta"], ["Lt. j.g. Pryce", "Alpha"], ["Ens. Hendry", "Gamma"], ["Lt. Nakai", "Alpha"], ["Ens. Fitch", "Beta"], ["Ens. Torvik", "Gamma"]];
+// every line the log can show, for fitting the columns in the new shapes
+const KINDS = ["Swap", "Leave approved", "Returned from leave", "Fitness report filed"];
+const allChanges = () => [
+  ...ROSTER.flatMap((r) => r.blocks.filter((b) => b.alt).flatMap((b) => [[b.name, b.alt], [b.alt, b.name]]
+    .map(([n, was]) => `Swap  ·  ${r.dept} ${pad2(b.a)}00 – ${pad2(b.b)}00  ·  ${n} for ${was}`))),
+  ...LEAVE.flatMap(([n, w]) => [`Leave approved  ·  ${n}  ·  ${w} watch  ·  4 days`, `Returned from leave  ·  ${n}  ·  ${w} watch`]),
+  ...CANDS.map((c) => `Fitness report filed  ·  ${c[0]}`)];
+const part = (e, k) => { const p = e.split("  ·  "); return k < 2 ? p[k] || "" : p.slice(2).join("  ·  "); };   // kind, subject, details
+const BYW = widest([...new Set([...ROSTER.map((r) => r.chief), ...CANDS.map((c) => c[2]), "Cmdr. Riker"])], 36);
+let GS = 0, GD = 0;                                            // upright: where the subject and details start
+if (UP) {
+  const KW = widest(KINDS, 36), SW = widest(allChanges().map((e) => part(e, 1)), 36), DW = widest(allChanges().map((e) => part(e, 2)), 36);
+  const g = Math.floor((GBY - GE - KW - SW - DW - BYW) / 3);
+  GS = GE + KW + g; GD = GS + SW + g;
+  if (g < 60) bad.push("roster changes: columns too close");
+} else if (UW) {
+  const DW = widest(allChanges(), 36);
+  if (GE + DW + 60 > GBY - BYW) bad.push("roster changes: a line runs into Approved By");
+}
+[["Time", GX0, "l"], ["Change", GE, "l"], ...(UP ? [["Subject", GS, "l"], ["Details", GD, "l"]] : []), ["Approved By", GBY, "r"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: LCAP, s: 36, c: "peach", txt, align }));
 const logRows = Array.from({ length: 5 }, (_, i) => ({
-  tm: L.text({ x: GX0, base: BROW(i), s: 36, c: "gold", txt: "" }),
-  tx: L.text({ x: GE, base: BROW(i), s: 36, c: "white", txt: "" }),
-  by: L.text({ x: GBY, base: BROW(i), s: 36, c: "peach", txt: "", align: "r" }),
+  tm: L.text({ x: GX0, base: LROW(i), s: 36, c: "gold", txt: "" }),
+  tx: L.text({ x: GE, base: LROW(i), s: 36, c: "white", txt: "" }),
+  ...(UP ? { sj: L.text({ x: GS, base: LROW(i), s: 36, c: "white", txt: "" }), dt: L.text({ x: GD, base: LROW(i), s: 36, c: "white", txt: "" }) } : {}),
+  by: L.text({ x: GBY, base: LROW(i), s: 36, c: "peach", txt: "", align: "r" }),
 }));
 const logged = [];
-const showLog = () => logRows.forEach((r, i) => { const e = logged[i] || ["", "", ""]; L.set(r.tm, e[0]); L.set(r.tx, e[1]); L.set(r.by, e[2]); });
+const showLog = () => logRows.forEach((r, i) => {
+  const e = logged[i] || ["", "", ""];
+  L.set(r.tm, e[0]); L.set(r.by, e[2]);
+  if (r.dt) { L.set(r.tx, part(e[1], 0)); L.set(r.sj, part(e[1], 1)); L.set(r.dt, part(e[1], 2)); }
+  else L.set(r.tx, e[1]);
+});
 const nowStamp = (minsAgo = 0) => { const d = new Date(Date.now() - minsAgo * 60000); return pad2(d.getHours()) + pad2(d.getMinutes()); };
 const log = (txt, by, minsAgo = 0) => { logged.push([nowStamp(minsAgo), txt, by]); while (logged.length > logRows.length) logged.shift(); showLog(); };
 
@@ -216,7 +298,6 @@ const swap = (s, minsAgo) => {
     setTimeout(() => (b.e.style.background = col(TYPES[b.ty][1])), 1400);
   }
 };
-const LEAVE = [["Ens. Calloway", "Beta"], ["Lt. j.g. Pryce", "Alpha"], ["Ens. Hendry", "Gamma"], ["Lt. Nakai", "Alpha"], ["Ens. Fitch", "Beta"], ["Ens. Torvik", "Gamma"]];
 const away = new Set(["Lt. Nakai"]);
 const leave = (minsAgo) => {
   const goOut = STRENGTH.Leave <= 11 || (STRENGTH.Leave < 14 && Math.random() < 0.5);
@@ -227,7 +308,13 @@ const leave = (minsAgo) => {
   else { away.delete(n); STRENGTH.Leave--; STRENGTH[w]++; log(`Returned from leave  ·  ${n}  ·  ${w} watch`, "Cmdr. Riker", minsAgo); }
   showStrength();
 };
-const report = (minsAgo) => { const c = L.pick(cands); log(`Fitness report filed  ·  ${c.who}`, c.by, minsAgo); };
+const report = (minsAgo) => {
+  let c = L.pick(cands);
+  if (UP || UW) {                                              // new shapes: never the same report twice on screen
+    const shown = (x) => logged.some((e) => e[1] === `Fitness report filed  ·  ${x.who}`);
+    for (let k = 1; k < cands.length && shown(c); k++) c = cands[(cands.indexOf(c) + 1) % cands.length];
+  }
+  log(`Fitness report filed  ·  ${c.who}`, c.by, minsAgo); };
 // the morning's changes, already made
 report(96); swap(swappable[3], 74); leave(55); swap(swappable[8], 31); report(12);
 let deck = [];
@@ -237,6 +324,36 @@ L.every(70000, (t) => {
   const k = deck.pop();
   if (k === "swap") swap(L.pick(swappable)); else if (k === "leave") leave(); else report();
 }, 0.25);
+
+// ---------------- ultrawide: the duty mix at the cursor, under the Beta watch ----------------
+// how many of the twelve departments stand each kind of duty at the review cursor: a row of twelve pips
+// per duty, one lit for each department standing it (taller than the strength bars beside: a different gauge)
+let dutyMix = null;
+if (UW) {
+  const DX0 = tx(16), DX1 = TX1, kinds = Object.entries(TYPES);
+  L.header({ x: DX0, y: BH, w: DX1 - DX0, label: "Duty Mix  ·  At the Cursor", c1: "tan", c2: "gold", h: 48 });
+  L.text({ x: DX0, base: BCAP, s: 36, c: "peach", txt: "Departments by Duty" });
+  L.text({ x: DX1, base: BCAP, s: 36, c: "white", txt: `${ROSTER.length} Departments`, align: "r" });
+  // the count right before its row of pips, the pips flush to the panel's edge (as the strength bars beside)
+  const N = ROSTER.length, PG = 8, DVX = DX0 + widest(kinds.map(([, t]) => t[0]), 36) + 40 + VALW;
+  const PW = Math.floor((DX1 - DVX - 24 - PG * (N - 1)) / N), DBX = DX1 - N * PW - PG * (N - 1);
+  const rows = kinds.map(([ty, [name, c]], i) => {
+    const base = BROW(i);
+    L.text({ x: DX0, base, s: 36, c: "peach", txt: name });
+    const pips = Array.from({ length: N }, (_, j) => L.box({ x: DBX + j * (PW + PG), y: base - 31, w: PW, h: 36, c: TRACK, label: "", cls: "blk" }));
+    return { ty, c, pips, v: L.text({ x: DVX, base, s: 40, c: "white", txt: "", align: "r" }) };
+  });
+  dutyMix = (h) => rows.forEach((d) => {
+    const n = ROSTER.filter((r) => blockAt(r, h).ty === d.ty).length;
+    d.pips.forEach((p, j) => bg(p, j < n ? d.c : TRACK));
+    L.set(d.v, String(n));
+  });
+}
+// the new shapes: every block keeps a label, whoever stands it
+if (UP || UW) ROSTER.forEach((r) => r.blocks.forEach((b) => [b.name, b.alt].forEach((n) => {
+  if (n && !labelFor({ w: b.w, name: n })) bad.push(`${r.dept} ${b.a}–${b.b}: no room for "${n}"`);
+})));
+if (bad.length) setTimeout(() => { throw new Error("duty-roster: " + bad.join(" | ")); });
 
 // ---------------- the running state ----------------
 let lastWatch = -1, lastBoard = -1;
@@ -261,6 +378,7 @@ L.tick((t) => {
 L.every(250, (t) => {
   const p = passAt(t), h = hourOf(p.ph);
   ROSTER.forEach((r, i) => showRead(i, h));
+  if (dutyMix) dutyMix(h);
   L.set(sdVal, stardate(t).toFixed(1));
   L.set(revTime, hhmm(Math.min(h, 23.999)));
   const w = WATCHES[watchAt(h)][0];

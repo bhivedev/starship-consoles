@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Turbolift</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .car { border-radius: 9px; display: flex; align-items: center; justify-content: center; color: #000;
@@ -11,8 +12,19 @@
 "use strict";
 const L = LCARS;
 L.ready(() => {
+// Three layouts; the data, the routing and the motion are written once, only positions differ.
+// Wide (3840×2160) is the original, hand-placed: directory | shaft network | cars, requests, with the
+// transit log and deck traffic along the bottom.
+// Upright (2160×3120): the directory across the top in three columns of 14; below it the shaft
+// network down the left, each deck's traffic as a bar beside its row of the deck scale; car status,
+// requested destinations and the transit log stacked down the right.
+// Ultrawide (5040×2160): the three wide columns where they were, a fourth column with a long transit
+// log, deck traffic under the directory, and the state of each shaft under the cars.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
 
 // ---------------- the frame, mirrored: sidebar on the right, title at top left ----------------
+let b;
+if (L.shape === "wide") {
 const BAR = 64, TS = BAR / (L.BASELINE - L.CAP_TOP);
 L.box({ x: 40, y: 40, w: 92, h: BAR, c: "gold", r: "l" });
 const TITLE = "Turbolift Network  •  Deck Directory";
@@ -29,6 +41,13 @@ L.text({ x: 3794, base: 1712, s: 40, c: "#000", txt: "Turbolift", align: "r", on
 L.box({ x: 40, y: 2056, w: 92, h: BAR, c: "orange", r: "l" });
 [[132 + L.GAP, 700, "butter"], [132 + L.GAP + 700 + L.GAP, 900, "gold"]].forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
 L.rect({ x: 132 + 3 * L.GAP + 1600, y: 2056, w: 2600 - L.GAP - (132 + 3 * L.GAP + 1600), h: BAR, c: "orange" });
+b = { x0: 40, x1: 3520, y0: 140, y1: 2010 };
+} else {
+  // the same frame, drawn by the kit for this shape: type B, the same colours and sidebar labels
+  b = L.frame({ type: "B", title: "Turbolift Network  •  Deck Directory", c: "gold", c2: "orange", accent: "butter", foot: "Turbolift",
+    side: [[140, "butter", "Lift 01"], [70, "orange", "Ops"], [420, "gold", "Shafts"], [70, "ice", "Cars"],
+           [300, "butter", "Calls"], [70, "orange", "Route"], [216, "gold", "Decks"]] });
+}
 
 const header = (x, y, w, label, lw, c1, c2, h = 56, fs = 32) => {
   L.box({ x, y, w: lw, h, c: c1, label, fs, r: "l" });
@@ -36,6 +55,8 @@ const header = (x, y, w, label, lw, c1, c2, h = 56, fs = 32) => {
 };
 // three columns: directory 40–1240, shafts 1300–2380, cars 2440–3520
 const C1 = 40, C1R = 1240, C2 = 1300, C2R = 2380, C3 = 2440, C3R = 3520;
+// ultrawide adds a fourth column, 3580–4720. Upright: the network 40–780 beside a column 840–1840.
+const C4 = 3580, C4R = 4720, NR = UP ? 780 : C2R, RC = UP ? 840 : C3, RCR = UP ? 1840 : C3R;
 
 // ---------------- the decks ----------------
 // [what is on the deck, what a passenger says to the lift]
@@ -95,14 +116,16 @@ const pickDeck = (not) => {
 
 // ---------------- status line ----------------
 const state = L.text({ x: C1, cap: 150, s: 100, c: "ice", txt: "" });
-L.text({ x: C2, base: 222, s: 38, c: "butter", txt: "U.S.S. Enterprise  ·  42 decks  ·  5 shafts  ·  6 cars  ·  Voice routing" });
-const pill = L.box({ x: C3R - 400, y: 150, w: 400, h: 72, c: "gold", label: "", r: "lr", fs: 36 });
+L.text({ x: UP ? 640 : C2, base: 222, s: 38, c: "butter", txt: "U.S.S. Enterprise  ·  42 decks  ·  5 shafts  ·  6 cars  ·  Voice routing" });
+const pill = L.box({ x: b.x1 - 400, y: 150, w: 400, h: 72, c: "gold", label: "", r: "lr", fs: 36 });
+// ultrawide: a second line over the cars' column, so the status row has no long empty band
+const flow = UW ? L.text({ x: C3, base: 222, s: 38, c: "sky", txt: "" }) : null;
 
-// ---------------- deck directory: two columns of 21 ----------------
-header(C1, 280, C1R - C1, "Deck Directory", 340, "gold", "butter");
+// ---------------- deck directory: two columns of 21 (upright: three of 14, across the page) ----------------
+header(C1, 280, (UP ? b.x1 : C1R) - C1, "Deck Directory", 340, "gold", "butter");
 const dir = [null];
 for (let d = 1; d <= 42; d++) {
-  const x = C1 + (d > 21 ? 600 : 0), base = 404 + ((d - 1) % 21) * 56;
+  const x = UP ? [40, 640, 1200][Math.floor((d - 1) / 14)] : C1 + (d > 21 ? 600 : 0), base = UP ? 404 + ((d - 1) % 14) * 54 : 404 + ((d - 1) % 21) * 56;
   dir.push({
     num: L.box({ x, y: base - 29, w: 96, h: 40, c: "gold", label: String(d).padStart(2, "0"), fs: 30, r: "l" }),
     txt: L.text({ x: x + 124, base, s: 36, c: "butter", txt: DECKS[d][0] }),
@@ -111,18 +134,19 @@ for (let d = 1; d <= 42; d++) {
 }
 
 // ---------------- the shaft network ----------------
-header(C2, 280, C2R - C2, "Shaft Network", 340, "orange", "butter");
-const DY0 = 404, DP = 37, deckY = (d) => DY0 + (d - 1) * DP;
+const NX = UP ? C1 : C2, NY = UP ? 1190 : 280, SO = UP ? -1120 : 0;   // the network's corner; the deck scale's shift
+header(NX, NY, NR - NX, "Shaft Network", 340, "orange", "butter");
+const DY0 = UP ? 1384 : 404, DP = UP ? 35 : 37, deckY = (d) => DY0 + (d - 1) * DP;
 const SHAFTS = [["A", 1500, 1, 42], ["B", 1700, 1, 42], ["C", 1900, 2, 38], ["D", 2100, 8, 42], ["E", 2300, 4, 36]]
-  .map(([id, x, d0, d1]) => ({ id, x, d0, d1 }));
+  .map(([id, x, d0, d1], i) => ({ id, x: UP ? 380 + 95 * i : x, d0, d1 }));
 const has = (s, d) => d >= SHAFTS[s].d0 && d <= SHAFTS[s].d1;
 const LINKS = [[1, 0, 1], [4, 0, 4], [8, 1, 4], [10, 0, 2], [12, 0, 3], [16, 0, 1], [21, 0, 3], [25, 2, 4], [30, 1, 3], [33, 0, 1], [36, 1, 4], [38, 2, 3], [42, 0, 3]];
 const net = L.svg("g", { class: "boot" });
 // the deck scale
 for (let d = 1; d <= 42; d++) {
   const big = d === 1 || d % 5 === 0 || d === 42;
-  L.svg("rect", { x: big ? 1376 : 1382, y: deckY(d) - (big ? 2 : 1.5), width: big ? 24 : 14, height: big ? 4 : 3, fill: big ? "var(--butter)" : "var(--gold)" }, net);
-  if (big) L.text({ x: 1362, base: deckY(d) + 11.5, s: 32, c: "butter", txt: String(d).padStart(2, "0"), align: "r", legend: true });
+  L.svg("rect", { x: big ? 1376 + SO : 1382 + SO, y: deckY(d) - (big ? 2 : 1.5), width: big ? 24 : 14, height: big ? 4 : 3, fill: big ? "var(--butter)" : "var(--gold)" }, net);
+  if (big) L.text({ x: 1362 + SO, base: deckY(d) + 11.5, s: 32, c: "butter", txt: String(d).padStart(2, "0"), align: "r", legend: true });
 }
 // shafts, crosslinks and the junctions where they meet
 const SHAFT = "#6a4f1c", NODE = "var(--gold)";
@@ -130,7 +154,10 @@ for (const s of SHAFTS) L.svg("rect", { x: s.x - 6, y: deckY(s.d0) - 6, width: 1
 for (const [d, a, b] of LINKS) L.svg("rect", { x: SHAFTS[a].x, y: deckY(d) - 6, width: SHAFTS[b].x - SHAFTS[a].x, height: 12, fill: SHAFT }, net);
 for (const [d, a, b] of LINKS) for (let s = a; s <= b; s++) if (has(s, d))
   L.svg("rect", { x: SHAFTS[s].x - 12, y: deckY(d) - 12, width: 24, height: 24, rx: 5, fill: NODE }, net);
-SHAFTS.forEach((s) => L.text({ x: s.x, base: 2004, s: 36, c: "gold", txt: "Shaft " + s.id, align: "c", w: 180 }));
+if (UP) {                                   // upright: the shafts named above them, beside the traffic bars' heading
+  L.text({ x: NX, base: 1334, s: 36, c: "gold", txt: "Traffic" });
+  SHAFTS.forEach((s) => L.text({ x: s.x, base: 1334, s: 36, c: "gold", txt: s.id, align: "c", w: 60 }));
+} else SHAFTS.forEach((s) => L.text({ x: s.x, base: 2004, s: 36, c: "gold", txt: "Shaft " + s.id, align: "c", w: 180 }));
 
 // the graph: a node is a shaft at a deck
 const key = (s, d) => s * 100 + d;
@@ -169,7 +196,7 @@ const D2 = (d) => String(d).padStart(2, "0");
 // shrinking towards its far end as the car travels it (a transform, so nothing repaints)
 cars.forEach((car) => (car.segs = Array.from({ length: 10 }, () => {
   const e = L.layer({ x: 0, y: 0, w: 12, h: 12 });
-  e.style.background = `var(--${car.c})`; e.style.opacity = 0;
+  e.style.background = `var(--${car.c})`; e.style.opacity = 0; if (L.shape !== "wide") e.dataset.gap = "free";   // a route, not a bar with a figure
   L.stage.insertBefore(e, cars[0].e);                              // beneath every car
   return e;
 })));
@@ -232,69 +259,99 @@ const arrive = (car, t) => {
 };
 
 // ---------------- car status ----------------
-header(C3, 280, C3R - C3, "Car Status", 340, "ice", "sky");
-const CT = { deck: 2730, dest: 2790, aboard: 3260 };
-L.text({ x: C3, base: 404, s: 36, c: "sky", txt: "Car" });
-L.text({ x: CT.deck, base: 404, s: 36, c: "sky", txt: "Deck", align: "r" });
-L.text({ x: CT.dest, base: 404, s: 36, c: "sky", txt: "Destination" });
-L.text({ x: CT.aboard, base: 404, s: 36, c: "sky", txt: "Aboard", align: "r" });
-L.text({ x: C3R, base: 404, s: 36, c: "sky", txt: "Status", align: "r" });
+const CY = UP ? 1190 : 280, CH = UP ? 144 : 124;   // header; its column heads (upright: level with the network's)
+header(RC, CY, RCR - RC, "Car Status", 340, "ice", "sky");
+const CT = UP ? { deck: 1100, dest: 1140, aboard: 1610 } : { deck: 2730, dest: 2790, aboard: 3260 };
+L.text({ x: RC, base: CY + CH, s: 36, c: "sky", txt: "Car" });
+L.text({ x: CT.deck, base: CY + CH, s: 36, c: "sky", txt: "Deck", align: "r" });
+L.text({ x: CT.dest, base: CY + CH, s: 36, c: "sky", txt: "Destination" });
+L.text({ x: CT.aboard, base: CY + CH, s: 36, c: "sky", txt: "Aboard", align: "r" });
+L.text({ x: RCR, base: CY + CH, s: 36, c: "sky", txt: "Status", align: "r" });
 const rows = cars.map((car, i) => {
-  const base = 480 + i * 76;
-  L.box({ x: C3, y: base - 41, w: 170, h: 52, c: car.c, label: "Car " + (i + 1), fs: 30, r: "l" });
+  const base = CY + CH + 76 + i * 76;
+  L.box({ x: RC, y: base - 41, w: 170, h: 52, c: car.c, label: "Car " + (i + 1), fs: 30, r: "l" });
   return {
     deck: L.text({ x: CT.deck, base, s: 52, c: "white", txt: "", align: "r" }),
     dest: L.text({ x: CT.dest, base, s: 40, c: "butter", txt: "" }),
     aboard: L.text({ x: CT.aboard, base, s: 52, c: "white", txt: "", align: "r" }),
-    st: L.text({ x: C3R, base, s: 40, c: "white", txt: "", align: "r" }),
+    st: L.text({ x: RCR, base, s: 40, c: "white", txt: "", align: "r" }),
   };
 });
 
 // ---------------- requested destinations ----------------
-header(C3, 1000, C3R - C3, "Requested Destinations", 440, "gold", "butter");
-const QC = { from: 2570, req: 2760, car: 3250 };
-L.text({ x: C3, base: 1112, s: 36, c: "gold", txt: "Ref" });
-L.text({ x: QC.from, base: 1112, s: 36, c: "gold", txt: "Call" });
-L.text({ x: QC.req, base: 1112, s: 36, c: "gold", txt: "Request" });
-L.text({ x: QC.car, base: 1112, s: 36, c: "gold", txt: "Car", align: "r" });
-L.text({ x: C3R, base: 1112, s: 36, c: "gold", txt: "Status", align: "r" });
+const QY = UP ? 1932 : 1000;
+header(RC, QY, RCR - RC, "Requested Destinations", 440, "gold", "butter");
+const QC = UP ? { from: 970, req: 1140, car: 1600 } : { from: 2570, req: 2760, car: 3250 };
+L.text({ x: RC, base: QY + 112, s: 36, c: "gold", txt: "Ref" });
+L.text({ x: QC.from, base: QY + 112, s: 36, c: "gold", txt: "Call" });
+L.text({ x: QC.req, base: QY + 112, s: 36, c: "gold", txt: "Request" });
+L.text({ x: QC.car, base: QY + 112, s: 36, c: "gold", txt: "Car", align: "r" });
+L.text({ x: RCR, base: QY + 112, s: 36, c: "gold", txt: "Status", align: "r" });
 const qrows = Array.from({ length: 6 }, (_, i) => {
-  const base = 1184 + i * 64;
-  return [L.text({ x: C3, base, s: 36, c: "orange", txt: "" }), L.text({ x: QC.from, base, s: 36, c: "butter", txt: "" }),
+  const base = QY + 184 + i * 64;
+  return [L.text({ x: RC, base, s: 36, c: "orange", txt: "" }), L.text({ x: QC.from, base, s: 36, c: "butter", txt: "" }),
           L.text({ x: QC.req, base, s: 36, c: "white", txt: "" }), L.text({ x: QC.car, base, s: 36, c: "butter", txt: "", align: "r" }),
-          L.text({ x: C3R, base, s: 36, c: "white", txt: "", align: "r" })];
+          L.text({ x: RCR, base, s: 36, c: "white", txt: "", align: "r" })];
 });
 // a lamp beside the deck scale for each call still waiting for its car
-const lamps = Array.from({ length: 6 }, () => { const e = L.layer({ x: 1412, y: 0, w: 40, h: 18, cls: "call" }); e.style.opacity = 0; return e; });
+const lamps = Array.from({ length: 6 }, () => { const e = L.layer({ x: 1412 + SO, y: 0, w: 40, h: 18, cls: "call" }); e.style.opacity = 0; return e; });
 
 // ---------------- transit log ----------------
-header(C1, 1620, C1R - C1, "Transit Log", 320, "orange", "butter", 48, 28);
-const logRows = Array.from({ length: 6 }, (_, i) => {
-  const base = 1734 + i * 54;
-  return { sd: L.text({ x: C1, base, s: 36, c: "orange", txt: "" }), tx: L.text({ x: 230, base, s: 36, c: "butter", txt: "" }),
-           dt: L.text({ x: C1R, base, s: 36, c: "white", txt: "", align: "r" }) };
+// upright: at the foot of the right-hand column; ultrawide: the whole fourth column, 30 lines
+const LOGN = UW ? 30 : 6, LX = UP ? RC : UW ? C4 : C1, LXR = UP ? RCR : UW ? C4R : C1R;
+if (UW) header(LX, 280, LXR - LX, "Transit Log", 340, "orange", "butter");
+else header(LX, UP ? 2580 : 1620, LXR - LX, "Transit Log", 320, "orange", "butter", 48, 28);
+const logRows = Array.from({ length: LOGN }, (_, i) => {
+  const base = UW ? Math.round(404 + i * 1600 / 29) : UP ? 2694 + i * 54 : 1734 + i * 54;
+  return { sd: L.text({ x: LX, base, s: 36, c: "orange", txt: "" }), tx: L.text({ x: UP || UW ? LX + 190 : 230, base, s: 36, c: "butter", txt: "" }),
+           dt: L.text({ x: LXR, base, s: 36, c: "white", txt: "", align: "r" }) };
 });
 const logged = [];
 const logLine = (txt, secs) => {
-  sd += 0.1; logged.push([sd.toFixed(1), txt, secs.toFixed(1) + " s"]); if (logged.length > 6) logged.shift();
+  sd += 0.1; logged.push([sd.toFixed(1), txt, secs.toFixed(1) + " s"]); if (logged.length > LOGN) logged.shift();
   logRows.forEach((r, i) => { const e = logged[i] || ["", "", ""]; r.sd.textContent = e[0]; r.tx.textContent = e[1]; r.dt.textContent = e[2]; });
 };
 const describe = (c, r) => `Car ${c}  ·  Deck ${D2(r.from)} to Deck ${D2(r.to)}, ${DECKS[r.to][1]}  ·  ${r.n} ${r.n === 1 ? "passenger" : "passengers"}`;
-for (let i = 0; i < 6; i++) { const from = pickDeck(), to = pickDeck(from); logLine(describe(L.irand(1, 6), { from, to, n: L.irand(1, 3) }), Math.abs(to - from) * 0.22 + L.rand(2, 4)); }
+for (let i = 0; i < LOGN; i++) { const from = pickDeck(), to = pickDeck(from); logLine(describe(L.irand(1, 6), { from, to, n: L.irand(1, 3) }), Math.abs(to - from) * 0.22 + L.rand(2, 4)); }
 
 // ---------------- deck traffic ----------------
-header(C3, 1620, C3R - C3, "Deck Traffic", 320, "ice", "sky", 48, 28);
-L.text({ x: C3, base: 1734, s: 40, c: "sky", txt: "Transits This Shift" });
-const shiftTxt = L.text({ x: C3R, base: 1734, s: 52, c: "white", txt: "", align: "r" });
-const TBG = 8, TBW = (C3R - C3 - 41 * TBG) / 42, TBH = 220, TBASE = 2004;
+// ultrawide: under the directory. Upright: one bar per deck, level with its row of the deck scale, and
+// the shift's count at the foot of the network.
+const AX = UP ? "scaleX" : "scaleY";               // which way the bars grow
+const TX = UW ? C1 : C3, TXR = UW ? C1R : C3R;
+if (!UP) header(TX, 1620, TXR - TX, "Deck Traffic", 320, "ice", "sky", 48, 28);
+L.text({ x: UP ? NX : TX, base: UP ? 2964 : 1734, s: 40, c: "sky", txt: "Transits This Shift" });
+const shiftTxt = L.text({ x: UP ? SHAFTS[0].x : TXR, base: UP ? 2964 : 1734, s: 52, c: "white", txt: "", align: "r" });
+const TBG = 8, TBW = (TXR - TX - 41 * TBG) / 42, TBH = 220, TBASE = 2004;
 const traffic = [0], shown = [0];
 const bars = [null];
 for (let d = 1; d <= 42; d++) {
   traffic.push(WEIGHT[d] * L.rand(2.2, 3.4)); shown.push(0);
-  const b = L.layer({ x: C3 + (d - 1) * (TBW + TBG), y: TBASE - TBH, w: TBW, h: TBH });
-  b.style.background = d <= 16 ? "var(--butter)" : "var(--gold)"; b.style.transformOrigin = "50% 100%";
-  b.style.transform = "scaleY(0)";
+  const b = UP ? L.layer({ x: NX, y: deckY(d) - 8, w: 130, h: 16 })
+               : L.layer({ x: TX + (d - 1) * (TBW + TBG), y: TBASE - TBH, w: TBW, h: TBH });
+  b.style.background = d <= 16 ? "var(--butter)" : "var(--gold)"; b.style.transformOrigin = UP ? "0 50%" : "50% 100%";
+  b.style.transform = AX + "(0)";
   bars.push(b);
+}
+
+// ---------------- shaft status (ultrawide): each shaft's decks, junctions, and the cars on it now ----------------
+const shaftRows = [];
+if (UW) {
+  header(C3, 1620, C3R - C3, "Shaft Status", 320, "ice", "sky", 48, 28);
+  const SC = { decks: 2650, junc: 3000, cars: 3160 };
+  L.text({ x: C3, base: 1734, s: 36, c: "sky", txt: "Shaft" });
+  L.text({ x: SC.decks, base: 1734, s: 36, c: "sky", txt: "Decks" });
+  L.text({ x: SC.junc, base: 1734, s: 36, c: "sky", txt: "Junctions", align: "r" });
+  L.text({ x: SC.cars, base: 1734, s: 36, c: "sky", txt: "Cars", align: "r" });
+  L.text({ x: C3R, base: 1734, s: 36, c: "sky", txt: "Status", align: "r" });
+  SHAFTS.forEach((s, i) => {
+    const base = 1796 + i * 52;
+    L.box({ x: C3, y: base - 29, w: 180, h: 40, c: "gold", label: "Shaft " + s.id, fs: 30, r: "l" });
+    L.text({ x: SC.decks, base, s: 36, c: "butter", txt: `${D2(s.d0)} – ${D2(s.d1)}` });
+    L.text({ x: SC.junc, base, s: 36, c: "butter", txt: String(LINKS.filter(([d, a, z]) => i >= a && i <= z && has(i, d)).length), align: "r" });
+    shaftRows.push({ x: s.x, n: L.text({ x: SC.cars, base, s: 36, c: "white", txt: "", align: "r" }),
+                     st: L.text({ x: C3R, base, s: 36, c: "white", txt: "", align: "r" }) });
+  });
 }
 
 // ---------------- the clock ----------------
@@ -335,7 +392,7 @@ L.tick((t) => {
     const g = traffic[d] / max;
     if (Math.abs(g - shown[d]) < 0.0005) continue;
     shown[d] += (g - shown[d]) * 0.05;
-    bars[d].style.transform = `scaleY(${shown[d].toFixed(4)})`;
+    bars[d].style.transform = `${AX}(${shown[d].toFixed(4)})`;
   }
 });
 const STATUS = { idle: "Standby", pickup: "Answering Call", boarding: "Doors Open", transit: "In Transit", arrived: "Doors Open" };
@@ -345,6 +402,11 @@ L.every(250, (t) => {
   const waiting = reqs.filter((r) => r.state !== "aboard" && !(r.car && r.car.state === "boarding")).length;
   pill.textContent = waiting ? `Calls Waiting  ${waiting}` : "All Calls Answered";
   shiftTxt.textContent = shift;
+  if (flow) {
+    const mean = logged.reduce((a, e) => a + parseFloat(e[2]), 0) / logged.length, aboard = cars.reduce((a, c) => a + c.n, 0);
+    const f = `Mean Transit  ${mean.toFixed(1)} s  ·  ${aboard} ${aboard === 1 ? "Passenger" : "Passengers"} Aboard`;
+    if (flow.textContent !== f) flow.textContent = f;
+  }
   cars.forEach((car, i) => {
     const r = rows[i], deck = Math.round((car.y - DY0) / DP) + 1;
     r.deck.textContent = D2(deck);
@@ -371,6 +433,12 @@ L.every(250, (t) => {
     const r = calls[i];
     e.style.opacity = r ? 1 : 0;
     if (r) L.move(e, 0, deckY(r.from) - 9);
+  });
+  shaftRows.forEach((s) => {
+    const on = cars.filter((c) => Math.abs(c.x - s.x) < 0.5), moving = on.filter((c) => c.legs.length).length;
+    s.n.textContent = on.length;
+    const st = moving ? (moving === 1 ? "Car In Transit" : `${moving} Cars In Transit`) : on.some((c) => c.open) ? "Doors Open" : on.length ? "Standby" : "Clear";
+    if (s.st.textContent !== st) { s.st.textContent = st; s.st.style.color = moving ? "var(--white)" : st === "Doors Open" ? "var(--butter)" : "var(--sky)"; }
   });
   const openAt = new Set(cars.filter((c) => c.open).map(deckOf));
   const callAt = new Set(calls.map((r) => r.from));

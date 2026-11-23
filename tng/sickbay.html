@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Sickbay</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .ptr { width: 0; height: 0; border-top: 22px solid transparent; border-bottom: 22px solid transparent; border-right: 34px solid var(--white); }
@@ -9,7 +10,40 @@
 const L = LCARS;
 L.ready(() => {
 
+// ---------------- the layout, per shape ----------------
+// Wide is the original hand-placed layout; its numbers are exactly the ones it always had.
+// Upright stacks the panels down the page: traces, gauges, hematology, cortical scan, then the
+// treatment log beside the medication. Ultrawide gives the extra 1200 to the traces (a longer
+// strip), a third hematology column and a second column of the treatment log.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+let X1 = 3816;                                            // the content box's right edge
+if (UP || UW) {
+  X1 = L.frame({ type: "A", title: "Sickbay  •  Biobed 2", c: "sky", c2: "lilac", accent: "pink", foot: "Biobed",
+    side: [[140, "lilac", "Med 01"], [70, "pink", "Bio 2"], [420, "sky", "Vitals"], [70, "ice", "4471"],
+           [300, "lilac", "Scan"], [70, "peach", "Rx"], [216, "sky", "Log"]] }).x1;
+}
+const P = UP ? {
+  GY: 1068, GX: 330, GP: 308, GW: 266, TT: 1160, TH: 480,             // gauges: header y, first x, pitch, width, track
+  TABX: 330, WY: 280, CH: 220, CG: 32,                                // traces
+  HY: 1856, HC: [330, 1290], HN: 8, VO: 500,                                  // hematology: header y, column x, analytes shown
+  CY: 2276, CX1: X1, CROWS: 4, CC: [21, 1.5], CS: [12, 2],            // cortical scan: header y, right edge, rows, glow centre and spread
+  BY: 2580, LX: 330, LX1: 1250, LCOLS: 1, MX: 1290,                   // bottom row: header y, log, medication
+} : UW ? {
+  GY: 280, GX: 330, GP: 266, GW: 220, TT: 372, TH: 1000,
+  TABX: 1940, WY: 280, CH: 240, CG: 36,
+  HY: 1124, HC: [1940], HN: 16, VO: 420,
+  CY: 1620, CX1: 1880, CROWS: 7, CC: [18, 3], CS: [10, 3],
+  BY: 1620, LX: 1940, LX1: 3800, LCOLS: 2, MX: 3840,
+} : {
+  GY: 280, GX: 330, GP: 266, GW: 220, TT: 372, TH: 1000,
+  TABX: 1940, WY: 280, CH: 240, CG: 36,
+  HY: 1124, HC: [1940, 2880], HN: 8, VO: 500,
+  CY: 1620, CX1: 1880, CROWS: 7, CC: [18, 3], CS: [10, 3],
+  BY: 1620, LX: 1940, LX1: 2840, LCOLS: 1, MX: 2880,
+};
+
 // ---------------- the frame ----------------
+if (!UP && !UW) {
 const BAR = 64;
 const titleLeft = L.title({ x: 3700, y: 40, h: BAR, c: "sky", txt: "Sickbay  •  Biobed 2" });
 L.box({ x: 3724, y: 40, w: 92, h: BAR, c: "sky", r: "r" });
@@ -24,12 +58,13 @@ L.text({ x: 258, base: 1712, s: 40, c: "#000", txt: "Biobed", align: "r", on: tr
 [[1540 + L.GAP, 600, "pink"], [2164 + L.GAP, 900, "sky"], [3088 + L.GAP, 3700 - (3088 + L.GAP), "lilac"]]
   .forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
 L.box({ x: 3724, y: 2056, w: 92, h: BAR, c: "sky", r: "r" });
+}
 
 // ---------------- the patient ----------------
 L.text({ x: 330, cap: 150, s: 72 / 0.72, c: "ice", txt: "Patient 0472-B" });
 const pw = L.textWidth("Patient 0472-B", 100);
 L.text({ x: 330 + pw + 40, base: 150 + 72, s: 38, c: "lilac", txt: "Ensign  ·  Operations Division  ·  Admitted 47770.9" });
-const cond = L.box({ x: 3416, y: 150, w: 400, h: 72, c: "sky", label: "Condition Stable", r: "lr", fs: 36 });
+const cond = L.box({ x: X1 - 400, y: 150, w: 400, h: 72, c: "sky", label: "Condition Stable", r: "lr", fs: 36 });
 cond.style.willChange = "opacity";
 
 // ---------------- vital signs ----------------
@@ -41,21 +76,21 @@ const vitals = [
   { name: "Neural",      c: "lilac",  lo: 0,   hi: 100, nlo: 60,   nhi: 90,   v: 84,   unit: "%",     fmt: (v) => Math.round(v) },
   { name: "O2 Sat",      c: "sky",    lo: 80,  hi: 100, nlo: 95,   nhi: 100,  v: 98,   unit: "%",     fmt: (v) => Math.round(v) },
 ];
-const TT = 372, TH = 1000;                               // track top and height
+const TT = P.TT, TH = P.TH;                              // track top and height
 vitals.forEach((g, i) => {
-  const x = 330 + i * 266;
+  const x = P.GX + i * P.GP, cx = x + P.GW / 2;          // cx: the track's centre line
   g.x = x;
-  L.box({ x, y: 280, w: 220, h: 56, c: g.c, label: g.name, fs: 34 });
-  L.rect({ x: x + 70, y: TT, w: 80, h: TH, c: "#0e1838" });
+  L.box({ x, y: P.GY, w: P.GW, h: 56, c: g.c, label: g.name, fs: 34 });
+  L.rect({ x: cx - 40, y: TT, w: 80, h: TH, c: "#0e1838" });
   const band = (u) => TT + TH * (1 - (u - g.lo) / (g.hi - g.lo));
   // the normal range: a bracket beside the track
-  L.rect({ x: x + 156, y: band(g.nhi), w: 10, h: band(g.nlo) - band(g.nhi), c: g.c, free: true });
-  for (let k = 0; k <= 10; k++) L.rect({ x: x + (k % 5 ? 46 : 34), y: TT + k * 100 - 2, w: k % 5 ? 16 : 28, h: 4, c: "lilac", free: true });
-  g.fill = L.layer({ x: x + 70, y: TT, w: 80, h: TH });
+  L.rect({ x: cx + 46, y: band(g.nhi), w: 10, h: band(g.nlo) - band(g.nhi), c: g.c, free: true });
+  for (let k = 0; k <= 10; k++) L.rect({ x: cx - (k % 5 ? 64 : 76), y: TT + k * (TH / 10) - 2, w: k % 5 ? 16 : 28, h: 4, c: "lilac", free: true });
+  g.fill = L.layer({ x: cx - 40, y: TT, w: 80, h: TH });
   g.fill.style.background = `var(--${g.c})`; g.fill.style.transformOrigin = "50% 100%";
-  g.ptr = L.layer({ x: x + 172, y: TT - 22, cls: "ptr" });
-  g.val = L.text({ x: x + 110, base: 1470, s: 80, c: g.c, txt: g.fmt(g.v), align: "c", w: 220 });
-  L.text({ x: x + 110, base: 1526, s: 36, c: "lilac", txt: g.unit, align: "c", w: 220 });
+  g.ptr = L.layer({ x: cx + 62, y: TT - 22, cls: "ptr" });
+  g.val = L.text({ x: cx, base: TT + TH + 98, s: 80, c: g.c, txt: g.fmt(g.v), align: "c", w: P.GW });
+  L.text({ x: cx, base: TT + TH + 154, s: 36, c: "lilac", txt: g.unit, align: "c", w: P.GW });
   g.cur = g.v; g.goal = g.v;
 });
 L.every(1400, () => vitals.forEach((g) => {
@@ -84,7 +119,7 @@ L.tick((t) => vitals.forEach((g, i) => {
 L.every(400, () => vitals.forEach((g, i) => (g.val.textContent = g.fmt(i === 4 ? g.shown ?? g.cur : g.cur))), 0);
 
 // ---------------- waveforms ----------------
-const WX = 2264, WW = 3816 - WX, CH = 240, CG = 36, WY = 280;
+const WX = P.TABX + 324, WW = X1 - WX, CH = P.CH, CG = P.CG, WY = P.WY;
 const chans = [
   { name: "ECG", c: "pink", ink: "#f4b6e6", big: () => Math.round(vitals[0].cur), f: (t) => ecg(t) },
   { name: "Resp", c: "ice", ink: "#8fd3ff", big: () => Math.round(vitals[2].cur), f: (t) => 0.62 * Math.sin(breath * 2 * Math.PI) },
@@ -98,8 +133,8 @@ function ecg(t) {                                         // P, QRS, T — one h
 chans.forEach((ch, i) => {
   const y = WY + i * (CH + CG);
   ch.y = y;
-  ch.tab = L.box({ x: 1940, y, w: 300, h: CH, c: ch.c, label: ch.name, fs: 40 });
-  ch.num = L.text({ x: 1964, cap: y + 22, s: 110, c: "#000", txt: ch.big(), on: true });
+  ch.tab = L.box({ x: P.TABX, y, w: 300, h: CH, c: ch.c, label: ch.name, fs: 40 });
+  ch.num = L.text({ x: P.TABX + 24, cap: y + 22, s: 110, c: "#000", txt: ch.big(), on: true });
   L.rect({ x: WX, y, w: WW, h: CH, c: "#08102a" });
   for (let k = 1; k < 10; k++) L.rect({ x: WX + (WW / 10) * k - 1, y, w: 2, h: CH, c: "#1a2a5c", free: true });
   L.rect({ x: WX, y: y + CH / 2 - 1, w: WW, h: 2, c: "#1a2a5c", free: true });
@@ -158,29 +193,39 @@ L.tick((t) => {
 });
 
 // ---------------- hematology ----------------
-L.box({ x: 1940, y: 1124, w: 300, h: 48, c: "plum", label: "Hematology", fs: 28, r: "l" });
-L.rect({ x: 1940 + 300 + L.GAP, y: 1124, w: 3816 - (1940 + 300 + L.GAP), h: 48, c: "lilac" });
+const HX = P.HC[0];
+L.box({ x: HX, y: P.HY, w: 300, h: 48, c: "plum", label: "Hematology", fs: 28, r: "l" });
+L.rect({ x: HX + 300 + L.GAP, y: P.HY, w: X1 - (HX + 300 + L.GAP), h: 48, c: "lilac" });
 const chem = [["Hemoglobin", 14.2, 1, "g/dL"], ["Leukocytes", 6.8, 1, "per nL"], ["Platelets", 245, 0, "per nL"], ["Lymphocytes", 31, 0, "%"],
-              ["Sodium", 140, 0, "mmol/L"], ["Potassium", 4.1, 1, "mmol/L"], ["Glucose", 92, 0, "mg/dL"], ["Cortisol", 342, 0, "nmol/L"]];
+              ["Sodium", 140, 0, "mmol/L"], ["Potassium", 4.1, 1, "mmol/L"], ["Glucose", 92, 0, "mg/dL"], ["Cortisol", 342, 0, "nmol/L"],
+              ["Chloride", 102, 0, "mmol/L"], ["Calcium", 2.4, 1, "mmol/L"], ["Albumin", 4.3, 1, "g/dL"], ["Bilirubin", 0.8, 1, "mg/dL"],
+              ["Magnesium", 0.9, 1, "mmol/L"], ["Phosphate", 1.1, 1, "mmol/L"], ["Urea", 5.2, 1, "mmol/L"], ["Lactate", 1.1, 1, "mmol/L"]].slice(0, P.HN);
+if (UW) {
+  // four columns, pitched so the last units end 130 short of the content box's edge (flush, the
+  // values would sit 97 from it: a near-miss in alignment)
+  const uw = Math.max(...chem.map((r) => L.textWidth(r[3], 36)));
+  const pitch = Math.round((X1 - 130 - P.HC[0] - P.VO - 24 - uw) / 3);
+  P.HC = [0, 1, 2, 3].map((k) => P.HC[0] + k * pitch);
+}
 const chemVals = chem.map(([name, v, dp, unit], i) => {
-  const cx = i < 4 ? 1940 : 2880, base = 1240 + (i % 4) * 80;
+  const cx = P.HC[Math.floor(i / 4)], base = P.HY + 116 + (i % 4) * 80;
   L.text({ x: cx, base, s: 36, c: "lilac", txt: name });
-  const e = L.text({ x: cx + 500, base, s: 54, c: "white", txt: v.toFixed(dp), align: "r" });
-  L.text({ x: cx + 524, base, s: 36, c: "lilac", txt: unit });
+  const e = L.text({ x: cx + P.VO, base, s: 54, c: "white", txt: v.toFixed(dp), align: "r" });
+  L.text({ x: cx + P.VO + 24, base, s: 36, c: "lilac", txt: unit });
   return { e, v, dp, base: v };
 });
 L.every(2600, () => { const c = L.pick(chemVals); c.v = c.base * (1 + (Math.random() - 0.5) * 0.04); c.e.textContent = c.v.toFixed(c.dp); });
 
 // ---------------- cortical scan ----------------
-L.box({ x: 330, y: 1620, w: 320, h: 48, c: "plum", label: "Cortical Scan", fs: 28, r: "l" });
-L.rect({ x: 330 + 320 + L.GAP, y: 1620, w: 1880 - (330 + 320 + L.GAP), h: 48, c: "lilac" });
-const hexes = [], R = 24, HX = R * Math.sqrt(3);
+L.box({ x: 330, y: P.CY, w: 320, h: 48, c: "plum", label: "Cortical Scan", fs: 28, r: "l" });
+L.rect({ x: 330 + 320 + L.GAP, y: P.CY, w: P.CX1 - (330 + 320 + L.GAP), h: 48, c: "lilac" });
+const hexes = [], R = 24, HX6 = R * Math.sqrt(3);
 const hexG = L.svg("g", { class: "boot" });
-for (let row = 0; row < 7; row++) for (let col = 0; col < 40; col++) {
-  const cx = 330 + HX / 2 + col * HX + (row % 2 ? HX / 2 : 0), cy = 1720 + R + row * R * 1.5;
-  if (cx + HX / 2 > 1880) continue;
+for (let row = 0; row < P.CROWS; row++) for (let col = 0; col < 60; col++) {
+  const cx = 330 + HX6 / 2 + col * HX6 + (row % 2 ? HX6 / 2 : 0), cy = P.CY + 100 + R + row * R * 1.5;
+  if (cx + HX6 / 2 > P.CX1) continue;
   const pts = Array.from({ length: 6 }, (_, k) => { const a = Math.PI / 6 + (k * Math.PI) / 3; return `${(cx + (R - 2) * Math.cos(a)).toFixed(1)},${(cy + (R - 2) * Math.sin(a)).toFixed(1)}`; }).join(" ");
-  const u = Math.exp(-Math.pow((col - 18) / 10, 2) - Math.pow((row - 3) / 3, 2));     // brighter towards the centre
+  const u = Math.exp(-Math.pow((col - P.CC[0]) / P.CS[0], 2) - Math.pow((row - P.CC[1]) / P.CS[1], 2));     // brighter towards the centre
   hexes.push(L.svg("polygon", { points: pts, fill: u > 0.55 ? "var(--lilac)" : u > 0.25 ? "var(--plum)" : "#3a2a5a", opacity: (0.45 + 0.5 * u).toFixed(2) }, hexG));
 }
 L.every(120, () => {
@@ -193,39 +238,51 @@ L.every(120, () => {
 }, 0.2);
 
 // ---------------- treatment log ----------------
-L.box({ x: 1940, y: 1620, w: 340, h: 48, c: "plum", label: "Treatment Log", fs: 28, r: "l" });
-L.rect({ x: 1940 + 340 + L.GAP, y: 1620, w: 2840 - (1940 + 340 + L.GAP), h: 48, c: "lilac" });
+L.box({ x: P.LX, y: P.BY, w: 340, h: 48, c: "plum", label: "Treatment Log", fs: 28, r: "l" });
+L.rect({ x: P.LX + 340 + L.GAP, y: P.BY, w: P.LX1 - (P.LX + 340 + L.GAP), h: 48, c: "lilac" });
 const treatments = ["Tricordrazine, 5 cc, administered", "Cortical stimulator calibrated", "Dermal regenerator applied, left forearm",
   "Hyronalin, 10 cc, radiation exposure", "Neural scan complete — no anomalies", "Biobed sensors recalibrated", "Inaprovaline, 3 cc, administered",
   "Osteogenic stimulator, 20 min", "Anabolic protoplaser, sutures sealed", "Patient resting comfortably", "Synaptic response within normal range",
   "Bioscan logged to medical database"];
-const logRows = Array.from({ length: 6 }, (_, i) => {
-  const base = 1734 + i * 54;
-  return { sd: L.text({ x: 1940, base, s: 36, c: "orange", txt: "" }), tx: L.text({ x: 2130, base, s: 36, c: "ice", txt: "" }) };
+const moreTreatments = ["Leporazine, 2 cc, administered", "Cardiostimulator on standby", "Cellular regenerator, 15 min",
+  "Neural stimulator, low setting", "Metabolic reading logged", "Cortical monitor attached", "Polyadrenaline held in reserve",
+  "Biofilter scan — no pathogens", "Kelotane applied, minor burn", "Blood gas analysis complete", "Sedative withdrawn, patient alert",
+  "Medical tricorder scan logged"];
+// oldest at the top; a second column (ultrawide) carries on where the first ends
+const logRows = Array.from({ length: 6 * P.LCOLS }, (_, i) => {
+  const base = P.BY + 114 + (i % 6) * 54, x = P.LX + Math.floor(i / 6) * 940;
+  return { sd: L.text({ x, base, s: 36, c: "orange", txt: "" }), tx: L.text({ x: x + 190, base, s: 36, c: "ice", txt: "" }) };
 });
 let stardate = 47771.2, logged = [], deck = [];
 const addEntry = () => {
   stardate += 0.1;
+  if (P.LCOLS > 1) {                                      // twelve rows on view: no line twice on screen
+    const shown = new Set(logged.slice(logged.length >= logRows.length ? 1 : 0).map((e) => e[1]));
+    if (!deck.some((x) => !shown.has(x))) deck = treatments.concat(moreTreatments).filter((x) => !shown.has(x)).sort(() => Math.random() - 0.5);
+    const j = deck.map((x) => !shown.has(x)).lastIndexOf(true);
+    logged.push([stardate.toFixed(1), deck.splice(j, 1)[0]]);
+  } else {
   if (!deck.length) deck = treatments.slice().sort(() => Math.random() - 0.5);   // never the same entry twice running
   logged.push([stardate.toFixed(1), deck.pop()]);
+  }
   if (logged.length > logRows.length) logged.shift();
   logRows.forEach((r, i) => { const e = logged[i]; r.sd.textContent = e ? e[0] : ""; r.tx.textContent = e ? e[1] : ""; });
 };
-for (let i = 0; i < 6; i++) addEntry();
+for (let i = 0; i < logRows.length; i++) addEntry();
 L.every(6500, addEntry, 0.2);
 
 // ---------------- medication: three infusions running ----------------
-const MX = 2880;
-L.box({ x: MX, y: 1620, w: 300, h: 48, c: "pink", label: "Medication", fs: 28, r: "l" });
-L.rect({ x: MX + 300 + L.GAP, y: 1620, w: 3816 - (MX + 300 + L.GAP), h: 48, c: "lilac" });
+const MX = P.MX;
+L.box({ x: MX, y: P.BY, w: 300, h: 48, c: "pink", label: "Medication", fs: 28, r: "l" });
+L.rect({ x: MX + 300 + L.GAP, y: P.BY, w: X1 - (MX + 300 + L.GAP), h: 48, c: "lilac" });
 const meds = [["Hyronalin", "2.0 cc/hr", "pink"], ["Kelotane", "0.5 cc/hr", "peach"], ["Saline electrolyte", "40 cc/hr", "ice"],
               ["Inaprovaline", "1.5 cc/hr", "pink"], ["Tricordrazine", "0.8 cc/hr", "peach"], ["Lectrazine", "1.2 cc/hr", "ice"]];
 let medNext = 3;
 const drips = [0, 1, 2].map((i) => {
-  const base = 1734 + i * 108;                            // every second line of the treatment log
-  const d = { name: L.text({ x: MX, base, s: 36, c: "ice", txt: meds[i][0] }), rate: L.text({ x: 3816, base, s: 36, c: "lilac", txt: meds[i][1], align: "r" }) };
-  L.rect({ x: MX, y: base + 18, w: 3816 - MX, h: 22, c: "#141c36" });
-  d.bar = L.layer({ x: MX, y: base + 18, w: 3816 - MX, h: 22 });
+  const base = P.BY + 114 + i * 108;                      // every second line of the treatment log
+  const d = { name: L.text({ x: MX, base, s: 36, c: "ice", txt: meds[i][0] }), rate: L.text({ x: X1, base, s: 36, c: "lilac", txt: meds[i][1], align: "r" }) };
+  L.rect({ x: MX, y: base + 18, w: X1 - MX, h: 22, c: "#141c36" });
+  d.bar = L.layer({ x: MX, y: base + 18, w: X1 - MX, h: 22 });
   d.bar.style.transformOrigin = "0 0"; d.bar.style.background = `var(--${meds[i][2]})`;
   d.u = L.rand(0.15, 0.85); d.speed = L.rand(0.006, 0.014);        // fraction per second
   return d;

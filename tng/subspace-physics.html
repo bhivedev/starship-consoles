@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Subspace Physics</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .sw { transition: background-color .9s ease, color .9s ease; }
@@ -7,6 +8,7 @@
   .fd { transition: opacity .45s ease; }
   .fd.out { opacity: .2; }
   .clip { position: absolute; overflow: hidden; }
+  .glide { transition: transform .9s ease; }
 </style></head>
 <body><script src="../lcars.js"></script><script>
 "use strict";
@@ -14,12 +16,24 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: sidebar left, title top right ----------------
-L.frame({ type: "A", title: "Subspace Physics  •  Laboratory", c: "violet", c2: "sky", accent: "lilac", foot: "Physics",
+const BOX = L.frame({ type: "A", title: "Subspace Physics  •  Laboratory", c: "violet", c2: "sky", accent: "lilac", foot: "Physics",
   side: [[140, "sky", "Sci 04"], [70, "lilac", "Lab 4"], [420, "violet", "Subspace"], [70, "ice", "Field"],
          [300, "sky", "Harmonics"], [70, "lilac", "Particles"], [216, "violet", "Interphase"]] });
 
-// two equal columns, the same edges top to bottom
-const A = [330, 2043], B = [2103, 3816];
+// ---------------- the grid, per shape ----------------
+// The data, readings and motion below are written once; only these positions differ by shape.
+// wide (3840 × 2160): two equal columns, the same edges top to bottom (330–2043 | 2103–3816), three
+//   rows of panels on header lines 280, 1100 and 1620.
+// upright (2160 × 3120): the spectrum, the flux traces, the run cycle and the results each take the
+//   full width, stacked down the page; particle counts and interphase readings sit side by side
+//   between them (330–1203 | 1263–2136), sharing baselines on a 70 grid.
+// ultrawide (5040 × 2160): both columns exactly as wide, and a third (3876–5016) on the same header
+//   lines and baselines: run history, resonance peaks and the last twelve runs.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const X0 = BOX.x0, X1 = BOX.x1;
+const A = [330, 2043], B = [2103, 3816], C = [3876, X1];
+const FULL = [X0, X1], HALF_L = [X0, X0 + 873], HALF_R = [X1 - 873, X1];
+const SPEC = UP ? FULL : A, FLUX = UP ? FULL : B, RUNC = UP ? FULL : A, PART = UP ? HALF_L : B, RES = UP ? FULL : A, IPH = UP ? HALF_R : B;
 const PANEL = "#0a0c26", GRID = "#1d2258", TRACK = "#1a1840";
 const col = (c) => (c.startsWith("#") ? c : `var(--${c})`);
 const pad2 = (n) => String(n).padStart(2, "0");
@@ -78,6 +92,7 @@ const run = (k) => {
     sd: (47391.2 + (k - K0) * 0.02).toFixed(2),
   };
   runs.set(k, R);
+  for (const j of runs.keys()) if (j < k - 24) runs.delete(j);       // a run is the same whenever it is made: forget those far behind
   return R;
 };
 // the rates (counts per second) at sim time s: background plus what the field drives
@@ -90,29 +105,29 @@ const shown = (r) => (r >= 1000 ? Math.round(r / 10) * 10 : Math.round(r));   //
 
 // ---------------- status line ----------------
 const stateTxt = L.text({ x: A[0], cap: 150, s: 100, c: "lilac", txt: "" });
-const subTxt = L.text({ x: B[0], base: 222, s: 38, c: "sky", txt: "" });
-const fieldPill = L.box({ x: B[1] - 400, y: 150, w: 400, h: 72, c: "sky", label: "", r: "lr", fs: 36, cls: "sw" });
+const subTxt = L.text({ x: UP ? X0 + widest(STATE, 100) + 64 : B[0], base: 222, s: 38, c: "sky", txt: "" });
+const fieldPill = L.box({ x: X1 - 400, y: 150, w: 400, h: 72, c: "sky", label: "", r: "lr", fs: 36, cls: "sw" });
 
 // ---------------- harmonic spectrum (left) ----------------
-const PT = 428, PB = 1000, PH = PB - PT;                  // the plot's top and bottom, shared with the flux traces
-const CAP = 400, AXIS = 1048;                             // caption baseline; scale numbers under the plots
-L.header({ x: A[0], y: 280, w: A[1] - A[0], label: "Subspace Field Harmonics", c1: "sky", c2: "violet" });
-L.text({ x: A[0], base: CAP, s: 36, c: "lilac", txt: "Amplitude  ·  Percent of Fundamental" });
+const PT = 428, PB = UP ? 822 : 1000, PH = PB - PT;       // the plot's top and bottom (wide: shared with the flux traces)
+const CAP = 400, AXIS = PB + 48;                          // caption baseline; scale numbers under the plots
+L.header({ x: SPEC[0], y: 280, w: SPEC[1] - SPEC[0], label: "Subspace Field Harmonics", c1: "sky", c2: "violet" });
+L.text({ x: SPEC[0], base: CAP, s: 36, c: "lilac", txt: "Amplitude  ·  Percent of Fundamental" });
 { // the key, set right: measured bars, predicted marks
   const pw = L.textWidth("Predicted", 36);
-  L.text({ x: A[1], base: CAP, s: 36, c: "white", txt: "Predicted", align: "r" });
-  L.rect({ x: A[1] - pw - 24 - 44, y: CAP - 16, w: 44, h: 6, c: "white", free: true });
-  const mx = A[1] - pw - 24 - 44 - 48;
+  L.text({ x: SPEC[1], base: CAP, s: 36, c: "white", txt: "Predicted", align: "r" });
+  L.rect({ x: SPEC[1] - pw - 24 - 44, y: CAP - 16, w: 44, h: 6, c: "white", free: true });
+  const mx = SPEC[1] - pw - 24 - 44 - 48;
   L.text({ x: mx, base: CAP, s: 36, c: "sky", txt: "Measured", align: "r" });
   L.rect({ x: mx - L.textWidth("Measured", 36) - 24 - 26, y: CAP - 26, w: 26, h: 26, c: "sky", free: true });
 }
-const PX0 = 400, PW = A[1] - PX0, BGAP = 14, PITCH = (PW + BGAP) / NH, BW = Math.round(PITCH - BGAP);
+const PX0 = 400, PW = SPEC[1] - PX0, BGAP = 14, PITCH = (PW + BGAP) / NH, BW = Math.round(PITCH - BGAP);
 // the panel runs flush with the column; its scale sits inside, each number just under its line
-L.rect({ x: A[0], y: PT, w: A[1] - A[0], h: PH, c: PANEL, panel: true });
+L.rect({ x: SPEC[0], y: PT, w: SPEC[1] - SPEC[0], h: PH, c: PANEL, panel: true });
 for (let q = 0; q < 4; q++) {
   const y = PT + (PH * q) / 4;
-  if (q > 0) L.rect({ x: A[0], y: y - 1, w: A[1] - A[0], h: 2, c: GRID, free: true });
-  L.text({ x: A[0] + 20, base: y + 42, s: 30, c: "lilac", txt: String(100 - 25 * q), legend: true });
+  if (q > 0) L.rect({ x: SPEC[0], y: y - 1, w: SPEC[1] - SPEC[0], h: 2, c: GRID, free: true });
+  L.text({ x: SPEC[0] + 20, base: y + 42, s: 30, c: "lilac", txt: String(100 - 25 * q), legend: true });
 }
 const bars = PRED.map((p, i) => {
   const x = Math.round(PX0 + i * PITCH), n = i + 1;
@@ -133,33 +148,35 @@ const barAt = (k, u, i) => {
 };
 
 // ---------------- verteron and tetryon flux (right) ----------------
-L.header({ x: B[0], y: 280, w: B[1] - B[0], label: "Verteron and Tetryon Flux", c1: "lilac", c2: "violet" });
-L.text({ x: B[0], base: CAP, s: 36, c: "lilac", txt: "Counts per Second" });
-L.text({ x: B[1], base: CAP, s: 36, c: "lilac", txt: "Last 10 Seconds", align: "r" });
-const TABW = 280, TX = B[0] + TABW + L.GAP, TW = B[1] - TX, CHH = 270, CHG = PH - 2 * CHH;
+// wide: beside the spectrum, on its lines; upright: under it, the full width
+const FY = UP ? PB + 100 : 280, FCAP = FY + 120, FT = FY + 148, FPH = UP ? 384 : PH, FAXIS = FT + FPH + 48;
+L.header({ x: FLUX[0], y: FY, w: FLUX[1] - FLUX[0], label: "Verteron and Tetryon Flux", c1: "lilac", c2: "violet" });
+L.text({ x: FLUX[0], base: FCAP, s: 36, c: "lilac", txt: "Counts per Second" });
+L.text({ x: FLUX[1], base: FCAP, s: 36, c: "lilac", txt: "Last 10 Seconds", align: "r" });
+const TABW = 280, TX = FLUX[0] + TABW + L.GAP, TW = FLUX[1] - TX, CHH = UP ? 180 : 270, CHG = FPH - 2 * CHH;
 const CHANS = [
-  { key: "ver", name: "Verteron", c: "sky", ink: "#5c9dff", max: 6000, y: PT },
-  { key: "tet", name: "Tetryon", c: "lilac", ink: "#c7a0d8", max: 1600, y: PT + CHH + CHG },
+  { key: "ver", name: "Verteron", c: "sky", ink: "#5c9dff", max: 6000, y: FT },
+  { key: "tet", name: "Tetryon", c: "lilac", ink: "#c7a0d8", max: 1600, y: FT + CHH + CHG },
 ];
 CHANS.forEach((ch) => {
-  L.box({ x: B[0], y: ch.y, w: TABW, h: CHH, c: ch.c, label: ch.name, fs: 40 });
-  ch.num = L.text({ x: B[0] + 24, cap: ch.y + 24, s: 110, c: "#000", txt: "", on: true });
+  L.box({ x: FLUX[0], y: ch.y, w: TABW, h: CHH, c: ch.c, label: ch.name, fs: 40 });
+  ch.num = L.text({ x: FLUX[0] + 24, cap: ch.y + 24, s: 110, c: "#000", txt: "", on: true });
   L.rect({ x: TX, y: ch.y, w: TW, h: CHH, c: PANEL });
   for (let q = 1; q < 10; q++) L.rect({ x: Math.round(TX + (TW * q) / 10) - 1, y: ch.y, w: 2, h: CHH, c: GRID, free: true });
   for (let q = 1; q < 4; q++) L.rect({ x: TX, y: ch.y + (CHH * q) / 4 - 1, w: TW, h: 2, c: GRID, free: true });
 });
 ["10 s", "8 s", "6 s", "4 s", "2 s", "Now"].forEach((txt, q) => {
   const x = TX + (TW * q) / 5;
-  if (q === 0) L.text({ x, base: AXIS, s: 30, c: "lilac", txt, legend: true });
-  else if (q === 5) L.text({ x, base: AXIS, s: 30, c: "lilac", txt, align: "r", legend: true });
-  else L.text({ x, base: AXIS, s: 30, c: "lilac", txt, align: "c", w: 120, legend: true });
+  if (q === 0) L.text({ x, base: FAXIS, s: 30, c: "lilac", txt, legend: true });
+  else if (q === 5) L.text({ x, base: FAXIS, s: 30, c: "lilac", txt, align: "r", legend: true });
+  else L.text({ x, base: FAXIS, s: 30, c: "lilac", txt, align: "c", w: 120, legend: true });
 });
 // The traces scroll (as on tng/sickbay): two canvas tiles slid side by side in a clipped strip;
 // each frame draws only the newest sliver, and a tile that leaves the view is recycled before drawing.
 const WIN = 10, SPEED = TW / WIN, SUB = 3;
-const strip = L.el("div", "clip boot", L.stage, { left: TX + "px", top: PT + "px", width: TW + "px", height: PH + "px" });
+const strip = L.el("div", "clip boot", L.stage, { left: TX + "px", top: FT + "px", width: TW + "px", height: FPH + "px" });
 const tiles = [0, 1].map((n) => {
-  const c = L.canvas({ x: 0, y: 0, w: TW + 8, h: PH }, strip);
+  const c = L.canvas({ x: 0, y: 0, w: TW + 8, h: FPH }, strip);
   c.cv.style.willChange = "transform"; c.idx = n;        // idx, not k: the kit keeps the pixel scale in c.k
   return c;
 });
@@ -172,11 +189,11 @@ const step = (dt) => {
     const r = rates(simT), x = written + (dt * SPEED * j) / SUB;
     CHANS.forEach((ch, i) => {
       const v = L.clamp(r[ch.key] / ch.max + wobble(simT, i) * (0.4 + 0.6 * field(cyc(simT))), 0.02, 0.98);
-      pts[i].push([x, ch.y - PT + CHH * (1 - v)]);
+      pts[i].push([x, ch.y - FT + CHH * (1 - v)]);
     });
   }
   const end = written + dt * SPEED;
-  for (const tile of tiles) if (end >= (tile.idx + 2) * TW) { tile.idx += 2; tile.g.clearRect(0, 0, TW + 8, PH); }
+  for (const tile of tiles) if (end >= (tile.idx + 2) * TW) { tile.idx += 2; tile.g.clearRect(0, 0, TW + 8, FPH); }
   CHANS.forEach((ch, i) => {
     if (prev[i]) for (const tile of tiles) {
       const g = tile.g, o = tile.idx * TW;
@@ -195,7 +212,7 @@ L.tick((t) => {
   if (!filled) {                                         // start with the window already full, ending now
     filled = true; written = 0; simT = t - WIN; tiles[0].idx = -1; tiles[1].idx = 0;
     prev = CHANS.map(() => null);
-    tiles.forEach((c) => c.g.clearRect(0, 0, TW + 8, PH));
+    tiles.forEach((c) => c.g.clearRect(0, 0, TW + 8, FPH));
     for (let i = 0; i < WIN * 30 + 1; i++) step(1 / 30);
     lastT = t; place(); return;
   }
@@ -204,11 +221,11 @@ L.tick((t) => {
 });
 
 // ---------------- experiment run cycle (middle left) ----------------
-const MH = 1100, BANDY = 1180, MCAP = 1316, MROW = (i) => 1390 + i * 70;
-L.header({ x: A[0], y: MH, w: A[1] - A[0], label: "Experiment Run Cycle", c1: "lilac", c2: "sky" });
-let bx = A[0];
+const MH = UP ? 1554 : 1100, BANDY = MH + 80, MCAP = MH + 216, MROW = (i) => MH + 290 + i * 70;   // wide: 1180, 1316, 1390
+L.header({ x: RUNC[0], y: MH, w: RUNC[1] - RUNC[0], label: "Experiment Run Cycle", c1: "lilac", c2: "sky" });
+let bx = RUNC[0];
 const bands = PHASES.map(([name, a, b, pc], i) => {
-  const bw = i === PHASES.length - 1 ? A[1] - bx : Math.round(((b - a) / CYCLE) * (A[1] - A[0] + 6)) - 6;
+  const bw = i === PHASES.length - 1 ? RUNC[1] - bx : Math.round(((b - a) / CYCLE) * (RUNC[1] - RUNC[0] + 6)) - 6;
   const e = L.box({ x: bx, y: BANDY, w: bw, h: 64, c: pc, label: name, fs: 30, cls: "sw" });
   const band = { e, x: bx, w: bw, a, b, c: pc };
   bx += bw + 6;
@@ -219,10 +236,10 @@ bandCursor.style.background = "var(--white)";
 const PARAMS = [["Field Frequency", "47.875 kHz", "47.8752 kHz", "Calibrating"], ["Field Strength", "3.80 mc", "3.80 mc", "Decaying"],
                 ["Harmonic Sweep", "H 1 to 24", "24 of 24", "Complete"]];
 const PCAP = ["Parameter", "Set Point", "Measured", "Status"];
-const pcols = columns(A[0], A[1], [0, 1, 2, 3].map((j) => Math.max(widest(PARAMS.map((r) => r[j]), j === 2 ? 52 : 40), L.textWidth(PCAP[j], 36))));
+const pcols = columns(RUNC[0], RUNC[1], [0, 1, 2, 3].map((j) => Math.max(widest(PARAMS.map((r) => r[j]), j === 2 ? 52 : 40), L.textWidth(PCAP[j], 36))));
 PCAP.forEach((txt, j) => L.text({ x: pcols[j], base: MCAP, s: 36, c: "lilac", txt, align: j ? "r" : "l" }));
 const params = PARAMS.map(([name], i) => {
-  L.text({ x: A[0], base: MROW(i), s: 40, c: "sky", txt: name });
+  L.text({ x: RUNC[0], base: MROW(i), s: 40, c: "sky", txt: name });
   return {
     set: L.text({ x: pcols[1], base: MROW(i), s: 40, c: "lilac", txt: "", align: "r" }),
     meas: L.text({ x: pcols[2], base: MROW(i), s: 52, c: "white", txt: "", align: "r" }),
@@ -231,31 +248,33 @@ const params = PARAMS.map(([name], i) => {
 });
 
 // ---------------- particle counts (middle right) ----------------
-L.header({ x: B[0], y: MH, w: B[1] - B[0], label: "Particle Counts", c1: "sky", c2: "lilac" });
+// wide: beside the run cycle, on its rows; upright: beside the interphase readings, the count window under the table
+const QH = UP ? 2074 : MH, QBAND = UP ? QH + 418 : BANDY, QCAP = UP ? QH + 120 : MCAP, QROW = (i) => (UP ? QH + 190 + i * 70 : MROW(i));
+L.header({ x: PART[0], y: QH, w: PART[1] - PART[0], label: "Particle Counts", c1: "sky", c2: "lilac" });
 const WINW = Math.ceil((L.textWidth("Count Window", 30) + 80) / 10) * 10;
 const WVW = Math.ceil(L.textWidth("8.0 of 8.0 s", 52) / 10) * 10;
-L.box({ x: B[0], y: BANDY, w: WINW, h: 64, c: "sky", label: "Count Window", fs: 30, r: "l" });
-const WTX = B[0] + WINW + L.GAP, WTW = B[1] - WVW - 2 * L.GAP - WTX;
-L.rect({ x: WTX, y: BANDY, w: WTW, h: 64, c: TRACK });
-const winBar = fill(WTX, BANDY, WTW, 64, "ice");
-const winVal = L.text({ x: B[1], base: BANDY + 52, s: 52, c: "white", txt: "", align: "r" });
+L.box({ x: PART[0], y: QBAND, w: WINW, h: 64, c: "sky", label: "Count Window", fs: 30, r: "l" });
+const WTX = PART[0] + WINW + L.GAP, WTW = PART[1] - WVW - 2 * L.GAP - WTX;
+L.rect({ x: WTX, y: QBAND, w: WTW, h: 64, c: TRACK });
+const winBar = fill(WTX, QBAND, WTW, 64, "ice");
+const winVal = L.text({ x: PART[1], base: QBAND + 52, s: 52, c: "white", txt: "", align: "r" });
 const PARTS = [["Verteron", "ver", "412 keV"], ["Tetryon", "tet", "186 keV"], ["Chroniton", "chr", "58 keV"]];
-const QCAP = ["Particle", "Rate per Second", "Count", "Mean Energy"];
-const qcols = columns(B[0], B[1], [widest(PARTS.map((p) => p[0]), 40), L.textWidth(QCAP[1], 36), L.textWidth("88,888", 52) + 40, L.textWidth(QCAP[3], 36)]);
-QCAP.forEach((txt, j) => L.text({ x: qcols[j], base: MCAP, s: 36, c: "lilac", txt, align: j ? "r" : "l" }));
+const QHEAD = ["Particle", "Rate per Second", "Count", "Mean Energy"];
+const qcols = columns(PART[0], PART[1], [widest(PARTS.map((p) => p[0]), 40), L.textWidth(QHEAD[1], 36), L.textWidth("88,888", 52) + 40, L.textWidth(QHEAD[3], 36)]);
+QHEAD.forEach((txt, j) => L.text({ x: qcols[j], base: QCAP, s: 36, c: "lilac", txt, align: j ? "r" : "l" }));
 const parts = PARTS.map(([name, key, en], i) => {
-  L.text({ x: B[0], base: MROW(i), s: 40, c: "sky", txt: name });
-  L.text({ x: qcols[3], base: MROW(i), s: 40, c: "lilac", txt: en, align: "r" });
-  return { key, rate: L.text({ x: qcols[1], base: MROW(i), s: 52, c: "white", txt: "", align: "r" }),
-           count: L.text({ x: qcols[2], base: MROW(i), s: 52, c: "ice", txt: "", align: "r" }) };
+  L.text({ x: PART[0], base: QROW(i), s: 40, c: "sky", txt: name });
+  L.text({ x: qcols[3], base: QROW(i), s: 40, c: "lilac", txt: en, align: "r" });
+  return { key, rate: L.text({ x: qcols[1], base: QROW(i), s: 52, c: "white", txt: "", align: "r" }),
+           count: L.text({ x: qcols[2], base: QROW(i), s: 52, c: "ice", txt: "", align: "r" }) };
 });
 
 // ---------------- results (bottom left) ----------------
-const BH = 1620, BCAP = 1716, BROW = (i) => 1776 + i * 54, NR = 5;
-L.header({ x: A[0], y: BH, w: A[1] - A[0], label: "Run Results", c1: "sky", c2: "violet", h: 48 });
+const BH = UP ? 2634 : 1620, BCAP = BH + 96, BROW = (i) => BH + 156 + i * 54, NR = UP ? 4 : 5;   // wide: 1716, 1776
+L.header({ x: RES[0], y: BH, w: RES[1] - RES[0], label: "Run Results", c1: "sky", c2: "violet", h: 48 });
 const RCAP = ["Run", "Stardate", "Frequency", "Verteron", "Tetryon", "RMS Dev", "Worst", "Result"];
 const RSAMPLE = ["88.88", "47888.88", "88.888 kHz", "8,888", "8,888", "8.8%", "H 88", "Chroniton Trace"];
-const rcols = columns(A[0], A[1], RCAP.map((c, j) => Math.max(L.textWidth(c, 36), L.textWidth(RSAMPLE[j], 36))));
+const rcols = columns(RES[0], RES[1], RCAP.map((c, j) => Math.max(L.textWidth(c, 36), L.textWidth(RSAMPLE[j], 36))));
 RCAP.forEach((txt, j) => L.text({ x: rcols[j], base: BCAP, s: 36, c: "lilac", txt, align: j ? "r" : "l" }));
 const RCOL = ["sky", "lilac", "white", "white", "white", "white", "ice", "ice"];
 const resRows = Array.from({ length: NR }, (_, i) => RCAP.map((_, j) =>
@@ -275,9 +294,11 @@ const showResults = (k, fade) => {
 };
 
 // ---------------- interphase readings (bottom right) — The Next Phase ----------------
-const IPW = Math.ceil(Math.max(...["Chronitons Detected", "Background"].map((s) => L.textWidth(s, 28))) / 10) * 10 + 80;
-L.header({ x: B[0], y: BH, w: B[1] - B[0] - IPW - L.GAP, label: "Interphase Readings", c1: "lilac", c2: "violet", h: 48 });
-const ipPill = L.box({ x: B[1] - IPW, y: BH, w: IPW, h: 48, c: "sky", label: "", fs: 28, r: "r", cls: "sw" });
+// wide: beside the results, on their rows; upright: beside the particle counts, on theirs
+const IH = UP ? QH : BH, IHH = UP ? 56 : 48, IFS = UP ? 32 : 28, ICAP = UP ? QCAP : BCAP, IROW = (i) => (UP ? QH + 190 + i * 70 : BROW(i));
+const IPW = Math.ceil(Math.max(...["Chronitons Detected", "Background"].map((s) => L.textWidth(s, IFS))) / 10) * 10 + 80;
+L.header({ x: IPH[0], y: IH, w: IPH[1] - IPH[0] - IPW - L.GAP, label: "Interphase Readings", c1: "lilac", c2: "violet", h: IHH });
+const ipPill = L.box({ x: IPH[1] - IPW, y: IH, w: IPW, h: IHH, c: "sky", label: "", fs: IFS, r: "r", cls: "sw" });
 const IREAD = [
   ["Chroniton Flux", (s) => rates(s).chr, 400, (v) => shown(v) + " /s"],
   ["Interphase Variance", (s) => 0.0004 + 0.0058 * ((rates(s).chr - BG.chr) / 340), 0.01, (v) => v.toFixed(4) + "%"],
@@ -286,17 +307,135 @@ const IREAD = [
   ["Tachyon Background", () => 38, 100, (v) => Math.round(v) + " /s"],
 ];
 const IVW = Math.ceil(Math.max(L.textWidth("0.0000%", 36), L.textWidth("Complete", 36), L.textWidth("Level", 36)) / 10) * 10;
-const ILX = B[0] + Math.ceil(widest(IREAD.map((r) => r[0]), 36) / 10) * 10 + 40, ILW = B[1] - IVW - 40 - ILX;
-L.text({ x: B[0], base: BCAP, s: 36, c: "lilac", txt: "Reading" });
-L.text({ x: ILX, base: BCAP, s: 36, c: "lilac", txt: "Level" });
-L.text({ x: B[1], base: BCAP, s: 36, c: "lilac", txt: "Value", align: "r" });
+const ILX = IPH[0] + Math.ceil(widest(IREAD.map((r) => r[0]), 36) / 10) * 10 + 40, ILW = IPH[1] - IVW - 40 - ILX;
+L.text({ x: IPH[0], base: ICAP, s: 36, c: "lilac", txt: "Reading" });
+L.text({ x: ILX, base: ICAP, s: 36, c: "lilac", txt: "Level" });
+L.text({ x: IPH[1], base: ICAP, s: 36, c: "lilac", txt: "Value", align: "r" });
 const ireads = IREAD.map(([name, f, max, show], i) => {
-  const base = BROW(i);
-  L.text({ x: B[0], base, s: 36, c: "sky", txt: name });
+  const base = IROW(i);
+  L.text({ x: IPH[0], base, s: 36, c: "sky", txt: name });
   L.rect({ x: ILX, y: base - 26, w: ILW, h: 26, c: TRACK });
   return { f, max, show, bar: fill(ILX, base - 26, ILW, 26, i === 0 ? "lilac" : i === 3 ? "ice" : "sky"),
-           val: L.text({ x: B[1], base, s: 36, c: "white", txt: "", align: "r" }), v: -1 };
+           val: L.text({ x: IPH[1], base, s: 36, c: "white", txt: "", align: "r" }), v: -1 };
 });
+
+// ---------------- ultrawide only: the third column — run history, resonance peaks, the last twelve runs ----------------
+// Everything here is derived from run(), rounded as the results table rounds it, and changes when the table logs a run.
+let third = null;
+if (UW) {
+  const NHIST = 12, RMAX = 8;
+  const histRuns = (lk) => Array.from({ length: NHIST }, (_, i) => run(lk - (NHIST - 1) + i));   // oldest first
+  // the status line goes on over the third column: this run's stardate and its clock
+  const clockTxt = L.text({ x: C[0], base: 222, s: 38, c: "sky", txt: "" });
+  // top: the RMS deviation of the last twelve runs, oldest left, on the spectrum's lines
+  L.header({ x: C[0], y: 280, w: C[1] - C[0], label: "Run History  ·  RMS Deviation", c1: "lilac", c2: "sky" });
+  L.text({ x: C[0], base: CAP, s: 36, c: "lilac", txt: "Percent  ·  Last 12 Runs" });
+  {
+    const tw = L.textWidth("Chroniton Trace", 36);
+    L.text({ x: C[1], base: CAP, s: 36, c: "butter", txt: "Chroniton Trace", align: "r" });
+    L.rect({ x: C[1] - tw - 24 - 26, y: CAP - 26, w: 26, h: 26, c: "butter", free: true });
+    const nx = C[1] - tw - 24 - 26 - 48;
+    L.text({ x: nx, base: CAP, s: 36, c: "sky", txt: "Nominal", align: "r" });
+    L.rect({ x: nx - L.textWidth("Nominal", 36) - 24 - 26, y: CAP - 26, w: 26, h: 26, c: "sky", free: true });
+  }
+  L.rect({ x: C[0], y: PT, w: C[1] - C[0], h: PH, c: PANEL, panel: true });
+  for (let q = 0; q < 4; q++) {
+    const y = PT + (PH * q) / 4;
+    if (q > 0) L.rect({ x: C[0], y: y - 1, w: C[1] - C[0], h: 2, c: GRID, free: true });
+    L.text({ x: C[0] + 20, base: y + 42, s: 30, c: "lilac", txt: String(RMAX - 2 * q), legend: true });
+  }
+  const HX0 = C[0] + 70, HGAP = 24, HP = (C[1] - HX0 + HGAP) / NHIST, HBW = Math.round(HP - HGAP);
+  const hist = Array.from({ length: NHIST }, (_, i) => {
+    const x = Math.round(HX0 + i * HP);
+    const b = fill(x, PT, HBW, PH, "sky", "50% 100%");
+    b.classList.add("fd"); b.style.transform = "scaleY(0)";
+    return { b, lab: L.text({ x: x + HBW / 2, base: AXIS, s: 30, c: "sky", txt: "", align: "c", w: HP, legend: true, cls: "fd" }) };
+  });
+  // middle: this series' runs, and the two resonances and the worst harmonic off them, measured against prediction
+  const SBW = Math.ceil((L.textWidth("Series 88", 30) + 80) / 10) * 10;
+  const serBox = L.box({ x: C[0], y: BANDY, w: SBW, h: 64, c: "lilac", label: "", fs: 30, r: "l" });
+  const SX0 = C[0] + SBW + L.GAP, SP = (C[1] - SX0 + 6) / 12;
+  const segs = Array.from({ length: 12 }, (_, j) => {
+    const x = Math.round(SX0 + j * SP), x1 = j === 11 ? C[1] : Math.round(SX0 + (j + 1) * SP) - 6;
+    return L.box({ x, y: BANDY, w: x1 - x, h: 64, c: TRACK, label: pad2(j + 1), fs: 30, cls: "sw" });
+  });
+  const ZCAP = ["Harmonic", "Predicted", "Measured", "Deviation"];
+  const ZROWS = ["H 07  ·  Resonance", "H 16  ·  Resonance", "H 88  ·  Off-Resonance"];
+  // a header pill is never shorter than the column of names beneath it
+  const pill = (label, fs, w) => Math.max(Math.ceil(L.textWidth(label, fs) + 88), w);
+  L.header({ x: C[0], y: MH, w: C[1] - C[0], label: "Resonance Peaks", c1: "sky", c2: "lilac", lw: pill("Resonance Peaks", 32, widest(ZROWS, 40)) });
+  const zcols = columns(C[0], C[1], [widest(ZROWS, 40), L.textWidth(ZCAP[1], 36), L.textWidth("888.8", 52) + 40, L.textWidth(ZCAP[3], 36)]);
+  ZCAP.forEach((txt, j) => L.text({ x: zcols[j], base: MCAP, s: 36, c: "lilac", txt, align: j ? "r" : "l" }));
+  const zrows = [0, 1, 2].map((i) => ({
+    name: L.text({ x: C[0], base: MROW(i), s: 40, c: "sky", txt: i < 2 ? ZROWS[i] : "" }),
+    pred: L.text({ x: zcols[1], base: MROW(i), s: 40, c: "lilac", txt: "", align: "r" }),
+    meas: L.text({ x: zcols[2], base: MROW(i), s: 52, c: "white", txt: "", align: "r" }),
+    dev: L.text({ x: zcols[3], base: MROW(i), s: 40, c: "ice", txt: "", align: "r", cls: "sw" }),
+  }));
+  // bottom: the last twelve runs in sum, as the interphase readings are laid out
+  const SREAD = [
+    ["Mean RMS Deviation", (rs) => rs.reduce((a, R) => a + +R.rms.toFixed(1), 0) / NHIST, RMAX, (v) => v.toFixed(1) + "%", "sky"],
+    ["Lowest RMS Deviation", (rs) => Math.min(...rs.map((R) => +R.rms.toFixed(1))), RMAX, (v) => v.toFixed(1) + "%", "ice"],
+    ["Chroniton Traces", (rs) => rs.filter((R) => R.anom).length, NHIST, (v) => `${v} of ${NHIST}`, "butter"],
+    ["Mean Verteron", (rs) => rs.reduce((a, R) => a + BG.ver + R.ver, 0) / NHIST, 6000, (v) => fmt(Math.round(v / 10) * 10), "sky"],
+    ["Mean Tetryon", (rs) => rs.reduce((a, R) => a + BG.tet + R.tet, 0) / NHIST, 1600, (v) => fmt(Math.round(v / 10) * 10), "lilac"],
+  ];
+  const SVW = Math.ceil(Math.max(L.textWidth("12 of 12", 36), L.textWidth("8,888", 36), L.textWidth("Value", 36)) / 10) * 10;
+  const SLX = C[0] + Math.ceil(widest(SREAD.map((r) => r[0]), 36) / 10) * 10 + 40, SLW = C[1] - SVW - 40 - SLX;
+  L.header({ x: C[0], y: BH, w: C[1] - C[0], label: "Last 12 Runs", c1: "sky", c2: "violet", h: 48, lw: pill("Last 12 Runs", 28, SLX - 40 - C[0]) });
+  L.text({ x: C[0], base: BCAP, s: 36, c: "lilac", txt: "Reading" });
+  L.text({ x: SLX, base: BCAP, s: 36, c: "lilac", txt: "Level" });
+  L.text({ x: C[1], base: BCAP, s: 36, c: "lilac", txt: "Value", align: "r" });
+  const sreads = SREAD.map(([name, f, max, show, c], i) => {
+    const base = BROW(i);
+    L.text({ x: C[0], base, s: 36, c: "sky", txt: name });
+    // 20 high, centred on the interphase bars beside them: 26 would read as one row of bars with them
+    L.rect({ x: SLX, y: base - 23, w: SLW, h: 20, c: TRACK });
+    const bar = fill(SLX, base - 23, SLW, 20, c);
+    bar.classList.add("glide"); bar.style.transform = "scaleX(0)";
+    return { f, max, show, bar, val: L.text({ x: C[1], base, s: 36, c: "white", txt: "", align: "r", cls: "fd" }) };
+  });
+  // a run is logged: the history and the sums change with the table, fading as it fades
+  const showThird = (lk, fade) => {
+    const rs = histRuns(lk);
+    const put = () => {
+      hist.forEach((h, i) => {
+        const R = rs[i];
+        h.b.style.transform = `scaleY(${L.clamp(+R.rms.toFixed(1) / RMAX).toFixed(4)})`;
+        h.b.style.background = `var(--${R.anom ? "butter" : "sky"})`;
+        L.set(h.lab, `${R.series}.${pad2(R.no)}`); h.lab.style.color = `var(--${R.anom ? "butter" : "sky"})`;
+      });
+      sreads.forEach((r) => L.set(r.val, r.show(r.f(rs))));
+    };
+    sreads.forEach((r) => (r.bar.style.transform = `scaleX(${L.clamp(r.f(rs) / r.max).toFixed(4)})`));
+    const els = [...hist.flatMap((h) => [h.b, h.lab]), ...sreads.map((r) => r.val)];
+    if (!fade) return put();
+    els.forEach((e) => e.classList.add("out"));
+    setTimeout(() => { put(); els.forEach((e) => e.classList.remove("out")); }, 450);
+  };
+  // a few times a second: the series band and the resonance table
+  const tickThird = (k, u) => {
+    const R = run(k), logged = u >= 44;
+    L.set(serBox, `Series ${R.series}`);
+    L.set(clockTxt, `Stardate ${R.sd}  ·  Run Time ${pad2(Math.floor(u))} of ${CYCLE} s`);
+    segs.forEach((e, j) => {
+      const n = j + 1, done = n < R.no || (n === R.no && logged), now = n === R.no && !logged;
+      const bg = done ? "ice" : now ? "lilac" : TRACK;
+      if (e._bg !== bg) { e._bg = bg; e.style.background = col(bg); e.style.color = bg === TRACK ? "var(--lilac)" : "#000"; }
+    });
+    // the two resonances read what their bars show (this run's once the sweep has passed them); the third row
+    // is the largest deviation away from them in the last complete sweep, so it never repeats a resonance row
+    const n = swept(u), kk = u >= SW1 ? k : k - 1, dk = run(kk).meas.map((m, i) => Math.abs(m / PRED[i] - 1));
+    const wi = dk.reduce((w, d, i) => (i === 0 || i === 6 || i === 15 || d <= dk[w] ? w : i), 1);
+    [[6, n > 6 ? k : k - 1], [15, n > 15 ? k : k - 1], [wi, n > wi ? k : k - 1]].map(([i, kr]) => [i, run(kr).meas[i]]).forEach(([i, m], r) => {
+      const z = zrows[r], d = (m / PRED[i] - 1) * 100;
+      if (r === 2) L.set(z.name, `H ${pad2(i + 1)}  ·  Off-Resonance`);
+      L.set(z.pred, PRED[i].toFixed(1)); L.set(z.meas, m.toFixed(1));
+      L.set(z.dev, (d >= 0 ? "+" : "−") + Math.abs(d).toFixed(1) + "%"); z.dev.style.color = col(Math.abs(d) >= 10 ? "butter" : "ice");
+    });
+  };
+  third = { showThird, tickThird };
+}
 
 // ---------------- the clock ----------------
 L.tick((t) => {
@@ -361,7 +500,8 @@ L.every(250, (t) => {
   L.set(ipPill, det ? "Chronitons Detected" : "Background"); ipPill.style.background = col(det ? "butter" : "sky");
   // results: a run joins the table when it is logged
   const lk = u >= 44 ? k : k - 1;
-  if (lk !== loggedK) { showResults(lk, loggedK !== null); loggedK = lk; }
+  if (third) third.tickThird(k, u);
+  if (lk !== loggedK) { if (third) third.showThird(lk, loggedK !== null); showResults(lk, loggedK !== null); loggedK = lk; }
 }, 0);
 });
 </script></body></html>

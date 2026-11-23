@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Fleet Deployment</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .sw { transition: background-color .8s ease, color .8s ease; }
@@ -14,7 +15,7 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: sidebar left, title top right ----------------
-L.frame({ type: "A", title: "Starfleet Command  •  Fleet Deployment", c: "sky", c2: "gold", accent: "ice", foot: "Starfleet",
+const B = L.frame({ type: "A", title: "Starfleet Command  •  Fleet Deployment", c: "sky", c2: "gold", accent: "ice", foot: "Starfleet",
   side: [[140, "gold", "Fleet Ops"], [70, "ice", "SFC"], [420, "sky", "Deployment"], [70, "gold", "Orders"],
          [300, "ice", "Sector 001"], [70, "sky", "Registry"], [216, "gold", "Wolf 359"]] });
 
@@ -47,11 +48,23 @@ const easeIn = (u, a, d) => L.ease(L.clamp((u - a) / d));
 const MID = (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); })();
 const stardate = (ms = Date.now()) => 44391 + ((ms - MID) / 86400000) * 2.74;
 
-// ---------------- the grid ----------------
-// The map 330–2140; the right-hand column 2200–3816. Bottom strip: log 330–1220 | orders 1280–2140 | memorial 2200–3816.
-const MX0 = 330, MX1 = 2140, MY0 = 360, MY1 = 1580;
+// ---------------- the grid, per shape ----------------
+// The data, readings and motion are written once; only these positions differ by shape.
+// wide (3840 × 2160): the map 330–2140; the right-hand column 2200–3816 (assignments over region strength).
+//   Bottom strip at 1620: log 330–1220 | orders 1280–2140 | memorial 2200–3816.
+// upright (2160 × 3120): the map keeps its place and size across the full width (330–2136); below it
+//   the assignments at full width, the twelve ships in two halves of six (330–1203 | 1263–2136), then
+//   region strength beside the memorial (2154) and the log beside the orders (2586), on the same halves.
+// ultrawide (5040 × 2160): everything where it is in wide, and a fourth column 3876–5016: each ship's
+//   time on station and readiness beside its row, strength by class beside strength by region, and
+//   starbase traffic in the bottom strip.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const MX0 = 330, MX1 = UP ? 2136 : 2140, MY0 = 360, MY1 = 1580;
 const RX0 = 2200, RX1 = 3816;
-const LX1 = 1220, OX0 = 1280;
+const LX1 = UP ? 1203 : 1220, OX0 = UP ? 1263 : 1280;
+const SY = UP ? 2586 : 1620;                                  // the log and orders' header line
+const NX0 = 3876, NX1 = B.x1;                                 // ultrawide's fourth column
+const PILLR = UP ? B.x1 : RX1;                                // the status line's pill: its right edge
 
 // ---------------- the fleet ----------------
 // stations: x, y on the map, region, assignment
@@ -120,9 +133,12 @@ const STATES = [["Fleet Deployed", "sky"], ["Fleet Redeploying", "butter"]];
 const stateTxt = L.text({ x: MX0, cap: 150, s: 100, c: "sky", txt: STATES[0][0] });
 const subX = MX0 + widest(STATES.map((s) => s[0]), 100) + 48;
 const subTxt = L.text({ x: subX, base: 222, s: 38, c: "ice", txt: "" });
-const subFor = (n, sd) => `Starfleet Command  ·  Federation Space  ·  12 Starships Assigned  ·  ${n}  ·  Stardate ${sd}`;
+// upright: the short form fits; ultrawide: the long form, clear of the map header's right edge whichever ship moves
+const SUBPRE = UP ? "" : UW ? "Starfleet Command  ·  Fleet Operations  ·  Federation Space  ·  5 Starbases Reporting  ·  "
+  : "Starfleet Command  ·  Federation Space  ·  ";
+const subFor = (n, sd) => `${SUBPRE}12 Starships Assigned  ·  ${n}  ·  Stardate ${sd}`;
 const PILLW = 480;
-L.box({ x: RX1 - PILLW, y: 150, w: PILLW, h: 72, c: "sky", label: "Condition Green", r: "lr", fs: 36 });
+L.box({ x: PILLR - PILLW, y: 150, w: PILLW, h: 72, c: "sky", label: "Condition Green", r: "lr", fs: 36 });
 
 // ================= the deployment map =================
 L.header({ x: MX0, y: 280, w: MX1 - MX0, label: "Federation Space  ·  Deployment Display", c1: "sky", c2: "gold" });
@@ -215,20 +231,38 @@ FLEET.forEach((f) => {
 const LEFT = new Set(["sut", "vul", "cb2", "sb211", "typ"]);
 const labOff = (key, f) => LEFT.has(key) ? [-48 - f.labW, 13] : [48, 13];
 
-// ================= fleet assignments (top right) =================
-L.header({ x: RX0, y: 280, w: RX1 - RX0, label: "Fleet Assignments", c1: "gold", c2: "sky" });
+// ================= fleet assignments (top right; upright: under the map, in two halves) =================
+if (UP) L.header({ x: MX0, y: 1620, w: MX1 - MX0, label: "Fleet Assignments", c1: "gold", c2: "sky" });
+else L.header({ x: RX0, y: 280, w: RX1 - RX0, label: "Fleet Assignments", c1: "gold", c2: "sky" });
 const FCAP = ["Vessel", "Registry", "Class", "Assignment", "Sector", "Status"];
 const FAL = ["l", "l", "l", "l", "r", "r"];
 const STAT = ["On Station", "New Orders", "Under Way"];
 const FW = [widest(["Vessel", ...FLEET.map((f) => f.name)], 40), widest(["Registry", ...FLEET.map((f) => f.reg)], 40),
   widest(["Class", ...FLEET.map((f) => f.cls)], 40), widest(["Assignment", ...Object.values(STN).map((s) => s.job)], 40),
   widest(["Sector", "00000"], 40), widest(["Status", ...STAT], 40)];
+const ROW0 = UP ? 1800 : 460, RP = 60;
+// upright: six ships to a half, each half with the four columns that change (vessel, assignment, sector, status)
+const HALF = [[MX0, LX1], [OX0, MX1]], UCOL = [0, 3, 4, 5], HROWS = 6;
+const bandAt = (i) => UP ? `translate3d(${HALF[Math.floor(i / HROWS)][0] - MX0}px,${(ROW0 - 46 + RP * (i % HROWS) - 1).toFixed(1)}px,0)`
+  : `translate3d(0,${(ROW0 - 46 + RP * i - 1).toFixed(1)}px,0)`;
+const hcols = HALF.map(([x0, x1]) => columns(x0, x1, UCOL.map((j) => FW[j])));
+const hx = (h, n) => (FAL[UCOL[n]] === "l" ? hcols[h][n][0] : hcols[h][n][1]);
+if (UP) HALF.forEach((_, h) => UCOL.forEach((j, n) => L.text({ x: hx(h, n), base: 1736, s: 36, c: "gold", txt: FCAP[j], align: FAL[j] })));
 const fcols = columns(RX0, RX1, FW);
 const fx = (j) => (FAL[j] === "l" ? fcols[j][0] : fcols[j][1]);
-FCAP.forEach((txt, j) => L.text({ x: fx(j), base: 396, s: 36, c: "gold", txt, align: FAL[j] }));
-const ROW0 = 460, RP = 60;
-const band = L.layer({ x: RX0 - 16, y: 0, w: RX1 - RX0 + 16, h: RP, cls: "band" });
+if (!UP) FCAP.forEach((txt, j) => L.text({ x: fx(j), base: 396, s: 36, c: "gold", txt, align: FAL[j] }));
+const band = UP ? L.layer({ x: MX0 - 16, y: 0, w: LX1 - MX0 + 16, h: RP, cls: "band" })
+  : L.layer({ x: RX0 - 16, y: 0, w: RX1 - RX0 + 16, h: RP, cls: "band" });
 op(band, 0);
+if (UP) {
+  FLEET.forEach((f, i) => {
+    const h = Math.floor(i / HROWS), base = ROW0 + RP * (i % HROWS);
+    f.tName = L.text({ x: hx(h, 0), base, s: 40, c: "white", txt: f.name, cls: "sw" });
+    f.tJob = L.text({ x: hx(h, 1), base, s: 40, c: "sky", txt: "", cls: "sw" });
+    f.tSec = L.text({ x: hx(h, 2), base, s: 40, c: "white", txt: "", align: "r", cls: "sw" });
+    f.tStat = L.text({ x: hx(h, 3), base, s: 40, c: "sky", txt: "", align: "r", cls: "sw" });
+  });
+} else {
 FLEET.forEach((f, i) => {
   const base = ROW0 + RP * i;
   f.tName = L.text({ x: fx(0), base, s: 40, c: "white", txt: f.name, cls: "sw" });
@@ -238,31 +272,33 @@ FLEET.forEach((f, i) => {
   f.tSec = L.text({ x: fx(4), base, s: 40, c: "white", txt: "", align: "r", cls: "sw" });
   f.tStat = L.text({ x: fx(5), base, s: 40, c: "sky", txt: "", align: "r", cls: "sw" });
 });
+}
 
-// ================= fleet strength by region (lower right) =================
-const GY = 1180;
-L.header({ x: RX0, y: GY, w: RX1 - RX0, label: "Fleet Strength by Region", c1: "sky", c2: "gold" });
+// ================= fleet strength by region (lower right; upright: left half, beside the memorial) =================
+const GX0 = UP ? MX0 : RX0, GX1 = UP ? LX1 : RX1, GY = UP ? 2154 : 1180, GR0 = UP ? 2262 : 1296, GG = UP ? 32 : 40;
+if (UP) L.header({ x: GX0, y: GY, w: GX1 - GX0, label: "Fleet Strength by Region", c1: "sky", c2: "gold", h: 48 });
+else L.header({ x: RX0, y: GY, w: RX1 - RX0, label: "Fleet Strength by Region", c1: "sky", c2: "gold" });
 const RNW = widest(REGIONS.map((r) => r[1]), 36), RCW = widest(["0"], 52);
-const CNX = RX0 + RNW + 40 + RCW, SLOTS = 4, SG = 16, SX0 = CNX + 40, SX1 = RX1, SW = (SX1 - SX0 - (SLOTS - 1) * SG) / SLOTS;
+const CNX = GX0 + RNW + GG + RCW, SLOTS = 4, SG = 16, SX0 = CNX + GG, SX1 = GX1, SW = (SX1 - SX0 - (SLOTS - 1) * SG) / SLOTS;
 const regionRows = REGIONS.map(([key, name], i) => {
-  const base = 1296 + 54 * i;
-  L.text({ x: RX0, base, s: 36, c: "sky", txt: name });
+  const base = GR0 + 54 * i;
+  L.text({ x: GX0, base, s: 36, c: "sky", txt: name });
   const slots = Array.from({ length: SLOTS }, (_, j) =>
     L.box({ x: SX0 + j * (SW + SG), y: base - 36, w: SW, h: 40, c: TRACK, label: "", fs: 28, cls: "sw" }));
   return { key, slots, cnt: L.text({ x: CNX, base: base + 4, s: 52, c: "white", txt: "", align: "r" }) };
 });
 
-// ================= deployment log (bottom left) =================
-L.header({ x: MX0, y: 1620, w: LX1 - MX0, label: "Deployment Log", c1: "sky", c2: "gold", h: 48 });
+// ================= deployment log (bottom left; upright: bottom left, under region strength) =================
+L.header({ x: MX0, y: SY, w: LX1 - MX0, label: "Deployment Log", c1: "sky", c2: "gold", h: 48 });
 const allEvents = [...FLEET.map((f) => f.short)];
 const EVW = ["New Orders  ·  Escort  ·  Starbase 133", ...REPORTS.map((r) => r[1]), "On Station  ·  Sector 00000"];
 const LOGW = [widest(["Stardate", "44399.9"], 36), widest(["Vessel", ...allEvents], 36), widest(["Event", ...EVW], 36)];
 const lcols = columns(MX0, LX1, LOGW);
 const LAL = ["l", "l", "r"];
 ["Stardate", "Vessel", "Event"].forEach((txt, j) =>
-  L.text({ x: LAL[j] === "l" ? lcols[j][0] : lcols[j][1], base: 1716, s: 36, c: "sky", txt, align: LAL[j] }));
+  L.text({ x: LAL[j] === "l" ? lcols[j][0] : lcols[j][1], base: SY + 96, s: 36, c: "sky", txt, align: LAL[j] }));
 const LOGN = 5, LP = 54;
-const logClip = L.el("div", "clip", L.stage, { left: MX0 + "px", top: 1776 - 46 + "px", width: LX1 - MX0 + "px", height: LOGN * LP + 4 + "px" });
+const logClip = L.el("div", "clip", L.stage, { left: MX0 + "px", top: SY + 156 - 46 + "px", width: LX1 - MX0 + "px", height: LOGN * LP + 4 + "px" });
 const logRows = Array.from({ length: LOGN + 1 }, (_, i) => {
   const e = L.layer({ x: 0, y: 0, w: LX1 - MX0, h: LP }, logClip);
   const cells = LOGW.map((_, j) => L.text({ x: LAL[j] === "l" ? lcols[j][0] - MX0 : lcols[j][1] - MX0, base: 46, s: 36,
@@ -302,37 +338,146 @@ const eventsOf = (k) => {
 const logLine = (ev, ms) => [stardate(ms).toFixed(1), ev[1], ev[2], ev[3]];
 
 // ================= current orders (bottom middle) =================
-L.header({ x: OX0, y: 1620, w: MX1 - OX0, label: "Current Orders", c1: "butter", c2: "sky", h: 48 });
-const oShip = L.text({ x: OX0, base: 1716, s: 36, c: "butter", txt: "" });
-const oNo = L.text({ x: MX1, base: 1716, s: 36, c: "sky", txt: "", align: "r" });
+L.header({ x: OX0, y: SY, w: MX1 - OX0, label: "Current Orders", c1: "butter", c2: "sky", h: 48 });
+const oShip = L.text({ x: OX0, base: SY + 96, s: 36, c: "butter", txt: "" });
+const oNo = L.text({ x: MX1, base: SY + 96, s: 36, c: "sky", txt: "", align: "r" });
 const OLAB = ["From", "To", "Speed", "Remaining", "Transit"];
 const OLW = widest(OLAB, 36);
 const oVal = OLAB.slice(0, 4).map((txt, i) => {
-  L.text({ x: OX0, base: 1776 + LP * i, s: 36, c: "sky", txt });
-  return L.text({ x: MX1, base: 1776 + LP * i, s: 36, c: "white", txt: "", align: "r", cls: "sw" });
+  L.text({ x: OX0, base: SY + 156 + LP * i, s: 36, c: "sky", txt });
+  return L.text({ x: MX1, base: SY + 156 + LP * i, s: 36, c: "white", txt: "", align: "r", cls: "sw" });
 });
-L.text({ x: OX0, base: 1992, s: 36, c: "sky", txt: "Transit" });
+L.text({ x: OX0, base: SY + 372, s: 36, c: "sky", txt: "Transit" });
 const OPW = widest(["100%"], 36), OBX0 = OX0 + OLW + 32, OBX1 = MX1 - OPW - 32;
-L.rect({ x: OBX0, y: 1992 - 28, w: OBX1 - OBX0, h: 28, c: TRACK });
-const oBar = L.layer({ x: OBX0, y: 1992 - 28, w: OBX1 - OBX0, h: 28 });
+L.rect({ x: OBX0, y: SY + 372 - 28, w: OBX1 - OBX0, h: 28, c: TRACK });
+const oBar = L.layer({ x: OBX0, y: SY + 372 - 28, w: OBX1 - OBX0, h: 28 });
 oBar.style.background = "var(--butter)"; oBar.style.transformOrigin = "0 0"; oBar.style.transform = "scaleX(0)";
-const oPct = L.text({ x: MX1, base: 1992, s: 36, c: "white", txt: "", align: "r" });
+const oPct = L.text({ x: MX1, base: SY + 372, s: 36, c: "white", txt: "", align: "r" });
 
-// ================= in memoriam, Wolf 359 (bottom right) =================
-L.header({ x: RX0, y: 1620, w: RX1 - RX0, label: "In Memoriam  ·  Wolf 359", c1: "mars", c2: "gold", h: 48 });
-L.text({ x: RX0, base: 1716, s: 36, c: "mars", txt: "Stardate 44002.3  ·  39 Starships Lost  ·  11,000 Lives" });
-L.text({ x: RX1, base: 1716, s: 36, c: "sky", txt: "Sector 001 Defended", align: "r" });
-const TCOL = 13, TG = 12, TW = (RX1 - RX0 - (TCOL - 1) * TG) / TCOL;
+// ================= in memoriam, Wolf 359 (bottom right; upright: right half, beside region strength) =================
+// upright: its lines fall on region strength's rows (the names and the last line one row sooner than wide's)
+const QX0 = UP ? OX0 : RX0, QX1 = UP ? MX1 : RX1, QY = UP ? 2154 : 1620;
+const Q1 = UP ? 108 : 96, QT = UP ? 164 : 156, QN = UP ? 324 : 318, QL = UP ? 378 : 372;
+L.header({ x: QX0, y: QY, w: QX1 - QX0, label: "In Memoriam  ·  Wolf 359", c1: "mars", c2: "gold", h: 48 });
+L.text({ x: QX0, base: QY + Q1, s: 36, c: "mars", txt: "Stardate 44002.3  ·  39 Starships Lost  ·  11,000 Lives" });
+L.text({ x: QX1, base: QY + Q1, s: 36, c: "sky", txt: "Sector 001 Defended", align: "r" });
+const TCOL = 13, TG = 12, TW = (QX1 - QX0 - (TCOL - 1) * TG) / TCOL;
 const tiles = Array.from({ length: 39 }, (_, k) => {
-  const x = RX0 + (k % TCOL) * (TW + TG), y = 1776 + LP * Math.floor(k / TCOL) - 36;
+  const x = QX0 + (k % TCOL) * (TW + TG), y = QY + QT + LP * Math.floor(k / TCOL) - 36;
   L.rect({ x, y, w: TW, h: 36, c: "#3a2420", noalign: true });
   const glow = L.layer({ x, y, w: TW, h: 36 });
   glow.style.background = "var(--mars)"; op(glow, 0);
   return glow;
 });
-L.text({ x: RX0, base: 1938, s: 36, c: "white", txt: "Saratoga  ·  Melbourne  ·  Kyushu  ·  Tolstoy  ·  Chekov  ·  Bellerophon  ·  Gage" });
-L.text({ x: RX0, base: 1992, s: 36, c: "sky", txt: "Their Watch Is Ended  ·  The Fleet Remembers" });
-L.text({ x: RX1, base: 1992, s: 36, c: "gold", txt: "Fleet Rebuilding  ·  Utopia Planitia", align: "r" });
+L.text({ x: QX0, base: QY + QN, s: 36, c: "white", txt: "Saratoga  ·  Melbourne  ·  Kyushu  ·  Tolstoy  ·  Chekov  ·  Bellerophon  ·  Gage" });
+L.text({ x: QX0, base: QY + QL, s: 36, c: "sky", txt: "Their Watch Is Ended  ·  The Fleet Remembers" });
+L.text({ x: QX1, base: QY + QL, s: 36, c: "gold", txt: "Fleet Rebuilding  ·  Utopia Planitia", align: "r" });
+
+// ================= ultrawide only: the fourth column (3876–5016) =================
+// Each ship's time on station and readiness on its own row of the assignments, strength by class
+// on region strength's rows, and starbase traffic on the log's rows.
+const uw = UW ? (() => {
+  const o = {};
+  // ---- readiness and time on station, a row for each ship ----
+  L.header({ x: NX0, y: 280, w: NX1 - NX0, label: "Readiness  ·  Time on Station", c1: "ice", c2: "sky" });
+  // on station since (stardate) for the ships that hold one station; the four that move are worked out
+  // from their last arrival. Readiness: each ship's usual figure, drifting a point either way.
+  const SINCE = [44388.5, 44215.7, 0, 0, 44301.2, 44053.6, 44134.8, 44276.0, 44352.4, 0, 44287.9, 0];
+  const READY = [99, 96, 94, 97, 98, 92, 95, 97, 96, 93, 98, 94];
+  const VW = widest(["Vessel", ...FLEET.map((f) => f.short)], 40), DW = widest(["On Station Since", "Under Way", "44399.9"], 40);
+  const PW = widest(["100%"], 40), DX = NX0 + VW + 64, PX = DX + DW + 64 + PW, BX0 = PX + 40, BX1 = NX1;
+  [[NX0, "Vessel", "l"], [DX, "On Station Since", "l"], [BX0, "Readiness", "l"]].forEach(([x, txt, align]) =>
+    L.text({ x, base: 396, s: 36, c: "ice", txt, align }));
+  // the whole fleet's readiness, on the status line above the column (the pill stays where wide has it)
+  const FRL = "Fleet Readiness", FRX0 = NX0 + Math.ceil(L.textWidth(FRL, 38)) + 32, FRX1 = NX1 - widest(["100%"], 52) - 16;   // runs up to its figure, as wide's bars do
+  L.text({ x: NX0, base: 222, s: 38, c: "ice", txt: FRL });
+  L.rect({ x: FRX0, y: 222 - 28, w: FRX1 - FRX0, h: 28, c: TRACK });
+  o.frBar = L.layer({ x: FRX0, y: 222 - 28, w: FRX1 - FRX0, h: 28 });
+  o.frBar.style.background = "var(--ice)"; o.frBar.style.transformOrigin = "0 0"; o.frBar.style.transform = "scaleX(0)";
+  o.frPct = L.text({ x: NX1, base: 222, s: 52, c: "white", txt: "", align: "r" });
+  o.band = L.layer({ x: NX0 - 16, y: 0, w: NX1 - NX0 + 16, h: RP, cls: "band" });
+  op(o.band, 0);
+  o.rows = FLEET.map((f, i) => {
+    const base = ROW0 + RP * i;
+    const name = L.text({ x: NX0, base, s: 40, c: "white", txt: f.short, cls: "sw" });
+    const since = L.text({ x: DX, base, s: 40, c: "sky", txt: "", cls: "sw" });
+    L.rect({ x: BX0, y: base - 28, w: BX1 - BX0, h: 28, c: TRACK });
+    const bar = L.layer({ x: BX0, y: base - 28, w: BX1 - BX0, h: 28 });
+    bar.style.background = "var(--ice)"; bar.style.transformOrigin = "0 0"; bar.style.transform = "scaleX(0)";
+    const pct = L.text({ x: PX, base, s: 40, c: "white", txt: "", align: "r" });
+    return { f, name, since, bar, pct };
+  });
+  // the last arrival of a ship that moves, in seconds before now
+  const arrivedAgo = (f, k, u) => {
+    const j = MOVERS.indexOf(f), d = (((k - j) % 4) + 4) % 4;
+    const kk = d ? k - d : u >= T_ARR ? k : k - 4;
+    return (k - kk) * CYCLE + u - T_ARR;
+  };
+
+  // ---- fleet strength by class, on region strength's rows ----
+  L.header({ x: NX0, y: 1180, w: NX1 - NX0, label: "Fleet Strength by Class", c1: "gold", c2: "sky" });
+  const CLASSES = ["Galaxy", "Nebula", "Excelsior", "Ambassador", "Rigel", "Constellation"];
+  const CNW = widest(CLASSES, 36), KX = NX0 + CNW + 40 + RCW, KX0 = KX + 40, KW = (NX1 - KX0 - (SLOTS - 1) * SG) / SLOTS;
+  o.classRows = CLASSES.map((cls, i) => {
+    const base = 1296 + 54 * i, ships = FLEET.filter((f) => f.cls === cls);
+    L.text({ x: NX0, base, s: 36, c: "sky", txt: cls });
+    L.text({ x: KX, base: base + 4, s: 52, c: "white", txt: String(ships.length), align: "r" });
+    const slots = Array.from({ length: SLOTS }, (_, j) =>
+      L.box({ x: KX0 + j * (KW + SG), y: base - 36, w: KW, h: 40, c: ships[j] ? "sky" : TRACK, label: ships[j] ? ships[j].short : "", fs: 28, cls: "sw" }));
+    return { ships, slots };
+  });
+  FLEET.forEach((f) => fits(f.short, 28, KW - 30, "class slot"));
+
+  // ---- starbase traffic, on the log's rows ----
+  L.header({ x: NX0, y: 1620, w: NX1 - NX0, label: "Starbase Traffic", c1: "ice", c2: "gold", h: 48 });
+  // name, sector, the station a ship there holds, status while one is there; status when empty
+  const BASES = [["Starbase 74", STN.sb74.sec, "sb74", "Refit in Progress", "Berths Open"],
+                 ["Starbase 133", STN.sb133.sec, "sb133", "Escort Assigned", "Berths Open"],
+                 ["Starbase 211", STN.sb211.sec, "sb211", "Medical Transport", "Berths Open"],
+                 ["Utopia Planitia", "001", "aka", "Yards at Capacity", "Yards at Capacity"],
+                 ["Earth Station McKinley", "001", null, "", "Drydock  ·  Berths Open"]];
+  const BST = [...BASES.flatMap((b) => [b[3], b[4]]), "Departing", "Inbound"];
+  const BW = [widest(["Starbase", ...BASES.map((b) => b[0])], 36), widest(["Sector", "00000"], 36),
+              widest(["Vessel", "None", ...FLEET.map((f) => f.short)], 36), widest(["Status", ...BST], 36)];
+  const bcols = columns(NX0, NX1, BW), BAL = ["l", "l", "l", "r"], bx = (j) => (BAL[j] === "l" ? bcols[j][0] : bcols[j][1]);
+  ["Starbase", "Sector", "Vessel", "Status"].forEach((txt, j) => L.text({ x: bx(j), base: 1716, s: 36, c: "ice", txt, align: BAL[j] }));
+  o.baseRows = BASES.map(([name, sec, key, busy, idle], i) => {
+    const base = 1776 + LP * i;
+    L.text({ x: bx(0), base, s: 36, c: "sky", txt: name });
+    L.text({ x: bx(1), base, s: 36, c: "white", txt: sec });
+    return { key, busy, idle, ship: L.text({ x: bx(2), base, s: 36, c: "white", txt: "", cls: "sw" }),
+             stat: L.text({ x: bx(3), base, s: 36, c: "sky", txt: "", align: "r", cls: "sw" }) };
+  });
+
+  o.update = (k, m, fromKey, toKey, u) => {
+    const now = Date.now(), moving = u < T_ARR;
+    let sum = 0;
+    o.rows.forEach(({ f, name, since, bar, pct }, i) => {
+      const under = f === m && moving;
+      fg(name, under ? "butter" : "white");
+      if (f === m && u >= T_GO && u < T_ARR) L.set(since, "Under Way");
+      else L.set(since, (f.st.length === 2 ? stardate(now - arrivedAgo(f, k, u) * 1000) : SINCE[i]).toFixed(1));
+      fg(since, under ? "butter" : "sky");
+      const r = L.clamp((READY[i] + 0.8 * Math.sin((k * CYCLE + u) / 90 + i * 1.9)) / 100);
+      tf(bar, `scaleX(${r.toFixed(4)})`);
+      L.set(pct, `${Math.round(r * 100)}%`);
+      sum += r;
+    });
+    const avg = sum / o.rows.length;
+    tf(o.frBar, `scaleX(${avg.toFixed(4)})`);
+    L.set(o.frPct, `${Math.round(avg * 100)}%`);
+    o.classRows.forEach(({ ships, slots }) => ships.forEach((f, j) => bg(slots[j], f === m && moving ? "butter" : "sky")));
+    o.baseRows.forEach(({ key, busy, idle, ship, stat }) => {
+      let f = key && FLEET.find((g) => g !== m && stationAt(g, k) === key), how = f ? busy : idle, c = "sky";
+      if (key && fromKey === key && u < T_GO) { f = m; how = "Departing"; c = "butter"; }
+      else if (key && toKey === key && moving) { f = u >= T_GO ? m : f; how = u >= T_GO ? "Inbound" : how; c = u >= T_GO ? "butter" : c; }
+      else if (key && toKey === key) { f = m; how = busy; }
+      L.set(ship, f ? f.short : "None"); fg(ship, f ? (f === m && moving ? "butter" : "white") : DIM);
+      L.set(stat, how); fg(stat, c);
+    });
+  };
+  return o;
+})() : null;
 
 // ================= the clock =================
 const bySt = {};                                             // which station each ship is at, now
@@ -396,8 +541,9 @@ L.tick((t) => {
   op(course, 0.85 * vis); op(trail, 0.9 * vis);
   op(ring, Math.min(easeIn(u, 0, 1.5), 1 - easeIn(u, T_ARR + 2, 4)) * (0.75 + 0.25 * Math.cos(t * 1.6)));
   // the ordered ship's row
-  tf(band, `translate3d(0,${(ROW0 - 46 + RP * m.i - 1).toFixed(1)}px,0)`);
+  tf(band, bandAt(m.i));
   op(band, Math.min(easeIn(u, 0, 1), 1 - easeIn(u, T_ARR + 4, 2)));
+  if (uw) { tf(uw.band, bandAt(m.i)); op(uw.band, Math.min(easeIn(u, 0, 1), 1 - easeIn(u, T_ARR + 4, 2))); }
   m.path.style.fill = u < T_ARR + 4 ? "var(--butter)" : "var(--white)";
   // the memorial: a light passing slowly along the 39
   const p = (t / 3) % 39;
@@ -443,16 +589,18 @@ L.every(250, () => {
   fg(oVal[3], u >= T_ARR ? "sky" : "white");
   tf(oBar, `scaleX(${go.toFixed(4)})`);
   L.set(oPct, `${Math.floor(go * 100 + 1e-6)}%`);
+  if (uw) uw.update(k, m, stationAt(m, k), toKey, u);
 }, 0);
 
 // ---------------- a guard: every line fits its place ----------------
-fits(subFor("Excalibur Under Orders", "44399.9"), 38, RX1 - PILLW - 60 - subX, "subtitle");
+fits(subFor("Excalibur Under Orders", "44399.9"), 38, PILLR - PILLW - 60 - subX, "subtitle");
 for (const k of Object.keys(STN)) fits(`${STN[k].job}  ·  Sector ${STN[k].sec}`, 36, MX1 - OX0 - OLW - 40, "orders");
 fits("Warp 6  ·  Course 000 Mark 0", 36, MX1 - OX0 - OLW - 40, "speed");
-fits("Constellation", 28, SW - 30, "slot");
+if (!UP) fits("Constellation", 28, SW - 30, "slot");     // (upright's narrower slots hold only the names below)
 FLEET.forEach((f) => fits(f.short, 28, SW - 30, "slot"));
-fits("Stardate 44002.3  ·  39 Starships Lost  ·  11,000 Lives", 36, RX1 - RX0 - L.textWidth("Sector 001 Defended", 36) - 48, "memorial");
-fits("Their Watch Is Ended  ·  The Fleet Remembers", 36, RX1 - RX0 - L.textWidth("Fleet Rebuilding  ·  Utopia Planitia", 36) - 48, "memorial");
+fits("Stardate 44002.3  ·  39 Starships Lost  ·  11,000 Lives", 36, QX1 - QX0 - L.textWidth("Sector 001 Defended", 36) - 48, "memorial");
+fits("Their Watch Is Ended  ·  The Fleet Remembers", 36, QX1 - QX0 - L.textWidth("Fleet Rebuilding  ·  Utopia Planitia", 36) - 48, "memorial");
+fits("Saratoga  ·  Melbourne  ·  Kyushu  ·  Tolstoy  ·  Chekov  ·  Bellerophon  ·  Gage", 36, QX1 - QX0, "memorial");
 if (bad.length) setTimeout(() => { throw new Error("fleet-deployment: " + bad.join(" | ")); });
 });
 </script></body></html>

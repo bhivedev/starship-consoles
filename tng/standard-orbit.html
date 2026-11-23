@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Standard Orbit</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* swapped text dips and comes back; .boot (the start-up cascade) always wins */
@@ -16,7 +17,7 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: a bracket, title centred ----------------
-L.frame({ type: "C", title: "Standard Orbit  •  Insertion", c: "olive", c2: "sky", accent: "sand", foot: "Helm",
+const B = L.frame({ type: "C", title: "Standard Orbit  •  Insertion", c: "olive", c2: "sky", accent: "sand", foot: "Helm",
   side: [[140, "sand", "Nav 07"], [70, "olive", "4535"], [420, "olive", "Insertion"], [70, "sky", "34"],
          [300, "sky", "Burns"], [70, "sand", "B1"], [216, "olive", "Helm"]],
   side2: [[140, "olive", "Plot 02"], [70, "sky", "1200"], [420, "sky", "Ground"], [70, "sand", "C3"],
@@ -35,11 +36,26 @@ const pad2 = (n) => String(n).padStart(2, "0");
 const fmt = (n) => Math.round(n).toLocaleString("en");
 const D = Math.PI / 180;
 
-// ---------------- the grid ----------------
-// Columns: parameters 220–1080, the plot 1140–2700, ground track 2760–3620. Rows on one 88 pitch:
-// upper section baselines 408 + 88k, lower 1128 + 88k; bottom strip on 54.
-const LX = 220, LR = 1080, MX = 1140, MR = 2700, RX = 2760, RR = 3620;
-const U = (k) => 408 + 88 * k, LO = (k) => 1128 + 88 * k, STRIP = (i) => 1734 + i * 54;
+// ---------------- the grid, per shape ----------------
+// The flight, readings and motion below are written once; only these positions differ by shape.
+// wide (3840 × 2160): parameters 220–1080, the plot 1140–2700, ground track 2760–3620. Rows on one
+//   88 pitch: upper section baselines 408 + 88k, lower 1128 + 88k; bottom strip on 54.
+// upright (2160 × 3120): two columns of 768 (220–988 | 1172–1940): parameters | ground track at the
+//   top; the plot across the full width below them (drawn smaller: its outer ring 742 across, the four
+//   corner readings beside it); burn control | Tavela IV; then the burn timeline (220–1112) beside the
+//   helm log (1172–1940, under Tavela IV), its last row on the content box's floor. One clock box on the status line.
+// ultrawide (5040 × 2160): the wide columns, the plot at its wide size centred under the title, and a
+//   540 flank either side of it (1140–1680 | 3360–3900) on the same two bands: burn schedule and survey
+//   passes; the planet's shadow and revolutions. The timeline runs on to 3900, showing more ship time.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const LX = 220, LR = UP ? 988 : 1080, MX = UP ? 220 : UW ? 1740 : 1140, MR = UP ? B.x1 : UW ? 3300 : 2700,
+      RX = UP ? 1172 : UW ? 3960 : 2760, RR = UP || UW ? B.x1 : 3620;
+const Y3 = UP ? 1960 : 1000;                 // burn control and Tavela IV's headers
+const HP = UP ? 1000 : 280;                  // the plot's header
+const YB = UP ? 2580 : 1620;                 // the bottom strip's headers
+const TLR = UP ? 1112 : UW ? 3900 : MR;      // the timeline's right edge
+const LGX = RX;                              // the helm log's left edge (upright: under Tavela IV)
+const U = (k) => 408 + 88 * k, LO = (k) => (UP ? 2088 : 1128) + 88 * k, STRIP = (i) => (UP ? 2694 : 1734) + i * 54;
 
 // ---------------- the flight: one plan, everything is drawn from it ----------------
 // Ship time runs sixty times fast: a ship minute every second. ts = ship seconds from 0540.
@@ -115,14 +131,21 @@ BURNS[0].dv = (Math.sqrt(VINF ** 2 + (2 * GM) / RA) - Math.sqrt(GM * (2 / RA - 1
 BURNS[1].dv = (Math.sqrt(GM * (2 / RC - 1 / aE)) - Math.sqrt(GM / RC)) * 1000;
 const burnN = (k) => (k < 2 ? BURNS[k] : { name: "Station-Keeping Trim", short: "Trim", t0: trimAt(k - 1) - 120, t1: trimAt(k - 1) + 120,
   dv: TRIM_DV[(k - 2) % TRIM_DV.length], how: "Thrusters  ·  Ascending Node", impulse: false, rev: k - 1 });
+let burnK = 2;                                           // where the last search ended: the next one starts there
 const burnIndexAt = (ts) => { // the burn running now or next
   if (ts < B1[1]) return 0; if (ts < B2[1]) return 1;
-  let k = 2; while (burnN(k).t1 <= ts) k++; return k;
+  let k = burnK;
+  while (k > 2 && burnN(k - 1).t1 > ts) k--;
+  while (burnN(k).t1 <= ts) k++;
+  return (burnK = k);
 };
 const revAt = (ts) => (ts < T2 ? 0 : Math.floor((ts - T2) / PC) + 1);
 
 // shadow and site passes, sampled ahead as they are needed
-const STEP = 30, samp = { ts: -6000, sh: inShadow(-6000), rg: inRange(-6000), shadow: [], sunlit: [], passes: [], s0: -1e9, r0: 0 };
+// Long past entries are dropped from the front of each list; *Gone counts them, so numbers (Pass N, Night N) stay true.
+const STEP = 30, samp = { ts: -6000, sh: inShadow(-6000), rg: inRange(-6000), shadow: [], sunlit: [], passes: [], s0: -1e9, r0: 0,
+  shadowGone: 0, sunlitGone: 0, passesGone: 0 };
+const SKIP0 = samp.sh ? 1 : 0;                           // the first shadow began before the record (-1e9): Night numbers leave it out
 samp.s0 = -1e9; samp.r0 = samp.rg ? -1e9 : 0;
 const sampleTo = (until) => {
   while (samp.ts < until) {
@@ -133,18 +156,25 @@ const sampleTo = (until) => {
   }
 };
 sampleTo(TS(60));
+const forget = (ts) => {                                  // keep eight entries wholly past (from() steps back one), and all to come
+  for (const name of ["shadow", "sunlit", "passes"]) {
+    const list = samp[name];
+    let past = 0; while (past < list.length && list[past][1] <= ts) past++;
+    if (past - 8 >= 32) { list.splice(0, past - 8); samp[name + "Gone"] += past - 8; }
+  }
+};
 
 // ---------------- status line ----------------
 const WORDS = ["Approach", "Insertion Burn", "Transfer Coast", "Circularization", "Standard Orbit"];
 const SUBX = LX + Math.max(...WORDS.map((w) => L.textWidth(w, 100))) + 56;
 const state = cls(L.text({ x: LX, cap: 150, s: 100, c: "olive", txt: "" }), "sw");
 const stateSub = cls(L.text({ x: SUBX, base: 222, s: 38, c: "sand", txt: "" }), "sw");
-L.box({ x: RX, y: 158, w: 400, h: 64, c: "olive", label: "Tavela System  ·  Survey", fs: 32, r: "l" });
-const clockBox = L.box({ x: RX + 400 + L.GAP, y: 158, w: RR - (RX + 400 + L.GAP), h: 64, c: "sand", label: "", fs: 32, r: "r" });
+if (!UP) L.box({ x: RX, y: 158, w: 400, h: 64, c: "olive", label: "Tavela System  ·  Survey", fs: 32, r: "l" });
+const clockBox = UP ? L.box({ x: RR - 380, y: 158, w: 380, h: 64, c: "sand", label: "", fs: 32, r: "lr" }) : L.box({ x: RX + 400 + L.GAP, y: 158, w: RR - (RX + 400 + L.GAP), h: 64, c: "sand", label: "", fs: 32, r: "r" });
 
 // ---------------- insertion parameters ----------------
 L.header({ x: LX, y: 280, w: LR - LX, label: "Insertion Parameters", c1: "olive", c2: "sky" });
-const CUR = 820;
+const CUR = UP ? LR - 260 : 820;
 L.text({ x: LX, base: U(0), s: 36, c: "sky", txt: "Parameter" });
 L.text({ x: CUR, base: U(0), s: 36, c: "sky", txt: "Current", align: "r" });
 L.text({ x: LR, base: U(0), s: 36, c: "sky", txt: "Target", align: "r" });
@@ -157,9 +187,9 @@ const par = PARAMS.map(([n, tg], k) => {
 });
 
 // ---------------- burn control ----------------
-L.header({ x: LX, y: 1000, w: LR - LX, label: "Burn Control", c1: "sky", c2: "olive" });
+L.header({ x: LX, y: Y3, w: LR - LX, label: "Burn Control", c1: "sky", c2: "olive" });
 const burnCap = cls(L.text({ x: LX, base: LO(0), s: 36, c: "butter", txt: "" }), "sw");
-const GBX = LX + 300, GBR = 820;
+const GBX = LX + 300, GBR = UP ? LR - 260 : 820;
 const fill = (x, y, w, h, c) => { const f = L.layer({ x, y, w, h }); f.style.background = colr(c); f.style.transformOrigin = "0 0"; return f; };
 const gauge = (k, name, c) => {
   L.text({ x: LX, base: LO(k), s: 40, c: "sand", txt: name });
@@ -171,10 +201,10 @@ const G = { out: gauge(1, "Impulse Output", "butter"), dv: gauge(2, "Delta-V  m/
   next: gauge(4, "Next Burn", "sand"), deut: gauge(5, "Deuterium", "olive") };
 
 // ---------------- the plot ----------------
-L.header({ x: MX, y: 280, w: MR - MX, label: "Orbital Plot  ·  Tavela IV", c1: "olive", c2: "sand" });
-const CX = 1920, CY = 960, R6 = 560, SC = R6 / (RP + 6000);   // the outer ring is 6,000 km up
+L.header({ x: MX, y: HP, w: MR - MX, label: "Orbital Plot  ·  Tavela IV", c1: "olive", c2: "sand" });
+const CX = UP ? 1080 : UW ? 2520 : 1920, CY = UP ? 1491 : 960, R6 = UP ? 371 : 560, SC = R6 / (RP + 6000);   // the outer ring is 6,000 km up
 const sx = (x) => CX + SC * x, sy = (y) => CY - SC * y;
-const PW = 1560, PH = 1220, PX0 = CX - PW / 2, PY0 = CY - PH / 2;   // the plot's own box (a picture: not audited)
+const PW = 1560, PH = UP ? 900 : 1220, PX0 = CX - PW / 2, PY0 = CY - PH / 2;   // the plot's own box (a picture: not audited)
 const svgLayer = (inner, c = "boot") => {
   const l = cls(L.layer({ x: PX0, y: PY0, w: PW, h: PH }), c);
   l.innerHTML = `<svg width="${PW}" height="${PH}" viewBox="${PX0} ${PY0} ${PW} ${PH}" style="position:absolute;left:0;top:0;overflow:visible">${inner}</svg>`;
@@ -228,7 +258,7 @@ const orbitPlan = svgLayer(circle(RC * SC, `fill="none" stroke="var(--butter)" s
     return `<path d="M${X},${Y - 16} L${X + 16},${Y} L${X},${Y + 16} L${X - 16},${Y} Z" fill="var(--butter)" stroke="#000" stroke-width="4"/>
       <text x="${X + dx}" y="${Y + dy}" text-anchor="${anchor}" font-size="36" style="fill:var(--butter)">${label}</text>`;
   };
-  svgLayer(mk(T1, "BURN 1", -30, -22, "end") + mk(T2, "BURN 2", 30, 46, "start"));
+  svgLayer(mk(T1, "BURN 1", UP ? -76 : -30, UP ? -64 : -22, "end") + mk(T2, "BURN 2", UP ? -16 : 30, UP ? 80 : 46, UP ? "middle" : "start"));   // upright: in the 2,000–4,000 km band below its mark
 }
 // the ship: a chevron pointing where it is going
 const ship = L.layer({ x: 0, y: 0, w: 56, h: 56 });
@@ -246,10 +276,12 @@ const corner = (x, align, lb, label, vb, cb) => ({
   v: L.text({ x, base: vb, s: 100, c: "white", txt: "", align }),
   c: cls(L.text({ x, base: cb, s: 36, c: "sand", txt: "", align }), "sw"),
 });
-const cAlt = corner(MX, "l", U(0), "Altitude  ·  Kilometers", U(2), U(3));
-const cVel = corner(MR, "r", U(0), "Velocity  ·  Kilometers per Second", U(2), U(3));
-const cRev = corner(MX, "l", LO(2), "Revolution", LO(4), LO(5));
-const cNext = corner(MR, "r", LO(2), "Next Event  ·  Ship Minutes", LO(4), LO(5));
+const CT = UP ? [HP + 128, HP + 304, HP + 392] : [U(0), U(2), U(3)];        // the top corners' baselines
+const CB = UP ? [1632, 1808, 1896] : [LO(2), LO(4), LO(5)];                  // the bottom corners'
+const cAlt = corner(MX, "l", CT[0], "Altitude  ·  Kilometers", CT[1], CT[2]);
+const cVel = corner(MR, "r", CT[0], "Velocity  ·  Kilometers per Second", CT[1], CT[2]);
+const cRev = corner(MX, "l", CB[0], "Revolution", CB[1], CB[2]);
+const cNext = corner(MR, "r", CB[0], "Next Event  ·  Ship Minutes", CB[1], CB[2]);
 
 // ---------------- ground track ----------------
 L.header({ x: RX, y: 280, w: RR - RX, label: "Ground Track", c1: "sky", c2: "olive" });
@@ -333,7 +365,7 @@ const siteV = cls(L.text({ x: RR, base: U(6), s: 44, c: "white", txt: "", align:
 L.text({ x: RX, base: U(6), s: 40, c: "sand", txt: "Survey Site" });
 
 // ---------------- the planet ----------------
-L.header({ x: RX, y: 1000, w: RR - RX, label: "Tavela IV", c1: "olive", c2: "sky" });
+L.header({ x: RX, y: Y3, w: RR - RX, label: "Tavela IV", c1: "olive", c2: "sky" });
 L.text({ x: RX, base: LO(0), s: 36, c: "butter", txt: `Class M  ·  Survey Site ${Math.abs(SITE[0])}° S  ${Math.abs(SITE[1])}° W` });
 const gS = (0.74 / (RP / 6371) ** 2).toFixed(2);
 const PLANET = [["Radius", `${fmt(RP)} km`], ["Surface Gravity", `${gS} g`], ["Rotation", "26.3 Hours"], ["Atmosphere", "Nitrogen-Oxygen  ·  0.91 Bar"]];
@@ -345,14 +377,17 @@ L.text({ x: RX, base: LO(5), s: 40, c: "sand", txt: "Sun at Survey Site" });
 const sunV = L.text({ x: RR, base: LO(5), s: 44, c: "white", txt: "", align: "r" });
 
 // ---------------- burn timeline: a ship-time strip sliding past a Now line ----------------
-L.header({ x: LX, y: 1620, w: MR - LX, label: "Burn Timeline", c1: "olive", c2: "sky", h: 48 });
+L.header({ x: LX, y: YB, w: TLR - LX, label: "Burn Timeline", c1: "olive", c2: "sky", h: 48 });
 const ROWS = ["Ship Time", "Flight Phase", "Impulse Burns", "Revolution", "Daylight", "Survey Site"];
 ROWS.forEach((n, i) => L.text({ x: LX, base: STRIP(i), s: 36, c: i ? "sand" : "sky", txt: n }));
-const TX0 = 560, TX1 = MR, TW = TX1 - TX0, SPAN = 240 * 60, PAST = 0.3, PXS = TW / SPAN;   // 240 ship minutes across
+const TX0 = 560, TX1 = TLR, TW = TX1 - TX0, SPAN = UP ? 120 * 60 : UW ? (240 * 60 * TW) / 2140 : 240 * 60, PAST = 0.3, PXS = TW / SPAN;   // 240 ship minutes across
 const BY = (i) => STRIP(i) - 31, BH = 36;
 for (let i = 1; i < 6; i++) L.rect({ x: TX0, y: BY(i), w: TW, h: BH, c: "#0c0f08" });
-const TL_Y = 1690, tl = L.el("div", "clip", L.stage, { left: TX0 + "px", top: TL_Y + "px", width: TW + "px", height: 2010 - TL_Y + "px" });
+const TL_Y = UP ? 2650 : 1690, tl = L.el("div", "clip", L.stage, { left: TX0 + "px", top: TL_Y + "px", width: TW + "px", height: B.y1 - TL_Y + "px" });
 const NOWX = Math.round(PAST * TW);
+// where a bar's label is held while its bar runs past: wide and ultrawide well left of the Now line; upright's past is
+// too short for that, so a label is held just after the Now line and fades out over its bar's last stretch
+const HOLD = UP ? NOWX + 16 : 90;
 const items = [];
 const addItem = (o) => {   // {row, t0, t1, c, label, lc}
   const b = L.el("div", "bar", tl, { top: BY(o.row) - TL_Y + "px", height: BH + "px", background: colr(o.c) });
@@ -385,16 +420,16 @@ const generate = (until) => {
     addItem({ row: 2, t0: b.t0, t1: b.t1, c: b.impulse ? "butter" : "sand", label: b.impulse ? `${b.short}  ${fmt(b.dv)} m/s` : `Trim  ${b.dv.toFixed(1)} m/s`, lc: "white", outside: true });
   for (let k; T2 + (k = genned.rev) * PC < until; genned.rev++)
     addItem({ row: 3, t0: T2 + k * PC + 4, t1: T2 + (k + 1) * PC - 4, c: k % 2 ? "sand" : "olive", label: `Rev ${k + 1}`, lc: "#000" });
-  for (; genned.sun < samp.sunlit.length; genned.sun++) { const [a, b] = samp.sunlit[genned.sun]; addItem({ row: 4, t0: a + 4, t1: b - 4, c: "sand", label: "Sunlit", lc: "#000" }); }
-  for (; genned.shd < samp.shadow.length; genned.shd++) { const [a, b] = samp.shadow[genned.shd]; addItem({ row: 4, t0: a + 4, t1: b - 4, c: "slate", label: "Shadow", lc: "#000" }); }
-  for (; genned.pass < samp.passes.length; genned.pass++) { const [a, b] = samp.passes[genned.pass]; addItem({ row: 5, t0: a, t1: b, c: "sky", label: `Pass ${genned.pass + 1}`, lc: "#000" }); }
+  for (; genned.sun < samp.sunlitGone + samp.sunlit.length; genned.sun++) { const [a, b] = samp.sunlit[genned.sun - samp.sunlitGone]; addItem({ row: 4, t0: a + 4, t1: b - 4, c: "sand", label: "Sunlit", lc: "#000" }); }
+  for (; genned.shd < samp.shadowGone + samp.shadow.length; genned.shd++) { const [a, b] = samp.shadow[genned.shd - samp.shadowGone]; addItem({ row: 4, t0: a + 4, t1: b - 4, c: "slate", label: "Shadow", lc: "#000" }); }
+  for (; genned.pass < samp.passesGone + samp.passes.length; genned.pass++) { const [a, b] = samp.passes[genned.pass - samp.passesGone]; addItem({ row: 5, t0: a, t1: b, c: "sky", label: `Pass ${genned.pass + 1}`, lc: "#000" }); }
   for (; genned.tick < until; genned.tick += 600) addTick(genned.tick);
 };
 // the open sunlit stretch that runs into the present
 const sunOpen = addItem({ row: 4, t0: -1e7, t1: 1e8, c: "sand", label: "Sunlit", lc: "#000" });
 const drawTimeline = (ts) => {
   const x = (t) => NOWX + (t - ts) * PXS;
-  sunOpen.t1 = samp.sunlit.length ? -1e7 : 1e8;   // replaced once the first shadow has been sampled
+  sunOpen.t1 = samp.sunlitGone + samp.sunlit.length ? -1e7 : 1e8;   // replaced once the first shadow has been sampled
   for (let i = items.length - 1; i >= 0; i--) {
     const it = items[i], a = Math.max(x(it.t0), -40), b = Math.min(x(it.t1), TW + 40);
     if (b < -30) { it.b.remove(); if (it.l) it.l.remove(); items.splice(i, 1); continue; }
@@ -402,10 +437,11 @@ const drawTimeline = (ts) => {
     tf(it.b, `translate3d(${a.toFixed(1)}px,0,0) scaleX(${((b - a) / 100).toFixed(4)})`);
     if (it.l) {
       let lx, c = it.lc, o = 1;
-      if (it.outside) lx = x(it.t1) + 12;
+      if (it.outside) { lx = x(it.t1) + 12; if (UP) o = L.clamp((lx - NOWX - 2) / 10); }   // upright: fades as its burn ends, before the Now line can cut it
       else {   // inside its bar, held at the left edge while the bar runs past it
-        lx = Math.max(x(it.t0) + 16, 90);
+        lx = Math.max(x(it.t0) + 16, HOLD);
         if (lx + it.lw + 16 > x(it.t1)) { lx = x(it.t1) - it.lw - 16; o = L.clamp((lx - 20) / 70); }   // pushed out: fades before the edge
+        if (UP) o = L.clamp((x(it.t1) - it.lw - 16 - NOWX - 2) / 70);   // upright: fades over its bar's last 70 px, gone before the Now line
         if (it.t1 - it.t0 < (it.lw + 32) / PXS) { op(it.l, 0); continue; }   // too short to label
       }
       o = Math.min(o, L.clamp((lx - 20) / 70), L.clamp((TW - 20 - lx - it.lw) / 70));   // nothing cut by either edge
@@ -422,15 +458,15 @@ const drawTimeline = (ts) => {
 };
 // the ends fade, so nothing is cut by the edge
 for (const [x, dir] of [[TX0, "to right"], [TX1 - 110, "to left"]])
-  L.el("div", "fade", L.stage, { left: x + "px", top: TL_Y + "px", width: "110px", height: 2010 - TL_Y + "px", background: `linear-gradient(${dir}, #000 10%, rgba(0,0,0,0))` });
+  L.el("div", "fade", L.stage, { left: x + "px", top: TL_Y + "px", width: "110px", height: B.y1 - TL_Y + "px", background: `linear-gradient(${dir}, #000 10%, rgba(0,0,0,0))` });
 // the Now line
-L.el("div", "fade", L.stage, { left: TX0 + NOWX - 2 + "px", top: STRIP(0) + 4 + "px", width: "4px", height: 2010 - STRIP(0) - 4 + "px", background: "var(--white)" });
+L.el("div", "fade", L.stage, { left: TX0 + NOWX - 2 + "px", top: STRIP(0) + 4 + "px", width: "4px", height: B.y1 - STRIP(0) - 4 + "px", background: "var(--white)" });
 
 // ---------------- helm log ----------------
-L.header({ x: RX, y: 1620, w: RR - RX, label: "Helm Log", c1: "sky", c2: "sand", h: 48 });
-const LOGT = RX + 130;
+L.header({ x: LGX, y: YB, w: RR - LGX, label: "Helm Log", c1: "sky", c2: "sand", h: 48 });
+const LOGT = LGX + 130;
 const logRows = Array.from({ length: 6 }, (_, i) => ({
-  tm: L.text({ x: RX, base: STRIP(i), s: 36, c: "olive", txt: "" }),
+  tm: L.text({ x: LGX, base: STRIP(i), s: 36, c: "olive", txt: "" }),
   tx: L.text({ x: LOGT, base: STRIP(i), s: 36, c: "sand", txt: "" }),
   v: L.text({ x: RR, base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }) }));
 const logged = [];
@@ -453,14 +489,61 @@ addEvent(B2[1], () => logLine(B2[1], "Standard orbit established", `${fmt(ALT)} 
 let evGen = { trim: 2, shd: 0, pass: 0 };
 const genEvents = (until) => {
   for (let b; (b = burnN(evGen.trim)).t1 < until; evGen.trim++) { const bb = b; addEvent(bb.t1, () => logLine(bb.t1, `Station-keeping trim  ·  Rev ${bb.rev}`, `${bb.dv.toFixed(1)} m/s`)); }
-  for (; evGen.shd < samp.shadow.length; evGen.shd++) { const a = samp.shadow[evGen.shd][0]; if (a > 0) addEvent(a, () => logLine(a, "Entering the planet's shadow", "Night")); }
-  for (; evGen.pass < samp.passes.length; evGen.pass++) {
-    const [a, b] = samp.passes[evGen.pass], n = evGen.pass + 1;
+  for (; evGen.shd < samp.shadowGone + samp.shadow.length; evGen.shd++) { const a = samp.shadow[evGen.shd - samp.shadowGone][0]; if (a > 0) addEvent(a, () => logLine(a, "Entering the planet's shadow", "Night")); }
+  for (; evGen.pass < samp.passesGone + samp.passes.length; evGen.pass++) {
+    const [a, b] = samp.passes[evGen.pass - samp.passesGone], n = evGen.pass + 1;
     if (a > 0) addEvent(a, () => logLine(a, "Survey site in sensor range", `Pass ${n}`));
     if (b > 0) addEvent(b, () => logLine(b, "Sensor sweep of survey site complete", `Pass ${n}`));
   }
   events.sort((p, q) => p.ts - q.ts);
 };
+
+// ---------------- ultrawide only: four schedules in the flanks beside the plot ----------------
+// Each is a heading row and a few rows drawn from the same flight plan; a list that moves on dips and comes back.
+const flanks = UW ? (() => {
+  const table = (x, r, y, base, n, label, c1, c2, heads) => {
+    const mid = r - 220;
+    L.header({ x, y, w: r - x, label, c1, c2 });
+    L.text({ x, base: base(0), s: 36, c: "sky", txt: heads[0] });
+    L.text({ x: mid, base: base(0), s: 36, c: "sky", txt: heads[1], align: "r" });
+    L.text({ x: r, base: base(0), s: 36, c: "sky", txt: heads[2], align: "r" });
+    const rows = Array.from({ length: n }, (_, k) => [
+      cls(L.text({ x, base: base(k + 1), s: 40, c: "sand", txt: "" }), "sw"),
+      cls(L.text({ x: mid, base: base(k + 1), s: 44, c: "white", txt: "", align: "r" }), "sw"),
+      cls(L.text({ x: r, base: base(k + 1), s: 44, c: "white", txt: "", align: "r" }), "sw")]);
+    const t = { rows, key: null, busy: false };
+    // data: [[name, value, value, lit], …]; when the list moves on it dips and comes back, otherwise
+    // only the words that changed are rewritten (a status, a count)
+    t.show = (key, data) => {
+      const write = () => rows.forEach((row, k) => { const d = data[k] || ["", "", "", false]; row.forEach((e, j) => L.set(e, d[j])); });
+      if (key !== t.key) {
+        const first = t.key === null; t.key = key;
+        if (first) write(); else { t.busy = true; swap(rows.flat(), () => { write(); t.busy = false; }); }
+      } else if (!t.busy) write();
+      rows.forEach((row, k) => { const lit = data[k] && data[k][3]; ink(row[0], lit ? "butter" : "sand"); ink(row[1], lit ? "butter" : "white"); ink(row[2], lit ? "butter" : "white"); });
+    };
+    return t;
+  };
+  const tBurn = table(1140, 1680, 280, U, 6, "Burn Schedule", "sky", "olive", ["Burn", "Ignition", "Delta-V  m/s"]);
+  const tPass = table(1140, 1680, 1000, LO, 5, "Survey Passes", "olive", "sand", ["Pass", "In Range", "Minutes"]);
+  const tShd = table(3360, 3900, 280, U, 6, "Planet's Shadow", "sand", "sky", ["Orbit Night", "Enter", "Minutes"]);
+  const tRev = table(3360, 3900, 1000, LO, 5, "Revolutions", "sky", "olive", ["Revolution", "Begins", "Status"]);
+  const from = (list, ts, n) => { let i = list.findIndex(([, b]) => b > ts); if (i < 0) i = list.length; i = Math.max(0, i - 1); return [i, list.slice(i, i + n)]; };
+  return (ts) => {
+    sampleTo(ts + 24 * 3600);   // a day ahead, so the lists are always full
+    const k0 = Math.max(0, burnIndexAt(ts) - 1);
+    tBurn.show(k0, Array.from({ length: 6 }, (_, j) => { const b = burnN(k0 + j);
+      return [b.impulse ? b.short : `Trim  ·  Rev ${b.rev}`, hhmm(b.t0), b.impulse ? fmt(b.dv) : b.dv.toFixed(1), ts >= b.t0 && ts < b.t1]; }));
+    const [pr, ps] = from(samp.passes, ts, 5), p0 = pr + samp.passesGone;
+    tPass.show(p0, ps.map(([a, b], j) => [`Pass ${p0 + j + 1}`, hhmm(a), String(Math.round((b - a) / 60)), ts >= a && ts < b]));
+    const shd = samp.shadow.filter(([a]) => a > -6000), [sr, ss] = from(shd, ts, 6);
+    const s0 = sr + samp.shadowGone - Math.min(SKIP0, samp.shadowGone);   // as numbered in the whole record
+    tShd.show(s0, ss.map(([a, b], j) => [`Night ${s0 + j + 1}`, hhmm(a), String(Math.round((b - a) / 60)), ts >= a && ts < b]));
+    const rv = revAt(ts), r0 = Math.max(1, rv - 1);
+    tRev.show(r0, Array.from({ length: 5 }, (_, j) => { const k = r0 + j;
+      return [`Rev ${pad2(k)}`, hhmm(T2 + (k - 1) * PC), k < rv ? "Complete" : k === rv ? "In Progress" : "Planned", k === rv]; }));
+  };
+})() : null;
 
 // ---------------- the running state ----------------
 const phaseAt = (ts) => (ts < B1[0] ? 0 : ts < B1[1] ? 1 : ts < B2[0] ? 2 : ts < B2[1] ? 3 : 4);
@@ -507,6 +590,7 @@ L.tick((t) => {
   tf(nightL, `translate3d(${dx.toFixed(1)}px,0,0)`);
   // the timeline
   generate(ts + SPAN); genEvents(ts + SPAN);
+  forget(ts);
   drawTimeline(ts);
   // the log, in order
   while (events.length && events[0].ts <= ts) { const e = events.shift(); if (e.ts > lastTs) e.f(); }
@@ -573,6 +657,7 @@ L.every(250, (t) => {
   const elv = Math.asin(L.clamp(cz, -1, 1)) / D;
   L.set(sunV, elv > 0 ? `Day  ·  ${elv.toFixed(1)}° above Horizon` : `Night  ·  ${(-elv).toFixed(1)}° below Horizon`);
   if (ts - trackAt > 20) { trackAt = ts; drawTrack(ts); }
+  if (flanks) flanks(ts);
 }, 0);
 });
 </script></body></html>

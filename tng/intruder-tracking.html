@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Intruder Tracking</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* swapped text dips and comes back; colors change slowly; .boot (the start-up cascade) always wins */
@@ -24,7 +25,21 @@ const L = LCARS;
 L.ready(() => {
 
 const NS = "http://www.w3.org/2000/svg";
-const X0 = 330, GR = 2490, RX = 2554, X1 = 3816, ML = 1398, MR = 1422;
+// ---------------- the layout, per shape ----------------
+// The data, readings and motion below are written once; only these positions differ by shape.
+// wide (3840 × 2160): the deck plan (330–2490) beside contact and security (2554–3816); sweeps,
+//   signatures and the track log along the bottom.
+// upright (2160 × 3120): the plan full width (five columns of rooms), then two 871 columns: contact
+//   (with a tall signal trace) over security on the left; sweeps, signatures and the track log on
+//   the right. Security and the log share the bottom rows, ending on the floor.
+// ultrawide (5040 × 2160): the wide layout as it is, plus every deck's status in two columns of
+//   21 (3880–5016) and the ship's time above them.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const X0 = 330, GR = UP ? 2136 : 2490, RX = UP ? 330 : 2554, X1 = UP ? 1201 : 3816, ML = UP ? 2136 : 1398, MR = UP ? 1265 : 1422;
+const TR = UP ? 2136 : X1;                                       // the status line's right edge
+const SWX0 = UP ? 1265 : X0, LX0 = UP ? 1265 : RX, LX1 = UP ? 2136 : X1;   // sweeps' left; the log's edges
+const CY = UP ? 1620 : 280, SY = UP ? 2586 : 1000;               // contact and security headers
+const SWY = 1620, SGY = UP ? 2103 : 1620, LGY = UP ? 2586 : 1620; // sweeps, signatures, log headers
 const TRACK = "#1b2a40", ROOM = "#12223a", CORR = "#22354b";
 const cls = (e, ...c) => (e.classList.add(...c), e);
 const op = (e, v) => { v = v < 0.005 ? "0" : v > 0.995 ? "1" : v.toFixed(3); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
@@ -73,7 +88,7 @@ const trapT = (len, dur, s, a) => {                            // the time a leg
 
 // ---------------- the frame: sidebar left, title top right ----------------
 const SD = (45896 + L.rand(0.1, 0.8)).toFixed(1);             // after The Next Phase (45892) — its interphase signature is on file
-L.frame({ type: "A", title: "Intruder Tracking  •  Internal Sensors", c: "mars", c2: "ice", accent: "red", foot: "Security",
+const FB = L.frame({ type: "A", title: "Intruder Tracking  •  Internal Sensors", c: "mars", c2: "ice", accent: "red", foot: "Security",
   side: [[140, "ice", SD], [70, "red", "08-21"], [420, "mars", "Sensors"], [70, "ice", "Lv 3"],
          [300, "mars", "Teams"], [70, "red", "04"], [216, "ice", "Force Fields"]] });
 
@@ -135,29 +150,33 @@ const reading = (x, label, align) => {
   L.text({ x, base: 222, s: 40, c: "ice", txt: label });
   return { v: L.text({ x: x + lw + 36, cap: 150, s: BIG, c: "white", txt: "0" }), place: () => {} };
 };
-const rFix = reading(RX, "Track Fixes");
-const rTime = reading(X1, "Contact Time", "r");
+const rFix = UP ? null : reading(RX, "Track Fixes");           // upright: in the contact panel
+const rTime = reading(TR, "Contact Time", "r");
+const rShip = UW ? reading(FB.x1, "Ship Time", "r") : null;      // ultrawide: over the deck status
 
 // ---------------- the deck plan ----------------
 const PX0 = X0, PX1 = GR, PY0 = 360, PY1 = 1484, CWD = 48, G8 = 8;
 const planBox = L.box({ x: X0, y: 280, w: Math.ceil(L.textWidth("Deck Plan  ·  Deck 22", 32) + 88), h: 56, c: "mars", label: "", fs: 32, r: "l", cls: "sw" });
 const planLW = parseFloat(planBox.style.width);
 L.rect({ x: X0 + planLW + L.GAP, y: 280, w: GR - X0 - planLW - L.GAP, h: 56, c: "ice" });
-const COLW = [304, 308, 308, 308, 308, 304];
+const COLW = UP ? [310, 310, 310, 310, 310] : [304, 308, 308, 308, 308, 304];
+// upright: what each column holds in rows A, B, C (w whole, s split): 5 + 4 + 6 + 4 + 5 = 24 rooms
+const UPAT = ["sws", "wws", "sss", "sww", "sws"];
 const colL = [];
 { let x = PX0; for (const w of COLW) { colL.push(x); x += w + 2 * G8 + CWD; } }
-const VX = range(5).map((i) => colL[i] + COLW[i] + G8 + CWD / 2);
+const VX = range(COLW.length - 1).map((i) => colL[i] + COLW[i] + G8 + CWD / 2);
 const HY = [724, 1120];
 // corridors: two running fore and aft, five across
 HY.forEach((y) => L.rect({ x: PX0, y: y - CWD / 2, w: PX1 - PX0, h: CWD, c: CORR, noalign: true }));
 VX.forEach((x) => L.rect({ x: x - CWD / 2, y: PY0, w: CWD, h: PY1 - PY0, c: CORR, noalign: true }));
 // rooms
 const rooms = [];
-for (let c = 0; c < 6; c++) {
+for (let c = 0; c < COLW.length; c++) {
   const add = (row, y0, y1, part) => rooms.push({ i: rooms.length, row, col: c, part, x: colL[c], y: y0, w: COLW[c], h: y1 - y0 });
-  if (c % 2 === 0) add(0, 360, 692, "w"); else { add(0, 360, 522, "t"); add(0, 530, 692, "b"); }
-  add(1, 756, 1088, "w");
-  if (c % 2 === 1) add(2, 1152, 1484, "w"); else { add(2, 1152, 1314, "t"); add(2, 1322, 1484, "b"); }
+  const P = UP ? UPAT[c] : (c % 2 === 0 ? "w" : "s") + "w" + (c % 2 === 1 ? "w" : "s");
+  if (P[0] === "w") add(0, 360, 692, "w"); else { add(0, 360, 522, "t"); add(0, 530, 692, "b"); }
+  if (P[1] === "w") add(1, 756, 1088, "w"); else { add(1, 756, 918, "t"); add(1, 926, 1088, "b"); }
+  if (P[2] === "w") add(2, 1152, 1484, "w"); else { add(2, 1152, 1314, "t"); add(2, 1322, 1484, "b"); }
 }
 for (const r of rooms) {
   r.cx = r.x + r.w / 2; r.cy = r.y + r.h / 2;
@@ -193,11 +212,12 @@ for (const r of rooms) {
   const hDoor = (j, above) => {
     const d = node(r.sx, HY[j], "door"); hList[j].push(d); r.doors.push({ n: d, gx: r.sx, gy: above ? r.y + r.h + 4 : r.y - 4, h: true });
   };
-  if (r.row === 1) { hDoor(0, false); hDoor(1, true); }
+  if (r.row === 1 && r.part === "w") { hDoor(0, false); hDoor(1, true); }
+  else if (r.row === 1) { if (r.part === "t") hDoor(0, false); else hDoor(1, true); }
   else if (r.row === 0 && r.part !== "t") hDoor(0, true);
   else if (r.row === 2 && r.part !== "b") hDoor(1, false);
   else {
-    const i = Math.min(r.col, 4), right = i === r.col;
+    const i = Math.min(r.col, VX.length - 1), right = i === r.col;
     const d = node(VX[i], r.sy, "door"); vList[i].push(d);
     r.doors.push({ n: d, gx: right ? r.x + r.w + 4 : r.x - 4, gy: r.sy, h: false });
   }
@@ -215,7 +235,8 @@ hList.forEach((l) => sortLink(l, "x")); vList.forEach((l) => sortLink(l, "y"));
 const rowB = rooms.filter((r) => r.row === 1);
 for (let i = 1; i < rowB.length; i++) link(rowB[i - 1].node, rowB[i].node, true);
 doorMarks.forEach((d) => L.rect({ ...d, c: "ice", free: true }));
-const LIFTS = [hEnds[0][0], hEnds[1][1], vEnds[1][0], vEnds[3][1], vEnds[2][1], vEnds[4][0], hEnds[0][1], hEnds[1][0]];
+const LIFTS = UP ? [hEnds[0][0], hEnds[1][1], vEnds[1][0], vEnds[2][1], vEnds[0][1], vEnds[3][0], hEnds[0][1], hEnds[1][0]]
+                 : [hEnds[0][0], hEnds[1][1], vEnds[1][0], vEnds[3][1], vEnds[2][1], vEnds[4][0], hEnds[0][1], hEnds[1][0]];
 
 const roomAt = (x, y) => rooms.find((r) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h);
 const nearRoom = (x, y) => roomAt(x, y) || rooms.reduce((b, r) => (Math.hypot(r.cx - x, r.cy - y) < Math.hypot(b.cx - x, b.cy - y) ? r : b));
@@ -471,8 +492,8 @@ L.text({ x: GR, base: 1536, s: 36, c: "ice", txt: "Aft", align: "r" });
 }
 
 // ---------------- contact ----------------
-L.header({ x: RX, y: 280, w: X1 - RX, label: "Contact", c1: "ice", c2: "mars" });
-const CB = (k) => 424 + 84 * k, CM = 3150, CR = 3214;
+L.header({ x: RX, y: CY, w: X1 - RX, label: "Contact", c1: "ice", c2: "mars", h: UP ? 48 : undefined });   // upright: as tall as Sensor Sweeps beside it
+const CB = (k) => CY + 144 + 84 * k, CM = UP ? 733 : 3150, CR = UP ? 797 : 3214;
 const kv = (x, xr, base, label) => {
   L.text({ x, base, s: 40, c: "ice", txt: label });
   return cls(L.text({ x: xr, base, s: 52, c: "white", txt: "–", align: "r" }), "sw");
@@ -481,10 +502,11 @@ const vClass = kv(RX, X1, CB(0), "Classification");
 const vLife = kv(RX, CM, CB(1), "Life Signs"), vMass = kv(CR, X1, CB(1), "Mass");
 const vVel = kv(RX, CM, CB(2), "Velocity"), vHead = kv(CR, X1, CB(2), "Heading");
 const vSec = kv(RX, CM, CB(3), "Section"), vNear = kv(CR, X1, CB(3), "Nearest Team");
+const fixV = UP ? kv(RX, CM, CB(4), "Track Fixes") : rFix.v, vLast = UP ? kv(CR, X1, CB(4), "Last Fix") : null;
 // signal strength: a trace scrolling past, an hour's minute a second
-const CHY = 784, CHH = 176, CWW = X1 - RX, CSPD = 20;
-L.text({ x: RX, base: 760, s: 40, c: "ice", txt: "Signal Strength" });
-const vSig = L.text({ x: X1, base: 760, s: 40, c: "white", txt: "0%", align: "r" });
+const SIGB = UP ? CB(5) : 760, CHY = SIGB + 24, CHH = UP ? SY - 40 - CHY : 176, CWW = X1 - RX, CSPD = 20;
+L.text({ x: RX, base: SIGB, s: 40, c: "ice", txt: "Signal Strength" });
+const vSig = L.text({ x: X1, base: SIGB, s: 40, c: "white", txt: "0%", align: "r" });
 const yOf = (v) => CHH - 10 - (v / 100) * (CHH - 20);
 L.rect({ x: RX, y: CHY, w: CWW, h: CHH, c: "#0a1524" });
 [25, 50, 75].forEach((v) => L.rect({ x: RX, y: CHY + yOf(v) - 1, w: CWW, h: 2, c: "#1b2d48", free: true }));
@@ -493,9 +515,9 @@ const strip = L.el("div", "boot", L.stage, { position: "absolute", left: RX + "p
 const tiles = [0, 1].map((k) => { const c = L.canvas({ x: 0, y: 0, w: CWW + 8, h: CHH }, strip); c.cv.style.willChange = "transform"; c.idx = k; return c; });
 
 // ---------------- security response ----------------
-L.header({ x: RX, y: 1000, w: X1 - RX, label: "Security Response", c1: "mars", c2: "ice" });
-const MB = (k) => 1116 + 84 * k;
-const TC = { leader: RX + 190, loc: RX + 460, st: RX + 690 };
+L.header({ x: RX, y: SY, w: X1 - RX, label: "Security Response", c1: "mars", c2: "ice", h: UP ? 48 : undefined });   // and the Track Log
+const MB = UP ? (k) => SY + 114 + 54 * k : (k) => 1116 + 84 * k;   // upright: on the track log's rows
+const TC = UP ? { leader: RX + 180, loc: RX + 380, st: RX + 580 } : { leader: RX + 190, loc: RX + 460, st: RX + 690 };
 [["Team", RX, ""], ["Leader", TC.leader, ""], ["Location", TC.loc, ""], ["Status", TC.st, ""], ["ETA", X1, "r"]]
   .forEach(([txt, x, align]) => L.text({ x, base: MB(0), s: 36, c: "ice", txt, align }));
 const trow = (k, team, leader) => {
@@ -513,15 +535,15 @@ const ffRow = trow(5, "Force Fields", "–");
 L.set(ffRow.eta, "–");
 
 // ---------------- the bottom strip ----------------
-L.header({ x: X0, y: 1620, w: ML - X0, label: "Sensor Sweeps", c1: "ice", c2: "mars", h: 48 });
-L.header({ x: MR, y: 1620, w: GR - MR, label: "Signature Comparison", c1: "mars", c2: "ice", h: 48 });
-L.header({ x: RX, y: 1620, w: X1 - RX, label: "Track Log", c1: "ice", c2: "mars", h: 48 });
-const SB = (k) => 1734 + k * 54, BH = 20;
-const SBAR = [730, 1250], CBAR = [1822, 2342], SEGW = 84;
+L.header({ x: SWX0, y: SWY, w: ML - SWX0, label: "Sensor Sweeps", c1: "ice", c2: "mars", h: 48 });
+L.header({ x: MR, y: SGY, w: GR - MR, label: "Signature Comparison", c1: "mars", c2: "ice", h: 48 });
+L.header({ x: LX0, y: LGY, w: LX1 - LX0, label: "Track Log", c1: "ice", c2: "mars", h: 48 });
+const SB = (k, y) => y + 114 + k * 54, BH = 20;                 // rows under a bottom header at y
+const SBAR = UP ? [1665, 1985] : [730, 1250], CBAR = UP ? [1665, 1985] : [1822, 2342], SEGW = 84;
 // sweeps: a lit segment runs along each track once a pass; the count is passes completed
-L.text({ x: X0, base: SB(0), s: 36, c: "ice", txt: "Sweep" });
-L.text({ x: SBAR[0], base: SB(0), s: 36, c: "ice", txt: "Pass" });
-L.text({ x: ML, base: SB(0), s: 36, c: "ice", txt: "Passes", align: "r" });
+L.text({ x: SWX0, base: SB(0, SWY), s: 36, c: "ice", txt: "Sweep" });
+L.text({ x: SBAR[0], base: SB(0, SWY), s: 36, c: "ice", txt: "Pass" });
+L.text({ x: ML, base: SB(0, SWY), s: 36, c: "ice", txt: "Passes", align: "r" });
 const SWEEPS = [
   { name: "Internal Sensors", per: SWEEP_PER, pass: SWEEP_PASS, off: SWEEP_OFF, n0: L.irand(2100, 2300) },
   { name: "Biosign Scan", per: 11, pass: 8.5, off: L.rand(0, 11), n0: L.irand(1400, 1600) },
@@ -530,19 +552,19 @@ const SWEEPS = [
   { name: "Anyon Sweep", per: 3.4, pass: 2.8, off: 0, n0: L.irand(12, 30), anyon: true },
 ];
 SWEEPS.forEach((s, k) => {
-  const base = SB(k + 1);
-  s.nameEl = L.text({ x: X0, base, s: 36, c: "sand", txt: s.name });
+  const base = SB(k + 1, SWY);
+  s.nameEl = L.text({ x: SWX0, base, s: 36, c: "sand", txt: s.name });
   L.rect({ x: SBAR[0], y: base - BH, w: SBAR[1] - SBAR[0], h: BH, c: TRACK });
   s.seg = L.layer({ x: SBAR[0], y: base - BH, w: SEGW, h: BH, cls: "seg" }); op(s.seg, 0);
   s.nEl = L.text({ x: ML, base, s: 36, c: "white", txt: "", align: "r" });
   s.n = s.n0; s.u = 0; s.done = 0;
 });
 // signature comparison against the library
-L.text({ x: MR, base: SB(0), s: 36, c: "ice", txt: "Signature Library" });
-L.text({ x: CBAR[0], base: SB(0), s: 36, c: "ice", txt: "Correlation" });
-L.text({ x: GR, base: SB(0), s: 36, c: "ice", txt: "Match", align: "r" });
+L.text({ x: MR, base: SB(0, SGY), s: 36, c: "ice", txt: "Signature Library" });
+L.text({ x: CBAR[0], base: SB(0, SGY), s: 36, c: "ice", txt: "Correlation" });
+L.text({ x: GR, base: SB(0, SGY), s: 36, c: "ice", txt: "Match", align: "r" });
 const cmp = LIB.map((nm, k) => {
-  const base = SB(k + 1);
+  const base = SB(k + 1, SGY);
   L.rect({ x: CBAR[0], y: base - BH, w: CBAR[1] - CBAR[0], h: BH, c: TRACK });
   return { name: cls(L.text({ x: MR, base, s: 36, c: "sand", txt: nm }), "sw"),
            bar: cls(fill(CBAR[0], base - BH, CBAR[1] - CBAR[0], BH, "ice"), "sw"),
@@ -557,15 +579,15 @@ const matchAt = (I, k, t) => {
 };
 
 // the track log: oldest at the top, a new line arrives at the bottom
-const LG = { sec: RX + 190, ev: RX + 360 };
-const LN = 6, LPH = 54, LY = SB(0) - 44;
+const LG = { sec: LX0 + 190, ev: LX0 + 360 };
+const LN = 6, LPH = 54, LY = SB(0, LGY) - 44;
 const logRows = range(LN).map((i) => {
-  const e = L.layer({ x: RX, y: LY, w: X1 - RX, h: LPH });
+  const e = L.layer({ x: LX0, y: LY, w: LX1 - LX0, h: LPH });
   const r = { e, slot: i,
     tm: L.text({ x: 0, base: 44, s: 36, c: "ice", txt: "" }, e),
-    sec: L.text({ x: LG.sec - RX, base: 44, s: 36, c: "mars", txt: "" }, e),
-    ev: L.text({ x: LG.ev - RX, base: 44, s: 36, c: "sand", txt: "" }, e),
-    dt: L.text({ x: X1 - RX, base: 44, s: 36, c: "white", txt: "", align: "r", rightIn: true }, e) };
+    sec: L.text({ x: LG.sec - LX0, base: 44, s: 36, c: "mars", txt: "" }, e),
+    ev: L.text({ x: LG.ev - LX0, base: 44, s: 36, c: "sand", txt: "" }, e),
+    dt: L.text({ x: LX1 - LX0, base: 44, s: 36, c: "white", txt: "", align: "r", rightIn: true }, e) };
   L.move(e, 0, i * LPH);
   return r;
 });
@@ -575,6 +597,46 @@ const showLog = (r, x) => { L.set(r.tm, shipTime(x.A)); L.set(r.sec, x.sec); L.s
 const pendingLog = [];
 let lastLogA = -1e12;
 const logEvent = (x) => { x = Object.assign({}, x, { A: Math.max(x.A, lastLogA) }); lastLogA = x.A; pendingLog.push(x); };
+
+// ---------------- ultrawide: every deck at a glance, two columns of 21 ----------------
+// what each deck holds, as the other screens have it (Crew Locator's directory, Sickbay, Engineering)
+const DECK_USE = ["Main Bridge", "Officers' Quarters", "VIP Quarters", "Stellar Cartography", "Science Labs", "Transporter Rooms",
+  "Guest Quarters", "Security Office", "Command Quarters", "Ten Forward", "Arboretum", "Sickbay", "Shuttlebay 2", "Cargo Bay 1",
+  "Crew Quarters", "Systems Integration", "Botany Labs", "Schoolrooms", "Recreation Areas", "Family Quarters", "Computer Core",
+  "Cargo Control", "Life Support", "Hydroponics", "Torpedo Bay", "Sensor Maintenance", "Replicator Shop", "Stardrive Quarters",
+  "Atmospheric Processing", "Deflector Control", "Navigational Deflector", "Shield Generators", "EPS Distribution", "Fabrication Shop",
+  "Engineering Support", "Main Engineering", "Dilithium Chamber", "Engineering Stores", "Ship's Stores", "Tractor Emitter",
+  "Deuterium Tankage", "Antimatter Storage"];
+const DSTAT = ["Clear", "Sweeping", "Intruder", "Sealed", "Anyon Sweep", "Contained", "Resolved", "Stand Down", "Standing By", "Teams Out", "Returning"];
+let deckRows = null;
+if (UW) {
+  const DX = [X1 + 64, X1 + 664], DW = 536;                      // 3880–4416 and 4480–5016
+  L.header({ x: DX[0], y: 280, w: FB.x1 - DX[0], label: "Deck Status", c1: "mars", c2: "ice" });
+  deckRows = DECK_USE.map((use, i) => {
+    const x = DX[Math.floor(i / 21)], base = 424 + 79 * (i % 21);   // the first row on Classification's line, the last on the bottom strip's last line
+    L.text({ x, base, s: 36, c: "ice", txt: "Deck " + pad2(i + 1) });
+    L.text({ x: x + 124, base, s: 36, c: "sand", txt: use });
+    return cls(L.text({ x: x + DW, base, s: 36, c: "#7d8a99", txt: "Clear", align: "r" }), "sw");
+  });
+  const stW = Math.max(...DSTAT.map((w) => L.textWidth(w, 36)));
+  for (const u of DECK_USE) fits(u, 36, DW - 124 - stW - 36, "deck use");
+  fits("Deck 42", 36, 124 - 36, "deck number");
+}
+// a deck's status agrees with the state word: the incident's deck, the security deck, the rest clear
+const deckStatus = (I, t, d) => {
+  if (d === I.deck) {
+    if (t < I.tDet) return ["Sweeping", "ice"];
+    if (t >= I.tSD) return ["Stand Down", "ice"];
+    if (t >= I.tDone) return [I.prof.phase ? "Resolved" : "Contained", "ice"];
+    if (t >= I.tCont) return [I.prof.phase ? "Anyon Sweep" : "Sealed", "sky"];
+    return ["Intruder", "mars"];
+  }
+  if (d === 8) {
+    if (!I.teams.some((tm) => t >= tm.td)) return ["Standing By", "sand"];
+    return t >= I.tSD ? ["Returning", "sand"] : ["Teams Out", "ice"];
+  }
+  return ["Clear", "#7d8a99"];
+};
 
 // ---------------- the guard: every word fits its place ----------------
 for (const d in DECKS) DECKS[d].forEach((nm, i) => fits(nm, 36, rooms[i].w - 50 - 22 - 30, `room ${d}-${i + 1}`));
@@ -589,19 +651,21 @@ for (const tm of TEAMS) { fits(tm.n, 36, TC.leader - RX - 36, "team"); fits(tm.l
 fits("Force Fields", 36, TC.leader - RX - 36, "team"); fits("Ens. Mbeki", 36, TC.loc - TC.leader - 36, "leader");
 fits("Brig  ·  Deck 08", 36, TC.st - TC.loc - 36, "loc");
 for (const s of ["Standing By", "Dispatched", "Intercepting", "In Position", "Returning", "None Active", "4 Active"]) fits(s, 36, X1 - TC.st - L.textWidth("On Site", 36) - 36, "status");
-for (const s of SWEEPS) fits(s.name, 36, SBAR[0] - X0 - 40, "sweep");
+for (const s of SWEEPS) fits(s.name, 36, SBAR[0] - SWX0 - 40, "sweep");
 for (const s of LIB) fits(s, 36, CBAR[0] - MR - 40, "library");
-fits("Lifeform Stationary", 36, X1 - LG.ev - L.textWidth("Observation Lounge", 36) - 48, "log");
-fits("Contact Reacquired", 36, X1 - LG.ev - L.textWidth("Internal Sensors", 36) - 48, "log");
-fits("Chronitons Dispersed", 36, X1 - LG.ev - L.textWidth("Signature Resolved", 36) - 48, "log");
-fits("Signature Analysis", 36, X1 - LG.ev - L.textWidth("Unregistered Humanoid", 36) - 48, "log");
-fits("Team 3 in Position", 36, X1 - LG.ev - L.textWidth("Lt. j.g. Ortega", 36) - 48, "log");
-for (const p of PROFILES) for (const nm of DECKS[p.deck]) fits("Intruder Alert", 36, X1 - LG.ev - L.textWidth(nm, 36) - 48, "log");
-fits("Deck 22", 36, LG.ev - LG.sec - 36, "log section"); fits("00:00:00", 36, LG.sec - RX - 36, "log time");
+fits("Lifeform Stationary", 36, LX1 - LG.ev - L.textWidth("Observation Lounge", 36) - 48, "log");
+fits("Contact Reacquired", 36, LX1 - LG.ev - L.textWidth("Internal Sensors", 36) - 48, "log");
+fits("Chronitons Dispersed", 36, LX1 - LG.ev - L.textWidth("Signature Resolved", 36) - 48, "log");
+fits("Signature Analysis", 36, LX1 - LG.ev - L.textWidth("Unregistered Humanoid", 36) - 48, "log");
+fits("Team 3 in Position", 36, LX1 - LG.ev - L.textWidth("Lt. j.g. Ortega", 36) - 48, "log");
+for (const p of PROFILES) for (const nm of DECKS[p.deck]) fits("Intruder Alert", 36, LX1 - LG.ev - L.textWidth(nm, 36) - 48, "log");
+fits("Deck 22", 36, LG.ev - LG.sec - 36, "log section"); fits("00:00:00", 36, LG.sec - LX0 - 36, "log time");
+const SUBR = UP ? TR - L.textWidth("Contact Time", 40) - 36 - L.textWidth("00:00", BIG) - 200 : RX - 300;   // the subtitle ends by here
+if (UP) { fitPair("Track Fixes", RX, CM, ["188"], "fixes"); fitPair("Last Fix", CR, X1, ["00:00:00"], "last fix"); }
 for (const w of ["Containment", "Intruder Alert", "Contact Lost"])
   for (const p of PROFILES) for (const nm of DECKS[p.deck])
-    fits(`Deck 22  ·  Section 22-24  ·  ${nm}`, 38, RX - 300 - X0 - L.textWidth(w, BIG) - 48, "subtitle");
-fits("Deck 22  ·  Section 22-24  ·  Chronitons Dispersed", 38, RX - 300 - X0 - L.textWidth("Resolved", BIG) - 48, "subtitle");
+    fits(`Deck 22  ·  Section 22-24  ·  ${nm}`, 38, SUBR - X0 - L.textWidth(w, BIG) - 48, "subtitle");
+fits("Deck 22  ·  Section 22-24  ·  Chronitons Dispersed", 38, SUBR - X0 - L.textWidth("Resolved", BIG) - 48, "subtitle");
 if (bad.length) setTimeout(() => { throw new Error("intruder-tracking: " + bad.join(" | ")); });
 
 // ---------------- incidents, one after another ----------------
@@ -714,7 +778,10 @@ function readings(t) {
   if (w !== word) { word = w; subTxt = s; swap([state, sub], () => { L.set(state, w); L.set(sub, s); fg(state, c); placeSub(); }); }
   else if (s !== subTxt) { subTxt = s; swap([sub], () => L.set(sub, s)); }
   // top readings
-  L.set(rFix.v, I.fi);
+  L.set(fixV, I.fi);
+  if (vLast) L.set(vLast, I.lastFix && t < I.tSD ? shipTime(I.lastFix.t) : "–");
+  if (rShip) { L.set(rShip.v, shipTime(t)); rShip.place(); }
+  if (deckRows) deckRows.forEach((e, i) => { const [w, c] = deckStatus(I, t, i + 1); L.set(e, w); fg(e, c); });
   L.set(rTime.v, t < I.tDet ? "00:00" : mmss(Math.min(t, I.tSD) - I.tDet)); rTime.place();
   // contact
   const vis = visAt(I, t), seen = vis > 0.5, live = t >= I.tDet && t < I.tSD;

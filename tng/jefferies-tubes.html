@@ -1,11 +1,14 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Jefferies Tubes</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .crew { border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #000;
           font-size: 30px; line-height: 1; padding-top: 3px; }
   .ring { border-radius: 50%; border: 5px solid; }
   .sw { transition: background-color .8s ease, color .8s ease; }
+  .lg { transition: opacity .45s ease; }
+  .lg.out:not(.boot) { opacity: .15; }
 </style></head>
 <body><script src="../lcars.js"></script><script>
 "use strict";
@@ -13,12 +16,25 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame, mirrored: sidebar on the right, title at top left ----------------
-L.frame({ type: "B", title: "Jefferies Tubes  •  Access Network", c: "tan", c2: "gold", accent: "orange", foot: "Tubes",
+const B = L.frame({ type: "B", title: "Jefferies Tubes  •  Access Network", c: "tan", c2: "gold", accent: "orange", foot: "Tubes",
   side: [[140, "gold", "Eng 07"], [70, "orange", "Decks"], [420, "tan", "Network"], [70, "butter", "Teams"],
          [300, "gold", "Hatches"], [70, "orange", "Orders"], [216, "tan", "Sensors"]] });
 
-// the map 40–2340, the right-hand column 2400–3520
-const M0 = 40, M1 = 2340, R0 = 2400, R1 = 3520;
+// ---------------- the grid, per shape ----------------
+// The data, readings and motion are written once; only these positions differ by shape.
+// wide (3840 × 2160): the map 40–2340, the right-hand column 2400–3520 (teams over hatches),
+//   work orders under the map and tube conditions under the column, both from y 1620.
+// upright (2160 × 3120): the map across the full width (40–1840, decks 112 apart); below it two
+//   columns 40–910 | 970–1840: teams beside the hatch grid, work orders across the width, then
+//   tube conditions beside the shift record.
+// ultrawide (5040 × 2160): the wide layout unchanged on the left, and a tube traffic log down a
+//   third column, 3580–4720, its rows on the work orders' 54px grid.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const M0 = 40, M1 = UP ? B.x1 : 2340, R0 = UP ? 970 : 2400, R1 = UP ? B.x1 : 3520;
+const LC1 = 910;                                           // upright: the left column's right edge
+// section tops: teams and hatches; work orders; conditions (wide: 280 / 920, 1620, 1620)
+const TY = UP ? 1478 : 280, WY = UP ? 2122 : 1620, CY = UP ? 2580 : 1620;
+const T0 = UP ? M0 : R0, T1 = UP ? LC1 : R1;               // the teams table's edges
 const TRACK = "#2a2016";
 const pad2 = (n) => String(n).padStart(2, "0");
 const smooth = (k) => k * k * k * (k * (k * 6 - 15) + 10);
@@ -32,9 +48,9 @@ const bg = (e, c) => { if (e._bg !== c) { e._bg = c; e.style.background = `var(-
 const fg = (e, c) => { if (e._fg !== c) { e._fg = c; e.style.color = `var(--${c})`; } };
 
 // ---------------- the network: decks 30–38, frames 96–140 ----------------
-const DECK0 = 30, ND = 9, NK = 12, P = 182, HS = 32;
+const DECK0 = 30, ND = 9, NK = 12, P = UP ? 136 : 182, HS = 32, DP = UP ? 112 : 132;
 const X = (k) => M1 - HS / 2 - (NK - 1 - k) * P;           // the last hatch ends flush with the map's edge
-const DY = (i) => 476 + i * 132;
+const DY = (i) => 476 + i * DP;
 const FRAME = (k) => 96 + 4 * k;
 // tube runs on each deck (columns), the bulkheads between them, and the access hatches
 const SEGS = [[[0, 11]], [[0, 5], [6, 11]], [[1, 11]], [[0, 7], [8, 11]], [[0, 11]], [[0, 4], [5, 11]], [[0, 11]], [[0, 9]], [[2, 11]]];
@@ -85,7 +101,7 @@ const hatchAt = new Map(hatches.map((h) => [h.node, h]));
 
 // the graph: along the tubes, and up and down the ladders (climbing costs more)
 const adj = new Map(), add = (a, b, w) => { (adj.get(a) || adj.set(a, []).get(a)).push([b, w]); (adj.get(b) || adj.set(b, []).get(b)).push([a, w]); };
-SEGS.forEach((segs, i) => segs.forEach(([a, b]) => { for (let k = a; k < b; k++) add(key(i, k), key(i, k + 1), P); }));
+SEGS.forEach((segs, i) => segs.forEach(([a, b]) => { for (let k = a; k < b; k++) add(key(i, k), key(i, k + 1), 182); }));   // the same routes in every shape
 for (const [i, k] of LADDERS) add(key(i, k), key(i + 1, k), 132 * 1.8);
 const NODES = [...adj.keys()];
 const dijkstra = (from, avoid = new Set()) => {
@@ -145,7 +161,10 @@ const working = () => orders.filter((o) => o.state === "In Progress");
 const isLocked = (h) => working().some((o) => o.type === "lock" && lockedBy(o).includes(h));
 
 // ---------------- moving through the tubes ----------------
-const H_SPEED = 64, V_SPEED = 38;                          // design px per second: crawling, and climbing
+let note = null;                                           // ultrawide: the traffic log listens here
+// design px per second, crawling and climbing: scaled with the drawn pitch, so a team takes as long to cross a
+// frame or climb a deck in every shape (upright draws them 136 and 112 apart; exactly 64 and 38 in wide and ultrawide)
+const H_SPEED = 64 * P / 182, V_SPEED = 38 * DP / 132;
 const route = (tm, dest, t) => {
   // around the other teams where it can: nobody climbs over a crew at work
   const { prev } = dijkstra(tm.node, new Set(teams.filter((o) => o !== tm && o.mode !== "off" && !o.legs.length).map((o) => o.node)));
@@ -200,23 +219,27 @@ const enter = (tm, t) => {                                 // a team comes in th
   tm.node = h.node; [tm.x, tm.y] = pt(h.node); place(tm);
   h.openUntil = t + 4.5; cycles++;
   tm.mode = "entering"; tm.until = t + 2.2;
+  if (note) note(tm, "Entered", `Hatch ${h.name}`, o.task);
   showRing(tm, o);
 };
 const arrive = (tm, t) => {
   tm.node = tm.dest; tm.dest = undefined;
   if (tm.mode === "travel") {
     tm.mode = "work"; tm.order.state = "In Progress";
+    if (note) note(tm, "On Task", siteName(tm.node), tm.order.task);
     if (tm.order.type === "lock") placeBand(tm, tm.order);
   } else if (tm.mode === "exit") {
     const h = hatchAt.get(tm.node);
     if (isLocked(h)) { const n = nearestHatch(tm); if (n) { route(tm, n.node, t); return; } }
     h.openUntil = t + 4; cycles++;
     tm.mode = "leaving"; tm.until = t + 2.4;
+    if (note) note(tm, "Exited", `Hatch ${h.name}`, "To Main Engineering");
   }
 };
 const finish = (tm, t) => {                                // the job is done: on to the next, or out
   const o = tm.order;
   o.state = "Complete"; o.p = 1; o.doneAt = t; doneShift++;
+  if (note) note(tm, "Complete", siteName(o.site), `WO ${o.wo}`);
   tm.order = null;
   if (Math.random() < 0.75 || teams.filter((x) => x.mode === "off" || x.mode === "exit" || x.mode === "leaving").length >= 1) { const n = take(tm, t); showRing(tm, n); route(tm, n.site, t); tm.mode = "travel"; }
   else { const h = nearestHatch(tm); if (h) { route(tm, h.node, t); tm.mode = "exit"; } else { const n = take(tm, t); showRing(tm, n); route(tm, n.site, t); tm.mode = "travel"; } }
@@ -226,52 +249,71 @@ const finish = (tm, t) => {                                // the job is done: o
 const stateTxt = L.text({ x: M0, cap: 150, s: 100, c: "butter", txt: "" });
 L.text({ x: M0 + L.textWidth("5 Teams In Tubes", 100) + 56, base: 222, s: 38, c: "tan",
   txt: "Engineering section  ·  Decks 30 – 38  ·  9 tubes  ·  18 ladders  ·  32 access hatches" });
-const pill = L.box({ x: R1 - 440, y: 150, w: 440, h: 72, c: "gold", label: "", r: "lr", fs: 36 });
+const PW = UP ? 320 : 440;
+const pill = L.box({ x: (UW ? B.x1 : R1) - PW, y: 150, w: PW, h: 72, c: "gold", label: "", r: "lr", fs: 36 });
 
 // ---------------- the map header ----------------
 L.header({ x: M0, y: 280, w: M1 - M0, label: "Tube Network  ·  Decks 30 – 38", c1: "tan", c2: "gold" });
 
 // ---------------- maintenance teams ----------------
-L.header({ x: R0, y: 280, w: R1 - R0, label: "Maintenance Teams", c1: "orange", c2: "tan" });
-const TC = { lead: R0 + 210, crew: R0 + 500, loc: R0 + 540 };
-[["Team", R0, "l"], ["Lead", TC.lead, "l"], ["Crew", TC.crew, "r"], ["Location", TC.loc, "l"], ["Status", R1, "r"]]
-  .forEach(([txt, x, align]) => L.text({ x, base: 404, s: 36, c: "gold", txt, align }));
-const ROW0 = 428, PITCH = 88, rowBase = (i) => ROW0 + i * PITCH + 52.5;
+L.header({ x: T0, y: TY, w: T1 - T0, label: "Maintenance Teams", c1: "orange", c2: "tan" });
+const TC = UP ? { box: 180, lead: T0 + 204, crew: T0 + 410, loc: T0 + 440 } : { box: 180, lead: R0 + 210, crew: R0 + 500, loc: R0 + 540 };
+[["Team", T0, "l"], ["Lead", TC.lead, "l"], ["Crew", TC.crew, "r"], ["Location", TC.loc, "l"], ["Status", T1, "r"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: TY + 124, s: 36, c: "gold", txt, align }));
+const ROW0 = TY + 148, PITCH = 88, rowBase = (i) => ROW0 + i * PITCH + 52.5;
 const trows = teams.map((tm, i) => {
   const base = rowBase(i);
-  L.box({ x: R0, y: ROW0 + i * PITCH, w: 180, h: 64, c: tm.c, label: "Team " + (i + 1), fs: 30, r: "l" });
+  L.box({ x: T0, y: ROW0 + i * PITCH, w: TC.box, h: 64, c: tm.c, label: "Team " + (i + 1), fs: 30, r: "l" });
   L.text({ x: TC.lead, base, s: 40, c: "tan", txt: tm.lead });
   return {
     crew: L.text({ x: TC.crew, base, s: 52, c: "white", txt: String(tm.n), align: "r" }),
     loc: L.text({ x: TC.loc, base, s: 36, c: "butter", txt: "" }),
-    st: L.text({ x: R1, base, s: 40, c: "white", txt: "", align: "r" }),
+    st: L.text({ x: T1, base, s: 40, c: "white", txt: "", align: "r" }),
   };
 });
 
 // ---------------- access hatches ----------------
-const HY = 920, KEYS = [["Sealed", "tan"], ["Open", "butter"], ["Locked Out", "mars"]];
+const HY = UP ? TY : 920, KEYS = [["Sealed", "tan"], ["Open", "butter"], ["Locked Out", "mars"]];
+let keys;
+if (UP) {
+  // upright: the header across the column, the key as a row of three under the grid, level with Team 5
+  L.header({ x: R0, y: HY, w: R1 - R0, label: "Access Hatches", c1: "gold", c2: "tan" });
+  L.text({ x: R0, base: TY + 124, s: 36, c: "gold", txt: "Status By Hatch" });
+  L.text({ x: R1, base: TY + 124, s: 36, c: "gold", txt: "Decks 30 – 38", align: "r" });
+  const kw = (R1 - R0 - 2 * 12) / 3;
+  keys = KEYS.map(([n, c], i) => L.box({ x: R0 + i * (kw + 12), y: ROW0 + 4 * PITCH, w: kw, h: 64, c, label: n, fs: 32, r: i === 2 ? "r" : null }));
+} else {
 const keyW = KEYS.map(([n]) => Math.ceil((L.textWidth(n + "  32", 32) + 60) / 10) * 10);
 const keyX0 = R1 - keyW.reduce((a, b) => a + b, 0) - 2 * 12;
 L.header({ x: R0, y: HY, w: keyX0 - L.GAP - R0, label: "Access Hatches", c1: "gold", c2: "tan" });
 let kx = keyX0;
-const keys = KEYS.map(([n, c], i) => { const b = L.box({ x: kx, y: HY, w: keyW[i], h: 56, c, label: n, fs: 32, r: i === 2 ? "r" : null }); kx += keyW[i] + 12; return b; });
-const TW = (R1 - R0 - 7 * 16) / 8, TY0 = 1000, TP = 88;
+keys = KEYS.map(([n, c], i) => { const b = L.box({ x: kx, y: HY, w: keyW[i], h: 56, c, label: n, fs: 32, r: i === 2 ? "r" : null }); kx += keyW[i] + 12; return b; });
+}
+const TW = (R1 - R0 - 7 * 16) / 8, TY0 = UP ? ROW0 : 1000, TP = 88;
 hatches.forEach((h, j) => {
   h.tile = L.box({ x: R0 + (j % 8) * (TW + 16), y: TY0 + Math.floor(j / 8) * TP, w: TW, h: 64, c: "tan", label: h.name, fs: 30, cls: "sw" });
 });
-const lastBase = 1420;
+// the shift record: under the grid (wide); beside the tube conditions, first and last on their rows (upright)
+const lastBase = UP ? CY + 114 : 1420, LP = UP ? 54 : 70;
+if (UP) L.header({ x: R0, y: CY, w: R1 - R0, label: "Shift Record", c1: "gold", c2: "tan", h: 48 });
 L.text({ x: R0, base: lastBase, s: 40, c: "tan", txt: "Hatch Cycles This Shift" });
 const cycTxt = L.text({ x: R1, base: lastBase, s: 52, c: "white", txt: "", align: "r" });
-L.text({ x: R0, base: lastBase + 70, s: 40, c: "tan", txt: "Last Cycled" });
-const lastTxt = L.text({ x: R1, base: lastBase + 70, s: 40, c: "butter", txt: "", align: "r" });
-L.text({ x: R0, base: lastBase + 140, s: 40, c: "tan", txt: "Work Orders Complete This Shift" });
-const doneTxt = L.text({ x: R1, base: lastBase + 140, s: 52, c: "white", txt: "", align: "r" });
+L.text({ x: R0, base: lastBase + LP, s: 40, c: "tan", txt: "Last Cycled" });
+const lastTxt = L.text({ x: R1, base: lastBase + LP, s: 40, c: "butter", txt: "", align: "r" });
+L.text({ x: R0, base: lastBase + 2 * LP, s: 40, c: "tan", txt: "Work Orders Complete This Shift" });
+const doneTxt = L.text({ x: R1, base: lastBase + 2 * LP, s: 52, c: "white", txt: "", align: "r" });
+// upright: three more rows, so the record shares the tube conditions' six baselines
+const more = UP ? ["Work Orders In Progress", "Work Orders Queued", "Teams On Task"].map((txt, i) => {
+  L.text({ x: R0, base: lastBase + (3 + i) * LP, s: 40, c: "tan", txt });
+  return L.text({ x: R1, base: lastBase + (3 + i) * LP, s: 52, c: "white", txt: "", align: "r" });
+}) : null;
 
 // ---------------- work orders ----------------
-L.header({ x: M0, y: 1620, w: M1 - M0, label: "Work Orders", c1: "orange", c2: "tan", h: 48 });
-const WC = { task: 230, site: 760, team: 1150, bar: 1300, barW: 600, pct: 2030, st: M1 };
+L.header({ x: M0, y: WY, w: M1 - M0, label: "Work Orders", c1: "orange", c2: "tan", h: 48 });
+const WC = UP ? { task: 200, site: 570, team: 830, bar: 970, barW: 450, pct: 1540, st: M1 }
+              : { task: 230, site: 760, team: 1150, bar: 1300, barW: 600, pct: 2030, st: M1 };
 const wrows = Array.from({ length: 6 }, (_, i) => {
-  const base = 1734 + i * 54;
+  const base = WY + 114 + i * 54;
   L.rect({ x: WC.bar, y: base - 26, w: WC.barW, h: 26, c: TRACK });
   return {
     wo: L.text({ x: M0, base, s: 36, c: "orange", txt: "" }),
@@ -286,14 +328,15 @@ const wrows = Array.from({ length: 6 }, (_, i) => {
 });
 
 // ---------------- tube conditions ----------------
-L.header({ x: R0, y: 1620, w: R1 - R0, label: "Tube Conditions", c1: "tan", c2: "gold", h: 48 });
-const CN = R0 + 330;
+const C0 = UP ? M0 : R0, C1 = UP ? LC1 : R1;
+L.header({ x: C0, y: CY, w: C1 - C0, label: "Tube Conditions", c1: "tan", c2: "gold", h: 48 });
+const CN = UP ? C0 + 240 : R0 + 330;
 const COND = [["Atmosphere", "Normal  100.8 – 101.8 kPa"], ["Temperature", "Normal  18.0 – 22.0 °C"], ["Air Exchange", "Normal  4.0 – 8.0 / h"],
   ["Plasma Conduits", "Normal  Shielded"], ["Forcefields", "Normal  Standby"], ["Personnel In Tubes", "Limit  20  ·  Teams of 2 or 3"]].map(([label, norm], i) => {
-  const base = 1734 + i * 54;
-  L.text({ x: R0, base, s: 36, c: "tan", txt: label });
+  const base = CY + 114 + i * 54;
+  L.text({ x: C0, base, s: 36, c: "tan", txt: label });
   L.text({ x: CN, base, s: 36, c: "gold", txt: norm });
-  return L.text({ x: R1, base, s: 36, c: "white", txt: "", align: "r" });
+  return L.text({ x: C1, base, s: 36, c: "white", txt: "", align: "r" });
 });
 let kpa = 101.3, temp = 19.4;
 
@@ -307,6 +350,74 @@ teams.forEach((tm, i) => {
   showRing(tm, o);
   if (o.type === "lock") placeBand(tm, o);
 });
+
+// ---------------- ultrawide: the tube traffic log, newest first ----------------
+if (UW) {
+  const G0 = 3580, G1 = B.x1, NL = 29;
+  const GC = { team: G0 + 150, ev: G0 + 290, site: G0 + 500 };
+  L.header({ x: G0, y: 280, w: G1 - G0, label: "Tube Traffic Log", c1: "orange", c2: "gold" });
+  [["Time", G0, "l"], ["Team", GC.team, "l"], ["Event", GC.ev, "l"], ["Location", GC.site, "l"], ["Order", G1, "r"]]
+    .forEach(([txt, x, align]) => L.text({ x, base: 404, s: 36, c: "gold", txt, align }));
+  const EVC = { Entered: "white", "On Task": "butter", Complete: "gold", Exited: "tan" };
+  const rows = Array.from({ length: NL }, (_, i) => {
+    const base = 492 + i * 54;                              // on the work orders' grid: row 24 is 1734
+    const r = { tm: L.text({ x: G0, base, s: 36, c: "tan", txt: "" }), team: L.text({ x: GC.team, base, s: 36, c: "white", txt: "" }),
+      ev: L.text({ x: GC.ev, base, s: 36, c: "white", txt: "" }), site: L.text({ x: GC.site, base, s: 36, c: "tan", txt: "" }),
+      what: L.text({ x: G1, base, s: 36, c: "gold", txt: "", align: "r" }) };
+    Object.values(r).forEach((e) => e.classList.add("lg"));
+    return r;
+  });
+  const clock = (ms) => { const d = new Date(ms); return [d.getHours(), d.getMinutes(), d.getSeconds()].map(pad2).join(":"); };
+  const log = [];                                          // newest first
+  const show = () => rows.forEach((r, i) => {
+    const e = log[i];
+    L.set(r.tm, clock(e.at)); L.set(r.team, "Team " + (e.tm.i + 1)); fg(r.team, e.tm.c);
+    L.set(r.ev, e.ev); fg(r.ev, EVC[e.ev]); L.set(r.site, e.site); L.set(r.what, e.what);
+  });
+  // the shift so far, built oldest first and consistent with the starting picture (a fixed sequence, not
+  // Math.random, so nothing else on the screen changes): a team only comes in through a hatch after it left by
+  // one, hatch work is at a hatch and the rest at a tube panel, no site appears twice, no task twice running
+  let seed = 0x1701d, at = Date.now();
+  const rnd = (n) => { seed = (seed + 0x6d2b79f5) | 0; let z = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    z = (z + Math.imul(z ^ (z >>> 7), 61 | z)) ^ z; return ((z ^ (z >>> 14)) >>> 0) % n; };
+  const plainNodes = NODES.filter((n) => !hatchAt.has(n)), hatchNodes = hatches.map((h) => h.node);
+  const usedSites = new Set(orders.map((o) => o.site)), lastTask = [];
+  const freeFrom = (pool) => { const f = pool.filter((n) => !usedSites.has(n)), n = f[rnd(f.length)]; usedSites.add(n); return n; };
+  const hatchName = () => hatchAt.get(freeFrom(hatchNodes)).name;
+  const hist = [], inside = teams.map(() => true);
+  const visit = (tm) => {
+    const r = rnd(10), type = r < 3 ? "lock" : r < 5 ? "hatch" : "plain", pool = TASKS[type];
+    let task; do task = pool[rnd(pool.length)]; while (task === lastTask[0] || (pool.length > 2 && lastTask.includes(task)));
+    lastTask.unshift(task); lastTask.length = 3;
+    const site = siteName(freeFrom(type === "hatch" ? hatchNodes : plainNodes));
+    if (!inside[tm.i]) { hist.push({ tm, ev: "Entered", site: `Hatch ${hatchName()}`, what: task }); inside[tm.i] = true; }
+    hist.push({ tm, ev: "On Task", site, what: task }, { tm, ev: "Complete", site, what: "" });
+  };
+  for (let b = 0; b < 14; b++) {
+    const tm = teams[(b * 3 + 1) % 5];
+    visit(tm);
+    if (rnd(3) === 0) { hist.push({ tm, ev: "Exited", site: `Hatch ${hatchName()}`, what: "To Main Engineering" }); inside[tm.i] = false; }
+  }
+  if (!inside[4]) visit(teams[4]);                         // Team 5 is inside, to leave
+  const done = hist.filter((e) => e.ev === "Complete"), wo0 = Math.min(...orders.map((o) => o.wo));
+  done.forEach((e, i) => { e.what = `WO ${wo0 - done.length + i}`; });
+  // the starting picture: Team 5 stood down, then the other four reached their jobs
+  hist.push({ tm: teams[4], ev: "Exited", site: `Hatch ${hatchName()}`, what: "To Main Engineering" });
+  teams.slice(0, 4).forEach((tm) => {
+    if (!inside[tm.i]) hist.push({ tm, ev: "Entered", site: `Hatch ${hatchName()}`, what: tm.order.task });
+    hist.push({ tm, ev: "On Task", site: siteName(tm.order.site), what: tm.order.task });
+  });
+  for (const e of hist.reverse().slice(0, NL)) { e.at = at; at -= (40 + rnd(80)) * 1000; log.push(e); }
+  show();
+  let pending = 0;
+  note = (tm, ev, site, what) => {
+    log.unshift({ tm, ev, site, what, at: Date.now() }); log.length = NL;
+    if (pending) return;                                     // one dip at a time; the latest wins
+    pending = 1;
+    rows.forEach((r) => Object.values(r).forEach((e) => e.classList.add("out")));
+    setTimeout(() => { show(); pending = 0; rows.forEach((r) => Object.values(r).forEach((e) => e.classList.remove("out"))); }, 460);
+  };
+}
 
 // ---------------- the clock ----------------
 let last = null;
@@ -354,8 +465,8 @@ const where = (tm) => {
   if (tm.mode === "off") return "Main Engineering";
   if (tm.legs.length && (tm.mode === "travel" || tm.mode === "exit")) {
     const leg = tm.legs[0];
-    if (leg.v) { const a = Math.round((Math.min(leg.from[1], leg.to[1]) - DY(0)) / 132) + DECK0; return `Ladder  ·  Decks ${a} – ${a + 1}`; }
-    const i = Math.round((tm.y - DY(0)) / 132), k = Math.round((tm.x - X(0)) / P);
+    if (leg.v) { const a = Math.round((Math.min(leg.from[1], leg.to[1]) - DY(0)) / DP) + DECK0; return `Ladder  ·  Decks ${a} – ${a + 1}`; }
+    const i = Math.round((tm.y - DY(0)) / DP), k = Math.round((tm.x - X(0)) / P);
     return `Tube ${DECK0 + i}  ·  Frame ${FRAME(k)}`;
   }
   return tm.node !== null ? siteName(tm.node) : "";
@@ -381,6 +492,11 @@ L.every(250, (t) => {
   L.set(cycTxt, cycles);
   L.set(lastTxt, lastCycled);
   L.set(doneTxt, doneShift);
+  if (more) {
+    L.set(more[0], working().length);
+    L.set(more[1], orders.filter((o) => o.state === "Queued").length);
+    L.set(more[2], teams.filter((tm) => tm.mode === "work").length);
+  }
   // teams
   const inside = teams.filter((tm) => tm.mode !== "off");
   L.set(stateTxt, inside.length === 0 ? "Tubes Clear" : inside.length === 1 ? "1 Team In Tubes" : `${inside.length} Teams In Tubes`);

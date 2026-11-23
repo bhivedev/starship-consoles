@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Damage Control</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* text that is swapped fades out and back in; .boot (the start-up cascade) always wins */
@@ -16,10 +17,21 @@
 const L = LCARS;
 L.ready(() => {
 
+// Three layouts. Wide (3840×2160) is the original, hand-placed. Upright (2160×3120): the map in two
+// rows (saucer, stardrive and nacelles across the top; the deflector below with the map's key and the
+// repair queue beside it), then the teams with the summary beside them, structural integrity and hull
+// stress sharing one list of sections, and the log with spare parts at the foot. Ultrawide
+// (5040×2160): the wide columns, with hull stress running two hours across two columns, and a fourth
+// column: a work order log beside the teams, the queue, and integrity by section.
+// The data, readings and motion are written once; only positions and sizes differ by shape.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+
 // ---------------- the frame, mirrored: sidebar on the right, title at top left ----------------
+const TITLE = "Damage Control  •  Repair Coordination";
+let fb;
+if (L.shape === "wide") {
 const BAR = 64, TS = BAR / (L.BASELINE - L.CAP_TOP);
 L.box({ x: 40, y: 40, w: 92, h: BAR, c: "orange", r: "l" });
-const TITLE = "Damage Control  •  Repair Coordination";
 const titleEl = L.text({ x: 132 + L.GAP, cap: 40, s: TS, c: "orange", txt: TITLE });
 // (the canvas measures this line wider than the page draws it; use the page's own width)
 const afterTitle = 132 + L.GAP + titleEl.offsetWidth + L.GAP;
@@ -34,6 +46,13 @@ L.text({ x: 3794, base: 1712, s: 40, c: "#000", txt: "Repairs", align: "r", on: 
 L.box({ x: 40, y: 2056, w: 92, h: BAR, c: "sunset", r: "l" });
 [[132 + L.GAP, 700, "butter"], [132 + L.GAP + 700 + L.GAP, 900, "orange"]].forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
 L.rect({ x: 132 + 3 * L.GAP + 1600, y: 2056, w: 2600 - L.GAP - (132 + 3 * L.GAP + 1600), h: BAR, c: "sunset" });
+fb = { x0: 40, x1: 3520, y0: 140, y1: 2010 };
+} else {
+  // the same frame, drawn by the kit for this shape: type B, the same colours and sidebar labels
+  fb = L.frame({ type: "B", title: TITLE, c: "orange", c2: "sunset", accent: "butter", foot: "Repairs",
+    side: [[140, "butter", "DC 01"], [70, "sunset", "Deck 36"], [420, "orange", "Work Orders"], [70, "sky", "SIF"],
+           [300, "peach", "Teams"], [70, "sunset", "Hull"], [216, "orange", "Parts"]] });
+}
 
 const header = (x, y, w, label, c1, c2, h = 56, fs = 32) => {
   const lw = Math.round((L.textWidth(label, fs) + 64) / 10) * 10;
@@ -56,6 +75,14 @@ const later = (ms, f, jitter) => L.every(ms, (t) => { if (t > 1) f(t); }, jitter
 
 // Columns: A 40–1160, B 1220–2340, C 2400–3520. The map spans A and B.
 const AX = 40, AR = 1160, BX = 1220, BR = 2340, CX = 2400, CR = 3520;
+// Each panel's [left, right, header top], per shape (wide: exactly as before).
+const TEAM = UP ? [40, 1160, 1456] : [CX, CR, 280];
+const QUE = UP ? [622, 1840, 868] : UW ? [3580, 4720, 1000] : [CX, CR, 1000];
+const SIFG = UP ? [40, 910, 2176] : [AX, AR, 1000];
+const HULL = UP ? [970, 1840, 2176] : UW ? [BX, CR, 1000] : [BX, BR, 1000];
+const LOGG = UP ? [40, 910, 2576] : [AX, AR, 1620];      // upright: the foot row splits where the band above does
+const PRTS = UP ? [970, 1840, 2576] : [BX, BR, 1620];
+const SUMM = UP ? [1220, 1840, 1456] : [CX, CR, 1620];
 const MIN = 4;                                             // one minute of repair work, in seconds on screen
 const TRACK = "#2c1d0e";                                    // the dark of an empty gauge
 const NOM = "butter", DEG = "sunset", REP = "sky";          // the map's three states
@@ -92,15 +119,20 @@ const SECTIONS = ["Saucer", "Stardrive", "Port Nacelle", "Starboard Nacelle", "D
 // ---------------- status line ----------------
 L.text({ x: 40, cap: 150, s: 100, c: "butter", txt: "Routine Repairs" });
 const stateSub = L.text({ x: 40 + L.textWidth("Routine Repairs", 100) + 40, base: 222, s: 38, c: "peach", txt: "" });
-const cond = L.box({ x: 3120, y: 150, w: 400, h: 72, c: "orange", label: "Condition Green", r: "lr", fs: 36 });
+const cond = L.box({ x: UP ? fb.x1 - 372 : 3120, y: 150, w: UP ? 372 : 400, h: 72, c: "orange", label: "Condition Green", r: "lr", fs: 36 });
 cond.style.willChange = "opacity";
 L.tick((t) => { cond.style.opacity = (0.8 + 0.2 * Math.sin(t * 1.1)).toFixed(3); });
 // the map's key, ending where the map ends
 {
   const KEY = [["Nominal", NOM], ["Degraded", DEG], ["Under Repair", REP]];
+  if (UP) {                                                 // upright: a column beside the deflector, on its rows
+    L.box({ x: 428, y: 868, w: 178, h: 56, c: "peach", label: "Map Key", fs: 32, r: "l" });
+    KEY.forEach(([n, c], i) => L.box({ x: 428, y: 964 + i * 149, w: 178, h: i === 2 ? 134 : 133, c, label: n, fs: 28 }));
+  } else {
   const ws = KEY.map(() => 160);                            // equal pills
   let kx = BR - ws.reduce((a, b) => a + b, 0) - 16 * (KEY.length - 1);
   KEY.forEach(([n, c], i) => { L.box({ x: kx, y: 166, w: ws[i], h: 56, c, label: n, fs: 28, r: i === 0 ? "l" : null }); kx += ws[i] + 16; });
+  }
 }
 
 // ---------------- the system map: the ship's systems as blocks, filled to their integrity ----------------
@@ -150,14 +182,15 @@ const GROUPS = [
     [0, 3, 1, 1, "Fwd Tractor", "Forward Tractor Emitter", "Deck 34", "sensor"],
     [1, 3, 1, 1, "Nav Sensors", "Navigational Sensors", "Deck 35", "sensor"]] },
 ];
-const MY = 376, BW = 182, BH = 129, G = 16, GG = 62;     // 11 columns and 3 group gaps fill 40–2340 exactly
+const MY = 376, BW = UP ? 178 : 182, BH = UP ? 96 : 129, G = 16, GG = UP ? 51 : 62;     // 11 columns and 3 group gaps fill 40–2340 exactly
 const blocks = [];
-let gx = AX;
+let gx = AX, gy = 0;                                       // upright: the deflector starts a second row
 for (const g of GROUPS) {
+  if (UP && g.sec === 4) { gx = AX; gy = 588; }
   const gw = g.cols * BW + (g.cols - 1) * G;
-  header(gx, 280, gw, g.name, g.c1, g.c2);
+  header(gx, 280 + gy, gw, g.name, g.c1, g.c2);
   for (const [c, r, cs, rs, label, full, loc, kind] of g.blocks) {
-    const x = gx + c * (BW + G), y = MY + r * (BH + G), w = cs * BW + (cs - 1) * G, h = rs * BH + (rs - 1) * G;
+    const x = gx + c * (BW + G), y = MY + gy + r * (BH + G), w = cs * BW + (cs - 1) * G, h = rs * BH + (rs - 1) * G;
     L.rect({ x, y, w, h, c: TRACK });
     const f = cls(fill(x, y, w, h, NOM, "50% 100%"), "blk");
     L.box({ x, y, w, h, c: "#0000", label, fs: 28 });
@@ -177,6 +210,7 @@ const makeFault = () => {
   const pri = (b.kind === "warp" || b.kind === "life") ? L.pick([1, 1, 2]) : L.pick([2, 2, 3, 3, 3]);
   const job = { wo: woNum++, b, fault, pri, est: L.irand(14, 36), integ: STRUCTURAL.has(fault) ? L.rand(0.6, 0.82) : L.rand(0.55, 0.86) };
   b.job = job; b.goal = job.integ; setState(b, "deg");
+  if (UW) woEvent(job, "Reported");
   return job;
 };
 const openStructural = (sec) => blocks.some((b) => b.job && b.sec === sec && STRUCTURAL.has(b.job.fault));
@@ -184,17 +218,18 @@ const openStructural = (sec) => blocks.some((b) => b.job && b.sec === sec && STR
 // ---------------- damage control teams ----------------
 const TEAMS = [["Lt. R. Barclay", "orange"], ["Ens. S. Gomez", "peach"], ["Chief M. O'Brien", "orange"],
                ["Ens. Taurik", "peach"], ["Ens. R. Lefler", "orange"], ["Ens. D. Kwan", "peach"]];
-header(CX, 280, CR - CX, "Damage Control Teams", "sky", "orange");
-const TP = 96, TT = 376, TPW = 150, TTX = CX + TPW + L.GAP, TBX = 2800, TBR = 3400;
+const [TX0, TX1, TY] = TEAM;
+header(TX0, TY, TX1 - TX0, "Damage Control Teams", "sky", "orange");
+const TP = 96, TT = TY + 96, TPW = 150, TTX = TX0 + TPW + L.GAP, TBX = TX0 + 400, TBR = TX1 - 120;
 const teams = TEAMS.map(([lead, c], i) => {
   const y = TT + i * TP;
-  L.box({ x: CX, y, w: TPW, h: 84, c, label: `DC ${i + 1}`, fs: 32, r: "l" });
+  L.box({ x: TX0, y, w: TPW, h: 84, c, label: `DC ${i + 1}`, fs: 32, r: "l" });
   const task = cls(L.text({ x: TTX, base: y + 38, s: 40, c: "white", txt: "" }), "fade");
-  const loc = cls(L.text({ x: CR, base: y + 38, s: 40, c: "tan", txt: "", align: "r" }), "fade");
+  const loc = cls(L.text({ x: TX1, base: y + 38, s: 40, c: "tan", txt: "", align: "r" }), "fade");
   L.text({ x: TTX, base: y + 80, s: 36, c: "peach", txt: lead });
   L.rect({ x: TBX, y: y + 60, w: TBR - TBX, h: 20, c: "#14223c" });
   const bar = cls(fill(TBX, y + 60, TBR - TBX, 20, REP), "fade");
-  const eta = cls(L.text({ x: CR, base: y + 80, s: 36, c: "white", txt: "", align: "r" }), "fade");
+  const eta = cls(L.text({ x: TX1, base: y + 80, s: 36, c: "white", txt: "", align: "r" }), "fade");
   const chip = L.layer({ x: 0, y: 0, w: 84, h: 36, cls: "chip" });
   chip.textContent = `DC ${i + 1}`;
   return { n: i + 1, lead, task, loc, bar, eta, chip, job: null, prog: 0, shown: -1, state: "idle", swap: null };
@@ -209,6 +244,7 @@ const assign = (tm, job, prog = 0, quiet = false) => {
   const b = job.b;
   tm.job = job; tm.state = "work"; b.team = tm; setState(b, "rep");
   takeParts(job);
+  if (UW) woEvent(job, `DC ${tm.n} assigned`);
   L.move(tm.chip, b.x + 12, b.y + 12);
   const show = () => {
     tm.prog = prog; tm.shown = -1;
@@ -220,11 +256,12 @@ const assign = (tm, job, prog = 0, quiet = false) => {
 };
 
 // ---------------- completed repairs: the log ----------------
-small(AX, 1620, AR - AX, "Completed Repairs", "orange", "butter");
+const [LX0, LX1, LY] = LOGG, LTX = UP ? 150 : 190;
+small(LX0, LY, LX1 - LX0, "Completed Repairs", "orange", "butter");
 const logRows = Array.from({ length: 6 }, (_, i) => {
-  const base = 1734 + i * 54;
-  return { sd: L.text({ x: AX, base, s: 36, c: "orange", txt: "" }), tx: L.text({ x: AX + 190, base, s: 36, c: "peach", txt: "" }),
-           tm: L.text({ x: AR, base, s: 36, c: "sky", txt: "", align: "r" }) };
+  const base = LY + 114 + i * 54;
+  return { sd: L.text({ x: LX0, base, s: 36, c: "orange", txt: "" }), tx: L.text({ x: LX0 + LTX, base, s: 36, c: "peach", txt: "" }),
+           tm: L.text({ x: LX1, base, s: 36, c: "sky", txt: "", align: "r" }) };
 });
 let stardate = 47783.2, logged = [], doneShift = 11, durations = [24, 31, 19, 28, 22, 34];
 const logLine = (txt, team) => {
@@ -238,6 +275,7 @@ const complete = (tm) => {
   b.reserved = true; setTimeout(() => (b.reserved = false), 30000);   // a mended system is left alone for a while
   tm.chip.classList.remove("on");
   logLine(`${FAULTS[job.fault][1]}  ·  ${b.full}`, `DC ${tm.n}`);
+  if (UW) woEvent(job, `DC ${tm.n} completed`);
   doneShift++; durations.push(job.est); if (durations.length > 12) durations.shift();
   tm.state = "done"; tm.job = null;
   swapText(tm, () => { tm.task.textContent = `Repair complete  ·  ${b.full}`; tm.eta.textContent = "Done"; });
@@ -246,13 +284,14 @@ const complete = (tm) => {
 };
 
 // ---------------- repair queue: work orders by priority ----------------
-const QN = 5, QT = 1148, QP = 84, QB = 180;
-header(CX, 1000, CR - CX, "Repair Queue", "sunset", "peach");
-const qInfo = L.text({ x: CX, base: 1120, s: 36, c: "sky", txt: "" });
+const [QX0, QX1, QY] = QUE;
+const QN = 5, QT = QY + 148, QP = UP ? 79 : 84, QB = 180;
+header(QX0, QY, QX1 - QX0, "Repair Queue", "sunset", "peach");
+const qInfo = L.text({ x: QX0, base: QY + 120, s: 36, c: "sky", txt: "" });
 const PRI = { 1: "sunset", 2: "orange", 3: "butter" };
 const SYSX = 560;                                            // the system column, from the row's left
 const qrows = Array.from({ length: QN + 1 }, () => {
-  const e = L.layer({ x: CX, y: QT, w: CR - CX, h: 64 });
+  const e = L.layer({ x: QX0, y: QT, w: QX1 - QX0, h: 64 });
   const box = L.box({ x: 0, y: 0, w: QB, h: 64, c: "orange", label: "", fs: 32, r: "l", cls: "pill" }, e);
   const fault = L.text({ x: QB + L.GAP, base: 52.5, s: 40, c: "white", txt: "" }, e);
   const sys = L.text({ x: SYSX, base: 52.5, s: 36, c: "tan", txt: "" }, e);
@@ -268,7 +307,13 @@ const slotY = (s) => s * QP;
 const moveRow = (r, slot, t, dur) => { r.tw = { from: r.y, to: slotY(slot), t0: t, dur }; r.slot = slot; };
 const fadeRow = (r, to, t, dur) => { r.fo = { from: r.op, to, t0: t, dur }; };
 const queue = [];
-const showQueue = () => put(qInfo, `${queue.length} work orders queued  ·  in order of priority  ·  next WO ${woNum}`);
+// ultrawide: over the fourth column, the queued orders counted by priority (Condition Green stays where wide has it)
+const priPills = UW ? [1, 2, 3].map((p, i) => L.box({ x: 3580 + i * (368 + 18), y: 150, w: 368, h: 72, c: PRI[p], label: "", fs: 36,
+  r: i === 0 ? "l" : i === 2 ? "r" : null })) : [];
+const showQueue = () => {
+  put(qInfo, `${queue.length} work orders queued  ·  in order of priority  ·  next WO ${woNum}`);
+  priPills.forEach((e, i) => put(e, `Priority ${i + 1}  ·  ${queue.filter((j) => j.pri === i + 1).length} queued`));
+};
 
 // ---------------- the coordinator: one queue change at a time ----------------
 const waiting = [];
@@ -302,28 +347,32 @@ const step = (t) => {
 };
 
 // ---------------- structural integrity field ----------------
-const RT = (i) => 1148 + i * 84, RB = (i) => RT(i) + 52.5;  // the second band's rows: tops and baselines
-header(AX, 1000, AR - AX, "Structural Integrity Field", "orange", "sunset");
-const SBX = AX + 300, SBR = AR - 180, HBX = BX + 300, HBR = BR - 180;
-[["Section", AX, "l"], ["Field Strength", SBX, "l"], ["Output", AR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: 1120, s: 36, c: "sky", txt, align }));
+// the second band's rows: tops and baselines (upright: one compact list of sections, shared by both panels)
+const RT = (i) => UP ? 2250 + i * 54 : 1148 + i * 84, RB = (i) => UP ? 2290 + i * 54 : RT(i) + 52.5;
+const [SX0, SX1, SIFY] = SIFG, [HX0, HX1, HULY] = HULL;
+if (UP) small(SX0, SIFY, SX1 - SX0, "Structural Integrity Field", "orange", "sunset");
+else header(SX0, SIFY, SX1 - SX0, "Structural Integrity Field", "orange", "sunset");
+const SBX = SX0 + 300, SBR = SX1 - 180, HBX = UP ? HX0 : HX0 + 300, HBR = HX1 - 180, SBH = UP ? 22 : 26;
+if (!UP) [["Section", SX0, "l"], ["Field Strength", SBX, "l"], ["Output", SX1, "r"]].forEach(([txt, x, align]) => L.text({ x, base: SIFY + 120, s: 36, c: "sky", txt, align }));
 const sif = SECTIONS.map((name, i) => {
-  L.text({ x: AX, base: RB(i), s: 40, c: "peach", txt: name });
-  L.rect({ x: SBX, y: RB(i) - 26, w: SBR - SBX, h: 26, c: TRACK });
-  const bar = fill(SBX, RB(i) - 26, SBR - SBX, 26, i % 2 ? "orange" : "butter");
-  L.rect({ x: SBX + Math.round(((SBR - SBX) * 100) / 110) - 2, y: RB(i) - 36, w: 4, h: 46, c: "white", free: true });   // 100%
-  const val = L.text({ x: AR, base: RB(i), s: 52, c: "white", txt: "", align: "r" });
+  L.text({ x: SX0, base: RB(i), s: 40, c: "peach", txt: name });
+  L.rect({ x: SBX, y: RB(i) - SBH, w: SBR - SBX, h: SBH, c: TRACK });
+  const bar = fill(SBX, RB(i) - SBH, SBR - SBX, SBH, i % 2 ? "orange" : "butter");
+  L.rect({ x: SBX + Math.round(((SBR - SBX) * 100) / 110) - 2, y: RB(i) - (UP ? 30 : 36), w: 4, h: UP ? 38 : 46, c: "white", free: true });   // 100%
+  const val = L.text({ x: SX1, base: RB(i), s: 52, c: "white", txt: "", align: "r" });
   return { bar, val, v: 100, goal: 100, drift: 0, shown: -1 };
 });
 
 // ---------------- hull stress ----------------
-header(BX, 1000, BR - BX, "Hull Stress", "peach", "orange");
-[["Section", BX, "l"], ["Last 40 Minutes", HBX, "l"], ["Of Tolerance", BR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: 1120, s: 36, c: "sky", txt, align }));
-const NS = 81, HSPAN = 18, BASE = [11, 14, 18, 18, 9];
+if (UP) small(HX0, HULY, HX1 - HX0, "Hull Stress  ·  Last 40 Minutes", "peach", "orange");
+else header(HX0, HULY, HX1 - HX0, "Hull Stress", "peach", "orange");
+if (!UP) [["Section", HX0, "l"], [UW ? "Last 2 Hours" : "Last 40 Minutes", HBX, "l"], ["Of Tolerance", HX1, "r"]].forEach(([txt, x, align]) => L.text({ x, base: HULY + 120, s: 36, c: "sky", txt, align }));
+const NS = UW ? 241 : 81, HSPAN = 18, BASE = [11, 14, 18, 18, 9];   // ultrawide: three times the samples, two hours
 const stressAt = (i, k) => BASE[i] + 2.4 * Math.sin(k * 0.11 + i * 1.7) + 1.3 * Math.sin(k * 0.37 + i * 0.6) + L.rand(-0.5, 0.5);
 const hull = SECTIONS.map((name, i) => {
-  L.text({ x: BX, base: RB(i), s: 40, c: "peach", txt: name });
-  const c = L.canvas({ x: HBX, y: RT(i), w: HBR - HBX, h: 64 });
-  const val = L.text({ x: BR, base: RB(i), s: 52, c: "white", txt: "", align: "r" });
+  if (!UP) L.text({ x: HX0, base: RB(i), s: 40, c: "peach", txt: name });   // upright: the field's names serve both
+  const c = L.canvas({ x: HBX, y: RT(i), w: HBR - HBX, h: UP ? 48 : 64 });
+  const val = L.text({ x: HX1, base: RB(i), s: 52, c: "white", txt: "", align: "r" });
   const h = { c, val, k: 0, s: [] };
   for (let k = 0; k < NS; k++) h.s.push(stressAt(i, k));
   h.k = NS;
@@ -349,13 +398,15 @@ later(2200, () => hull.forEach((h, i) => {                // one new sample per 
 }), 0);
 
 // ---------------- spare parts and replication ----------------
-small(BX, 1620, BR - BX, "Spare Parts  ·  Replication", "peach", "orange");
+const [PX0, PX1, PY] = PRTS;
+small(PX0, PY, PX1 - PX0, "Spare Parts  ·  Replication", "peach", "orange");
+const PBX = PX0 + 300, PBR = PX1 - 180;
 PARTS.forEach((p, i) => {
-  const base = 1734 + i * 54;
-  p.name_ = L.text({ x: BX, base, s: 36, c: "peach", txt: p.name });
-  L.rect({ x: HBX, y: base - 22, w: HBR - HBX, h: 22, c: TRACK });
-  p.bar = fill(HBX, base - 22, HBR - HBX, 22, i % 2 ? "orange" : "butter");
-  p.val = L.text({ x: BR, base, s: 36, c: "white", txt: "", align: "r" });
+  const base = PY + 114 + i * 54;
+  p.name_ = L.text({ x: PX0, base, s: 36, c: "peach", txt: p.name });
+  L.rect({ x: PBX, y: base - 22, w: PBR - PBX, h: 22, c: TRACK });
+  p.bar = fill(PBX, base - 22, PBR - PBX, 22, i % 2 ? "orange" : "butter");
+  p.val = L.text({ x: PX1, base, s: 36, c: "white", txt: "", align: "r" });
   p.n = Math.round(p.cap * L.rand(0.5, 0.9)); p.u = p.n / p.cap; p.making = false;
 });
 const showParts = () => PARTS.forEach((p) => {
@@ -374,14 +425,91 @@ later(1500, () => {                                        // the industrial rep
 }, 0.2);
 
 // ---------------- summary ----------------
-small(CX, 1620, CR - CX, "Repair Summary", "sky", "peach");
-const SW = (CR - CX - 120) / 2;
+const [SMX0, SMX1, SMY] = SUMM;
+if (UP) header(SMX0, SMY, SMX1 - SMX0, "Repair Summary", "sky", "peach");   // upright: one stat beside each team
+else small(SMX0, SMY, SMX1 - SMX0, "Repair Summary", "sky", "peach");
+const SW = UP ? SMX1 - SMX0 : (SMX1 - SMX0 - 120) / 2;
 const STATS = ["Ship Integrity", "Open Faults", "Teams Deployed", "Repairs This Shift", "Mean Repair", "Replicator Load"];
 const statVals = STATS.map((name, i) => {
-  const x = CX + (i % 2) * (SW + 120), base = 1734 + Math.floor(i / 2) * 135;   // first and last rows on the log's first and last lines
+  const x = UP ? SMX0 : SMX0 + (i % 2) * (SW + 120), base = UP ? TT + i * TP + 80 : SMY + 114 + Math.floor(i / 2) * 135;   // first and last rows on the log's first and last lines
   L.text({ x, base, s: 40, c: "peach", txt: name });
   return L.text({ x: x + SW, base, s: 52, c: "white", txt: "", align: "r" });
 });
+
+// ---------------- ultrawide: the work order log, and integrity by section ----------------
+// The log: every event, in time order, newest at the foot (an order reported, assigned and completed shows
+// its history). A new entry is taken one step at a time, like the queue: the oldest row fades, the others
+// slide up one row, and the new one fades in at the foot. Motion stays within the six rows.
+const woRows = [], woLog = [], woPend = [], secRows = [];
+let woLive = false, woAnim = null;
+const WDX = 3580, WDR = 4720;
+const woFill = (r, e) => {
+  const j = e.job;
+  put(r.pill, `WO ${j.wo}`); css(r.pill, "background", `var(--${PRI[j.pri]})`);
+  put(r.tx, `${j.fault}  ·  ${j.b.full}`); put(r.sub, `Priority ${j.pri}  ·  ${j.b.loc}`); put(r.st, e.status); put(r.est, `${j.est} min`);
+};
+if (UW) {
+  header(WDX, 280, WDR - WDX, "Work Order Log", "orange", "peach");
+  for (let i = 0; i < 6; i++) {                              // on the teams' rows
+    const e = L.layer({ x: WDX, y: TT, w: WDR - WDX, h: 84 }), tx = TPW + L.GAP;
+    woRows.push({ e, slot: i, y: i * TP, op: 0,
+      pill: L.box({ x: 0, y: 0, w: TPW, h: 84, c: "orange", label: "", fs: 32, r: "l" }, e),
+      tx: L.text({ x: tx, base: 38, s: 40, c: "white", txt: "" }, e),
+      sub: L.text({ x: tx, base: 80, s: 36, c: "peach", txt: "" }, e),
+      st: L.text({ x: L.W, base: 38, s: 40, c: "tan", txt: "", align: "r" }, e),    // flush with the row's right edge
+      est: L.text({ x: L.W, base: 80, s: 36, c: "white", txt: "", align: "r" }, e) });
+    L.move(e, 0, i * TP); e.style.opacity = 0;
+  }
+  small(WDX, 1620, WDR - WDX, "Integrity by Section", "butter", "orange");
+  const IBX = WDX + 300, IBR = WDR - 180;
+  [["Section", WDX, "l"], ["Mean System Integrity", IBX, "l"], ["Mean", WDR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: 1734, s: 36, c: "sky", txt, align }));
+  SECTIONS.forEach((name, i) => {
+    const base = 1788 + i * 54;
+    L.text({ x: WDX, base, s: 36, c: "peach", txt: name });
+    L.rect({ x: IBX, y: base - 22, w: IBR - IBX, h: 22, c: TRACK });
+    secRows.push({ bar: fill(IBX, base - 22, IBR - IBX, 22, i % 2 ? "orange" : "butter"),
+      val: L.text({ x: WDR, base, s: 36, c: "white", txt: "", align: "r" }), u: -1 });
+  });
+  L.tick(() => {                                             // each section: the mean of its systems' gauges
+    const sum = [0, 0, 0, 0, 0], n = [0, 0, 0, 0, 0];
+    for (const b of blocks) { sum[b.sec] += b.v; n[b.sec]++; }
+    secRows.forEach((r, i) => {
+      const u = sum[i] / n[i];
+      if (Math.abs(u - r.u) > 0.0004) { r.u = u; r.bar.style.transform = `scaleX(${u.toFixed(4)})`; }
+    });
+  });
+  L.every(500, () => secRows.forEach((r) => put(r.val, (100 * r.u).toFixed(1) + "%")), 0);
+  L.tick((t) => {                                            // the log's one step at a time
+    if (!woAnim) {
+      if (!woLive || !woPend.length) return;
+      woAnim = { ph: 0, t0: t, top: woRows.find((r) => r.slot === 0) };
+    }
+    const a = woAnim, u = t - a.t0;
+    if (a.ph === 0) {                                        // the oldest fades
+      const k = L.clamp(u / 0.5); a.top.e.style.opacity = (1 - L.ease(k)).toFixed(3);
+      if (k >= 1) { a.ph = 1; a.t0 = t; }
+    } else if (a.ph === 1) {                                 // the rest slide up a row
+      const k = L.ease(L.clamp(u / 0.9));
+      woRows.forEach((r) => { if (r !== a.top) { r.y = (r.slot - k) * TP; L.move(r.e, 0, r.y); } });
+      if (k >= 1) {
+        woRows.forEach((r) => { if (r !== a.top) r.slot--; });
+        a.top.slot = 5; a.top.y = 5 * TP; L.move(a.top.e, 0, a.top.y); woFill(a.top, woPend.shift());
+        a.ph = 2; a.t0 = t;
+      }
+    } else {                                                 // and the new entry fades in at the foot
+      const k = L.clamp(u / 0.7); a.top.e.style.opacity = L.ease(k).toFixed(3);
+      if (k >= 1) woAnim = null;
+    }
+  });
+}
+function woEvent(job, status) {
+  if (woLive) return void woPend.push({ job, status });
+  woLog.push({ job, status }); if (woLog.length > 6) woLog.shift();
+}
+const woStart = () => {                                      // the log as the screen opens
+  woLog.forEach((e, i) => { woFill(woRows[i], e); woRows[i].e.style.opacity = 1; });
+  woLive = true;
+};
 
 const showStatus = () => {
   const busy = teams.filter((tm) => tm.state === "work").length, nom = blocks.filter((b) => b.state === "nom").length;
@@ -398,13 +526,15 @@ const showStatus = () => {
   const bad = [];
   const fits = (txt, s, w, where) => { if (L.textWidth(txt, s) > w) bad.push(`${where}: "${txt}" ${Math.round(L.textWidth(txt, s))}>${Math.round(w)}`); };
   for (const b of blocks) {
-    fits(b.full, 36, (CR - CX) - SYSX - 140, "queue system");
+    fits(b.full, 36, (QX1 - QX0) - SYSX - 140, "queue system");
     for (const f of KINDS[b.kind]) {
       fits(f, 40, SYSX - QB - L.GAP - 30, "queue fault");
-      fits(`${f}  ·  ${b.full}`, 40, CR - TTX - L.textWidth(b.loc, 40) - 40, "team task");
-      fits(`${FAULTS[f][1]}  ·  ${b.full}`, 36, AR - AX - 190 - 120, "log");
+      fits(`${f}  ·  ${b.full}`, 40, TX1 - TTX - L.textWidth(b.loc, 40) - 40, "team task");
+      fits(`${FAULTS[f][1]}  ·  ${b.full}`, 36, LX1 - LX0 - LTX - 120, "log");
+      if (UW) fits(`${f}  ·  ${b.full}`, 40, WDR - WDX - TPW - L.GAP - L.textWidth("DC 6 completed", 40) - 40, "work order");
     }
   }
+  if (L.shape !== "wide") for (const p of PARTS) fits(p.name, 36, PBX - PX0 - 40, "part");
   if (bad.length) setTimeout(() => { throw new Error("damage-control: " + bad.join(" | ")); });
 }
 
@@ -423,6 +553,7 @@ blocks.forEach((b) => (b.v = b.state === "rep" ? b.job.integ + (1 - b.job.integ)
   .forEach(([txt, n]) => logLine(txt, `DC ${n}`));
 sif.forEach((s, i) => { s.goal = 100 + (openStructural(i) ? 5.5 : 0) + L.rand(-0.4, 0.4); s.v = s.goal; });
 showQueue(); showParts(); showStatus();
+if (UW) woStart();
 
 // ---------------- the clock ----------------
 let tPrev = null;

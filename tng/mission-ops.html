@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Mission Operations</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* text that is swapped fades out and back in; .boot (the start-up cascade) always wins */
@@ -20,7 +21,10 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: sidebar left, title top right ----------------
+const UP = L.shape === "upright", ULTRA = L.shape === "ultrawide";
 const BAR = 64;
+let B = null;                                            // the kit frame's content box (upright, ultrawide)
+if (L.shape === "wide") {
 L.title({ x: 3700, y: 40, h: BAR, c: "orange", txt: "Mission Operations  •  Away Team" });
 // (L.title measures with a canvas, which sets this line ~11px wider than the page draws it; use the page's own width)
 const titleLeft = 3700 - document.querySelector("[data-title]").offsetWidth;
@@ -36,6 +40,9 @@ L.text({ x: 258, base: 1712, s: 40, c: "#000", txt: "Away", align: "r", on: true
 [[1540 + L.GAP, 600, "tan"], [2164 + L.GAP, 900, "sunset"], [3088 + L.GAP, 3700 - (3088 + L.GAP), "orange"]]
   .forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
 L.box({ x: 3724, y: 2056, w: 92, h: BAR, c: "tan", r: "r" });
+} else B = L.frame({ type: "A", title: "Mission Operations  •  Away Team", c: "sunset", c2: "orange", accent: "tan", foot: "Away",
+  side: [[140, "tan", "AT 02"], [70, "sky", "Orbit"], [420, "orange", "Surface"], [70, "peach", "Lock"],
+         [300, "sunset", "Team"], [70, "sky", "Comms"], [216, "tan", "Tricorder"]] });
 
 const header = (x, y, w, label, c1, c2, h = 56, fs = 32) => {
   const lw = Math.round((L.textWidth(label, fs) + 64) / 10) * 10;
@@ -60,7 +67,26 @@ let started = false;
 const unboot = (root) => { if (started) { root.classList.remove("boot"); root.querySelectorAll(".boot").forEach((e) => e.classList.remove("boot")); } return root; };
 
 // Columns: the map 330–1970; the right column 2030–3816, split 2030–2840 and 2900–3816 below the roster.
-const MX = 330, MY = 360, MW = 1640, MH = 1184, RX = 2030, RR = 3816, OX = 2030, OR = 2840, HX = 2900, HR = 3816;
+// ---- the other shapes: only positions and sizes differ; the data and motion below are written once ----
+// upright (2160 × 3120): the roster across the top at full width (330–2136); then two 873 columns
+//   (330–1203 | 1263–2136): the map (873 × 991, a 4 × 5 grid of the wide cell size) beside objectives over
+//   hazards (76 apart; the hazards' last row on the map's foot); then comms | transporter room, and
+//   tricorder | mission status, the last line on 2964.
+// ultrawide (5040 × 2160): the wide layout where it is, and a third column 3876–5016 on the same rows:
+//   the mission's phases on the roster's lines, the storm's forecast on the objectives' rows, ship
+//   support on the logs' lines; the next phase on the status row above it.
+// upright: two equal columns in the content box; the last line 6 above its floor, as wide's 2004
+const UC = UP ? (B.x1 - B.x0 - 60) / 2 : 0, UC1 = UP ? B.x0 + UC : 0, UB = UP ? B.y1 - 6 : 0;   // 873, 1203, 2964
+const G = UP ? {
+  MX: B.x0, MY: 1072, MW: UC, MH: 991, MHY: 992, RX: B.x0, RR: B.x1, OX: UC1 + 60, OR: B.x1, HX: UC1 + 60, HR: B.x1,
+  OHY: 992, HHY: 1558, OT0: 1140, HT0: 1706, OP: 76, GRIDC: 4, GRIDR: 5,
+  CX: B.x0, CR: UC1, CY: UB - 832, TX: UC1 + 60, TR: B.x1, KX: B.x0, KR: UC1, KY: UB - 384, SX: UC1 + 60, SR: B.x1, SY: UB - 384, PILL: B.x1 - 400,
+} : {
+  MX: 330, MY: 360, MW: 1640, MH: 1184, MHY: 280, RX: 2030, RR: 3816, OX: 2030, OR: 2840, HX: 2900, HR: 3816,
+  OHY: 1000, HHY: 1000, OT0: 1148, HT0: 1148, OP: 84, GRIDC: 8, GRIDR: 6,
+  CX: 330, CR: 1310, CY: 1620, TX: 1370, TR: 330 + 1640, KX: 2030, KR: 2840, KY: 1620, SX: 2900, SR: 3816, SY: 1620, PILL: ULTRA ? B.x1 - 400 : 3416,
+};
+const { MX, MY, MW, MH, RX, RR, OX, OR, HX, HR } = G;
 const SCALE = 6;                                         // one second on screen is six on the surface
 const SLOT_C = ["sunset", "butter", "sky", "peach", "ice"];   // each team member's colour, on the roster and the map
 
@@ -83,13 +109,13 @@ const MISSIONS = [
     team: [["Lt. Worf", "Worf", "Team Leader", 78], ["Counselor D. Troi", "Troi", "Contact", 66],
            ["Lt. Cmdr. Data", "Data", "Science", 0], ["Lt. K. Brandt", "Brandt", "Archaeology", 70], ["Ens. A. Varga", "Varga", "Security", 73]] },
 ];
-const GRIDC = 8, GRIDR = 6, CW = MW / GRIDC, CH = MH / GRIDR;
-const grid = (x, y) => `${"ABCDEFGH"[L.clamp(Math.floor(x / CW), 0, 7)]}-${L.clamp(Math.floor(y / CH), 0, 5) + 1}`;
+const GRIDC = G.GRIDC, GRIDR = G.GRIDR, CW = MW / GRIDC, CH = MH / GRIDR;
+const grid = (x, y) => `${"ABCDEFGH"[L.clamp(Math.floor(x / CW), 0, GRIDC - 1)]}-${L.clamp(Math.floor(y / CH), 0, GRIDR - 1) + 1}`;
 
 // ---------------- status line ----------------
 const stateTxt = L.text({ x: 330, cap: 150, s: 100, c: "peach", txt: "" });
 const stateSub = L.text({ x: 330, base: 222, s: 38, c: "sky", txt: "" });
-const pill = L.box({ x: 3416, y: 150, w: 400, h: 72, c: "sky", label: "", r: "lr", fs: 36, cls: "pill" });
+const pill = L.box({ x: G.PILL, y: 150, w: 400, h: 72, c: "sky", label: "", r: "lr", fs: 36, cls: "pill" });
 pill.style.willChange = "opacity";
 L.tick((t) => { pill.style.opacity = (0.82 + 0.18 * Math.sin(t * 1.1)).toFixed(3); });
 const setState = (word, c) => {
@@ -99,13 +125,13 @@ const setState = (word, c) => {
 };
 
 // ---------------- the surface map ----------------
-header(MX, 280, MW, "Surface Tactical  ·  Grid A1 – H6", "orange", "tan");
+header(MX, G.MHY, MW, `Surface Tactical  ·  Grid A1 – ${"ABCDEFGH"[GRIDC - 1]}${GRIDR}`, "orange", "tan");
 L.rect({ x: MX, y: MY, w: MW, h: MH, c: "#070402", panel: true });
 const mapLayer = cls(L.layer({ x: MX, y: MY, w: MW, h: MH, cls: "boot" }), "slow");
 mapLayer.style.overflow = "hidden";
 const NSV = "http://www.w3.org/2000/svg";
 const clip = L.el("div", "lc", L.stage, { left: MX + "px", top: MY + "px", width: MW + "px", height: MH + "px", overflow: "hidden" });
-const storm = L.layer({ x: 0, y: 0, w: 1100, h: 1100, cls: "storm" }, clip);
+const storm = L.layer({ x: 0, y: 0, w: UP ? 700 : 1100, h: UP ? 700 : 1100, cls: "storm" }, clip);
 const scanRing = L.layer({ x: 0, y: 0, w: 320, h: 320, cls: "scan" }, clip);
 scanRing.style.opacity = 0;
 
@@ -133,19 +159,20 @@ let mapSvg = null;
 const svgEl = (tag, attrs, parent) => { const e = document.createElementNS(NSV, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); parent.appendChild(e); return e; };
 
 // terrain: a height field drawn once per mission as contour lines over a shaded relief
+const KT = UP ? 0.7 : 1;                                 // upright's smaller map: the country's features drawn smaller (exactly 1 in wide)
 const GS = 6, NX = Math.ceil(MW / GS) + 1, NY = Math.ceil(MH / GS) + 1;
 function buildTerrain(M, rnd, S) {
   const hills = [];
-  for (let k = 0; k < 11; k++) hills.push([rnd() * MW, rnd() * MH, 110 + rnd() * 240, 0.25 + rnd() * 0.65]);
-  hills.push([S.ruins.x + 40, S.ruins.y - 30, 170, 0.85]);                 // the ruins stand on a rise
-  hills.push([S.colony.x, S.colony.y, 260, -0.25]);                        // the settlement in a shallow valley
+  for (let k = 0; k < 11; k++) hills.push([rnd() * MW, rnd() * MH, (110 + rnd() * 240) * KT, 0.25 + rnd() * 0.65]);
+  hills.push([S.ruins.x + 40, S.ruins.y - 30, 170 * KT, 0.85]);                 // the ruins stand on a rise
+  hills.push([S.colony.x, S.colony.y, 260 * KT, -0.25]);                        // the settlement in a shallow valley
   const lake = S.lake, p1 = rnd() * 6, p2 = rnd() * 6, ang = rnd() * Math.PI;
   const ca = Math.cos(ang), sa = Math.sin(ang);
   const h = (x, y) => {
     let v = 0;
     for (const [hx, hy, r, a] of hills) { const dx = x - hx, dy = y - hy; v += a * Math.exp(-(dx * dx + dy * dy) / (2 * r * r)); }
     const u = x * ca + y * sa;
-    v += 0.22 * Math.sin(u * 0.0062 + p1) + 0.12 * Math.sin((x * sa - y * ca) * 0.011 + p2) + 0.05 * Math.sin(x * 0.023 + y * 0.017);
+    v += 0.22 * Math.sin(u * 0.0062 / KT + p1) + 0.12 * Math.sin((x * sa - y * ca) * 0.011 / KT + p2) + 0.05 * Math.sin(x * 0.023 / KT + y * 0.017 / KT);
     const dx = x - lake.x, dy = y - lake.y;
     v -= 1.25 * Math.exp(-(dx * dx / (2 * lake.rx * lake.rx) + dy * dy / (2 * lake.ry * lake.ry)));
     return v;
@@ -237,7 +264,8 @@ const along = (p, u) => { const f = L.clamp(u) * (p.length - 1), k = Math.min(p.
 
 // ---------------- the away team: roster ----------------
 header(RX, 280, RR - RX, "Away Team  ·  Status", "sunset", "orange");
-const RC = { name: 2204, loc: 2600, vit: 2900, vitT: 3004, lock: 3500, lockB: 3290, comm: RR };
+const RC = UP ? { name: RX + 174, loc: RX + 570, vit: OX, vitT: OX + 124,   /* the vitals flush on the right column's edge */ lock: RX + 1490, lockB: RX + 1260, comm: RR }
+  : { name: 2204, loc: 2600, vit: 2900, vitT: 3004, lock: 3500, lockB: 3290, comm: RR };
 [["Team Member", RC.name, "l"], ["Location", RC.loc, "l"], ["Vital Signs", RC.vit, "l"], ["Transporter Lock", RC.lock, "r"], ["Comm", RC.comm, "r"]]
   .forEach(([txt, x, align]) => L.text({ x, base: 400, s: 36, c: "sky", txt, align }));
 const RP = 104, RT0 = 428;
@@ -271,10 +299,11 @@ const roster = SLOT_C.map((c, i) => {
 });
 
 // ---------------- mission objectives ----------------
-const RTo = (i) => 1148 + i * 84, RBo = (i) => RTo(i) + 52.5;
-header(OX, 1000, OR - OX, "Mission Objectives", "orange", "peach");
-L.text({ x: OX + 124, base: 1120, s: 36, c: "sky", txt: "Objective" });
-L.text({ x: OR, base: 1120, s: 36, c: "sky", txt: "Status", align: "r" });
+const RTo = (i) => G.OT0 + i * G.OP, RBo = (i) => RTo(i) + 52.5;
+const RBh = (i) => G.HT0 + i * G.OP + 52.5;               // the hazards' rows (wide: the objectives' own)
+header(OX, G.OHY, OR - OX, "Mission Objectives", "orange", "peach");
+L.text({ x: OX + 124, base: G.OHY + 120, s: 36, c: "sky", txt: "Objective" });
+L.text({ x: OR, base: G.OHY + 120, s: 36, c: "sky", txt: "Status", align: "r" });
 const objs = OBJ.map((txt, i) => {
   const box = L.box({ x: OX, y: RTo(i), w: 84, h: 64, c: TRACK, label: String(i + 1).padStart(2, "0"), fs: 32, r: "l", cls: "pill" });
   const tx = L.text({ x: OX + 124, base: RBo(i), s: 40, c: "tan", txt });
@@ -290,52 +319,142 @@ const pgSeg = [0, 1, 2, 3].map((k) => {
 });
 
 // ---------------- environmental hazards ----------------
-header(HX, 1000, HR - HX, "Environmental Hazards", "sky", "tan");
+header(HX, G.HHY, HR - HX, "Environmental Hazards", "sky", "tan");
 const HB = { x: HX + 280, r: HR - 220 };
-[["Hazard", HX, "l"], ["Level", HB.x, "l"], ["Reading", HR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: 1120, s: 36, c: "sky", txt, align }));
+[["Hazard", HX, "l"], ["Level", HB.x, "l"], ["Reading", HR, "r"]].forEach(([txt, x, align]) => L.text({ x, base: G.HHY + 120, s: 36, c: "sky", txt, align }));
 const HAZ = ["Radiation", "Wind Speed", "Surface Temp", "Electrical Storm", "Seismic Activity"].map((name, i) => {
-  const nm = L.text({ x: HX, base: RBo(i), s: 40, c: "tan", txt: name });
-  L.rect({ x: HB.x, y: RBo(i) - 22, w: HB.r - HB.x, h: 22, c: TRACK });
-  const bar = cls(fill(HB.x, RBo(i) - 22, HB.r - HB.x, 22, "tan"), "pill");
-  const val = L.text({ x: HR, base: RBo(i), s: 40, c: "white", txt: "", align: "r" });
+  const nm = L.text({ x: HX, base: RBh(i), s: 40, c: "tan", txt: name });
+  L.rect({ x: HB.x, y: RBh(i) - 22, w: HB.r - HB.x, h: 22, c: TRACK });
+  const bar = cls(fill(HB.x, RBh(i) - 22, HB.r - HB.x, 22, "tan"), "pill");
+  const val = L.text({ x: HR, base: RBh(i), s: 40, c: "white", txt: "", align: "r" });
   return { nm, bar, val, u: 0, goal: 0, drawn: false };
 });
 
 // ---------------- communications log ----------------
-const CR = 1310, TX = 1370, TR = MX + MW;               // the bottom-left strip: the comm log, and the transporter room
-small(MX, 1620, CR - MX, "Communications  ·  Enterprise", "sunset", "tan");
+const CR = G.CR, TX = G.TX, TR = G.TR;                  // the bottom-left strip: the comm log, and the transporter room
+small(MX, G.CY, CR - MX, "Communications  ·  Enterprise", "sunset", "tan");
 const commRows = Array.from({ length: 6 }, (_, i) => {
-  const base = 1734 + i * 54;
+  const base = G.CY + 114 + i * 54;
   return { tm: L.text({ x: MX, base, s: 36, c: "sky", txt: "" }), tx: L.text({ x: MX + 140, base, s: 36, c: "white", txt: "" }),
            who: L.text({ x: CR, base, s: 36, c: "tan", txt: "", align: "r" }) };
 });
 const commLog = [];
 
 // ---------------- transporter room 3 ----------------
-small(TX, 1620, TR - TX, "Transporter Room 3", "sky", "sunset");
+small(TX, G.CY, TR - TX, "Transporter Room 3", "sky", "sunset");
 const TRV = ["Operator", "Targeting Scanners", "Pattern Buffer", "Annular Confinement", "Phase Coils", "Signal Degradation"].map((name, i) => {
-  const base = 1734 + i * 54;
+  const base = G.CY + 114 + i * 54;
   L.text({ x: TX, base, s: 36, c: "tan", txt: name });
   return L.text({ x: TR, base, s: 36, c: "white", txt: "", align: "r" });
 });
+// upright: the panel is 873 wide, not wide's 600, so each line gains a setting between its name and its state
+const TRX = UP ? TX + Math.ceil(Math.max(...["Annular Confinement", "Signal Degradation"].map((n) => L.textWidth(n, 36)))) + 64 : 0;
+const TRM = UP ? TRV.map((_, i) => L.text({ x: TRX, base: G.CY + 114 + i * 54, s: 36, c: "sky", txt: "" })) : null;
 
 // ---------------- tricorder readings ----------------
-small(OX, 1620, OR - OX, "Tricorder Readings", "peach", "orange");
+small(G.KX, G.KY, G.KR - G.KX, "Tricorder Readings", "peach", "orange");
 const triRows = Array.from({ length: 6 }, (_, i) => {
-  const base = 1734 + i * 54;
-  return { tx: L.text({ x: OX, base, s: 36, c: "peach", txt: "" }), v: L.text({ x: OR, base, s: 36, c: "white", txt: "", align: "r" }) };
+  const base = G.KY + 114 + i * 54;
+  return { tx: L.text({ x: G.KX, base, s: 36, c: "peach", txt: "" }), v: L.text({ x: G.KR, base, s: 36, c: "white", txt: "", align: "r" }) };
 });
 const triLog = [];
 
 // ---------------- mission status ----------------
-small(HX, 1620, HR - HX, "Mission Status", "tan", "sky");
-const SW = (HR - HX - 120) / 2;
+small(G.SX, G.SY, G.SR - G.SX, "Mission Status", "tan", "sky");
+const SW = (G.SR - G.SX - 120) / 2;
 const STATS = ["Elapsed", "Stardate", "Orbit", "Gravity", "Local Time", "Pattern Locks"];
 const statVals = STATS.map((name, i) => {
-  const x = HX + (i % 2) * (SW + 120), base = 1734 + Math.floor(i / 2) * 135;   // first and last rows on the logs' first and last lines
+  const x = G.SX + (i % 2) * (SW + 120), base = G.SY + 114 + Math.floor(i / 2) * 135;   // first and last rows on the logs' first and last lines
   L.text({ x, base, s: 40, c: "tan", txt: name });
   return L.text({ x: x + SW, base, s: 52, c: "white", txt: "", align: "r" });
 });
+
+// ---------------- ultrawide only: a third column, 3876–5016, on the wide rows ----------------
+// The mission's phases on the roster's ten lines, the storm's forecast on the objectives' rows, ship
+// support on the logs' lines, and the next phase on the status row. All from the same mission
+// (M.P, stormKm, posAt), shown by the same once-a-second show().
+const UX = ULTRA ? B.x1 - 1140 : 0, UR = ULTRA ? B.x1 : 0;
+const UWC = ULTRA ? (() => {
+  const U = {};
+  U.next = cls(L.text({ x: UX, base: 222, s: 38, c: "tan", txt: "" }), "fade");
+  // the phases
+  header(UX, 280, UR - UX, "Mission Timeline  ·  Phases", "tan", "sunset");
+  const PC = { name: UX, site: UX + 420, start: UX + 760, st: UR };
+  [["Phase", PC.name, "l"], ["Location", PC.site, "l"], ["Begins", PC.start, "r"], ["Status", PC.st, "r"]]
+    .forEach(([txt, x, align]) => L.text({ x, base: 400, s: 36, c: "sky", txt, align }));
+  U.rows = Array.from({ length: 10 }, (_, i) => {
+    const base = 428 + Math.floor(i / 2) * 104 + (i % 2 ? 80 : 38);   // the roster's two lines a member
+    return { name: cls(L.text({ x: PC.name, base, s: 36, c: "tan", txt: "" }), "fade"), site: cls(L.text({ x: PC.site, base, s: 36, c: "tan", txt: "" }), "fade"),
+             start: cls(L.text({ x: PC.start, base, s: 36, c: "white", txt: "", align: "r" }), "fade"), st: L.text({ x: PC.st, base, s: 36, c: "slate", txt: "", align: "r" }), state: "" };
+  });
+  // the storm's forecast: how near the front will be, and what it will cost the transporter lock
+  header(UX, 1000, UR - UX, "Electrical Storm  ·  Forecast", "sky", "tan");
+  const FB = { x: UX + 300, r: UR - 420, km: UR - 270 };   // the bars run up to their distances
+  [["When", UX, "l"], ["Front", FB.x, "l"], ["Distance", FB.km, "r"], ["Lock Loss", UR, "r"]]
+    .forEach(([txt, x, align]) => L.text({ x, base: 1120, s: 36, c: "sky", txt, align }));
+  U.fc = ["Now", "In 10 Minutes", "In 20 Minutes", "In 30 Minutes", "At Beam-Up"].map((txt, i) => {
+    const base = 1148 + i * 84 + 52.5;
+    const lab = L.text({ x: UX, base, s: 40, c: "tan", txt });
+    L.rect({ x: FB.x, y: base - 22, w: FB.r - FB.x, h: 22, c: TRACK });
+    return { lab, bar: cls(fill(FB.x, base - 22, FB.r - FB.x, 22, "sky"), "pill"), km: L.text({ x: FB.km, base, s: 40, c: "white", txt: "", align: "r" }),
+             loss: L.text({ x: UR, base, s: 40, c: "white", txt: "", align: "r" }), u: 0, goal: 0, drawn: false };
+  });
+  // ship support
+  small(UX, 1620, UR - UX, "Ship Support  ·  Enterprise", "orange", "tan");
+  U.sup = ["Shuttlecraft Goddard", "Medical Team", "Security Detail", "Backup Transporter", "Orbit", "Sensor Sweep"].map((txt, i) => {
+    const base = 1734 + i * 54;
+    L.text({ x: UX, base, s: 36, c: "tan", txt });
+    return { at: L.text({ x: UX + 460, base, s: 36, c: "white", txt: "" }), st: L.text({ x: UR, base, s: 36, c: "sky", txt: "", align: "r" }) };
+  });
+  return U;
+})() : null;
+const phaseName = (p) => p.kind === "down" ? "Beam Down" : p.kind === "up" ? "Beam Up" : p.kind === "aboard" ? "Team Aboard"
+  : p.kind === "work" ? OBJ[p.obj] : p.leg === 3 ? "Return to Beam-In Site" : `To ${SITE_NAME(p.to)}`;
+const phaseSite = (p) => p.kind === "aboard" ? "Enterprise" : `Grid ${grid(M.S[p.kind === "walk" ? p.to : p.at || "beam"].x, M.S[p.kind === "walk" ? p.to : p.at || "beam"].y)}`;
+const uwStatic = () => {                                   // a new mission: its phases
+  M.P.slice(1).forEach((p, i) => { const r = UWC.rows[i]; put(r.name, phaseName(p)); put(r.site, phaseSite(p)); put(r.start, hhmm(p.t0)); r.state = ""; });
+};
+const uwShow = (m, p, aboard) => {
+  // the phases: the same arithmetic as the objectives
+  M.P.slice(1).forEach((q, i) => {
+    const r = UWC.rows[i], state = m >= q.t1 ? "done" : m >= q.t0 ? "now" : "wait";
+    put(r.st, state === "done" ? "Complete" : state === "now" ? (q.kind === "walk" || q.kind === "work" ? `${Math.floor((100 * (m - q.t0)) / q.dur)}%` : "Under Way") : "Pending");
+    if (state !== r.state) {
+      r.state = state;
+      css(r.name, "color", state === "now" ? "var(--white)" : "var(--tan)");
+      css(r.st, "color", state === "done" ? "var(--tan)" : state === "now" ? "var(--butter)" : "var(--slate)");
+      css(r.site, "color", state === "wait" ? "var(--slate)" : "var(--tan)"); css(r.start, "color", state === "wait" ? "var(--slate)" : "var(--white)");   // colours, not opacity: the rows fade at the mission change
+      if (state === "wait") css(r.name, "color", "var(--slate)");
+    }
+  });
+  const nx = M.P.find((q) => q.t0 > m && q.kind !== "brief");
+  put(UWC.next, nx ? `Next  ·  ${phaseName(nx)}  ·  ${phaseSite(nx)}  ·  in ${Math.max(1, Math.ceil(((nx.t0 - m) * SCALE) / 60))} min` : "Next  ·  New mission briefing");
+  // the forecast: where the front will be (minutes on the surface; the storm stops closing at beam-up)
+  [0, 10, 20, 30, null].forEach((mins, i) => {
+    const f = UWC.fc[i], at = mins === null ? M.upT : m + (mins * 60) / SCALE;
+    if (mins && at > M.upT) {                              // past beam-up: the team is aboard, nothing to forecast
+      f.goal = 0; put(f.km, "—"); put(f.loss, "—");
+      css(f.lab, "color", "var(--slate)"); css(f.km, "color", "var(--slate)"); css(f.loss, "color", "var(--slate)");
+      return;
+    }
+    const km = M.stormKm(at), loss = 4.5 * M.stormAt(at);
+    f.goal = L.clamp(1 - km / 160, 0.02, 1); put(f.km, `${Math.round(km)} km`); put(f.loss, `${loss.toFixed(1)}%`);
+    css(f.bar, "background", km < 45 ? "var(--sunset)" : "var(--sky)"); css(f.km, "color", km < 45 ? "var(--butter)" : "var(--white)");
+    css(f.lab, "color", "var(--tan)"); css(f.loss, "color", "var(--white)");
+  });
+  // ship support
+  const sk = M.stormAt(m), beaming = p.kind === "down" || p.kind === "up", surface = !aboard && !beaming;
+  const cen = M.team.reduce((a, _, i) => { const q = posAt(i, m); return [a[0] + q.x / 5, a[1] + q.y / 5]; }, [0, 0]);
+  const orbit = 1 + Math.floor((Math.max(0, m - M.beamT) * SCALE) / (92 * 60));
+  [["Shuttlebay 2", surface && sk > 0.6 ? "Prepped for Launch" : "Ready"],
+   ["Sickbay", p.kind === "aboard" ? "Examining Team" : surface && sk > 0.5 ? "On Alert" : "Standing By"],
+   ["Deck 6", surface ? "On Call" : "Standing By"],
+   ["Transporter Room 5", surface && sk > 0.6 ? "Locked On" : beaming ? "Backup Lock" : "Standby"],
+   [`${M.D.alt} km  ·  ${M.D.planet}`, `Orbit ${orbit}`],
+   [aboard ? `Grid ${grid(M.S.beam.x, M.S.beam.y)}` : `Grid ${grid(cen[0], cen[1])}`, aboard ? "Standing By" : "Tracking  ·  5"]].forEach(([at, st], i) => {
+    put(UWC.sup[i].at, at); put(UWC.sup[i].st, st);
+  });
+};
 
 // ---------------- building a mission ----------------
 const V = 8, DELAY = 5;                                // walking pace in map pixels a second; the stagger between members
@@ -347,7 +466,7 @@ function buildMission(idx) {
   // the lake lies beyond the sample site, away from the others
   const others = ["beam", "ruins", "colony"].map((k) => S[k]), cx = others.reduce((a, p) => a + p.x, 0) / 3, cy = others.reduce((a, p) => a + p.y, 0) / 3;
   let ax = S.samples.x - cx, ay = S.samples.y - cy; const al = Math.hypot(ax, ay); ax /= al; ay /= al;
-  S.lake = { x: S.samples.x + ax * 190, y: S.samples.y + ay * 150, rx: 150 + rnd() * 40, ry: 110 + rnd() * 30 };
+  S.lake = { x: S.samples.x + ax * 190 * KT, y: S.samples.y + ay * 150 * KT, rx: (150 + rnd() * 40) * KT, ry: (110 + rnd() * 30) * KT };
   S.lake.x = L.clamp(S.lake.x, S.lake.rx + 40, MW - S.lake.rx - 40); S.lake.y = L.clamp(S.lake.y, S.lake.ry + 40, MH - S.lake.ry - 40);
   const T = buildTerrain(D, rnd, S);
   // the sample site sits on the shore: walk from the lake's centre towards the team until the ground is dry
@@ -408,10 +527,12 @@ function buildMission(idx) {
 
   // site labels (two lines, right of the site)
   mlabs = mlabs.filter((m) => { if (!m.keep) m.e.remove(); return m.keep; });
-  const labs = {};
+  const labs = {}, left = {};
   [["beam", "Beam-In Site", "ice"], ["ruins", D.ruins, "peach"], ["samples", D.samples, "butter"], ["colony", D.colony, "white"]].forEach(([k, name, c]) => {
     const p = S[k];
-    labs[k] = [mlab(p.x + 58, p.y - 6, name, c), mlab(p.x + 58, p.y + 40, `Grid ${grid(p.x, p.y)}`, "tan")];
+    if (UP && p.x + 58 + Math.ceil(L.textWidth(name, 36)) + 24 > MW - 24)        // upright's narrower map: labels on the left near its right edge
+      left[k] = true, labs[k] = [mlab(p.x - 58, p.y - 6, name, c, 36, "r"), mlab(p.x - 58, p.y + 40, `Grid ${grid(p.x, p.y)}`, "tan", 36, "r")];
+    else labs[k] = [mlab(p.x + 58, p.y - 6, name, c), mlab(p.x + 58, p.y + 40, `Grid ${grid(p.x, p.y)}`, "tan")];
   });
   put(regionLab.tx, `${D.planet}  ·  ${D.region}`);
 
@@ -419,7 +540,7 @@ function buildMission(idx) {
   const spots = {};
   for (const k of ["beam", "ruins", "samples", "colony"]) {
     const a0 = rnd() * 10;
-    spots[k] = [0, 1, 2, 3, 4].map((m) => { const a = ((150 + m * 52 + a0) * Math.PI) / 180, r = 64 + (m % 2) * 12; return [r * Math.sin(a), -r * Math.cos(a)]; });
+    spots[k] = [0, 1, 2, 3, 4].map((m) => { const a = ((150 + m * 52 + a0) * Math.PI) / 180, r = 64 + (m % 2) * 12; return [(left[k] ? -r : r) * Math.sin(a), -r * Math.cos(a)]; });   // mirrored when the label is on the left
   }
   // the phases
   const P = [];
@@ -539,7 +660,7 @@ const fire = (e, m) => {
   else { triLog.push(e); if (triLog.length > 6) triLog.shift(); }
 };
 
-const showRosterNames = () => M.team.forEach((tm, i) => { put(roster[i].name, tm.name); put(roster[i].role, tm.role); });
+const showRosterNames = () => { M.team.forEach((tm, i) => { put(roster[i].name, tm.name); put(roster[i].role, tm.role); }); if (ULTRA) uwStatic(); };
 const showStatic = () => {
   put(statVals[2], `${M.D.alt} km`); put(statVals[3], M.D.grav); 
   put(stateSub, `${M.D.planet}  ·  ${M.D.cls}  ·  Away team of five  ·  Stardate ${M.D.sd.toFixed(1)}`);
@@ -644,8 +765,11 @@ const show = (m) => {
     put(TRV[0], "Chief O'Brien"); put(TRV[1], T[0]); put(TRV[2], T[1]); put(TRV[3], T[2]);
     css(TRV[2], "color", beaming ? "var(--butter)" : "var(--white)"); css(TRV[3], "color", beaming ? "var(--butter)" : "var(--white)");
     put(TRV[4], "Nominal"); put(TRV[5], (0.002 + 0.019 * sk + L.rand(0, 0.0008)).toFixed(4) + "%");
+    if (UP) [ "Main Console", `Grid ${grid(M.S.beam.x, M.S.beam.y)}`, "Pads 1 – 5", `Field ${(99.6 - 0.9 * sk).toFixed(1)}%`, "Bank 2", `Storm ${Math.round(M.stormKm(m))} km`]
+      .forEach((txt, i) => put(TRM[i], txt));
   }
   put(statVals[5], aboard ? (p.kind === "brief" ? "Standing By" : "Released") : p.kind === "down" || p.kind === "up" ? "Energizing" : "5 of 5");
+  if (ULTRA) uwShow(m, p, aboard);
   lastPhase = p;
 };
 
@@ -657,14 +781,15 @@ const show = (m) => {
     const D = MISSIONS[i];
     D.team.forEach(([name, , role]) => { fits(name, 40, RC.loc - RC.name - 30, "roster name"); fits(role, 36, RC.loc - RC.name - 30, "roster role"); });
     [D.ruins, D.samples, D.colony, "Transporter Room 3"].forEach((n) => fits(n, 36, RC.vit - RC.loc - 30, "roster site"));
-    fits(`${D.planet}  ·  ${D.cls}  ·  Away team of five  ·  Stardate 46000.0`, 38, 3416 - 40 - (330 + L.textWidth("Locating Colonists", 100) + 40), "subtitle");
+    fits(`${D.planet}  ·  ${D.cls}  ·  Away team of five  ·  Stardate 46000.0`, 38, (ULTRA ? UX : G.PILL) - 40 - (330 + L.textWidth("Locating Colonists", 100) + 40), "subtitle");
+    if (ULTRA) fits(`Next  ·  Return to Beam-In Site  ·  Grid H-6  ·  in 99 min`, 38, G.PILL - 40 - UX, "next");
     const Mx = buildMissionText(D);
     Mx.comm.forEach((c) => fits(c, 36, CR - MX - 140 - L.textWidth("Enterprise", 36) - 40, "comm"));
   }
   if (bad.length) setTimeout(() => { throw new Error("mission-ops: " + bad.join(" | ")); });
 }
 function buildMissionText(D) {                           // the longest comm lines a mission can produce, for the guard
-  return { comm: [...D.to.map((x) => `Proceeding to ${x}  ·  grid H-6`), `Survey complete  ·  structures ${D.age} old`, "Storm front 140 km  ·  recommend beam-up",
+  return { comm: [...D.to.map((x) => `Proceeding to ${x}  ·  grid ${"ABCDEFGH"[GRIDC - 1]}-${GRIDR}`), `Survey complete  ·  structures ${D.age} old`, "Storm front 140 km  ·  recommend beam-up",
     "Away team to Enterprise  ·  five to beam up"] };
 }
 
@@ -680,6 +805,7 @@ showLogs(); showStatic(); showRosterNames(); show(m0);
 
 let tStart = 0, swapping = false;
 const roleEls = roster.flatMap((r) => [r.name, r.role]);
+if (ULTRA) roleEls.push(...UWC.rows.flatMap((r) => [r.name, r.site, r.start]));
 const nextMission = (t) => {
   mi++;
   M = buildMission(mi);
@@ -732,7 +858,8 @@ L.tick((t) => {
     if (op !== M.colOp) { M.colOp = op; M.colonists.setAttribute("opacity", op); } }
   // the storm drifts in from the north-east
   const sk = M.stormAt(m);
-  L.move(storm, MW - 260 - 420 * sk, -620 + 300 * sk);
+  if (UP) L.move(storm, MW - 165 - 270 * sk, -400 + 190 * sk);
+  else L.move(storm, MW - 260 - 420 * sk, -620 + 300 * sk);
   // the route: legs walked turn quiet
   const done = M.P.filter((q) => q.kind === "walk" && m >= q.t1).length - 1;
   if (done !== M.legDone) { M.legDone = done; M.legEls.forEach((e, j) => { e.setAttribute("opacity", j <= done ? "0.3" : "0.8"); }); }
@@ -748,7 +875,7 @@ L.tick((t) => {
     r.bars.forEach((b) => { if (Math.abs(b.goal - b.v) > 0.001 || !b.drawn) { b.v += (b.goal - b.v) * 0.06; b.drawn = true; b.e.style.transform = `scaleY(${b.v.toFixed(4)})`; } });
     if (Math.abs(r.lgoal - r.lu) > 0.0005 || !r.ldrawn) { r.lu += (r.lgoal - r.lu) * 0.06; r.ldrawn = true; r.lockBar.style.transform = `scaleX(${r.lu.toFixed(4)})`; }
   });
-  for (const s of [...pgSeg, ...HAZ]) {
+  for (const s of ULTRA ? [...pgSeg, ...HAZ, ...UWC.fc] : [...pgSeg, ...HAZ]) {
     if (Math.abs(s.goal - s.u) < 0.0005 && s.drawn) continue;
     s.u += (s.goal - s.u) * 0.05; s.drawn = true;
     s.e ? (s.e.style.transform = `scaleX(${s.u.toFixed(4)})`) : (s.bar.style.transform = `scaleX(${s.u.toFixed(4)})`);

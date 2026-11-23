@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Arboretum</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .sw { transition: background-color 1s ease, color 1s ease; }
@@ -13,9 +14,22 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: sidebar left, title top right ----------------
-L.frame({ type: "A", title: "Arboretum  •  Botanical Garden", c: "olive", c2: "sand", accent: "peach", foot: "Arboretum",
+const FB = L.frame({ type: "A", title: "Arboretum  •  Botanical Garden", c: "olive", c2: "sand", accent: "peach", foot: "Arboretum",
   side: [[140, "sand", "Arb 01"], [70, "peach", "Beds"], [420, "olive", "Botany"], [70, "butter", "Water"],
          [300, "sand", "Lamps"], [70, "peach", "Soil"], [216, "olive", "Catalog"]] });
+
+// ---------------- the grid, per shape ----------------
+// The garden, its readings and its motion are written once; only these positions differ by shape.
+// wide (3840 × 2160): beds 330–2050 over the catalog; light cycle over irrigation 2110–3816, with
+//   growth | zone environment under them.
+// upright (2160 × 3120): the beds across the full width (4 × 3, tiles 432 wide and shorter), then light
+//   cycle | irrigation in two 873 columns (330–1203 | 1263–2136), the catalog full width, and growth |
+//   zone environment, ending on the content box's floor.
+// ultrawide (5040 × 2160): the wide layout, growth lengthened to thirty days across 2110–3816, and a
+//   new column 3876–5016: climate by zone (rows level with the light cycle's), water by zone, and the
+//   zone environment.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const HL = [330, 1203], HR = [1263, 2136], ZX0 = 3876, ZX1 = FB.x1;
 
 const PANEL = "#16150a", TRACK = "#2b2915", GRID = "#3a371d", QUEUED = "#34311c", DRIP = "#283034";
 const col = (c) => (c.startsWith("#") ? c : `var(--${c})`);
@@ -102,7 +116,8 @@ const BEDS = [
   const target = Math.round(mean * (1.02 + r() * 0.08) * 10) / 10;
   const ph = r() * 6;
   const days = Array.from({ length: 15 }, (_, d) => mean * (1 + 0.1 * Math.sin(d * 0.8 + ph) + 0.08 * (r() - 0.5)));
-  return { b, Z, species, target, days, today: days[14], vol: Z.vol };
+  const hist = UW ? Array.from({ length: 15 }, (_, d) => mean * (1 + 0.1 * Math.sin((d - 15) * 0.8 + ph) + 0.08 * (r() - 0.5))).concat(days) : days;
+  return { b, Z, species, target, days, hist, today: days[14], vol: Z.vol };
 });
 const STAGE_C = { Flowering: "peach", Fruiting: "butter", Budding: "pink", Vegetative: "olive", Mature: "sand", Dormant: "tan", Seedling: "gold" };
 const BLOOM = ["peach", "pink", "lilac", "butter"];
@@ -138,14 +153,23 @@ const lampAt = (Z, h) => {
 const shipHours = () => { const d = new Date(); return d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600; };
 
 // ================= status line =================
-const LX0 = 330, LX1 = 2050, RX0 = 2110, RX1 = 3816;
+const LX0 = 330, LX1 = UP ? FB.x1 : 2050, RX0 = 2110, RX1 = 3816;
+const LC0 = UP ? HL[0] : RX0, LC1 = UP ? HL[1] : RX1, LT = UP ? 1492 : 280, LP = UP ? 64 : 72;   // light cycle
+const IC0 = UP ? HR[0] : RX0, IC1 = UP ? HR[1] : RX1, IT = UP ? 1492 : 960, IP = UP ? 74 : 78;   // irrigation
+const CT = UP ? 2136 : 1620;                                // the catalog's header line
+const GX0 = UP ? HL[0] : 2110, GX1 = UP ? HL[1] : UW ? RX1 : 2960, GT = UP ? 2580 : 1620, ND = UW ? 30 : 15;   // growth
+const EX0 = UP ? HR[0] : UW ? ZX0 : 3020, EX1 = UP ? HR[1] : UW ? ZX1 : RX1, ET = UP ? 2580 : 1620;           // environment
 const stateTxt = L.text({ x: LX0, cap: 150, s: 100, c: "sand", txt: "" });
-const subTxt = L.text({ x: RX0, base: 222, s: 38, c: "olive", txt: "" });
-const pill = L.box({ x: RX1 - 400, y: 150, w: 400, h: 72, c: "sand", label: "", r: "lr", fs: 36, cls: "sw" });
+const subTxt = UP ? L.text({ x: FB.x1 - 440, base: 222, s: 38, c: "olive", txt: "", align: "r" })
+  : L.text({ x: RX0, base: 222, s: 38, c: "olive", txt: "" });
+const pill = L.box({ x: FB.x1 - 400, y: 150, w: 400, h: 72, c: "sand", label: "", r: "lr", fs: 36, cls: "sw" });
 
 // ================= the beds (left): twelve plots, four by three =================
 const BH = 38;                                              // a bar as tall as a value's capitals
-const TW = 412, TH = 352, TGX = 24, TGY = 32, TY0 = 440;
+const TW = UP ? 432 : 412, TH = UP ? 308 : 352, TGX = UP ? 26 : 24, TGY = 32, TY0 = 440;
+// within a tile: the planting panel's height, its two rows of discs [y, scale], the drip line, the two readings
+const T_PH = UP ? 120 : 152, T_DOTS = UP ? [[96, 0.85], [144, 0.85 * 0.78]] : [[104, 1], [160, 0.78]],
+  T_DRIP = UP ? 170 : 200, T_ROW = UP ? [244, 308] : [276, 340], SP0 = UP ? 43.2 : 41.2, SP = UP ? 86.4 : 82.4;
 L.header({ x: LX0, y: 280, w: LX1 - LX0, label: "Arboretum Beds", c1: "olive", c2: "sand" });
 L.text({ x: LX0, base: 400, s: 36, c: "sand", txt: "Twelve Beds in Six Climate Zones  ·  Soil Moisture and Growth" });
 const meanTxt = L.text({ x: LX1, base: 400, s: 36, c: "sand", txt: "", align: "r" });
@@ -154,19 +178,19 @@ BEDS.forEach((B) => {
   const tx = LX0 + (B.b % 4) * (TW + TGX), ty = TY0 + Math.floor(B.b / 4) * (TH + TGY);
   B.tx = tx; B.ty = ty;
   B.head = L.box({ x: tx, y: ty, w: TW, h: 48, c: B.Z.c, label: `Bed ${pad2(B.b + 1)}  ·  ${B.Z.name}`, fs: 28, cls: "sw" });
-  L.rect({ x: tx, y: ty + 64, w: TW, h: 152, c: PANEL });
+  L.rect({ x: tx, y: ty + 64, w: TW, h: T_PH, c: PANEL });
   // the planting: two of each species, a disc sized by its height, coloured by what it is doing
   B.species.forEach((S, i) => {
-    const cx = tx + 41.2 + i * 82.4, k = L.clamp(Math.log10(S.h) / Math.log10(420));
+    const cx = tx + SP0 + i * SP, k = L.clamp(Math.log10(S.h) / Math.log10(420));
     const c = S.stage === "Flowering" ? BLOOM[(B.b + i) % BLOOM.length] : STAGE_C[S.stage];
-    [[104, 1], [160, 0.78]].forEach(([dy, sc]) => {
+    T_DOTS.forEach(([dy, sc]) => {
       const r = (10 + 16 * k) * sc;
       L.svg("circle", { cx, cy: ty + dy, r: r.toFixed(1), fill: col(c), class: "boot" });
       L.svg("circle", { cx, cy: ty + dy, r: (r * 0.38).toFixed(1), fill: "rgba(0,0,0,0.35)", class: "boot" });
     });
   });
-  L.rect({ x: tx + 12, y: ty + 200, w: TW - 24, h: 6, c: DRIP, free: true });
-  B.rows = [["Moisture", ty + 276, "ice"], ["Growth", ty + 340, "olive"]].map(([label, base, c]) => {
+  L.rect({ x: tx + 12, y: ty + T_DRIP, w: TW - 24, h: 6, c: DRIP, free: true });
+  B.rows = [["Moisture", ty + T_ROW[0], "ice"], ["Growth", ty + T_ROW[1], "olive"]].map(([label, base, c]) => {
     L.text({ x: tx, base, s: 40, c: "sand", txt: label });
     L.rect({ x: tx + BX, y: base - BH, w: TW - BX, h: BH, c: TRACK });
     return { val: L.text({ x: tx + VR, base, s: 52, c: "white", txt: "", align: "r" }), bar: fill(tx + BX, base - BH, TW - BX, BH, c) };
@@ -182,19 +206,19 @@ const dripFlow = L.el("div", "layer", drip, { left: "0px", top: "0px", width: TW
 drip.style.opacity = "0";
 
 // ================= light cycle (top right): photoperiod by zone on a 24-hour scale =================
-const ZB = 240, LVW = Math.ceil(L.textWidth("100%", 40)), TRX = RX0 + ZB + L.GAP, TRX1 = RX1 - LVW - L.GAP, TRW = TRX1 - TRX;
-const LROW = (i) => 476 + i * 72;
+const ZB = 240, LVW = Math.ceil(L.textWidth("100%", 40)), TRX = LC0 + ZB + L.GAP, TRX1 = LC1 - LVW - L.GAP, TRW = TRX1 - TRX;
+const LROW = (i) => LT + 196 + i * LP;
 const hx = (h) => TRX + (h / 24) * TRW;
-L.header({ x: RX0, y: 280, w: RX1 - RX0, label: "Light Cycle", c1: "butter", c2: "olive" });
-L.text({ x: RX0, base: 400, s: 36, c: "sand", txt: "Photoperiod by Zone  ·  Lamp Output" });
-const timeTxt = L.text({ x: RX1, base: 400, s: 36, c: "butter", txt: "", align: "r" });
-for (let h = 0; h <= 24; h += 3)
-  L.text({ x: h === 0 ? hx(h) : h === 24 ? hx(h) : hx(h), base: 452, s: 30, c: "sand", txt: pad2(h) + "00",
+L.header({ x: LC0, y: LT, w: LC1 - LC0, label: "Light Cycle", c1: "butter", c2: "olive", lw: UP || UW ? ZB : undefined });   // new shapes: the pill as wide as the zone boxes
+L.text({ x: LC0, base: LT + 120, s: 36, c: "sand", txt: "Photoperiod by Zone  ·  Lamp Output" });
+const timeTxt = L.text({ x: LC1, base: LT + 120, s: 36, c: "butter", txt: "", align: "r" });
+for (let h = 0; h <= 24; h += UP ? 6 : 3)                 // upright's shorter track: every six hours
+  L.text({ x: h === 0 ? hx(h) : h === 24 ? hx(h) : hx(h), base: LT + 172, s: 30, c: "sand", txt: pad2(h) + "00",
            align: h === 0 ? "l" : h === 24 ? "r" : "c", w: 100, legend: true });
 const defs = L.svg("defs", {});
 const lampVals = ZONES.map((Z, i) => {
   const y = LROW(i);
-  L.box({ x: RX0, y, w: ZB, h: 56, c: Z.c, label: Z.name, fs: 32 });
+  L.box({ x: LC0, y, w: ZB, h: 56, c: Z.c, label: Z.name, fs: 32 });
   L.rect({ x: TRX, y, w: TRW, h: 56, c: TRACK });
   const cp = L.svg("clipPath", { id: "zc" + i }, defs);
   L.svg("rect", { x: TRX, y, width: TRW, height: 56 }, cp);
@@ -206,31 +230,34 @@ const lampVals = ZONES.map((Z, i) => {
     L.svg("polygon", { points: [[hx(a), y + 48], [hx(a + 1), y + 8], [hx(b - 1), y + 8], [hx(b), y + 48]].map((p) => p.join(",")).join(" "),
       fill: col(Z.c) }, g);
   }
-  return L.text({ x: RX1, base: y + 42, s: 40, c: "white", txt: "", align: "r" });
+  return L.text({ x: LC1, base: y + 42, s: 40, c: "white", txt: "", align: "r" });
 });
 const nowLine = L.layer({ x: TRX - 2, y: LROW(0) - 8, w: 4, h: LROW(5) + 56 + 8 - (LROW(0) - 8) });
 nowLine.style.background = "var(--white)";
 
 // ================= irrigation cycle (middle right) =================
-L.header({ x: RX0, y: 960, w: RX1 - RX0, label: "Irrigation Cycle", c1: "sand", c2: "olive" });
-const cycTxt = L.text({ x: RX0, base: 1080, s: 36, c: "sand", txt: "" });
-const nextTxt = L.text({ x: RX1, base: 1080, s: 36, c: "sand", txt: "", align: "r" });
+L.header({ x: IC0, y: IT, w: IC1 - IC0, label: "Irrigation Cycle", c1: "sand", c2: "olive" });
+const cycTxt = L.text({ x: IC0, base: IT + 120, s: 36, c: "sand", txt: "" });
+const nextTxt = L.text({ x: IC1, base: IT + 120, s: 36, c: "sand", txt: "", align: "r" });
 const SW = 133, SG = 10;
-const segs = BEDS.map((B) => L.box({ x: RX0 + B.b * (SW + SG), y: 1112, w: SW, h: 56, c: QUEUED, label: pad2(B.b + 1), fs: 32, cls: "sw" }));
-const IROW = [1236, 1314, 1392, 1470, 1548];
+const SPP = (IC1 - IC0 + SG) / 12;                         // upright: twelve segments spread across the column, flush
+const segX = (b) => (UP ? IC0 + Math.round(b * SPP) : RX0 + b * (SW + SG));
+const segW = (b) => (UP ? IC0 + Math.round(b * SPP + SPP - SG) - segX(b) : SW);
+const segs = BEDS.map((B) => L.box({ x: segX(B.b), y: IT + 152, w: segW(B.b), h: 56, c: QUEUED, label: pad2(B.b + 1), fs: 32, cls: "sw" }));
+const IROW = UP ? [0, 1, 2, 3, 4].map((i) => IT + 276 + i * IP) : [1236, 1314, 1392, 1470, 1548];
 const ILAB = ["Delivered", "Flow Rate", "Round", "Reservoir", "Line Pressure"];
 const ILW = widest(ILAB, 40), IVW = widest(["16.0 / 16.0 L", "48.0 L/min", "12 / 12", "1,800 L", "380 kPa"], 52);
-const IBX = RX0 + ILW + 40, IBX1 = RX1 - IVW - 40;
+const IBX = IC0 + ILW + 40, IBX1 = IC1 - IVW - 40;
 const ibars = ILAB.map((label, i) => {
-  L.text({ x: RX0, base: IROW[i], s: 40, c: "sand", txt: label });
+  L.text({ x: IC0, base: IROW[i], s: 40, c: "sand", txt: label });
   L.rect({ x: IBX, y: IROW[i] - BH, w: IBX1 - IBX, h: BH, c: TRACK });
   return { bar: fill(IBX, IROW[i] - BH, IBX1 - IBX, BH, ["ice", "olive", "sand", "ice", "tan"][i]),
-           val: L.text({ x: RX1, base: IROW[i], s: 52, c: "white", txt: "", align: "r" }) };
+           val: L.text({ x: IC1, base: IROW[i], s: 52, c: "white", txt: "", align: "r" }) };
 });
 
 // ================= species catalog (bottom left) =================
-const CX0 = LX0, CX1 = LX1, CROW = (i) => 1776 + i * 54;
-L.header({ x: CX0, y: 1620, w: CX1 - CX0, label: "Species Catalog", c1: "olive", c2: "sand", h: 48 });
+const CX0 = LX0, CX1 = LX1, CROW = UP ? (i) => CT + 156 + i * 54 : (i) => 1776 + i * 54;
+L.header({ x: CX0, y: CT, w: CX1 - CX0, label: "Species Catalog", c1: "olive", c2: "sand", h: 48 });
 const ALL = BEDS.flatMap((B) => B.species);
 const CCAP = ["Species", "Origin", "Height  cm", "Growth  mm / Day", "Stage", "Planted"];
 const CW = [widest(ALL.map((s) => s.name).concat("Bed 00 Species"), 36), widest(ALL.map((s) => s.origin), 36),
@@ -239,50 +266,86 @@ const ccols = columns(CX0, CX1, CW.map(Math.ceil));
 const CAL = ["l", "l", "r", "r", "l", "r"];
 const cxOf = (j) => (CAL[j] === "l" ? ccols[j][0] : ccols[j][1]);
 const ccap = ["", "Origin", "Height  cm", "Growth  mm / Day", "Stage", "Stardate"].map((txt, j) =>
-  L.text({ x: cxOf(j), base: 1716, s: 36, c: j ? "sand" : "butter", txt, align: CAL[j], cls: "fd" }));
+  L.text({ x: cxOf(j), base: CT + 96, s: 36, c: j ? "sand" : "butter", txt, align: CAL[j], cls: "fd" }));
 const crows = Array.from({ length: 5 }, (_, i) => CCAP.map((_, j) =>
   L.text({ x: cxOf(j), base: CROW(i), s: 36, c: ["white", "sand", "sand", "white", "sand", "tan"][j], txt: "", align: CAL[j], cls: "fd sw" })));
 
 // ================= growth (bottom middle): the bed's last fifteen days =================
-const GX0 = 2110, GX1 = 2960, GY0 = 1740, GY1 = 1952, GB = GY1 - 12, GH = GB - (GY0 + 12);
-L.header({ x: GX0, y: 1620, w: GX1 - GX0, label: "Growth", c1: "peach", c2: "olive", h: 48 });
-L.text({ x: GX0, base: 1716, s: 36, c: "sand", txt: "Mean Height Gain  mm / Day" });
-const gCap = L.text({ x: GX1, base: 1716, s: 36, c: "butter", txt: "", align: "r", cls: "fd" });
+const GY0 = UP ? GT + 120 : 1740, GY1 = UP ? GT + 332 : 1952, GB = GY1 - 12, GH = GB - (GY0 + 12);
+L.header({ x: GX0, y: GT, w: GX1 - GX0, label: "Growth", c1: "peach", c2: "olive", h: 48 });
+L.text({ x: GX0, base: GT + 96, s: 36, c: "sand", txt: "Mean Height Gain  mm / Day" });
+const gCap = L.text({ x: GX1, base: GT + 96, s: 36, c: "butter", txt: "", align: "r", cls: "fd" });
 L.rect({ x: GX0, y: GY0, w: GX1 - GX0, h: GY1 - GY0, c: PANEL });
-const GP = (GX1 - GX0 - 24) / 15, GBW = Math.round(GP - 16);
+const GP = (GX1 - GX0 - 24) / ND, GBW = Math.round(GP - 16);
 const gx = (d) => Math.round(GX0 + 12 + d * GP + (GP - GBW) / 2);
-const gbars = Array.from({ length: 15 }, (_, d) => fill(gx(d), GY0 + 12, GBW, GH, d === 14 ? "butter" : "olive", "50% 100%"));
+const gbars = Array.from({ length: ND }, (_, d) => fill(gx(d), GY0 + 12, GBW, GH, d === ND - 1 ? "butter" : "olive", "50% 100%"));
 L.rect({ x: GX0 + 12, y: Math.round(GB - GH / 1.4) - 1, w: GX1 - GX0 - 24, h: 3, c: "peach", free: true });   // the target
-L.text({ x: gx(0), base: 1992, s: 30, c: "sand", txt: "14 Days Ago", legend: true });
-L.text({ x: gx(7) + GBW / 2, base: 1992, s: 30, c: "sand", txt: "7 Days", align: "c", w: 200, legend: true });
-L.text({ x: gx(14) + GBW, base: 1992, s: 30, c: "sand", txt: "Today", align: "r", legend: true });
+const GL = GT + 372, GMID = UW ? 15 : 7;                  // the legend under the bars
+L.text({ x: gx(0), base: GL, s: 30, c: "sand", txt: `${ND - 1} Days Ago`, legend: true });
+L.text({ x: gx(GMID) + GBW / 2, base: GL, s: 30, c: "sand", txt: `${ND - 1 - GMID} Days`, align: "c", w: 200, legend: true });
+L.text({ x: gx(ND - 1) + GBW, base: GL, s: 30, c: "sand", txt: "Today", align: "r", legend: true });
 const gv = gbars.map(() => ({ v: 0, from: 0, to: 0 }));
 let gT0 = -9;
 
 // ================= zone environment (bottom right) =================
-const EX0 = 3020, EX1 = RX1;
-L.header({ x: EX0, y: 1620, w: EX1 - EX0, label: "Zone Environment", c1: "sand", c2: "tan", h: 48 });
+const EROW = UP ? (i) => ET + 156 + i * 54 : CROW;
+L.header({ x: EX0, y: ET, w: EX1 - EX0, label: "Zone Environment", c1: "sand", c2: "tan", h: 48 });
 const ELAB = ["Air Temperature  °C", "Relative Humidity  %", "Carbon Dioxide  ppm", "Light Level  klx", "Soil Moisture  %"];
 const ecols = columns(EX0, EX1, [widest(ELAB.concat(ZONES.map((Z) => Z.name + " Zone")), 36), L.textWidth("Now", 36), L.textWidth("Set Point", 36)].map(Math.ceil));
-const ezone = L.text({ x: EX0, base: 1716, s: 36, c: "butter", txt: "", cls: "fd" });
-L.text({ x: ecols[1][1], base: 1716, s: 36, c: "sand", txt: "Now", align: "r" });
-L.text({ x: ecols[2][1], base: 1716, s: 36, c: "sand", txt: "Set Point", align: "r" });
+const ezone = L.text({ x: EX0, base: ET + 96, s: 36, c: "butter", txt: "", cls: "fd" });
+L.text({ x: ecols[1][1], base: ET + 96, s: 36, c: "sand", txt: "Now", align: "r" });
+L.text({ x: ecols[2][1], base: ET + 96, s: 36, c: "sand", txt: "Set Point", align: "r" });
 const erows = ELAB.map((label, i) => {
-  L.text({ x: EX0, base: CROW(i), s: 36, c: "sand", txt: label });
-  return [1, 2].map((j) => L.text({ x: ecols[j][1], base: CROW(i), s: 36, c: j === 1 ? "white" : "tan", txt: "", align: "r", cls: "fd" }));
+  L.text({ x: EX0, base: EROW(i), s: 36, c: "sand", txt: label });
+  return [1, 2].map((j) => L.text({ x: ecols[j][1], base: EROW(i), s: 36, c: j === 1 ? "white" : "tan", txt: "", align: "r", cls: "fd" }));
 });
+
+// ================= ultrawide only: climate by zone and water by zone (3876–5016) =================
+// Climate: one row per zone, level with the light cycle's rows. Water: what each zone's two beds have
+// had this round, the same numbers as the irrigation readings.
+let zoneRows = null, waterRows = null, zMean = null, wTotal = null;
+if (UW) {
+  L.header({ x: ZX0, y: 280, w: ZX1 - ZX0, label: "Climate by Zone", c1: "peach", c2: "sand", lw: ZB });
+  L.text({ x: ZX0, base: 400, s: 36, c: "sand", txt: "Air, Humidity, Light and Soil  ·  Live" });
+  zMean = L.text({ x: ZX1, base: 400, s: 36, c: "butter", txt: "", align: "r" });
+  const ZC = ["Air  °C", "Humidity  %", "Light  klx", "Soil  %"], ZSW = (ZX1 - (ZX0 + ZB + L.GAP)) / ZC.length;
+  const zr = (j) => Math.round(ZX0 + ZB + L.GAP + (j + 1) * ZSW);   // each column's right edge; the last is ZX1
+  ZC.forEach((txt, j) => L.text({ x: zr(j), base: LT + 172, s: 36, c: "sand", txt, align: "r" }));
+  zoneRows = ZONES.map((Z, i) => {
+    const y = LROW(i);
+    L.box({ x: ZX0, y, w: ZB, h: 56, c: Z.c, label: Z.name, fs: 32 });
+    return ZC.map((_, j) => L.text({ x: zr(j), base: y + 42, s: 40, c: j === 3 ? "ice" : "white", txt: "", align: "r" }));
+  });
+  L.header({ x: ZX0, y: 960, w: ZX1 - ZX0, label: "Water by Zone", c1: "butter", c2: "sand" });
+  L.text({ x: ZX0, base: 1080, s: 36, c: "sand", txt: "Delivered This Round  ·  Two Beds Each" });
+  wTotal = L.text({ x: ZX1, base: 1080, s: 36, c: "ice", txt: "", align: "r" });
+  const WLW = widest(ZONES.map((Z) => Z.name), 40), WVW = widest(ZONES.map((Z) => `${(2 * Z.vol).toFixed(1)} / ${(2 * Z.vol).toFixed(1)} L`), 52);
+  // label, then the reading, then the bar to the column's edge (the irrigation readings beside them end on 3816)
+  const WVX = ZX0 + WLW + 40 + WVW, WBX = WVX + 40, WBX1 = ZX1;
+  waterRows = ZONES.map((Z, i) => {
+    const base = 1158 + i * 78;
+    L.text({ x: ZX0, base, s: 40, c: "sand", txt: Z.name });
+    L.rect({ x: WBX, y: base - BH, w: WBX1 - WBX, h: BH, c: TRACK });
+    return { Z, beds: [BEDS[2 * i], BEDS[2 * i + 1]], bar: fill(WBX, base - BH, WBX1 - WBX, BH, Z.c),
+             val: L.text({ x: WVX, base, s: 52, c: "white", txt: "", align: "r" }) };
+  });
+}
+const zoneGiven = (W, tr) => W.beds.reduce((a, B) => a + givenAt(B, tr - B.w0), 0);
 
 // ================= the clock =================
 let shownB = null, swapT = -99;
 const swapEls = [...ccap, ...crows.flat(), gCap, ezone, ...erows.flat()];
 // the zone's air and soil, for the bed on show
-const writeEnv = (A, t) => {
+const envVals = (A, t) => {
   const Z = A.Z, k = t / 37 + A.b, h = shipHours(), tr = clock(t).tr;
-  const vals = [[(Z.T + 0.3 * Math.sin(k)).toFixed(1), Z.T.toFixed(1)],
+  return [[(Z.T + 0.3 * Math.sin(k)).toFixed(1), Z.T.toFixed(1)],
                 [String(Math.round(Z.RH + 1.2 * Math.sin(k * 0.7 + 1))), String(Z.RH)],
                 [String(Math.round(420 + 9 * Math.sin(k * 0.5 + 2))), "420"],
                 [(Z.klx * lampAt(Z, h)).toFixed(1), Z.klx.toFixed(1)],
                 [String(Math.round(moisture(A, tr))), String(Math.round(Z.lo + Z.gain / 2))]];
+};
+const writeEnv = (A, t) => {
+  const vals = envVals(A, t);
   vals.forEach((v, i) => { L.set(erows[i][0], v[0]); L.set(erows[i][1], v[1]); });
 };
 const writeBed = (B) => {
@@ -298,7 +361,7 @@ const writeBed = (B) => {
 };
 const selectBed = (B, t, first) => {
   shownB = B;
-  gv.forEach((g, d) => { g.from = g.v; g.to = B.days[d] / (B.target * 1.4); });
+  gv.forEach((g, d) => { g.from = g.v; g.to = B.hist[d] / (B.target * 1.4); });
   gT0 = t;
   if (first) { writeBed(B); return; }
   swapEls.forEach((e) => e.classList.add("out"));
@@ -312,7 +375,7 @@ L.tick((t) => {
   BEDS.forEach((B) => tf(B.rows[0].bar, `scaleX(${(moisture(B, tr) / 100).toFixed(4)})`));
   // the active bed: its drip line runs while water flows
   const p = tr - A.w0, f = flowAt(A, p);
-  L.move(drip, A.tx + 12, A.ty + 200);
+  L.move(drip, A.tx + 12, A.ty + T_DRIP);
   op(drip, f / Q);
   if (f > 0) tf(dripFlow, `translate3d(${(-((s * 48) % 40)).toFixed(1)}px,0,0)`);
   // near a slot's edges the delivered bar dips out, so it never jumps from full to empty in view
@@ -323,6 +386,10 @@ L.tick((t) => {
   [given / A.vol, f * 60 / 60, frac, reservoir(tr) / RES_CAP, pres / 500].forEach((v, i) => tf(ibars[i].bar, `scaleX(${L.clamp(v).toFixed(4)})`));
   op(ibars[0].bar, dip); op(ibars[0].val, dip);
   op(ibars[2].bar, rdip); op(ibars[2].val, rdip);
+  if (waterRows) waterRows.forEach((W) => {
+    tf(W.bar, `scaleX(${L.clamp(zoneGiven(W, tr) / (2 * W.Z.vol)).toFixed(4)})`);
+    op(W.bar, rdip); op(W.val, rdip);
+  });
   // growth bars ease to the bed's fifteen days
   const ge = L.ease(L.clamp((t - gT0 - 0.2) / 1.4));
   gv.forEach((g, d) => { g.v = L.mix(g.from, g.to, ge); tf(gbars[d], `scaleY(${L.clamp(g.v).toFixed(4)})`); });
@@ -363,6 +430,18 @@ L.every(250, (t) => {
   L.set(ibars[3].val, fmt(reservoir(tr)) + " L");
   L.set(ibars[4].val, Math.round(380 - (40 * f) / Q) + " kPa");
   if (shownB === A && !ezone.classList.contains("out")) writeEnv(A, t);
+  if (zoneRows) {
+    let air = 0, given = 0;
+    zoneRows.forEach((row, i) => {
+      const P = shownB && shownB.Z === ZONES[i] ? shownB : BEDS[2 * i], v = envVals(P, t);   // the bed on show agrees with the panel below
+      const soil = (moisture(BEDS[2 * i], tr) + moisture(BEDS[2 * i + 1], tr)) / 2;   // both of the zone's beds
+      [v[0][0], v[1][0], v[3][0], String(Math.round(soil))].forEach((x, j) => L.set(row[j], x));
+      air += parseFloat(v[0][0]);
+    });
+    L.set(zMean, `Mean Air ${(air / ZONES.length).toFixed(1)} °C`);
+    waterRows.forEach((W) => { const g = zoneGiven(W, tr); given += g; L.set(W.val, `${g.toFixed(1)} / ${(2 * W.Z.vol).toFixed(1)} L`); });
+    L.set(wTotal, `Round ${given.toFixed(1)} / ${USE.toFixed(1)} L`);
+  }
 }, 0);
 });
 </script></body></html>

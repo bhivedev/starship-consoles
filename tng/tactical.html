@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Tactical</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* the bright edge leads (at 0deg, turning clockwise); the afterglow trails behind it */
@@ -14,11 +15,19 @@
 "use strict";
 const L = LCARS;
 L.ready(() => {
+// Three layouts. Wide (3840×2160) is the original, hand-placed. Upright (2160×3120): the scanner
+// across the top with its readouts and the contact table beside the scope, then shields, their
+// meters and harmonics down the left, phasers, torpedoes and the log down the right. Ultrawide
+// (5040×2160): the wide columns unchanged, a fourth column (log, power distribution), and a longer
+// harmonics spectrum and a contact table with velocities along the bottom.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
 
 // ---------------- the frame, mirrored: sidebar on the right, title at top left ----------------
+const TITLE = "Tactical  •  Defensive Systems";
+let b;
+if (L.shape === "wide") {
 const BAR = 64, TS = BAR / (L.BASELINE - L.CAP_TOP);
 L.box({ x: 40, y: 40, w: 92, h: BAR, c: "orange", r: "l" });
-const TITLE = "Tactical  •  Defensive Systems";
 L.text({ x: 132 + L.GAP, cap: 40, s: TS, c: "orange", txt: TITLE });
 const afterTitle = 132 + L.GAP + L.textWidth(TITLE, TS) + L.GAP;
 L.rect({ x: afterTitle, y: 40, w: 320, h: BAR, c: "peach" });
@@ -32,30 +41,45 @@ L.text({ x: 3794, base: 1712, s: 40, c: "#000", txt: "Tactical", align: "r", on:
 L.box({ x: 40, y: 2056, w: 92, h: BAR, c: "sunset", r: "l" });
 [[132 + L.GAP, 700, "peach"], [132 + L.GAP + 700 + L.GAP, 900, "orange"]].forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
 L.rect({ x: 132 + 3 * L.GAP + 1600, y: 2056, w: 2600 - L.GAP - (132 + 3 * L.GAP + 1600), h: BAR, c: "sunset" });
+b = { x0: 40, x1: 3520, y0: 140, y1: 2010 };
+} else {
+  // the same frame, drawn by the kit for this shape: type B, the same colours and sidebar labels
+  b = L.frame({ type: "B", title: TITLE, c: "orange", c2: "sunset", accent: "peach", foot: "Tactical",
+    side: [[140, "peach", "Tac 01"], [70, "sunset", "Drill"], [420, "orange", "Shields"], [70, "butter", "7-Alpha"],
+           [300, "peach", "Weapons"], [70, "mars", "Lock"], [216, "orange", "Sensors"]] });
+}
 
 // ---------------- status line ----------------
 L.text({ x: 40, cap: 150, s: 100, c: "ice", txt: "Condition Green" });
 L.text({ x: 1120, base: 222, s: 38, c: "peach", txt: "Tactical drill 7-Alpha  ·  Simulated contacts", align: "r" });
-const drill = L.box({ x: 3120, y: 150, w: 400, h: 72, c: "peach", label: "Drill In Progress", r: "lr", fs: 36 });
+const drill = L.box({ x: b.x1 - 400, y: 150, w: 400, h: 72, c: "peach", label: "Drill In Progress", r: "lr", fs: 36 });
 drill.style.willChange = "opacity";
 L.tick((t) => { drill.style.opacity = (0.75 + 0.25 * Math.sin(t * 2.2)).toFixed(3); });
 
-const header = (x, w, label, lw, c1, c2) => {
-  L.box({ x, y: 280, w: lw, h: 56, c: c1, label, fs: 32, r: "l" });
-  L.rect({ x: x + lw + L.GAP, y: 280, w: w - lw - L.GAP, h: 56, c: c2 });
+const header = (x, w, label, lw, c1, c2, y = 280) => {
+  L.box({ x, y, w: lw, h: 56, c: c1, label, fs: 32, r: "l" });
+  L.rect({ x: x + lw + L.GAP, y, w: w - lw - L.GAP, h: 56, c: c2 });
 };
 
 // ---------------- deflector shields ----------------
-header(40, 1080, "Deflector Shields", 380, "orange", "peach");
-const SX = 560, SY = 804, SQ = 0.74;                   // centre (midway between the header and the meters);
+// upright: the left column under the scanner, the oval at three quarters size so its side labels fit
+const SHY = UP ? 1240 : 280, MX1 = UP ? 940 : 1120;   // header top; the meters' right edge
+header(40, MX1 - 40, "Deflector Shields", 380, "orange", "peach", SHY);
+const K = UP ? 0.75 : 1, OT = Math.round(404 * K * 0.74);   // oval scale; its half-height (upright)
+let SX = 560;
+const SY = UP ? 1690 : 804, SQ = 0.74;                 // centre (midway between the header and the meters);
                                                        // the ellipse is a circle squashed by SQ
+if (UP) {                                              // centre the oval and its side labels in the column
+  const wP = Math.max(L.textWidth("Port", 40), L.textWidth("100%", 52)), wS = Math.max(L.textWidth("Starboard", 40), L.textWidth("100%", 52));
+  SX = Math.round((40 + wP + 22 + 404 * K + MX1 - wS - 22 - 404 * K) / 2);
+}
 const sectors = [];
 const shieldG = L.svg("g", { transform: `translate(0,${SY}) scale(1,${SQ}) translate(0,${-SY})`, class: "boot" });
-L.svg("circle", { cx: SX, cy: SY, r: 336, fill: "none", stroke: "var(--plum)", "stroke-width": 6 }, shieldG);
+L.svg("circle", { cx: SX, cy: SY, r: 336 * K, fill: "none", stroke: "var(--plum)", "stroke-width": 6 }, shieldG);
 [[-45, "Fore"], [45, "Starboard"], [135, "Aft"], [225, "Port"]].forEach(([a, quad]) => {
   for (let k = 0; k < 3; k++) {
     const a0 = a + 2 + k * 30, a1 = a0 + 26;
-    const p = L.svg("path", { d: L.arc(SX, SY, 356, 404, a0, a1), fill: "var(--orange)" }, shieldG);
+    const p = L.svg("path", { d: L.arc(SX, SY, 356 * K, 404 * K, a0, a1), fill: "var(--orange)" }, shieldG);
     sectors.push({ p, quad, mid: (a0 + a1) / 2, flash: -9 });
   }
 });
@@ -64,20 +88,22 @@ L.svg("polygon", { points: `${SX},${SY - 92} ${SX + 54},${SY + 62} ${SX},${SY + 
 // Fore's figures end 37px above the oval (its top is SY - 404·SQ ≈ SY - 299); Aft's capitals start
 // 37px below its bottom: label cap top SY + 336, baseline +29, figures 60 lower.
 const quadText = {};
-[["Fore", SX, SY - 300 - 36, "c"], ["Aft", SX, SY + 425, "c"], ["Port", SX - 404 - 22, SY + 14, "r"], ["Starboard", SX + 404 + 22, SY + 14, "l"]]
+(UP ? [["Fore", SX, SY - OT - 36, "c"], ["Aft", SX, SY + OT + 126, "c"], ["Port", SX - 404 * K - 22, SY + 14, "r"], ["Starboard", SX + 404 * K + 22, SY + 14, "l"]]
+    : [["Fore", SX, SY - 300 - 36, "c"], ["Aft", SX, SY + 425, "c"], ["Port", SX - 404 - 22, SY + 14, "r"], ["Starboard", SX + 404 + 22, SY + 14, "l"]])
   .forEach(([q, x, base, align]) => {
     L.text({ x, base: base - 60, s: 40, c: "peach", txt: q, align, w: 300 });
     quadText[q] = L.text({ x, base, s: 52, c: "white", txt: "100%", align, w: 300 });
   });
 // six meters
 const shieldNames = ["Fore", "Aft", "Port", "Starboard", "Dorsal", "Ventral"];
+const MB = UP ? SY + OT + 126 + 70 : 1300;             // the first meter's baseline
 const meters = shieldNames.map((name, i) => {
-  const base = 1300 + i * 52;
+  const base = MB + i * 52;
   L.text({ x: 40, base, s: 40, c: "peach", txt: name });
-  L.rect({ x: 250, y: base - 26, w: 720, h: 26, c: "#2a1a10" });
-  const f = L.layer({ x: 250, y: base - 26, w: 720, h: 26 });
+  L.rect({ x: 250, y: base - 26, w: MX1 - 400, h: 26, c: "#2a1a10" });
+  const f = L.layer({ x: 250, y: base - 26, w: MX1 - 400, h: 26 });
   f.style.background = "var(--orange)"; f.style.transformOrigin = "0 0";
-  const v = L.text({ x: 1120, base, s: 40, c: "white", txt: "100%", align: "r" });
+  const v = L.text({ x: MX1, base, s: 40, c: "white", txt: "100%", align: "r" });
   return { name, f, v, s: L.rand(0.94, 1) };
 });
 const ripples = [];
@@ -89,7 +115,7 @@ L.every(5200, () => {                                    // a simulated hit on o
   if (m) m.s = Math.max(0.62, m.s - L.rand(0.06, 0.14));
   const r = L.layer({ x: 0, y: 0, w: 120, h: 120, cls: "ripple" });
   const a = (s.mid * Math.PI) / 180;
-  r.cx = SX + 380 * Math.sin(a); r.cy = SY - 380 * Math.cos(a) * SQ; r.t0 = L.t;
+  r.cx = SX + 380 * K * Math.sin(a); r.cy = SY - 380 * K * Math.cos(a) * SQ; r.t0 = L.t;
   ripples.push(r);
 }, 0.4);
 L.tick((t) => {
@@ -107,7 +133,7 @@ L.tick((t) => {
     const r = ripples[i], u = (t - r.t0) / 1.1;
     if (u >= 1) { r.remove(); ripples.splice(i, 1); continue; }
     r.style.opacity = (1 - u).toFixed(3);
-    L.move(r, r.cx - 60, r.cy - 60, 0, 0.3 + u * 1.4);
+    L.move(r, r.cx - 60, r.cy - 60, 0, (0.3 + u * 1.4) * K);
   }
 });
 L.every(400, () => {
@@ -116,11 +142,12 @@ L.every(400, () => {
 }, 0);
 
 // ---------------- targeting scanner ----------------
-header(1180, 1220, "Targeting Scanner", 380, "sky", "ice");
-const CX = 1790, CY = 830, CR = 400;
+// upright: across the top, the scope at the left, its readouts and the contact table beside it
+header(UP ? 40 : 1180, UP ? b.x1 - 40 : 1220, "Targeting Scanner", 380, "sky", "ice");
+const CX = UP ? 520 : 1790, CY = UP ? 770 : 830, CR = UP ? 340 : 400, CS = CR / 400;   // CS: plot scale
 const scope = L.svg("g", { class: "boot" });
 L.svg("circle", { cx: CX, cy: CY, r: CR, fill: "#06102a" }, scope);
-for (const r of [100, 200, 300, CR]) L.svg("circle", { cx: CX, cy: CY, r, fill: "none", stroke: "#2648e8", "stroke-width": r === CR ? 5 : 3 }, scope);
+for (const r of [0.25, 0.5, 0.75, 1].map((f) => f * CR)) L.svg("circle", { cx: CX, cy: CY, r, fill: "none", stroke: "#2648e8", "stroke-width": r === CR ? 5 : 3 }, scope);
 L.svg("rect", { x: CX - 1.5, y: CY - CR, width: 3, height: 2 * CR, fill: "#2648e8" }, scope);
 L.svg("rect", { x: CX - CR, y: CY - 1.5, width: 2 * CR, height: 3, fill: "#2648e8" }, scope);
 for (let a = 0; a < 360; a += 10) {
@@ -146,7 +173,7 @@ const lock = L.layer({ x: 0, y: 0, w: 140, h: 140, cls: "lock" });
 const lockTag = L.layer({ x: 0, y: 0, w: 160, h: 40 });
 lockTag.className += " t"; lockTag.style.fontSize = "32px"; lockTag.style.color = "var(--white)";
 let target = 0, lockFrom = [CX, CY], lockT0 = 0, lockPos = [CX, CY];
-const pos = (c, t) => { const a = ((c.a + c.w * t) * Math.PI) / 180; return [CX + c.r * Math.sin(a), CY - c.r * Math.cos(a)]; };
+const pos = (c, t) => { const a = ((c.a + c.w * t) * Math.PI) / 180; return [CX + c.r * CS * Math.sin(a), CY - c.r * CS * Math.cos(a)]; };
 L.every(7000, (t) => { lockFrom = lockPos; lockT0 = t; target = (target + 1 + L.irand(0, 2)) % contacts.length; }, 0.2);
 L.tick((t) => {
   const sa = (t * 36) % 360;
@@ -165,27 +192,30 @@ L.tick((t) => {
   L.move(lockTag, lockPos[0] + 82, lockPos[1] - 82);
   lock.style.opacity = k >= 1 ? (Math.sin(t * 8) > -0.3 ? 1 : 0.4) : 0.8;
 });
-// the locked target's readout
+// the locked target's readout: two columns of three (under the scope; upright, beside it)
+const RD = UP ? { lx: [1000, 1450], vx: [1390, 1840], b0: 440, dy: 100 } : { lx: [1180, 1780], vx: [1720, 2400], b0: 1392, dy: 84 };
 const readout = [["Target", (c) => c.id], ["Bearing", (c) => c.bearing.toFixed(1).padStart(5, "0")], ["Range", (c) => (c.r * 412).toLocaleString("en") + " km"],
   ["Class", (c) => c.type], ["Velocity", (c) => "Warp " + (0.4 + Math.abs(c.w) / 3).toFixed(1)], ["Status", (c) => c.kind]];
 const rvals = readout.map(([name], i) => {
-  const x = i < 3 ? 1180 : 1780, base = 1392 + (i % 3) * 84;
+  const x = RD.lx[i < 3 ? 0 : 1], base = RD.b0 + (i % 3) * RD.dy;
   L.text({ x, base, s: 36, c: "sky", txt: name });
-  return L.text({ x: i < 3 ? 1720 : 2400, base, s: 52, c: "white", txt: "", align: "r" });
+  return L.text({ x: RD.vx[i < 3 ? 0 : 1], base, s: 52, c: "white", txt: "", align: "r" });
 });
 L.every(250, () => { const c = contacts[target]; readout.forEach(([, f], i) => (rvals[i].textContent = f(c))); lockTag.textContent = c.id; }, 0);
 
 // ---------------- phaser arrays ----------------
-header(2460, 1060, "Phaser Arrays", 320, "sunset", "peach");
+// upright: the right column under the scanner
+const PX0 = UP ? 1000 : 2460, PX1 = UP ? b.x1 : 3520, PY = UP ? 1240 : 280;
+header(PX0, PX1 - PX0, "Phaser Arrays", 320, "sunset", "peach", PY);
 const banks = ["Saucer Dorsal Fore", "Saucer Dorsal Aft", "Saucer Ventral Fore", "Saucer Ventral Aft", "Port Flank",
                "Starboard Flank", "Stardrive Dorsal", "Stardrive Ventral", "Aft Port", "Aft Starboard"];
 const phasers = banks.map((name, i) => {
-  const base = 404 + i * 60;
-  L.text({ x: 2460, base, s: 40, c: "peach", txt: name });
-  L.rect({ x: 2800, y: base - 28, w: 540, h: 28, c: "#2a1a10" });
-  const f = L.layer({ x: 2800, y: base - 28, w: 540, h: 28 });
+  const base = PY + 124 + i * 60;
+  L.text({ x: PX0, base, s: 40, c: "peach", txt: name });
+  L.rect({ x: PX0 + 340, y: base - 28, w: PX1 - 180 - (PX0 + 340), h: 28, c: "#2a1a10" });
+  const f = L.layer({ x: PX0 + 340, y: base - 28, w: PX1 - 180 - (PX0 + 340), h: 28 });
   f.style.background = "var(--sunset)"; f.style.transformOrigin = "0 0";
-  const v = L.text({ x: 3520, base, s: 40, c: "white", txt: "Ready", align: "r" });
+  const v = L.text({ x: PX1, base, s: 40, c: "white", txt: "Ready", align: "r" });
   return { f, v, c: L.rand(0.9, 1), state: "Ready" };
 });
 let phT = null;
@@ -204,16 +234,16 @@ L.every(300, () => phasers.forEach((p) => {
 }), 0);
 
 // ---------------- photon torpedoes ----------------
-const TY = 1030;
-L.box({ x: 2460, y: TY, w: 380, h: 56, c: "orange", label: "Photon Torpedoes", fs: 32, r: "l" });
-L.rect({ x: 2460 + 380 + L.GAP, y: TY, w: 3520 - (2460 + 380 + L.GAP), h: 56, c: "peach" });
+const TY = UP ? 1990 : 1030, TX0 = PX0, TX1 = PX1, TW = (TX1 - TX0 - 20) / 2;   // TW: a tube's width
+L.box({ x: TX0, y: TY, w: 380, h: 56, c: "orange", label: "Photon Torpedoes", fs: 32, r: "l" });
+L.rect({ x: TX0 + 380 + L.GAP, y: TY, w: TX1 - (TX0 + 380 + L.GAP), h: 56, c: "peach" });
 const tubes = [["Tube 1", "Fore"], ["Tube 2", "Fore"], ["Tube 3", "Aft"], ["Tube 4", "Aft"]].map(([n, where], i) => {
-  const x = i % 2 ? 3000 : 2460, y = TY + 84 + Math.floor(i / 2) * 136;
-  L.rect({ x, y, w: 520, h: 116, c: "#2a1a10", panel: true });
+  const x = i % 2 ? TX0 + TW + 20 : TX0, y = TY + 84 + Math.floor(i / 2) * 136;
+  L.rect({ x, y, w: TW, h: 116, c: "#2a1a10", panel: true });
   L.text({ x: x + 24, base: y + 50, s: 36, c: "peach", txt: n });
   L.text({ x: x + 24, base: y + 90, s: 36, c: "orange", txt: where });
-  const st = L.text({ x: x + 496, base: y + 68, s: 44, c: "white", txt: "", align: "r" });
-  const bar = L.layer({ x, y: y + 108, w: 520, h: 8 });
+  const st = L.text({ x: x + TW - 24, base: y + 68, s: 44, c: "white", txt: "", align: "r" });
+  const bar = L.layer({ x, y: y + 108, w: TW, h: 8 });
   bar.style.background = "var(--butter)"; bar.style.transformOrigin = "0 0";
   return { st, bar, state: i === 1 ? "Loading" : "Loaded", u: i === 1 ? 0.3 : 1 };
 });
@@ -226,15 +256,15 @@ L.tick((t) => {
     tb.bar.style.transform = `scaleX(${tb.u.toFixed(4)})`;
   }
 });
-const inv = L.text({ x: 3520, base: 1560, s: 170, c: "butter", txt: "", align: "r" });
-L.text({ x: 2460, base: 1430, s: 52, c: "peach", txt: "Torpedo Inventory" });
-L.text({ x: 2460, base: 1488, s: 36, c: "orange", txt: "Of 250  ·  Magazines 1 – 4" });
+const inv = L.text({ x: TX1, base: TY + 530, s: 170, c: "butter", txt: "", align: "r" });
+L.text({ x: TX0, base: TY + 400, s: 52, c: "peach", txt: "Torpedo Inventory" });
+L.text({ x: TX0, base: TY + 458, s: 36, c: "orange", txt: "Of 250  ·  Magazines 1 – 4" });
 // four magazines, 62 or 63 torpedoes each, emptying in turn
-const MAGW = (3240 - 2460 - 3 * 16) / 4;
+const MAGW = (TX1 - 280 - TX0 - 3 * 16) / 4;
 const mags = [0, 1, 2, 3].map((i) => {
-  const x = 2460 + i * (MAGW + 16);
-  L.rect({ x, y: 1516, w: MAGW, h: 44, c: "#2a1a10" });
-  const f = L.layer({ x, y: 1516, w: MAGW, h: 44 });
+  const x = TX0 + i * (MAGW + 16);
+  L.rect({ x, y: TY + 486, w: MAGW, h: 44, c: "#2a1a10" });
+  const f = L.layer({ x, y: TY + 486, w: MAGW, h: 44 });
   f.style.background = "var(--orange)"; f.style.transformOrigin = "0 0";
   return f;
 });
@@ -247,40 +277,86 @@ L.every(300, () => {
   });
 }, 0);
 
+// ---------------- power distribution (ultrawide: the fourth column, under the log) ----------------
+// Read from the systems above, so each bar agrees with them: the shield grid is the meters' mean,
+// the phaser capacitors the arrays' charge, the launchers the tubes' loading.
+if (UW) {
+  const QX0 = 3580, QX1 = b.x1, QY = TY, mean = (a, f) => a.reduce((s, x) => s + f(x), 0) / a.length;
+  L.box({ x: QX0, y: QY, w: 400, h: 56, c: "sunset", label: "Power Distribution", fs: 32, r: "l" });
+  L.rect({ x: QX0 + 400 + L.GAP, y: QY, w: QX1 - (QX0 + 400 + L.GAP), h: 56, c: "peach" });
+  const feeds = [["Shield Grid", () => mean(meters, (m) => m.s)], ["Phaser Capacitors", () => mean(phasers, (p) => p.c)],
+    ["Torpedo Launchers", () => mean(tubes, (tb) => tb.u)], ["Sensor Array", (t) => 0.93 + 0.015 * Math.sin(t * 0.21)],
+    ["Structural Integrity", (t) => 0.97 + 0.01 * Math.sin(t * 0.13 + 1)], ["Navigational Deflector", (t) => 0.88 + 0.02 * Math.sin(t * 0.17 + 2)]];
+  const prow = feeds.map(([name, f], i) => {
+    const base = QY + 130 + i * 80;
+    L.text({ x: QX0, base, s: 40, c: "peach", txt: name });
+    L.rect({ x: QX0 + 400, y: base - 30, w: QX1 - 164 - (QX0 + 400), h: 30, c: "#2a1a10" });
+    const bar = L.layer({ x: QX0 + 400, y: base - 30, w: QX1 - 164 - (QX0 + 400), h: 30 });
+    bar.style.background = i < 3 ? "var(--orange)" : "var(--peach)"; bar.style.transformOrigin = "0 0";
+    return { f, bar, v: L.text({ x: QX1, base, s: 40, c: "white", txt: "", align: "r" }), u: 1 };
+  });
+  L.every(400, (t) => prow.forEach((p) => {               // bar and figure move together
+    p.u = L.clamp(p.f(t));
+    p.bar.style.transform = `scaleX(${p.u.toFixed(4)})`;
+    L.set(p.v, Math.round(p.u * 100) + "%");
+  }), 0);
+}
+
 // ---------------- tactical log ----------------
-L.box({ x: 40, y: 1620, w: 320, h: 48, c: "orange", label: "Tactical Log", fs: 28, r: "l" });
-L.rect({ x: 40 + 320 + L.GAP, y: 1620, w: 840 - (40 + 320 + L.GAP), h: 48, c: "peach" });
+// wide: bottom left; upright: the foot of the right column; ultrawide: the fourth column, ten lines
+const LOGN = UW ? 10 : 6;
+const LX = UP ? 1000 : UW ? 3580 : 40, LR = UP ? b.x1 : UW ? b.x1 : 840;   // left and right edges
+const LB = UP ? 2694 : UW ? 404 : 1734, LDY = UW ? 60 : 54;              // first baseline, spacing
+if (UW) header(LX, LR - LX, "Tactical Log", 320, "orange", "peach");
+else {
+  L.box({ x: LX, y: LB - 114, w: 320, h: 48, c: "orange", label: "Tactical Log", fs: 28, r: "l" });
+  L.rect({ x: LX + 320 + L.GAP, y: LB - 114, w: LR - (LX + 320 + L.GAP), h: 48, c: "peach" });
+}
 const events = ["Shield harmonics rotated", "Target lock acquired", "Phaser array recharged", "Simulated hit, starboard shields",
   "Torpedo tube 2 loaded", "Evasive pattern Delta-4 plotted", "Sensor ghost dismissed", "Shield frequency modulated",
   "Fire control handed to helm", "Drill scenario advanced", "Contact reclassified", "Weapons safed, drill only"];
-const logRows = Array.from({ length: 6 }, (_, i) => {
-  const base = 1734 + i * 54;
-  return { sd: L.text({ x: 40, base, s: 36, c: "sunset", txt: "" }), tx: L.text({ x: 230, base, s: 36, c: "peach", txt: "" }) };
+// the station that logged each event, shown where the column has room for it (not wide)
+const stations = { "Shield harmonics rotated": "Shields", "Target lock acquired": "Fire Control", "Phaser array recharged": "Phasers",
+  "Simulated hit, starboard shields": "Shields", "Torpedo tube 2 loaded": "Torpedoes", "Evasive pattern Delta-4 plotted": "Helm",
+  "Sensor ghost dismissed": "Sensors", "Shield frequency modulated": "Shields", "Fire control handed to helm": "Helm",
+  "Drill scenario advanced": "Tactical", "Contact reclassified": "Sensors", "Weapons safed, drill only": "Tactical" };
+const logRows = Array.from({ length: LOGN }, (_, i) => {
+  const base = LB + i * LDY;
+  const row = { sd: L.text({ x: LX, base, s: 36, c: "sunset", txt: "" }), tx: L.text({ x: LX + 190, base, s: 36, c: "peach", txt: "" }) };
+  if (UP) row.st = L.text({ x: LR, base, s: 36, c: "orange", txt: "", align: "r" });
+  if (UW) {                                              // the station, then the drill's entry number at the right
+    row.st = L.text({ x: LX + 670, base, s: 36, c: "orange", txt: "" });
+    row.sq = L.text({ x: LR, base, s: 36, c: "sunset", txt: "", align: "r" });
+  }
+  return row;
 });
 let sd = 47771.4, logged = [], deck = [];
 const addEvent = () => {
   if (!deck.length) deck = events.slice().sort(() => Math.random() - 0.5);
-  sd += 0.1; logged.push([sd.toFixed(1), deck.pop()]); if (logged.length > 6) logged.shift();
-  logRows.forEach((r, i) => { const e = logged[i]; r.sd.textContent = e ? e[0] : ""; r.tx.textContent = e ? e[1] : ""; });
+  sd += 0.1; logged.push([sd.toFixed(1), deck.pop()]); if (logged.length > LOGN) logged.shift();
+  logRows.forEach((r, i) => { const e = logged[i]; r.sd.textContent = e ? e[0] : ""; r.tx.textContent = e ? e[1] : ""; if (r.st) r.st.textContent = e ? stations[e[1]] : "";
+    if (r.sq) r.sq.textContent = e ? "7A-" + String(Math.round((parseFloat(e[0]) - 47771.4) * 10)).padStart(3, "0") : ""; });
 };
-for (let i = 0; i < 6; i++) addEvent();
+for (let i = 0; i < LOGN; i++) addEvent();
 L.every(5600, addEvent, 0.2);
 
 // ---------------- shield harmonics ----------------
-const HX = 880, HW = 1720 - HX, BASE = 2004;               // bars stand on the log's last baseline
-L.box({ x: HX, y: 1620, w: 360, h: 48, c: "sunset", label: "Shield Harmonics", fs: 28, r: "l" });
-L.rect({ x: HX + 360 + L.GAP, y: 1620, w: 1720 - (HX + 360 + L.GAP), h: 48, c: "peach" });
-L.text({ x: HX, base: 1734, s: 40, c: "peach", txt: "Modulation" });
-const freq = L.text({ x: 1720, base: 1734, s: 44, c: "white", txt: "", align: "r" });
-const NB = 28, BW = HW / NB, BH = 230;
+// wide: bottom centre; upright: the foot of the left column, taller; ultrawide: bottom left, twice the bands
+const HX = UP || UW ? 40 : 880, HW = (UP ? MX1 : UW ? 2400 : 1720) - HX, BASE = UP ? LB + 5 * 54 : 2004;   // bars stand on the log's last baseline
+const HY = UP ? MB + 5 * 52 + 60 : 1620, HR = HX + HW;
+L.box({ x: HX, y: HY, w: 360, h: 48, c: "sunset", label: "Shield Harmonics", fs: 28, r: "l" });
+L.rect({ x: HX + 360 + L.GAP, y: HY, w: HR - (HX + 360 + L.GAP), h: 48, c: "peach" });
+L.text({ x: HX, base: HY + 114, s: 40, c: "peach", txt: "Modulation" });
+const freq = L.text({ x: HR, base: HY + 114, s: 44, c: "white", txt: "", align: "r" });
+const NB = UW ? 56 : 28, BW = HW / NB, BH = UP ? BASE - (HY + 114) - 46 : 230;
 const hbars = Array.from({ length: NB }, (_, i) => {
   const b = L.layer({ x: HX + i * BW + 3, y: BASE - BH, w: BW - 8, h: BH });
   b.style.background = i % 4 === 3 ? "var(--peach)" : "var(--orange)"; b.style.transformOrigin = "50% 100%";
   return b;
 });
-let peaks = [0.2, 0.55, 0.8], peaksFrom = peaks.slice(), peaksTo = peaks.slice(), rotT = -99, mhz = 257.4;
+let peaks = UW ? [0.1, 0.3, 0.5, 0.7, 0.9] : [0.2, 0.55, 0.8], peaksFrom = peaks.slice(), peaksTo = peaks.slice(), rotT = -99, mhz = 257.4;
 L.every(10000, (t) => {                                    // the harmonics rotate to a new pattern
-  peaksFrom = peaks.slice(); peaksTo = [L.rand(0.05, 0.35), L.rand(0.38, 0.62), L.rand(0.65, 0.95)]; rotT = t;
+  peaksFrom = peaks.slice(); peaksTo = UW ? [0, 1, 2, 3, 4].map((k) => L.rand(k / 5 + 0.03, (k + 1) / 5 - 0.03)) : [L.rand(0.05, 0.35), L.rand(0.38, 0.62), L.rand(0.65, 0.95)]; rotT = t;
   mhz = Math.round(L.rand(180, 340) * 10) / 10;
 }, 0.2);
 L.tick((t) => {
@@ -288,22 +364,26 @@ L.tick((t) => {
   peaks = peaksFrom.map((p, j) => L.mix(p, peaksTo[j], k));
   hbars.forEach((b, i) => {
     const u = (i + 0.5) / NB;
-    let v = 0.12 + 0.03 * Math.sin(t * 2.3 + i * 0.7);
-    peaks.forEach((p, j) => (v += (0.75 - j * 0.12) * Math.exp(-Math.pow((u - p) / 0.06, 2)) * (0.9 + 0.1 * Math.sin(t * 3.1 + j))));
+    let v = 0.12 + 0.03 * Math.sin(t * 2.3 + i * (UW ? 0.35 : 0.7));
+    peaks.forEach((p, j) => (v += (0.75 - (j % 3) * 0.12) * Math.exp(-Math.pow((u - p) / 0.06, 2)) * (0.9 + 0.1 * Math.sin(t * 3.1 + j))));
     b.style.transform = `scaleY(${L.clamp(v, 0.04, 1).toFixed(4)})`;
   });
 });
 L.every(500, () => (freq.textContent = mhz.toFixed(1) + " MHz"), 0);
 
 // ---------------- sensor contacts ----------------
-L.box({ x: 1780, y: 1620, w: 360, h: 48, c: "sky", label: "Sensor Contacts", fs: 28, r: "l" });
-L.rect({ x: 1780 + 360 + L.GAP, y: 1620, w: 3520 - (1780 + 360 + L.GAP), h: 48, c: "ice" });
-const colsX = [1780, 1960, 2400, 2780, 3200];
-["ID", "Classification", "Bearing", "Range", "Status"].forEach((h, i) => L.text({ x: colsX[i], base: 1730, s: 36, c: "sky", txt: h }));
+// wide: bottom right; upright: under the target readout, beside the scope; ultrawide: bottom right, with velocities
+const CTX = UP ? 1000 : UW ? 2460 : 1780, CTR = UP || UW ? b.x1 : 3520, CTY = UP ? 720 : 1620, CDY = UP ? 60 : 54;
+L.box({ x: CTX, y: CTY, w: 360, h: 48, c: "sky", label: "Sensor Contacts", fs: 28, r: "l" });
+L.rect({ x: CTX + 360 + L.GAP, y: CTY, w: CTR - (CTX + 360 + L.GAP), h: 48, c: "ice" });
+const colsX = UP ? [1000, 1130, 1400, 1570, 1840] : UW ? [2460, 2680, 3160, 3600, 4080, 4720] : [1780, 1960, 2400, 2780, 3200];
+(UW ? ["ID", "Classification", "Bearing", "Range", "Velocity", "Status"] : ["ID", "Classification", "Bearing", "Range", "Status"])
+  .forEach((h, i, a) => L.text({ x: colsX[i], base: CTY + 110, s: 36, c: "sky", txt: h, ...((UP || UW) && i === a.length - 1 ? { align: "r" } : {}) }));
 const crow = contacts.map((c, i) => {
-  const base = 1790 + i * 54, color = c.cls === "hostile" ? "mars" : c.cls === "friend" ? "ice" : "butter";
-  return [c.id, c.type, "", "", c.kind].map((v, j) => L.text({ x: colsX[j], base, s: 36, c: j === 0 || j === 4 ? color : "white", txt: v }));
-});
+  const base = CTY + 170 + i * CDY, color = c.cls === "hostile" ? "mars" : c.cls === "friend" ? "ice" : "butter";
+  const vals = [c.id, c.type, "", "", ...(UW ? ["Warp " + (0.4 + Math.abs(c.w) / 3).toFixed(1)] : []), c.kind];
+  return vals.map((v, j) => L.text({ x: colsX[j], base, s: 36, c: j === 0 || j === vals.length - 1 ? color : "white", txt: v, ...((UP || UW) && j === vals.length - 1 ? { align: "r" } : {}) }));
+});   // upright, ultrawide: the status column sits flush with the column's right edge
 L.every(500, () => contacts.forEach((c, i) => {
   crow[i][2].textContent = c.bearing.toFixed(1).padStart(5, "0") + "°";
   crow[i][3].textContent = (c.r * 412).toLocaleString("en") + " km";

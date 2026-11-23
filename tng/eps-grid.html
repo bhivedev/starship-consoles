@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>EPS Grid</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .flow { position: absolute; overflow: hidden; }
@@ -16,11 +17,21 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: wide, no sidebars — the network is the screen ----------------
-L.frame({ type: "D", title: "EPS Grid  •  Power Distribution", c: "orange", c2: "butter", accent: "peach" });
+const B = L.frame({ type: "D", title: "EPS Grid  •  Power Distribution", c: "orange", c2: "butter", accent: "peach" });
 
+// ---------------- the grid, per shape ----------------
+// The network, readings and motion below are written once; only positions and sizes differ.
+// wide (3840 × 2160): the diagram (40–2780) with the tap table beside it on the same twelve rows
+//   (2844–3816), and a strip of four panels below.
+// upright (2160 × 3120): the diagram at full width, its columns drawn closer and its rows on an 88
+//   grid; under it the tap table in two halves of six (40–1056 | 1120–2136), then the four strip
+//   panels two over two on the same halves.
+// ultrawide (5040 × 2160): the wide layout as it is, and a new 1136 column (3880–5016): four trunk
+//   flow charts, one beside each trunk's three tap rows, over a reroute history in the strip.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
 const G = L.GAP;
-const DX = 40, DR = 2780, RX = 2844, RR = 3816;          // diagram, and the table beside it, 64 apart
-const ROW0 = 428, PITCH = 92, BH = 72;                   // twelve rows of 72 on a 92 grid
+const DX = 40, DR = UP ? B.x1 : 2780, RX = 2844, RR = 3816;   // diagram, and the table beside it, 64 apart
+const ROW0 = 428, PITCH = UP ? 88 : 92, BH = UP ? 68 : 72;    // twelve rows of 72 on a 92 grid (upright 68 on 88)
 const rowY = (i) => ROW0 + i * PITCH, rowC = (i) => rowY(i) + BH / 2;
 const rowBase = (i) => rowY(i) + BH - 6 - (1 - L.BASELINE) * 32;   // a 32px button label's baseline
 const TRACK = "#3a2a0e", DEAD = "#24190a", RED = "#5a1a10";
@@ -30,7 +41,9 @@ const later = (ms, f, jitter) => L.every(ms, (t) => { if (t > 1) f(t); }, jitter
 // ---------------- the network ----------------
 // four trunks fed from the plasma manifold; each runs through a relay (J1), a cross-tie valve (X)
 // and a distribution node (J2), which splits it three ways to the EPS taps and their subsystems
-const MX = 560, J1 = 1000, XV = 1440, J2 = 1880, TX = 2236, BX = 2380, BW = DR - BX;
+const MX = UP ? 460 : 560, J1 = UP ? 880 : 1000, XV = UP ? 1060 : 1440, J2 = UP ? 1310 : 1880,
+      TX = UP ? 1416 : 2236, BX = UP ? 1520 : 2380, BW = DR - BX;
+const SRCW = UP ? 300 : 360;                             // the source boxes' width
 const TRUNKS = [
   { id: "A", name: "Saucer Primary", c: "butter" },
   { id: "B", name: "Saucer Secondary", c: "orange" },
@@ -77,7 +90,7 @@ const SRC = [
   { name: "Warp Core", y: rowY(3), h: rowY(8) + BH - rowY(3), out: (TRUNKS[1].y + TRUNKS[2].y) / 2, c: "orange", rated: 4800 },
   { name: "Stardrive Impulse", y: rowY(9), h: rowY(11) + BH - rowY(9), out: rowC(10), c: "peach", rated: 900 },
 ];
-SRC.forEach((s) => (s.box = L.box({ x: DX, y: s.y, w: 360, h: s.h, c: s.c, label: s.name, fs: 32 })));
+SRC.forEach((s) => (s.box = L.box({ x: DX, y: s.y, w: SRCW, h: s.h, c: s.c, label: s.name, fs: 32 })));
 
 // cross-ties between neighbouring trunks, at the X valves (drawn first: beneath the trunks)
 const ties = [0, 1, 2].map((k) => ({ a: k, b: k + 1,
@@ -103,7 +116,7 @@ const man = {
   // when a saucer or stardrive trunk is isolated, its impulse reactor feeds back along the manifold
   up2r: seg(MX, TRUNKS[0].y, MX, TRUNKS[1].y, 26, "man"), dn2r: seg(MX, TRUNKS[3].y, MX, TRUNKS[2].y, 26, "man"),
 };
-SRC.forEach((s) => (s.feed = seg(DX + 360, s.out, MX - 13, s.out, 22, "feed")));
+SRC.forEach((s) => (s.feed = seg(DX + SRCW, s.out, MX - 13, s.out, 22, "feed")));
 
 // nodes over the joints
 const node = (x, y, w, c, cls = "node") => {
@@ -145,38 +158,58 @@ const setState = (word, sub) => {
   L.set(stateSub, sub);
 };
 const stardate0 = 47457.1 + Math.random() * 0.4;
-L.text({ x: RX, base: 222, s: 40, c: "peach", txt: "Stardate" });          // on the right column's edge
-const sdVal = L.text({ x: RX + L.textWidth("Stardate", 40) + 24, base: 222, s: 52, c: "white", txt: "" });
+const SDX = UP ? BX : UW ? RR + 64 : RX;                // upright: on the subsystems' edge; ultrawide: the new column's
+const PR = UP || UW ? B.x1 : RR, PW = UP ? 340 : 400;    // the pill: right edge, width
+L.text({ x: SDX, base: 222, s: 40, c: "peach", txt: "Stardate" });          // on the right column's edge
+const sdVal = L.text({ x: SDX + L.textWidth("Stardate", 40) + 24, base: 222, s: 52, c: "white", txt: "" });
 const stardate = (t = L.t) => stardate0 + t / 3600 / 8.766;
-const pill = L.box({ x: RR - 400, y: 150, w: 400, h: 72, c: "butter", label: "Load Balanced", r: "lr", fs: 36, cls: "sw" });
+const pill = L.box({ x: PR - PW, y: 150, w: PW, h: 72, c: "butter", label: "Load Balanced", r: "lr", fs: 36, cls: "sw" });
 
 // ---------------- headers ----------------
 L.header({ x: DX, y: 280, w: DR - DX, label: "Primary EPS Network  ·  Deck-Spanning Conduits", c1: "orange", c2: "butter" });
 [["Sources", DX, "l"], ["Plasma Manifold", MX - 22, "l"], ["EPS Taps", TX - 18, "l"], ["Subsystems", BX, "l"]]
   .forEach(([txt, x, align]) => L.text({ x, base: 400, s: 36, c: "peach", txt, align }));
-L.header({ x: RX, y: 280, w: RR - RX, label: "Tap Load", c1: "butter", c2: "orange" });
-const TB = { bar: RX, barW: 340, pct: 3330, mw: 3580 };
-[["Load", TB.bar, "l"], ["Draw", TB.pct, "r"], ["Power", TB.mw, "r"], ["Status", RR, "r"]]
-  .forEach(([txt, x, align]) => L.text({ x, base: 400, s: 36, c: "peach", txt, align }));
-TAPS.forEach((tp) => {
-  const base = rowBase(tp.i);
-  L.rect({ x: TB.bar, y: base - 26, w: TB.barW, h: 26, c: TRACK });
-  tp.bar = L.layer({ x: TB.bar, y: base - 26, w: TB.barW, h: 26, cls: "bar" });
+// upright: the tap table under the diagram, in two halves of six, each row named
+const HALF = [DX, 1120], HW = 1016, TY = 1540;           // halves (40–1056 | 1120–2136); header line
+const tapRow = (tp, TB, right, base, bh = 26) => {
+  L.rect({ x: TB.bar, y: base - bh, w: TB.barW, h: bh, c: TRACK });
+  tp.bar = L.layer({ x: TB.bar, y: base - bh, w: TB.barW, h: bh, cls: "bar" });
   tp.bar.style.background = `var(--${TRUNKS[tp.k].c})`;
   tp.pct = L.text({ x: TB.pct, base, s: 52, c: "white", txt: "", align: "r" });
   tp.mw = L.text({ x: TB.mw, base, s: 40, c: "butter", txt: "", align: "r" });
-  tp.st = L.text({ x: RR, base, s: 40, c: "peach", txt: "", align: "r" });
-});
+  tp.st = L.text({ x: right, base, s: 40, c: "peach", txt: "", align: "r" });
+};
+if (UP) {
+  L.header({ x: DX, y: TY, w: DR - DX, label: "Tap Load  ·  Twelve EPS Taps", c1: "butter", c2: "orange" });
+  const tb = (x0) => ({ bar: x0 + 260, barW: 300, pct: x0 + 700, mw: x0 + 840 });
+  HALF.forEach((x0) => [["Tap", x0, "l"], ["Load", tb(x0).bar, "l"], ["Draw", tb(x0).pct, "r"], ["Power", tb(x0).mw, "r"], ["Status", x0 + HW, "r"]]
+    .forEach(([txt, x, align]) => L.text({ x, base: TY + 120, s: 36, c: "peach", txt, align })));
+  TAPS.forEach((tp) => {
+    const x0 = HALF[Math.floor(tp.i / 6)], base = TY + 120 + 64 * (tp.i % 6 + 1);
+    L.text({ x: x0, base, s: 36, c: TRUNKS[tp.k].c, txt: tp.name });
+    tapRow(tp, tb(x0), x0 + HW, base, 22);           // 22: a status word between two bars is not a title
+  });
+} else {
+  L.header({ x: RX, y: 280, w: RR - RX, label: "Tap Load", c1: "butter", c2: "orange" });
+  const TB = { bar: RX, barW: 340, pct: 3330, mw: 3580 };
+  [["Load", TB.bar, "l"], ["Draw", TB.pct, "r"], ["Power", TB.mw, "r"], ["Status", RR, "r"]]
+    .forEach(([txt, x, align]) => L.text({ x, base: 400, s: 36, c: "peach", txt, align }));
+  TAPS.forEach((tp) => tapRow(tp, TB, RR, rowBase(tp.i)));
+}
 
 // ---------------- bottom strip ----------------
-const LOGX = 1244, LOGR = 2300, PCX = 2364;
-L.header({ x: DX, y: 1620, w: 1180 - DX, label: "Power Sources", c1: "orange", c2: "peach", h: 48 });
-L.header({ x: LOGX, y: 1620, w: LOGR - LOGX, label: "EPS Grid Log", c1: "butter", c2: "orange", h: 48 });
-L.header({ x: PCX, y: 1620, w: DR - PCX, label: "Plasma", c1: "orange", c2: "butter", h: 48 });
-L.header({ x: RX, y: 1620, w: RR - RX, label: "Trunk Lines", c1: "peach", c2: "butter", h: 48 });
-const bRow = (i) => 1734 + i * 54;
+// upright: two over two on the tap table's halves — sources | log, then plasma | trunk lines
+const SRCR = UP ? HALF[0] + HW : 1180, LOGX = UP ? HALF[1] : 1244, LOGR = UP ? B.x1 : 2300;
+const PCX = UP ? DX : 2364, PCR = UP ? HALF[0] + HW : DR, TLX = UP ? HALF[1] : RX, TLR = UP ? B.x1 : RR;
+const HA = UP ? 2120 : 1620, HB = UP ? 2580 : 1620;      // the two header lines (wide: one)
+L.header({ x: DX, y: HA, w: SRCR - DX, label: "Power Sources", c1: "orange", c2: "peach", h: 48 });
+L.header({ x: LOGX, y: HA, w: LOGR - LOGX, label: "EPS Grid Log", c1: "butter", c2: "orange", h: 48 });
+L.header({ x: PCX, y: HB, w: PCR - PCX, label: "Plasma", c1: "orange", c2: "butter", h: 48 });
+L.header({ x: TLX, y: HB, w: TLR - TLX, label: "Trunk Lines", c1: "peach", c2: "butter", h: 48 });
+const bRow = UP ? (i) => HA + 114 + i * 54 : (i) => 1734 + i * 54;
+const bRowB = UP ? (i) => HB + 114 + i * 54 : bRow;
 // sources: a bar of output against rating, the percentage and the megawatts
-const SB = { bar: 420, barW: 330, pct: 900, mw: 1180 };
+const SB = UP ? { bar: 380, barW: 300, pct: 800, mw: SRCR } : { bar: 420, barW: 330, pct: 900, mw: 1180 };
 const srcRows = [["Warp Core", "orange"], ["Saucer Impulse", "peach"], ["Stardrive Impulse", "peach"], ["Reserve Batteries", "butter"],
   ["Grid Demand", "butter"], ["Reserve Margin", "orange"]].map(([name, c], i) => {
   const base = bRow(i);
@@ -202,21 +235,30 @@ const log = (txt, at) => {
   });
 };
 // the plasma itself
+// upright: its panel is a full half wide, so each reading gets a bar on the sources' bar column,
+// run on toward its value at the panel's right edge (PBW: the track's length)
+const plasmaBars = [], PBW = 520;
 const plasma = [["Temperature", ""], ["Pressure", ""], ["Velocity", ""], ["Phase Sync", ""], ["Taps On Line", ""], ["Relays", ""]].map(([name], i) => {
-  L.text({ x: PCX, base: bRow(i), s: 36, c: "peach", txt: name });
-  return L.text({ x: DR, base: bRow(i), s: 36, c: "white", txt: "", align: "r" });
+  L.text({ x: PCX, base: bRowB(i), s: 36, c: "peach", txt: name });
+  if (UP) {
+    L.rect({ x: SB.bar, y: bRowB(i) - 22, w: PBW, h: 22, c: TRACK });
+    const bar = L.layer({ x: SB.bar, y: bRowB(i) - 22, w: PBW, h: 22, cls: "bar" });
+    bar.style.background = `var(--${i % 2 ? "butter" : "orange"})`;
+    plasmaBars.push(bar);
+  }
+  return L.text({ x: PCR, base: bRowB(i), s: 36, c: "white", txt: "", align: "r" });
 });
 // trunk lines
-const TL = { mw: 3330 };
+const TL = { mw: UP ? TLX + 486 : 3330 };
 const trunkRows = TRUNKS.map((tr, i) => {
-  const base = bRow(i);
-  L.text({ x: RX, base, s: 36, c: "peach", txt: `Trunk ${tr.id}` });
-  return { mw: L.text({ x: TL.mw, base, s: 36, c: "white", txt: "", align: "r" }), st: L.text({ x: RR, base, s: 36, c: "butter", txt: "", align: "r" }) };
+  const base = bRowB(i);
+  L.text({ x: TLX, base, s: 36, c: "peach", txt: `Trunk ${tr.id}` });
+  return { mw: L.text({ x: TL.mw, base, s: 36, c: "white", txt: "", align: "r" }), st: L.text({ x: TLR, base, s: 36, c: "butter", txt: "", align: "r" }) };
 });
-L.text({ x: RX, base: bRow(4), s: 36, c: "peach", txt: "Cross-Ties Open" });
-const tiesTxt = L.text({ x: RR, base: bRow(4), s: 36, c: "white", txt: "", align: "r" });
-L.text({ x: RX, base: bRow(5), s: 36, c: "peach", txt: "Reroutes This Shift" });
-const reroutesTxt = L.text({ x: RR, base: bRow(5), s: 36, c: "white", txt: "", align: "r" });
+L.text({ x: TLX, base: bRowB(4), s: 36, c: "peach", txt: "Cross-Ties Open" });
+const tiesTxt = L.text({ x: TLR, base: bRowB(4), s: 36, c: "white", txt: "", align: "r" });
+L.text({ x: TLX, base: bRowB(5), s: 36, c: "peach", txt: "Reroutes This Shift" });
+const reroutesTxt = L.text({ x: TLR, base: bRowB(5), s: 36, c: "white", txt: "", align: "r" });
 
 // ---------------- the model ----------------
 let reroutes = L.irand(3, 7);
@@ -305,21 +347,27 @@ later(11000, () => {
 
 // reroutes: a surge on one trunk isolates a conduit; its neighbour feeds the rest through the cross-tie
 const CAUSES = ["Plasma surge", "Coolant pressure drop", "Phase variance", "Microfracture detected", "Field coil drift"];
+const DECKS = ["08", "11", "14", "23", "27", "31", "36"];
+const hook = {};                                        // the ultrawide reroute history listens here
 const startReroute = (t) => {
   const k = L.irand(0, 3), n = k === 0 ? 1 : k === 3 ? 2 : k + L.pick([-1, 1]);
   ev = { k, n, t0: t, stage: 0 };
-  log(`${L.pick(CAUSES)}, conduit ${TRUNKS[k].id}-2 · Deck ${L.pick(["08", "11", "14", "23", "27", "31", "36"])}`);
+  const cause = L.pick(CAUSES), deck = L.pick(DECKS);
+  log(`${cause}, conduit ${TRUNKS[k].id}-2 · Deck ${deck}`);
+  if (hook.start) hook.start(k, n, cause, deck);
 };
 L.tick((t) => {
   if (!ev) return;
   const u = t - ev.t0, tr = TRUNKS[ev.k];
-  if (ev.stage === 0 && u > 1.6) { ev.stage = 1; tr.warn.style.opacity = 0.9; log(`Conduit ${tr.id}-2 isolated at Relay ${tr.id}1`); }
+  if (ev.stage === 0 && u > 1.6) { ev.stage = 1; tr.warn.style.opacity = 0.9; log(`Conduit ${tr.id}-2 isolated at Relay ${tr.id}1`); if (hook.iso) hook.iso(); }
   else if (ev.stage === 1 && u > 4.2) {
     ev.stage = 2; reroutes++;
     log(`Cross-tie ${TRUNKS[Math.min(ev.k, ev.n)].id}${TRUNKS[Math.max(ev.k, ev.n)].id} open · Trunk ${tr.id} fed from Trunk ${TRUNKS[ev.n].id}`);
+    if (hook.fed) hook.fed();
   } else if (ev.stage === 2 && u > 21) {
     tr.warn.style.opacity = 0;
     log(`Conduit ${tr.id}-2 restored · cross-tie closed`);
+    if (hook.end) hook.end();
     ev = null; nextEv = t + L.rand(14, 22);
   }
 });
@@ -384,6 +432,12 @@ L.every(300, (t) => {
   L.set(plasma[3], ev && ev.stage >= 1 ? "99.62%" : "99.98%");
   L.set(plasma[4], `${TAPS.filter((tp) => tp.on).length} of 12`);
   L.set(plasma[5], ev && ev.stage >= 1 ? "3 of 4" : "4 of 4");
+  if (plasmaBars.length) {                              // each against its conduit rating
+    const on = TAPS.filter((tp) => tp.on).length;
+    [(18200 + 2600 * load) / 24000, (412 + 60 * load) / 600, (0.31 + 0.12 * load) / 0.6,
+     ev && ev.stage >= 1 ? 0.9962 : 0.9998, on / 12, ev && ev.stage >= 1 ? 0.75 : 1]
+      .forEach((v, i) => (plasmaBars[i].style.transform = `scaleX(${L.clamp(v).toFixed(3)})`));
+  }
   // status
   if (ev && ev.stage >= 1) setState(`Rerouting Trunk ${TRUNKS[ev.k].id}`, `Conduit ${TRUNKS[ev.k].id}-2 isolated  ·  ${ev.stage === 2 ? `cross-tie open to Trunk ${TRUNKS[ev.n].id}` : "opening cross-tie"}  ·  ${fmt(Math.round(f.total / 5) * 5)} MW distributed`);
   else if (ev) setState("Surge Detected", `Conduit ${TRUNKS[ev.k].id}-2  ·  isolating at Relay ${TRUNKS[ev.k].id}1`);
@@ -392,6 +446,108 @@ L.every(300, (t) => {
   L.set(pill, busy ? "Reroute Active" : "Load Balanced");
   pill.style.background = busy ? "var(--white)" : "var(--butter)";
 }, 0);
+
+// ---------------- ultrawide: the new column (3880–5016) ----------------
+if (UW) {
+  const NX = RR + 64, NR = B.x1;                        // 3880 → 5016
+  const INK = { butter: "#ffcc66", orange: "#ff9c1a" };
+  // trunk flow, one chart beside each trunk's three tap rows, over the last four minutes
+  L.header({ x: NX, y: 280, w: NR - NX, label: "Trunk Flow  ·  Last 4 Minutes", c1: "orange", c2: "butter" });
+  const CW = 840, RDX = NX + CW + 64, N = 120, STEP = CW / N, SAMPLE = 2, FMAX = 2000;
+  L.text({ x: NX, base: 400, s: 36, c: "peach", txt: "Flow  ·  0 – 2,000 MW" });
+  L.text({ x: RDX, base: 400, s: 36, c: "peach", txt: "Trunk" });
+  const charts = TRUNKS.map((tr, k) => {
+    const y = rowY(3 * k), h = rowY(3 * k + 2) + BH - y;
+    L.rect({ x: NX, y, w: CW, h, c: "#1e1508" });
+    [500, 1000, 1500].forEach((v) => L.rect({ x: NX, y: y + h - 8 - (h - 16) * (v / FMAX) - 1, w: CW, h: 2, c: TRACK, free: true }));
+    const clip = L.el("div", "boot", L.stage, { position: "absolute", left: NX + "px", top: y + "px", width: CW + "px", height: h + "px", overflow: "hidden" });
+    const c = L.canvas({ x: 0, y: 0, w: CW + STEP, h }, clip);
+    c.cv.style.willChange = "transform";
+    c.hist = null; c.col = INK[tr.c];
+    const yOf = (v) => h - 8 - (h - 16) * L.clamp(v / FMAX);
+    c.draw = () => {
+      const g = c.g;
+      g.clearRect(0, 0, c.w, c.h);
+      if (!c.hist) return;
+      g.beginPath();
+      c.hist.forEach((v, i) => (i ? g.lineTo(i * STEP, yOf(v)) : g.moveTo(0, yOf(v))));
+      g.lineWidth = 4; g.lineJoin = "round"; g.strokeStyle = c.col; g.stroke();
+      g.lineTo(c.w, h); g.lineTo(0, h); g.closePath();
+      g.globalAlpha = 0.22; g.fillStyle = c.col; g.fill(); g.globalAlpha = 1;
+    };
+    c.onResize = c.draw;
+    L.text({ x: RDX, base: rowBase(3 * k), s: 40, c: tr.c, txt: `Trunk ${tr.id}` });
+    c.now = L.text({ x: RDX, base: rowBase(3 * k + 1), s: 52, c: "white", txt: "" });
+    c.peak = L.text({ x: RDX, base: rowBase(3 * k + 2), s: 36, c: "peach", txt: "" });
+    return c;
+  });
+  // the charts slide left one step per sample, smoothly; at each sample the newest point joins
+  // the right end and the canvas is redrawn one step back, so the picture never jumps
+  let t0 = -1;
+  L.tick((t) => {
+    if (!flows.s0) return;
+    if (t0 < 0) {                                       // the four minutes before the screen came on
+      charts.forEach((c, k) => (c.hist = Array.from({ length: N + 2 }, (_, i) =>
+        flows.s0[k] * (1 + 0.035 * Math.sin(i * 0.19 + k * 1.7) + 0.02 * Math.sin(i * 0.53 + k)))));
+      charts.forEach((c) => c.draw());
+      t0 = t;
+    }
+    if (t - t0 >= SAMPLE) {
+      t0 = t - t0 > 2 * SAMPLE ? t : t0 + SAMPLE;
+      charts.forEach((c, k) => { c.hist.push(flows.s0[k]); c.hist.shift(); c.draw(); });
+    }
+    const d = -STEP * L.clamp((t - t0) / SAMPLE);
+    charts.forEach((c) => L.move(c.cv, d, 0));
+  });
+  L.every(500, () => {
+    if (!charts[0].hist) return;
+    charts.forEach((c, k) => {
+      const f = flows;
+      L.set(c.now, fmt(Math.round(f.s0[k] / 5) * 5) + " MW");
+      c.now.style.color = f.s0[k] > f.own[k] + 1 ? "var(--butter)" : f.s0[k] < 1 ? "var(--red)" : "var(--white)";
+      L.set(c.peak, "Peak " + fmt(Math.round(Math.max(...c.hist) / 5) * 5) + " MW");
+    });
+  }, 0);
+
+  // reroute history, newest first, in the strip
+  L.header({ x: NX, y: 1620, w: NR - NX, label: "Reroute History", c1: "orange", c2: "peach", h: 48 });
+  const HX = { sd: NX, cd: NX + 140, cause: NX + 320, deck: NX + 620, via: NX + 780 };
+  const hRows = Array.from({ length: 6 }, (_, i) => ({
+    sd: L.text({ x: HX.sd, base: bRow(i), s: 36, c: "orange", txt: "" }),
+    cd: L.text({ x: HX.cd, base: bRow(i), s: 36, c: "butter", txt: "" }),
+    cause: L.text({ x: HX.cause, base: bRow(i), s: 36, c: "butter", txt: "" }),
+    deck: L.text({ x: HX.deck, base: bRow(i), s: 36, c: "peach", txt: "" }),
+    via: L.text({ x: HX.via, base: bRow(i), s: 36, c: "butter", txt: "" }),
+    st: L.text({ x: NR, base: bRow(i), s: 36, c: "peach", txt: "", align: "r" }),
+  }));
+  const ST = { Isolating: "red", Isolated: "red", Rerouted: "white", Restored: "peach" };
+  const hist = [];
+  const show = () => hRows.forEach((r, i) => {
+    const e = hist[i];
+    L.set(r.sd, e.sd); L.set(r.cd, `Conduit ${TRUNKS[e.k].id}-2`); L.set(r.cause, e.cause);
+    L.set(r.deck, `Deck ${e.deck}`); L.set(r.via, `Via Trunk ${TRUNKS[e.n].id}`); L.set(r.st, e.st);
+    r.st.style.color = `var(--${ST[e.st]})`;
+    r.via.style.color = e.st === "Rerouted" ? "var(--white)" : "var(--butter)";
+  });
+  // earlier reroutes, before the screen came on: never the same conduit twice running, no deck
+  // repeated, a cause repeated only once and never beside itself, and as many of them inside this
+  // shift (the last 0.9 of a stardate) as Reroutes This Shift counts
+  const causes = CAUSES.slice().sort(() => Math.random() - 0.5);
+  causes.push(causes[L.irand(1, 3)]);
+  const decks = DECKS.slice().sort(() => Math.random() - 0.5);
+  const R = Math.min(reroutes, 6);
+  for (let i = 0, k = -1; i < 6; i++) {
+    k = k < 0 ? L.irand(0, 3) : (k + L.irand(1, 3)) % 4;
+    const n = k === 0 ? 1 : k === 3 ? 2 : k + L.pick([-1, 1]);
+    const ago = i < R ? 0.08 + i * 0.78 / R : 0.97 + (i - R) * 0.14;
+    hist.push({ sd: (stardate0 - ago).toFixed(1), k, n, cause: causes[i], deck: decks[i], st: "Restored" });
+  }
+  show();
+  hook.start = (k, n, cause, deck) => { hist.unshift({ sd: stardate().toFixed(1), k, n, cause, deck, st: "Isolating" }); hist.length = 6; show(); };
+  hook.iso = () => { hist[0].st = "Isolated"; show(); };
+  hook.fed = () => { hist[0].st = "Rerouted"; show(); };
+  hook.end = () => { hist[0].st = "Restored"; show(); };
+}
 
 ["EPS grid on line, all trunks pressurized", "Plasma manifold balanced, warp core at cruise", "Tap 14 recalibrated, Deck 36",
  "Relay B1 phase-matched to Trunk B", "Deflector modification power routing verified", "Saucer separation interlocks nominal"]

@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Ion Storm</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .clip { position: absolute; overflow: hidden; }
@@ -14,15 +15,28 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame, mirrored: sidebar on the right, title at top left ----------------
-L.frame({ type: "B", title: "Ion Storm  •  Tracking", c: "butter", c2: "mars", accent: "orange", foot: "Tracking",
+const B = L.frame({ type: "B", title: "Ion Storm  •  Tracking", c: "butter", c2: "mars", accent: "orange", foot: "Tracking",
   side: [[140, "orange", "Nav 07"], [70, "mars", "Storm"], [420, "butter", "Ion Storm"], [70, "orange", "Track"],
          [300, "mars", "Forecast"], [70, "butter", "Helm"], [216, "orange", "Navigation"]] });
 
 // The storm map on the left; intensity and course adjustment on the right, on a 72px grid from
 // 480 and from 1184; a three-panel strip under both, whose columns share the upper edges.
-const LX = 40, MR = 2200, RX = 2260, RR = 3520;
-const ROW = (k) => 480 + 72 * k, ROW2 = (k) => 1184 + 72 * k;
-const BCAP = 1716, BROW = (i) => 1776 + i * 54;
+//
+// ---------------- the grid, per shape ----------------
+// The storms, the course solution, readings and motion are written once; only these positions differ.
+// wide (3840 × 2160): as above, unchanged.
+// upright (2160 × 3120): the map across the full width (40–1840), drawn at 5/6 scale (the storm,
+//   its course and the grid are scaled; the type is not), then three rows split on one gutter
+//   (40–1100 | 1160–1840): intensity | course adjustment; sensor log | ship effects; forecast track
+//   | storms tracked.
+// ultrawide (5040 × 2160): the wide layout with a third column (3580–4720): a clearance profile of
+//   the passage beside the map, and the storms tracked under it, in the strip.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide", X1 = B.x1;   // wide: 3520
+const LX = 40, MR = UP ? 1840 : 2200, RX = 2260, RR = 3520;
+const IX0 = UP ? 40 : RX, IX1 = UP ? 1100 : RR, IY = UP ? 1436 : 280;      // storm intensity
+const CX0 = UP ? 1160 : RX, CX1 = UP ? 1840 : RR, CY = UP ? 1436 : 984;    // course adjustment
+const ROW = (k) => IY + 200 + 72 * k, ROW2 = (k) => CY + 200 + 72 * k;
+const BCAPY = (y) => y + 96, BROWY = (y, i) => y + 156 + i * 54;           // a strip panel under a header at y
 const PANEL = "#120d04", GRIDC = "#2a2110", TRACK = "#2c2210", DIM = "#6e5a30";
 const FRAME = document.getElementById("frame");
 const NS = "http://www.w3.org/2000/svg";
@@ -39,9 +53,9 @@ const fill = (x, y, w, h, c, parent) => {
 };
 const scaleX = (e, u) => { const v = L.clamp(u).toFixed(4); if (e._v !== v) { e._v = v; e.style.transform = `scaleX(${v})`; } };
 const fade = (e, a) => { const v = L.clamp(a).toFixed(3); if (e._a !== v) { e._a = v; e.style.opacity = v; } };
-const svgIn = (parent, w, h) => {
+const svgIn = (parent, w, h, vw = w, vh = h) => {                // vw × vh: the drawing's own units
   const s = document.createElementNS(NS, "svg");
-  s.setAttribute("width", w); s.setAttribute("height", h); s.setAttribute("viewBox", `0 0 ${w} ${h}`);
+  s.setAttribute("width", w); s.setAttribute("height", h); s.setAttribute("viewBox", `0 0 ${vw} ${vh}`);
   parent.appendChild(s); parent.classList.add("lay");
   return s;
 };
@@ -51,7 +65,10 @@ const mk = (tag, attrs, parent) => L.svg(tag, attrs, parent);
 // THE STORMS — each one a seeded field; the ship's course is solved against it
 // =====================================================================================
 const IMPULSE = 18.737;                                    // quarter impulse, px (1,000 km) per second
-const PX = LX, PY = 432, PW = MR - LX, PH = 1128;          // the map panel
+const PX = LX, PY = 432, PW = 2200 - LX, PH = 1128;       // the map panel, in map units (1,000 km)
+// as drawn: upright scales the map by MK (5/6) into the full width; wide and ultrawide draw it 1:1
+const PWD = UP ? 1800 : PW, PHD = UP ? 940 : PH, MK = UP ? PWD / PW : 1;
+const mx = (x) => (UP ? PX + (x - PX) * MK : x), my = (y) => (UP ? PY + (y - PY) * MK : y);
 const Y0 = 990, SX = 230, EX = 2110;                      // the plotted course across it
 const HEAD0 = 47;                                          // plotted course 047 mark 0
 const LEVELS = [0.1, 0.22, 0.36, 0.52, 0.7];
@@ -179,16 +196,20 @@ function solve(st) {
 // =====================================================================================
 // STATUS LINE
 // =====================================================================================
+// upright's status line is narrower: the ship is named on the map, so the subtitle leaves it out
+const subLine = (p) => `Ion Storm ${p.id}  ·  Class ${p.cls}  ·  Typhon Expanse Approach` + (UP ? "" : "  ·  U.S.S. Enterprise");
 const stateTxt = L.text({ x: LX, cap: 150, s: 100, c: "butter", txt: "", cls: "sw" });
 const stateSub = L.text({ x: 0, base: 222, s: 38, c: "tan", txt: "" });
-const pill = L.box({ x: RR - 400, y: 150, w: 400, h: 72, c: "butter", label: "", r: "lr", fs: 36, cls: "sw" });
+const pill = L.box({ x: X1 - 400, y: 150, w: 400, h: 72, c: "butter", label: "", r: "lr", fs: 36, cls: "sw" });
 
 // =====================================================================================
 // THE MAP
 // =====================================================================================
 L.header({ x: LX, y: 280, w: MR - LX, label: "Storm Track  ·  Typhon Expanse Approach", c1: "butter", c2: "mars" });
 L.text({ x: LX, base: 400, s: 36, c: "tan", txt: "Grid 200,000 Km  ·  Quarter Impulse  ·  18,737 Km / S" });
-L.rect({ x: PX, y: PY, w: PW, h: PH, c: PANEL, panel: true });
+L.rect({ x: PX, y: PY, w: PWD, h: PHD, c: PANEL, panel: true });
+// the map's drawn-once marks, in map units: upright scales them into the drawn panel
+const MAPG = UP ? mk("g", { transform: `translate(${PX},${PY}) scale(${MK}) translate(${-PX},${-PY})` }, FRAME) : FRAME;
 // a key to the map's marks, right-aligned along the caption line
 {
   const items = [["Plotted Course", "dash"], ["Adjusted Course", "line"], ["Intercept", "x"], ["Forecast Front  ·  2 Min", "dot"]];
@@ -211,7 +232,7 @@ L.rect({ x: PX, y: PY, w: PW, h: PH, c: PANEL, panel: true });
   const r = rng(5);
   for (let i = 0; i < 260; i++) {
     const x = PX + 20 + r() * (PW - 40), y = PY + 20 + r() * (PH - 110), b = r();
-    mk("circle", { cx: x.toFixed(1), cy: y.toFixed(1), r: (0.8 + b * b * 2).toFixed(2), fill: b > 0.85 ? "#e8dcc0" : "#7d6c4c", opacity: (0.35 + 0.5 * b).toFixed(2) }, FRAME);
+    mk("circle", { cx: x.toFixed(1), cy: y.toFixed(1), r: (0.8 + b * b * 2).toFixed(2), fill: b > 0.85 ? "#e8dcc0" : "#7d6c4c", opacity: (0.35 + 0.5 * b).toFixed(2) }, MAPG);
   }
 }
 // the Typhon Expanse: its boundary on the right of the map, hatched beyond
@@ -220,35 +241,37 @@ L.rect({ x: PX, y: PY, w: PW, h: PH, c: PANEL, panel: true });
   let d = "";
   for (let y = PY; y <= PY + PH - 64; y += 8) d += (d ? "L" : "M") + `${bx(y).toFixed(1)},${y}`;
   const clipId = "expanse";
-  const cp = mk("clipPath", { id: clipId }, FRAME);
+  const cp = mk("clipPath", { id: clipId }, MAPG);
   mk("path", { d: d + `L${PX + PW},${PY + PH - 64}L${PX + PW},${PY}Z` }, cp);
-  const g = mk("g", { "clip-path": `url(#${clipId})` }, FRAME);
+  const g = mk("g", { "clip-path": `url(#${clipId})` }, MAPG);
   for (let k = -20; k < 60; k++) mk("line", { x1: 1800 + k * 28, y1: PY, x2: 1800 + k * 28 - 600, y2: PY + 600, stroke: "#2a1e0c", "stroke-width": 3 }, g);
-  mk("path", { d, fill: "none", stroke: "#8a6a32", "stroke-width": 3, "stroke-dasharray": "4 12", "stroke-linecap": "round" }, FRAME);
-  L.text({ x: PX + PW - 28, base: PY + 72, s: 36, c: "peach", txt: "Typhon Expanse", align: "r" });
-  L.text({ x: PX + PW - 28, base: PY + 120, s: 32, c: DIM, txt: "Uncharted  ·  Survey Region", align: "r", legend: true });
+  mk("path", { d, fill: "none", stroke: "#8a6a32", "stroke-width": 3, "stroke-dasharray": "4 12", "stroke-linecap": "round" }, MAPG);
+  L.text({ x: PX + PWD - 28, base: PY + 72, s: 36, c: "peach", txt: "Typhon Expanse", align: "r" });
+  L.text({ x: PX + PWD - 28, base: PY + 120, s: 32, c: DIM, txt: "Uncharted  ·  Survey Region", align: "r", legend: true });
 }
 // grid: every 200,000 km, labelled on round numbers; lines stop short of the scale band
 for (let k = 1; k <= 10; k++) {
-  const x = PX + 200 * k;
-  L.rect({ x: x - 1, y: PY + 16, w: 2, h: PH - 100, c: GRIDC, free: true });
-  L.text({ x, base: PY + PH - 28, s: 32, c: DIM, txt: fmt(200 * k), align: "c", w: 140, legend: true });
+  const x = mx(PX + 200 * k);
+  L.rect({ x: x - 1, y: PY + 16, w: 2, h: PHD - 100, c: GRIDC, free: true });
+  // upright's 5/6 scale brings 200 within 13 px of the unit label in the corner: the corner names the axis there
+  if (!(UP && k === 1)) L.text({ x, base: PY + PHD - 28, s: 32, c: DIM, txt: fmt(200 * k), align: "c", w: 140, legend: true });
 }
 for (let k = 1; k <= 4; k++) {
-  const y = PY + 200 * k + 32;
-  L.rect({ x: PX + 16, y: y - 1, w: PW - 32, h: 2, c: GRIDC, free: true });
+  const y = my(PY + 200 * k + 32);
+  L.rect({ x: PX + 16, y: y - 1, w: PWD - 32, h: 2, c: GRIDC, free: true });
   L.text({ x: PX + 24, base: y - 12, s: 32, c: DIM, txt: fmt(200 * k), legend: true });
 }
-L.text({ x: PX + 24, base: PY + PH - 28, s: 32, c: DIM, txt: "Thousand Km", legend: true });
+L.text({ x: PX + 24, base: PY + PHD - 28, s: 32, c: DIM, txt: "Thousand Km", legend: true });
 
 // ---------------- the moving parts, clipped to the panel ----------------
-const mapClip = L.layer({ x: PX, y: PY, w: PW, h: PH, cls: "clip" });
-const dyn = L.layer({ x: 0, y: 0, w: PW, h: PH }, mapClip);          // fades between storms
+const mapClip = L.layer({ x: PX, y: PY, w: PWD, h: PHD, cls: "clip" });
+const dyn = L.layer({ x: 0, y: 0, w: PWD, h: PHD }, mapClip);          // fades between storms
 const SMAX = Math.ceil((Math.max(...PRESETS.map((p) => p.R)) * 3.2) / 4) * 4;
-const stormL = L.layer({ x: 0, y: 0, w: SMAX, h: SMAX }, dyn);       // moved with the storm's drift
-const bandC = L.canvas({ x: 0, y: 0, w: SMAX, h: SMAX }, stormL);
-const filL = L.layer({ x: 0, y: 0, w: SMAX, h: SMAX, cls: "ctr" }, stormL);
-const filC = L.canvas({ x: 0, y: 0, w: SMAX, h: SMAX }, filL);
+const SMD = SMAX * MK;                                               // the storm's square, as drawn
+const stormL = L.layer({ x: 0, y: 0, w: SMD, h: SMD }, dyn);         // moved with the storm's drift
+const bandC = L.canvas({ x: 0, y: 0, w: SMD, h: SMD }, stormL);
+const filL = L.layer({ x: 0, y: 0, w: SMD, h: SMD, cls: "ctr" }, stormL);
+const filC = L.canvas({ x: 0, y: 0, w: SMD, h: SMD }, filL);
 const SPARK = 7;
 const sparks = Array.from({ length: SPARK }, () => {
   const e = L.layer({ x: -22, y: -22, w: 44, h: 44, cls: "ctr" }, stormL);
@@ -259,15 +282,15 @@ const sparks = Array.from({ length: SPARK }, () => {
 });
 const stormName = L.text({ x: 0, base: 0, s: 36, c: "peach", txt: "" }, stormL);
 // the forecast: swept track and the front as it will stand in two minutes
-const fcL = L.layer({ x: 0, y: 0, w: PW, h: PH }, dyn);
-const fcS = svgIn(fcL, PW, PH);
+const fcL = L.layer({ x: 0, y: 0, w: PWD, h: PHD }, dyn);
+const fcS = svgIn(fcL, PWD, PHD, PW, PH);
 // the course: plotted and adjusted, intercept mark, change and rejoin points
-const crL = L.layer({ x: 0, y: 0, w: PW, h: PH }, dyn);
-const crS = svgIn(crL, PW, PH);
+const crL = L.layer({ x: 0, y: 0, w: PWD, h: PHD }, dyn);
+const crS = svgIn(crL, PWD, PHD, PW, PH);
 const plotLine = mk("path", { d: `M${SX - PX},${Y0 - PY} L${EX - PX + 60},${Y0 - PY}`, fill: "none", stroke: "var(--sand)", "stroke-width": 4, "stroke-dasharray": "18 14", opacity: 0.75 }, crS);
 const xMark = mk("path", { d: "", stroke: "var(--mars)", "stroke-width": 6, "stroke-linecap": "round", opacity: 0 }, crS);
 const adjLine = mk("path", { d: "", fill: "none", stroke: "var(--butter)", "stroke-width": 5, "stroke-linejoin": "round" }, crS);
-const markS = svgIn(L.layer({ x: 0, y: 0, w: PW, h: PH }, dyn), PW, PH);
+const markS = svgIn(L.layer({ x: 0, y: 0, w: PWD, h: PHD }, dyn), PWD, PHD, PW, PH);
 const diamond = (x, y) => mk("path", { d: `M${x},${y - 14} L${x + 14},${y} L${x},${y + 14} L${x - 14},${y} Z`, fill: "var(--orange)", stroke: "#000", "stroke-width": 3 }, markS);
 // the ship: a chevron, a shield ring, a name
 const shipL = L.layer({ x: -60, y: -60, w: 120, h: 120, cls: "ctr" }, dyn);
@@ -280,10 +303,10 @@ L.text({ x: 0, base: 40, s: 36, c: "white", txt: "U.S.S. Enterprise" }, shipTag)
 // =====================================================================================
 // STORM INTENSITY
 // =====================================================================================
-L.header({ x: RX, y: 280, w: RR - RX, label: "Storm Intensity", c1: "mars", c2: "butter" });
-const intWord = L.text({ x: RX, base: 400, s: 36, c: "peach", txt: "" });
-const trendWord = L.text({ x: RR, base: 400, s: 36, c: "butter", txt: "", align: "r", cls: "sw" });
-const TX0 = 2560, TX1 = 3140, VR = 3320, UX = 3352;
+L.header({ x: IX0, y: IY, w: IX1 - IX0, label: "Storm Intensity", c1: "mars", c2: "butter" });
+const intWord = L.text({ x: IX0, base: IY + 120, s: 36, c: "peach", txt: "" });
+const trendWord = L.text({ x: IX1, base: IY + 120, s: 36, c: "butter", txt: "", align: "r", cls: "sw" });
+const TX0 = UP ? 340 : 2560, TX1 = UP ? 720 : 3140, VR = UP ? 900 : 3320, UX = UP ? 932 : 3352;
 const INT = [
   ["Ion Density", "Ions / CC", 6000, (v) => fmt(Math.round(v / 10) * 10)],
   ["Magnetic Field", "Gauss", 80, (v) => v.toFixed(1)],
@@ -294,73 +317,164 @@ const INT = [
 ];
 const intRows = INT.map(([name, unit, max, f], i) => {
   const base = ROW(i);
-  L.text({ x: RX, base, s: 40, c: "butter", txt: name });
+  L.text({ x: IX0, base, s: 40, c: "butter", txt: name });
   L.rect({ x: TX0, y: base - 26, w: TX1 - TX0, h: 26, c: TRACK });
   const bar = fill(TX0, base - 26, TX1 - TX0, 26, i >= 4 ? "orange" : "mars");
   L.text({ x: UX, base, s: 36, c: "tan", txt: unit });
-  fits(unit, 36, RR - UX, "unit");
+  fits(unit, 36, IX1 - UX, "unit");
   return { bar, max, f, val: L.text({ x: VR, base, s: 52, c: "white", txt: "", align: "r" }), u: 0 };
 });
 
 // =====================================================================================
 // COURSE ADJUSTMENT
 // =====================================================================================
-L.header({ x: RX, y: 984, w: RR - RX, label: "Course Adjustment", c1: "butter", c2: "orange" });
-const CP = 3040;
-L.text({ x: RX, base: 1104, s: 36, c: "tan", txt: "Navigation" });
-L.text({ x: CP, base: 1104, s: 36, c: "tan", txt: "Plotted", align: "r" });
-L.text({ x: RR, base: 1104, s: 36, c: "tan", txt: "Adjusted", align: "r" });
+L.header({ x: CX0, y: CY, w: CX1 - CX0, label: "Course Adjustment", c1: "butter", c2: "orange" });
+const CP = UP ? 1560 : 3040;
+L.text({ x: CX0, base: CY + 120, s: 36, c: "tan", txt: "Navigation" });
+L.text({ x: CP, base: CY + 120, s: 36, c: "tan", txt: "Plotted", align: "r" });
+L.text({ x: CX1, base: CY + 120, s: 36, c: "tan", txt: "Adjusted", align: "r" });
 const CA = ["Course", "Maximum Deviation", "Closest Approach", "Transit Time", "Peak Shield Load", "Lowest Sensor Range"];
 const caRows = CA.map((name, i) => {
-  L.text({ x: RX, base: ROW2(i), s: 40, c: "butter", txt: name });
+  L.text({ x: CX0, base: ROW2(i), s: 40, c: "butter", txt: name });
   return { p: L.text({ x: CP, base: ROW2(i), s: 44, c: "sand", txt: "", align: "r", cls: "sw" }),
-           a: L.text({ x: RR, base: ROW2(i), s: 52, c: "white", txt: "", align: "r", cls: "sw" }) };
+           a: L.text({ x: CX1, base: ROW2(i), s: 52, c: "white", txt: "", align: "r", cls: "sw" }) };
 });
 
 // =====================================================================================
 // THE STRIP: sensor log, forecast track, effects on the ship
 // =====================================================================================
-const LG0 = LX, LG1 = 1100, FC0 = 1160, FC1 = MR, EF0 = RX, EF1 = RR;
+const LG0 = LX, LG1 = 1100, FC0 = UP ? 40 : 1160, FC1 = UP ? 1100 : MR, EF0 = UP ? 1160 : RX, EF1 = UP ? 1840 : RR;
+const LGY = UP ? 2092 : 1620, FCY = UP ? 2560 : 1620, EFY = LGY;            // the three panels' header lines
 
 // ---------------- sensor log, oldest at the top ----------------
-L.header({ x: LG0, y: 1620, w: LG1 - LG0, label: "Sensor Log", c1: "mars", c2: "butter", h: 48 });
+L.header({ x: LG0, y: LGY, w: LG1 - LG0, label: "Sensor Log", c1: "mars", c2: "butter", h: 48 });
 const LT = LG0 + 170;
-[["Ship's Time", LG0, "l"], ["Entry", LT, "l"], ["Station", LG1, "r"]].forEach(([txt, x, align]) => L.text({ x, base: BCAP, s: 36, c: "tan", txt, align }));
+[["Ship's Time", LG0, "l"], ["Entry", LT, "l"], ["Station", LG1, "r"]].forEach(([txt, x, align]) => L.text({ x, base: BCAPY(LGY), s: 36, c: "tan", txt, align }));
 const logL = L.layer({ x: 0, y: 0, w: L.W, h: L.H });
 const logRows = Array.from({ length: 5 }, (_, i) => ({
-  tm: L.text({ x: LG0, base: BROW(i), s: 36, c: "orange", txt: "" }, logL),
-  ev: L.text({ x: LT, base: BROW(i), s: 36, c: "white", txt: "" }, logL),
-  st: L.text({ x: LG1, base: BROW(i), s: 36, c: "sand", txt: "", align: "r", rightIn: true }, logL),
+  tm: L.text({ x: LG0, base: BROWY(LGY, i), s: 36, c: "orange", txt: "" }, logL),
+  ev: L.text({ x: LT, base: BROWY(LGY, i), s: 36, c: "white", txt: "" }, logL),
+  st: L.text({ x: LG1, base: BROWY(LGY, i), s: 36, c: "sand", txt: "", align: "r", rightIn: true }, logL),
 }));
 const newRow = L.layer({ x: 0, y: 0, w: L.W, h: L.H });               // the newest entry, faded in
-const nr = { tm: L.text({ x: LG0, base: BROW(4), s: 36, c: "orange", txt: "" }, newRow),
-             ev: L.text({ x: LT, base: BROW(4), s: 36, c: "white", txt: "" }, newRow),
-             st: L.text({ x: LG1, base: BROW(4), s: 36, c: "sand", txt: "", align: "r", rightIn: true }, newRow) };
+const nr = { tm: L.text({ x: LG0, base: BROWY(LGY, 4), s: 36, c: "orange", txt: "" }, newRow),
+             ev: L.text({ x: LT, base: BROWY(LGY, 4), s: 36, c: "white", txt: "" }, newRow),
+             st: L.text({ x: LG1, base: BROWY(LGY, 4), s: 36, c: "sand", txt: "", align: "r", rightIn: true }, newRow) };
 
 // ---------------- forecast track ----------------
-L.header({ x: FC0, y: 1620, w: FC1 - FC0, label: "Forecast Track", c1: "butter", c2: "mars", h: 48 });
-const FP = 1650, FI = 1850;
+L.header({ x: FC0, y: FCY, w: FC1 - FC0, label: "Forecast Track", c1: "butter", c2: "mars", h: 48 });
+const FP = UP ? 530 : 1650, FI = UP ? 730 : 1850;
 [["Time", FC0, "l"], ["Position  ·  Thousand Km", FP, "r"], ["Intensity", FI, "r"], ["Least Clearance", FC1, "r"]]
-  .forEach(([txt, x, align]) => L.text({ x, base: BCAP, s: 36, c: "tan", txt, align }));
+  .forEach(([txt, x, align]) => L.text({ x, base: BCAPY(FCY), s: 36, c: "tan", txt, align }));
 const fcRows = ["Now", "+30 S", "+1 Min", "+90 S", "+2 Min"].map((txt, i) => {
-  L.text({ x: FC0, base: BROW(i), s: 36, c: "orange", txt });
-  return { pos: L.text({ x: FP, base: BROW(i), s: 36, c: "white", txt: "", align: "r" }),
-           int: L.text({ x: FI, base: BROW(i), s: 36, c: "white", txt: "", align: "r" }),
-           clr: L.text({ x: FC1, base: BROW(i), s: 36, c: "white", txt: "", align: "r", cls: "sw" }) };
+  L.text({ x: FC0, base: BROWY(FCY, i), s: 36, c: "orange", txt });
+  return { pos: L.text({ x: FP, base: BROWY(FCY, i), s: 36, c: "white", txt: "", align: "r" }),
+           int: L.text({ x: FI, base: BROWY(FCY, i), s: 36, c: "white", txt: "", align: "r" }),
+           clr: L.text({ x: FC1, base: BROWY(FCY, i), s: 36, c: "white", txt: "", align: "r", cls: "sw" }) };
 });
 
 // ---------------- effects on the ship ----------------
-L.header({ x: EF0, y: 1620, w: EF1 - EF0, label: "Ship Effects", c1: "orange", c2: "butter", h: 48 });
-L.text({ x: EF0, base: BCAP, s: 36, c: "tan", txt: "Clearance to Storm Front" });
-const clrNow = L.text({ x: EF1, base: BCAP, s: 36, c: "white", txt: "", align: "r", cls: "sw" });
+L.header({ x: EF0, y: EFY, w: EF1 - EF0, label: "Ship Effects", c1: "orange", c2: "butter", h: 48 });
+L.text({ x: EF0, base: BCAPY(EFY), s: 36, c: "tan", txt: "Clearance to Storm Front" });
+const clrNow = L.text({ x: EF1, base: BCAPY(EFY), s: 36, c: "white", txt: "", align: "r", cls: "sw" });
 const EFF = ["Deflector Shield Load", "Sensor Degradation", "Subspace Interference", "Hull Static Charge", "Navigational Deflector"];
 const EB0 = EF0 + Math.ceil(Math.max(...EFF.map((a) => L.textWidth(a, 36)))) + 40, EB1 = EF1 - 100;
 const effRows = EFF.map((name, i) => {
-  const base = BROW(i);
+  const base = BROWY(EFY, i);
   L.text({ x: EF0, base, s: 36, c: "sand", txt: name });
   L.rect({ x: EB0, y: base - 24, w: EB1 - EB0, h: 24, c: TRACK });
   return { bar: fill(EB0, base - 24, EB1 - EB0, 24, i === 0 ? "butter" : "orange"), val: L.text({ x: EF1, base, s: 36, c: "white", txt: "", align: "r" }), u: 0 };
 });
+
+// =====================================================================================
+// UPRIGHT AND ULTRAWIDE ONLY: the storms tracked this watch; ultrawide adds the clearance profile
+// =====================================================================================
+let catalog = null, chart = null;
+if (UP || UW) {
+  const K0 = UP ? 1160 : 3580, K1 = UP ? 1840 : X1, KY = UP ? FCY : 1620, KW = K1 - K0;
+  const KC = K0 + Math.round(KW * 0.4), KD = K0 + Math.round(KW * 0.7);
+  L.header({ x: K0, y: KY, w: KW, label: "Storms Tracked", c1: "butter", c2: "orange", h: 48 });
+  [["Storm", K0, "l"], ["Class", KC, "r"], ["Drift  ·  Km / S", KD, "r"], ["Status", K1, "r"]]
+    .forEach(([txt, x, align]) => L.text({ x, base: BCAPY(KY), s: 36, c: "tan", txt, align }));
+  // an earlier storm of the watch, gone before this passage, then the four in the cycle
+  const rows = [{ id: "IS-2409", cls: 3, v: 0.6, gone: true }].concat(PRESETS).map((p, i) => {
+    const y = BROWY(KY, i);
+    L.text({ x: K0, base: y, s: 36, c: "orange", txt: p.id });
+    L.text({ x: KC, base: y, s: 36, c: "white", txt: String(p.cls), align: "r" });
+    L.text({ x: KD, base: y, s: 36, c: "white", txt: fmt(p.v * 1000), align: "r" });
+    const stt = L.text({ x: K1, base: y, s: 36, c: "sand", txt: p.gone ? "Dissipated" : "Monitoring", align: "r", cls: "sw" });
+    if (p.gone) stt.style.color = col(DIM);
+    return { p, stt };
+  });
+  catalog = { mark: (k) => rows.forEach((r) => { if (r.p.gone) return;
+    const on = r.p === PRESETS[k]; L.set(r.stt, on ? "Tracking" : "Monitoring"); r.stt.style.color = col(on ? "butter" : "sand"); }) };
+}
+if (UW) {
+  // the passage as a graph: clearance to the storm front against time, plotted and adjusted courses
+  const C0 = 3580, C1 = X1, CW = C1 - C0;
+  L.header({ x: C0, y: 280, w: CW, label: "Clearance Profile", c1: "orange", c2: "mars" });
+  L.text({ x: C0, base: 400, s: 36, c: "tan", txt: "Thousand Km  ·  Seconds" });
+  { // a key, right-aligned along the caption line, as the map's
+    const items = [["Plotted", "dash"], ["Adjusted", "line"], ["Safe Margin", "margin"]], SYM = 56, G1 = 16, G2 = 48;
+    let w = 0; items.forEach(([t]) => { w += SYM + G1 + L.textWidth(t, 36) + G2; });
+    let kx = C1 - (w - G2); const ky = 400 - 13;
+    items.forEach(([txt, kind]) => {
+      if (kind === "dash") for (let i = 0; i < 3; i++) L.rect({ x: kx + i * 20, y: ky - 2, w: 14, h: 4, c: "sand", free: true });
+      if (kind === "line") L.rect({ x: kx, y: ky - 3, w: SYM, h: 6, c: "butter", free: true });
+      if (kind === "margin") for (let i = 0; i < 2; i++) L.rect({ x: kx + i * 32, y: ky - 2, w: 24, h: 4, c: "mars", free: true });
+      kx += SYM + G1; L.text({ x: kx, base: 400, s: 36, c: "tan", txt }); kx += L.textWidth(txt, 36) + G2;
+    });
+  }
+  L.rect({ x: C0, y: PY, w: CW, h: PH, c: PANEL, panel: true });
+  const GX0 = C0 + 124, GX1 = C1 - 60, GY0 = PY + 64, GY1 = PY + PH - 100;
+  const DMIN = -200, DMAX = 1000, TMAX = 120;
+  const gx = (t) => GX0 + ((GX1 - GX0) * t) / TMAX, gy = (d) => GY1 - ((GY1 - GY0) * (d - DMIN)) / (DMAX - DMIN);
+  // inside the front: below zero, shaded
+  L.rect({ x: GX0, y: gy(0), w: GX1 - GX0, h: GY1 - gy(0), c: "#2a0f08", free: true });
+  L.text({ x: GX0 + 24, base: GY1 - 24, s: 32, c: "#a0503a", txt: "Inside Storm Front", legend: true });
+  for (let d = 0; d <= DMAX; d += 200) {
+    L.rect({ x: GX0, y: gy(d) - 1, w: GX1 - GX0, h: 2, c: d ? GRIDC : "#5a4420", free: true });
+    L.text({ x: GX0 - 24, base: gy(d) + 0.36 * 32, s: 32, c: DIM, txt: d ? fmt(d) : "0", align: "r", legend: true });
+  }
+  for (let t = 0; t <= TMAX; t += 30) {
+    if (t) L.rect({ x: gx(t) - 1, y: GY0, w: 2, h: GY1 - GY0, c: GRIDC, free: true });
+    L.text({ x: gx(t), base: PY + PH - 28, s: 32, c: DIM, txt: String(t), align: "c", w: 140, legend: true });
+  }
+  // the moving parts: both curves per storm, a cursor at the ship's time
+  const chL = L.layer({ x: C0, y: PY, w: CW, h: PH }), chS0 = svgIn(chL, CW, PH);
+  const lx = (t) => (gx(t) - C0).toFixed(1), ly = (d) => (gy(L.clamp(d, DMIN - 40, DMAX + 40)) - PY).toFixed(1);
+  // curves leave the plot cleanly at its top and bottom edges
+  mk("rect", { x: GX0 - C0, y: GY0 - PY, width: GX1 - GX0, height: GY1 - GY0 }, mk("clipPath", { id: "chclip" }, chS0));
+  const chS = mk("g", { "clip-path": "url(#chclip)" }, chS0);
+  const margin = mk("path", { d: `M${lx(0)},${ly(150)} L${lx(TMAX)},${ly(150)}`, stroke: "var(--mars)", "stroke-width": 3, "stroke-dasharray": "24 8", opacity: 0.8, fill: "none" }, chS);
+  const plotP = mk("path", { d: "", fill: "none", stroke: "var(--sand)", "stroke-width": 4, "stroke-dasharray": "18 14", opacity: 0 }, chS);
+  const adjP = mk("path", { d: "", fill: "none", stroke: "var(--butter)", "stroke-width": 5, "stroke-linejoin": "round" }, chS);
+  const curL = L.layer({ x: gx(0) - 2, y: GY0, w: 4, h: gy(0) - GY0 });   // stops above the shaded band and its label
+  curL.style.background = "rgba(255,204,102,0.35)";
+  const dotL = L.layer({ x: gx(0) - 14, y: GY1 - 14, w: 28, h: 28 });
+  mk("circle", { cx: 14, cy: 14, r: 11, fill: "var(--white)", stroke: "#000", "stroke-width": 3 }, svgIn(dotL, 28, 28));
+  const curve = (c) => { let d = ""; for (let t = 0; t <= c.T + 0.01; t += 1) { const [x, y] = c.at(t * IMPULSE); d += (d ? " L" : "M") + `${lx(t)},${ly(clearance(st, x, y, t))}`; } return d; };
+  chart = {
+    setup() {
+      plotP.setAttribute("d", curve(sol.plotted));
+      adjP.setAttribute("d", curve(sol.adj));
+      const len = adjP.getTotalLength();
+      adjP.setAttribute("stroke-dasharray", `${len.toFixed(1)} ${len.toFixed(1)}`); adjP._len = len; adjP._off = null;
+      margin.setAttribute("opacity", 0.8);
+    },
+    tick(u, a, rv, d) {
+      d = L.clamp(d, DMIN, DMAX);
+      fade(chL, L.ease(L.clamp(a))); fade(curL, L.ease(L.clamp(a))); fade(dotL, L.ease(L.clamp(a)));
+      fade(plotP, 0.75 * L.clamp((u - 1.5) / 2));
+      const off = ((1 - rv) * adjP._len).toFixed(1);
+      if (adjP._off !== off) { adjP._off = off; adjP.setAttribute("stroke-dashoffset", off); }
+      const tt = Math.min(u, TMAX);
+      L.move(curL, gx(tt) - gx(0), 0);
+      L.move(dotL, gx(tt) - gx(0), gy(d) - GY1);
+    },
+  };
+  PRESETS.forEach((p) => { if (solve(buildStorm(p)).adj.T > TMAX) bad.push(`${p.id}: passage longer than the clearance profile`); });
+}
 
 // =====================================================================================
 // EFFECTS OF THE STORM ON THE SHIP: one function of clearance, shared by the table and the bars
@@ -484,8 +598,8 @@ function setupStorm(p) {
   const lx = -ux * (st.back + 56), ly = -uy * (st.back + 56);
   L.set(stormName, `Ion Storm  ${p.id}`);
   const w = L.textWidth(stormName.textContent, 36);
-  stormName.style.left = (SMAX / 2 + lx - w / 2).toFixed(1) + "px";
-  stormName.style.top = (SMAX / 2 + ly - 0.5 * 36).toFixed(1) + "px";
+  stormName.style.left = (UP ? (SMAX / 2 + lx) * MK - w / 2 : SMAX / 2 + lx - w / 2).toFixed(1) + "px";
+  stormName.style.top = (UP ? (SMAX / 2 + ly) * MK - 0.5 * 36 : SMAX / 2 + ly - 0.5 * 36).toFixed(1) + "px";
   // events of this passage, in time order
   const tOf = (x) => { let t = 0; while (t < ad.T && ad.at(t * IMPULSE)[0] < x) t += 0.1; return t; };
   const [mc, tcl] = minClear(st, ad, 0.25);
@@ -516,6 +630,7 @@ function setupStorm(p) {
     [Math.round(pl * 100) + "%", Math.round(al * 100) + "%"],
   ];
   cyc.table.forEach(([a], i) => { L.set(caRows[i].p, a); caRows[i].p.style.color = col(a === "Intercept" ? "mars" : "sand"); });
+  if (chart) chart.setup();
 }
 
 // =====================================================================================
@@ -551,6 +666,7 @@ const begin = (t) => {
   L.set(intWord, `${p.id}  ·  Class ${p.cls} Ion Storm`);
   sparks.forEach((s) => { s.t0 = -10; fade(s.e, 0); });
   cyc.nextSpark = t + 1;
+  if (catalog) catalog.mark(cyc.i);
 };
 const stateOf = (u, sh) => {
   if (u < 6) return ["Storm Detected", "butter", "Analyzing", "butter"];
@@ -576,13 +692,13 @@ L.tick((t) => {
   const ust = Math.min(u, 400);
   // storm drift, filament breathing, sparks
   const p = st.p, cx = p.x + st.vx * ust, cy = p.y + st.vy * ust;
-  L.move(stormL, cx - PX - SMAX / 2, cy - PY - SMAX / 2);
-  L.move(fcL, st.vx * ust, st.vy * ust);
+  L.move(stormL, (cx - PX - SMAX / 2) * MK, (cy - PY - SMAX / 2) * MK);
+  L.move(fcL, st.vx * ust * MK, st.vy * ust * MK);
   filL.style.transform = `rotate(${(2.4 * Math.sin((2 * Math.PI * t) / 29)).toFixed(3)}deg)`;
   fade(filL, 0.45 + 0.3 * Math.sin((2 * Math.PI * t) / 7.3));
   if (t >= cyc.nextSpark && st.core.length) {
     const s = sparks.find((q) => t - q.t0 > 1.8);
-    if (s) { const [x, y] = L.pick(st.core); s.t0 = t; L.move(s.e, x + SMAX / 2, y + SMAX / 2, L.rand(0, 45), 1); }
+    if (s) { const [x, y] = L.pick(st.core); s.t0 = t; L.move(s.e, (x + SMAX / 2) * MK, (y + SMAX / 2) * MK, L.rand(0, 45), 1); }
     cyc.nextSpark = t + (60 / p.rate) * L.rand(0.7, 1.3);
   }
   for (const s of sparks) {
@@ -599,10 +715,11 @@ L.tick((t) => {
   // the ship
   const [sx, sy, hd] = ad.at(u * IMPULSE);
   shipPos = [sx, sy];
-  L.move(shipL, sx - PX, sy - PY, (hd * 180) / Math.PI);
+  L.move(shipL, (sx - PX) * MK, (sy - PY) * MK, (hd * 180) / Math.PI);
   const up = ad.D > 0 ? 1 : -1;                             // name on the side away from the storm
-  L.move(shipTag, sx - PX - 60, sy - PY + (up < 0 ? -112 : 40));
+  L.move(shipTag, (sx - PX) * MK - 60, (sy - PY) * MK + (up < 0 ? -112 : 40));
   clr = clearance(st, sx, sy, ust);
+  if (chart) chart.tick(u, a, rv, clr);
   const sh = u >= cyc.tBranch && u < cyc.tClear;
   shieldA += ((sh ? 1 : 0) - shieldA) * 0.06;
   shield.setAttribute("opacity", shieldA.toFixed(2));
@@ -631,7 +748,7 @@ L.every(300, (t) => {
   const [w, wc, pl, pc] = stateOf(u, sh);
   L.set(stateTxt, w); stateTxt.style.color = col(wc);
   stateSub.style.left = LX + stateTxt.offsetWidth + 40 + "px";
-  L.set(stateSub, `Ion Storm ${p.id}  ·  Class ${p.cls}  ·  Typhon Expanse Approach  ·  U.S.S. Enterprise`);
+  L.set(stateSub, subLine(p));
   L.set(pill, pl); pill.style.background = col(pc);
   const i0 = (p.cls * intensity(u)).toFixed(1), i2 = (p.cls * intensity(u + 120)).toFixed(1);   // as the forecast rows read
   L.set(trendWord, +i2 > +i0 ? "Intensifying" : +i2 < +i0 ? "Weakening" : "Steady");
@@ -659,13 +776,13 @@ L.every(300, (t) => {
 
 // ---------------- a guard: every line of words fits its place ----------------
 PRESETS.forEach((p) => {
-  fits(`Ion Storm ${p.id}  ·  Class ${p.cls}  ·  Typhon Expanse Approach  ·  U.S.S. Enterprise`, 38, RR - 400 - 40 - (LX + L.textWidth("Plotted Course Resumed", 100) + 40), "subtitle");
+  fits(subLine(p), 38, X1 - 400 - 40 - (LX + L.textWidth("Plotted Course Resumed", 100) + 40), "subtitle");
   fits(`Course adjustment laid in  ·  000 Mark 0`, 36, LG1 - LT - L.textWidth("Tactical", 36) - 30, "log");
   fits(`Ion storm detected  ·  ${p.id}  ·  Class ${p.cls}`, 36, LG1 - LT - L.textWidth("Science", 36) - 30, "log");
 });
 LOG.forEach((r) => fits(r[1], 36, LG1 - LT - L.textWidth(r[2], 36) - 30, "log"));
 ["Course change executed  ·  deflector shields raised", "Closest approach to front  ·  000,000 Km"].forEach((s) => fits(s, 36, LG1 - LT - L.textWidth("Tactical", 36) - 30, "log"));
-CA.forEach((s) => fits(s, 40, CP - L.textWidth("Intercept", 44) - 40 - RX, "course label"));
+CA.forEach((s) => fits(s, 40, CP - L.textWidth("Intercept", 44) - 40 - CX0, "course label"));
 ["Shields Raised", "Course Hazard", "Course Laid In"].forEach((s) => fits(s, 36, 400 - 70, "pill"));
 // every storm stays inside the map for its whole passage, clear of the scale band
 PRESETS.forEach((p) => {

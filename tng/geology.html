@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Geology</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .sw { transition: background-color 1s ease, color 1s ease; }
@@ -14,9 +15,23 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: sidebar left, title top right ----------------
-L.frame({ type: "A", title: "Geology  •  Core Sample Analysis", c: "tan", c2: "sand", accent: "olive", foot: "Geology",
+const B = L.frame({ type: "A", title: "Geology  •  Core Sample Analysis", c: "tan", c2: "sand", accent: "olive", foot: "Geology",
   side: [[140, "sand", "Sci 07"], [70, "olive", "Lab 2"], [420, "tan", "Strata"], [70, "peach", "Cores"],
          [300, "sand", "Minerals"], [70, "olive", "Seismic"], [216, "tan", "Catalog"]] });
+
+// ---------------- the layout, per shape ----------------
+// The rocks, cores, tremors and motion below are written once; only positions and sizes differ.
+// Each per-shape number reads UP ? upright : UW ? ultrawide : wide, and wide's are exactly the
+// hand-placed ones it always had.
+// wide (3840 × 2160): the core log down the left (330–1700); composition | age across the top;
+//   seismograph (15 s) | tremor log; the catalog along the foot.
+// upright (2160 × 3120): the core log down the left (330–1376: a slimmer core, 1256 px of depth),
+//   composition over age in a 700 column beside it (1436–2136); the seismograph across the full
+//   width (20 s); the catalog beside the tremor log, on the same two columns and one 54 px grid.
+// ultrawide (5040 × 2160): wide's core log, composition, age and catalog in place; the seismograph
+//   runs on to 3816 (25 s); a new right column (3876–5016): the scanned interval's mean composition
+//   over a tremor log 15 rows long, with S–P and peak columns.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
 
 const PANEL = "#1c150c", GRID = "#3b2e1c", TRACK = "#2a2016";
 const HEX = { olive: "#a99a3a", butter: "#ffcc66", gold: "#d6a032", tan: "#c9a77c", sand: "#bdb497", peach: "#ffb070",
@@ -156,15 +171,16 @@ const dating = (u) => {
 
 // ---------------- status line ----------------
 const stateTxt = L.text({ x: 330, cap: 150, s: 100, c: "sand", txt: "" });
-const subTxt = L.text({ x: 1760, base: 222, s: 38, c: "tan", txt: "" });
-const quakePill = L.box({ x: 3416, y: 150, w: 400, h: 72, c: "sand", label: "", r: "lr", fs: 36, cls: "sw" });
+const subTxt = L.text({ x: UP ? 1024 : 1760, base: 222, s: 38, c: "tan", txt: "" });   // upright: flush with the density track below
+const PILLW = UP ? 360 : 400;                              // upright: the longest subtitle (≈ 690) still clears it by 65
+const quakePill = L.box({ x: B.x1 - PILLW, y: 150, w: PILLW, h: 72, c: "sand", label: "", r: "lr", fs: 36, cls: "sw" });
 
 // ================= the core sample log (left): the core, its units, two logs on one depth scale =================
-const LX0 = 330, LX1 = 1700, Y0 = 476, Y1 = 2004, PXM = (Y1 - Y0) / DEPTH;
-const DEP_R = 410, CORE_X = 440, CORE_W = 320, TAB_X = 784, TAB_W = 96, NAME_X = 904;
+const LX0 = 330, LX1 = UP ? 1376 : 1700, Y0 = 476, Y1 = UP ? 1732 : 2004, PXM = (Y1 - Y0) / DEPTH;
+const DEP_R = 410, CORE_X = 440, CORE_W = UP ? 240 : 320, TAB_X = UP ? 704 : 784, TAB_W = 96, NAME_X = UP ? 824 : 904;
 const TRK = [
-  { x: 1104, w: 286, lo: 1.5, hi: 3.5, labels: ["1.5", "2.5", "3.5"], key: "rho", amp: 0.025, ink: HEX.butter, cap: "Density  g/cc" },
-  { x: 1414, w: 286, lo: 0, hi: 8, labels: ["0", "4", "8"], key: "vp", amp: 0.09, ink: HEX.peach, cap: "Velocity  km/s" },
+  { x: UP ? 1024 : 1104, w: UP ? 164 : 286, lo: 1.5, hi: 3.5, labels: ["1.5", "2.5", "3.5"], key: "rho", amp: 0.025, ink: HEX.butter, cap: "Density  g/cc" },
+  { x: UP ? 1212 : 1414, w: UP ? 164 : 286, lo: 0, hi: 8, labels: ["0", "4", "8"], key: "vp", amp: 0.09, ink: HEX.peach, cap: "Velocity  km/s" },
 ];
 const INSET = 28;
 const tx = (T, v) => T.x + INSET + ((v - T.lo) / (T.hi - T.lo)) * (T.w - 2 * INSET);
@@ -172,8 +188,9 @@ const dy = (d) => Y0 + d * PXM;
 L.header({ x: LX0, y: 280, w: LX1 - LX0, label: "Core Sample Log", c1: "sand", c2: "tan" });
 [["Depth  m", LX0], ["Unit", TAB_X]].forEach(([txt, x]) => L.text({ x, base: 400, s: 36, c: "tan", txt }));
 L.text({ x: CORE_X + CORE_W / 2, base: 400, s: 36, c: "tan", txt: "Core", align: "c", w: CORE_W });
-TRK.forEach((T) => {
-  L.text({ x: T.x, base: 400, s: 36, c: "tan", txt: T.cap });
+TRK.forEach((T, i) => {
+  if (UP && i === 1) L.text({ x: T.x + T.w, base: 400, s: 36, c: "tan", txt: T.cap, align: "r" });   // flush with the column's edge
+  else L.text({ x: T.x, base: 400, s: 36, c: "tan", txt: T.cap });
   L.rect({ x: T.x, y: Y0, w: T.w, h: Y1 - Y0, c: PANEL });
   T.labels.forEach((txt, q) => L.text({ x: tx(T, T.lo + (q * (T.hi - T.lo)) / 2), base: 452, s: 30, c: "sand", txt, align: "c", w: 80, legend: true }));
 });
@@ -246,7 +263,7 @@ const loadSheet = (S, C) => {
   drawCore(S.cv, C);
   S.units.textContent = "";
   S.tabs = C.units.map((u) => {
-    const mid = ((u.top + u.bot) / 2) * PXM;
+    const mid0 = ((u.top + u.bot) / 2) * PXM, mid = mid0 + Math.max(0, 20 - mid0);   // never above the sheet's top
     const tab = L.box({ x: TAB_X - LX0, y: Math.round(mid - 20), w: TAB_W, h: 40, c: u.L.c, label: "U" + (u.i + 1), fs: 28, r: "lr", cls: "c sw" }, S.units);
     const name = L.text({ x: NAME_X - LX0, base: Math.round(mid + 11.5), s: 32, c: "sand", txt: u.name, cls: "sw" }, S.units);
     tab.classList.remove("boot"); name.classList.remove("boot");
@@ -265,7 +282,7 @@ const scanCore = fill(CORE_X - 8, Y0 - 2, CORE_W + 16, 4, "white");
 const scanLogs = fill(TRK[0].x, Y0 - 2, LX1 - TRK[0].x, 4, "white");
 
 // ================= mineral composition (top middle) =================
-const MX0 = 1760, MX1 = 2758, ROWB = (i) => 480 + i * 80;
+const MX0 = UP ? 1436 : 1760, MX1 = UP ? 2136 : 2758, ROWB = (i) => 480 + i * 80;
 L.header({ x: MX0, y: 280, w: MX1 - MX0, label: "Mineral Composition", c1: "tan", c2: "olive" });
 const unitCap = L.text({ x: MX0, base: 400, s: 36, c: "butter", txt: "" });
 L.text({ x: MX1, base: 400, s: 36, c: "tan", txt: "Percent by Mass", align: "r" });
@@ -280,34 +297,62 @@ const mins = MINERALS.map(([name, c], i) => {
 let compT0 = -9, compKey = null;
 
 // ================= radiometric age (top right) =================
-const AX0 = 2818, AX1 = 3816;
-L.header({ x: AX0, y: 280, w: AX1 - AX0, label: "Radiometric Age", c1: "peach", c2: "tan" });
+const AX0 = UP ? 1436 : 2818, AX1 = UP ? 2136 : 3816, AROW = UP ? (i) => 1240 + i * 80 : ROWB, ACAPB = UP ? 1160 : 400;
+if (!UP && !UW) L.header({ x: AX0, y: 280, w: AX1 - AX0, label: "Radiometric Age", c1: "peach", c2: "tan" });
 const ACAP = ["Method", "Daughter / Parent", "Age  Myr", "Error"];
 const acols = columns(AX0, AX1, [widest(METHODS.map((m) => m.name).concat("Best Estimate"), 40), L.textWidth("0.00000000", 40),
-  Math.max(L.textWidth("Below Range", 40), L.textWidth("8,888", 52)), L.textWidth("Error", 36)]);
-ACAP.forEach((txt, j) => L.text({ x: j ? acols[j][1] : acols[0][0], base: 400, s: 36, c: "tan", txt, align: j ? "r" : "l" }));
+  Math.max(L.textWidth("Below Range", 40), L.textWidth("8,888", 52)), UP ? 100 : L.textWidth("Error", 36)]);   // upright: room for "324.0", and Age clear of the header's edge
+if (UP || UW) L.header({ x: AX0, y: UP ? 1040 : 280, w: AX1 - AX0, label: "Radiometric Age", c1: "peach", c2: "tan", lw: acols[0][1] - AX0 });   // the pill spans the method column
+ACAP.forEach((txt, j) => L.text({ x: j ? acols[j][1] : acols[0][0], base: ACAPB, s: 36, c: "tan", txt, align: j ? "r" : "l" }));
 const arows = METHODS.map((m, i) => {
-  L.text({ x: AX0, base: ROWB(i), s: 40, c: "peach", txt: m.name });
-  return [1, 2, 3].map((j) => L.text({ x: acols[j][1], base: ROWB(i), s: 40, c: j === 2 ? "white" : "sand", txt: "", align: "r", cls: "fd sw" }));
+  L.text({ x: AX0, base: AROW(i), s: 40, c: "peach", txt: m.name });
+  return [1, 2, 3].map((j) => L.text({ x: acols[j][1], base: AROW(i), s: 40, c: j === 2 ? "white" : "sand", txt: "", align: "r", cls: "fd sw" }));
 });
-L.rect({ x: AX0, y: ROWB(3) + 21, w: AX1 - AX0, h: 3, c: "tan", noalign: true });
-L.text({ x: AX0, base: ROWB(4), s: 40, c: "butter", txt: "Best Estimate" });
-const bestConc = L.text({ x: acols[1][1], base: ROWB(4), s: 40, c: "sand", txt: "", align: "r", cls: "fd" });
-const bestAge = L.text({ x: acols[2][1], base: ROWB(4), s: 52, c: "butter", txt: "", align: "r", cls: "fd" });
-const bestErr = L.text({ x: acols[3][1], base: ROWB(4), s: 40, c: "sand", txt: "", align: "r", cls: "fd" });
-L.text({ x: AX0, base: ROWB(5), s: 40, c: "peach", txt: "Unit Interval" });
-const ivVal = L.text({ x: AX1, base: ROWB(5), s: 40, c: "white", txt: "", align: "r", cls: "fd" });
-L.text({ x: AX0, base: ROWB(6), s: 40, c: "peach", txt: "Origin" });
-const orVal = L.text({ x: AX1, base: ROWB(6), s: 40, c: "white", txt: "", align: "r", cls: "fd" });
+L.rect({ x: AX0, y: AROW(3) + 21, w: AX1 - AX0, h: 3, c: "tan", noalign: true });
+L.text({ x: AX0, base: AROW(4), s: 40, c: "butter", txt: "Best Estimate" });
+const bestConc = L.text({ x: acols[1][1], base: AROW(4), s: 40, c: "sand", txt: "", align: "r", cls: "fd" });
+const bestAge = L.text({ x: acols[2][1], base: AROW(4), s: 52, c: "butter", txt: "", align: "r", cls: "fd" });
+const bestErr = L.text({ x: acols[3][1], base: AROW(4), s: 40, c: "sand", txt: "", align: "r", cls: "fd" });
+L.text({ x: AX0, base: AROW(5), s: 40, c: "peach", txt: "Unit Interval" });
+const ivVal = L.text({ x: AX1, base: AROW(5), s: 40, c: "white", txt: "", align: "r", cls: "fd" });
+L.text({ x: AX0, base: AROW(6), s: 40, c: "peach", txt: "Origin" });
+const orVal = L.text({ x: AX1, base: AROW(6), s: 40, c: "white", txt: "", align: "r", cls: "fd" });
 const ageCells = [...arows.flat(), bestConc, bestAge, bestErr, ivVal, orVal];
 let ageKey = null, ageShown = null, ageT0 = 0;
 
+// ================= ultrawide: the scanned interval's mean composition (top right) =================
+// every unit the scanner has passed, weighted by its thickness: the core's bulk assay, building up
+const meanComp = (C, d) => {
+  const D = Math.max(d, 0.5), out = MINERALS.map(() => 0);
+  for (const u of C.units) {
+    const th = Math.min(u.bot, D) - u.top;
+    if (th <= 0) break;
+    u.comp.forEach((p, i) => (out[i] += p * th));
+  }
+  return out.map((p) => p / D);
+};
+const AV = UW ? (() => {
+  const X0 = 3876, X1 = 5016;
+  L.header({ x: X0, y: 280, w: X1 - X0, label: "Scanned Interval", c1: "sand", c2: "olive" });
+  const cap = L.text({ x: X0, base: 400, s: 36, c: "butter", txt: "" });
+  L.text({ x: X1, base: 400, s: 36, c: "tan", txt: "Mean Percent by Mass", align: "r" });
+  const BX = X0 + Math.ceil(widest(MINERALS.map((m) => m[0]), 40) / 10) * 10 + 40, BW = X1 - MVW - 40 - BX;
+  const rows = MINERALS.map(([name, c], i) => {
+    const base = ROWB(i);
+    L.text({ x: X0, base, s: 40, c: "tan", txt: name });
+    L.rect({ x: BX, y: base - 30, w: BW, h: 30, c: TRACK });
+    return { bar: fill(BX, base - 30, BW, 30, c), val: L.text({ x: X1, base, s: 52, c: "white", txt: "", align: "r" }), v: 0, from: 0, drawn: -1 };
+  });
+  return { cap, rows, k: null, t0: -9 };
+})() : null;
+
 // ================= seismic readings (middle) =================
-const SX0 = 1760, SX1 = 3196, PT = 1188, CHH = 104, CHP = 120, NCH = 3;
-const STX = SX0 + 240 + L.GAP, STW = SX1 - STX, WIN = 15;
-L.header({ x: SX0, y: 1040, w: SX1 - SX0, label: "Seismic Readings", c1: "sand", c2: "tan" });
-L.text({ x: SX0, base: 1160, s: 36, c: "tan", txt: "Drema IV Surface Network  ·  Ground Velocity, Micrometres per Second" });
-L.text({ x: SX1, base: 1160, s: 36, c: "tan", txt: "Last 15 Seconds", align: "r" });
+const SX0 = UP ? 330 : 1760, SX1 = UP ? 2136 : UW ? 3816 : 3196, PT = UP ? 1946 : 1188, CHH = 104, CHP = 120, NCH = 3;
+const STX = SX0 + 240 + L.GAP, STW = SX1 - STX, WIN = UP ? 20 : UW ? 25 : 15;   // about 72–78 px a second in every shape
+const SCAPB = UP ? 1918 : 1160, SLABB = UP ? 2338 : 1580;
+L.header({ x: SX0, y: UP ? 1798 : 1040, w: SX1 - SX0, label: "Seismic Readings", c1: "sand", c2: "tan", ...(UP || UW ? { lw: 240 } : {}) });   // new shapes: the pill spans the station tabs
+L.text({ x: SX0, base: SCAPB, s: 36, c: "tan", txt: "Drema IV Surface Network  ·  Ground Velocity, Micrometres per Second" });
+L.text({ x: SX1, base: SCAPB, s: 36, c: "tan", txt: `Last ${WIN} Seconds`, align: "r" });
 const STATIONS = [
   { name: "Kessik Rift", c: "butter", ink: HEX.butter, ph: [0.3, 2.1, 4.4] },
   { name: "Tal Plateau", c: "peach", ink: HEX.peach, ph: [1.7, 0.6, 3.2] },
@@ -321,9 +366,11 @@ STATIONS.forEach((st, i) => {
   for (let q = 1; q < WIN; q++) L.rect({ x: Math.round(STX + (STW * q) / WIN) - 1, y, w: 2, h: CHH, c: q % 5 ? "#271e12" : GRID, free: true });
   L.rect({ x: STX, y: y + CHH / 2 - 1, w: STW, h: 2, c: GRID, free: true });
 });
-["15 s", "10 s", "5 s", "Now"].forEach((txt, q) => {
-  const x = STX + (STW * q) / 3;
-  L.text({ x, base: 1580, s: 30, c: "tan", txt, align: q === 0 ? "l" : q === 3 ? "r" : "c", w: 120, legend: true });
+const TLAB = UP ? ["20 s", "15 s", "10 s", "5 s", "Now"] : UW ? ["25 s", "20 s", "15 s", "10 s", "5 s", "Now"] : ["15 s", "10 s", "5 s", "Now"];
+const NLAB = TLAB.length - 1;
+TLAB.forEach((txt, q) => {
+  const x = STX + (STW * q) / NLAB;
+  L.text({ x, base: SLABB, s: 30, c: "tan", txt, align: q === 0 ? "l" : q === NLAB ? "r" : "c", w: 120, legend: true });
 });
 // tremors: a seeded sequence; each reaches the stations in turn, P wave then S wave
 const quakes = [];
@@ -339,7 +386,7 @@ const makeQuake = (T) => {
 { // the history before the screen came on
   let T = qNext;
   const past = [];
-  for (let j = 0; j < 8; j++) { T -= 26 + qr() * 34; past.unshift(makeQuake(T)); }
+  for (let j = 0; j < (UW ? 16 : 8); j++) { T -= 26 + qr() * 34; past.unshift(makeQuake(T)); }   // enough to fill the log
   quakes.push(...past);
 }
 const quakesTo = (s) => { while (qNext < s + 30) { quakes.push(makeQuake(qNext)); qNext += 26 + qr() * 34; } };
@@ -398,24 +445,38 @@ const placeTiles = () => tiles.forEach((tile) => (tile.cv.style.transform = `tra
 tiles.forEach((c) => (c.onResize = () => { filled = false; }));   // a resize wipes the canvases: refill them
 
 // ================= tremor log (middle right) =================
-const TX0 = 3256, TX1 = 3816, TROW = (i) => 1236 + i * 54, NT = 6;
-L.header({ x: TX0, y: 1040, w: TX1 - TX0, label: "Tremor Log", c1: "olive", c2: "sand" });
-const TCAP = ["Time", "Mag", "Depth", "Nearest"];
-const tcols = columns(TX0, TX1, [L.textWidth("00:00:00", 36), L.textWidth("Mag", 36) + 10, L.textWidth("28 km", 36), widest(STATIONS.map((s) => s.name), 36)]);
-TCAP.forEach((txt, j) => L.text({ x: j ? tcols[j][1] : tcols[0][0], base: 1160, s: 36, c: "tan", txt, align: j ? "r" : "l" }));
-const TCOL = ["sand", "white", "sand", "tan"];
+const TX0 = UP ? 1436 : UW ? 3876 : 3256, TX1 = UP ? 2136 : UW ? 5016 : 3816, TROW = UP ? (i) => 2574 + i * 54 : (i) => 1236 + i * 54, NT = UP ? 8 : UW ? 15 : 6;
+L.header({ x: TX0, y: UP ? 2378 : 1040, w: TX1 - TX0, label: "Tremor Log", c1: "olive", c2: "sand" });
+// ultrawide adds each tremor's S–P interval and peak ground velocity at its nearest station
+const cw = (cap, sample) => Math.max(L.textWidth(cap, 36), L.textWidth(sample, 36));
+const TCAP = UW ? ["Time", "Mag", "Depth", "S–P", "Peak", "Nearest"] : ["Time", "Mag", "Depth", "Nearest"];
+const tcols = columns(TX0, TX1, UW
+  ? [L.textWidth("00:00:00", 36), L.textWidth("Mag", 36) + 10, L.textWidth("28 km", 36), cw("S–P", "8.8 s"), cw("Peak", "188.8"), widest(STATIONS.map((s) => s.name), 36)]
+  : [L.textWidth("00:00:00", 36), L.textWidth("Mag", 36) + 10, L.textWidth("28 km", 36), widest(STATIONS.map((s) => s.name), 36)]);
+TCAP.forEach((txt, j) => L.text({ x: j ? tcols[j][1] : tcols[0][0], base: UP ? 2498 : 1160, s: 36, c: "tan", txt, align: j ? "r" : "l" }));
+const TCOL = UW ? ["sand", "white", "sand", "sand", "sand", "tan"] : ["sand", "white", "sand", "tan"];
+const peakOf = (q) => {                                   // the highest level its nearest station read
+  if (q.peak === undefined) { const a = q.arr[q.e]; q.peak = 0; for (let x = 0; x <= 12; x += 0.05) q.peak = Math.max(q.peak, level(q.e, a.tp + x, [q])); }
+  return q.peak < 10 ? q.peak.toFixed(2) : q.peak.toFixed(1);
+};
 const trows = Array.from({ length: NT }, (_, i) => TCAP.map((_, j) =>
   L.text({ x: j ? tcols[j][1] : tcols[0][0], base: TROW(i), s: 36, c: TCOL[j], txt: "", align: j ? "r" : "l", cls: "fd" })));
 const wall0 = Date.now();
 const clockOf = (T) => { const d = new Date(wall0 + T * 1000); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`; };
-let loggedN = -1;
+let loggedN = -1, qGone = 0;                              // qGone: logged tremors dropped from the front of quakes
 const showTremors = (s, fade) => {
   const done = quakes.filter((q) => q.logT <= s);
-  if (done.length === loggedN) return;
-  loggedN = done.length;
+  if (qGone + done.length === loggedN) return;
+  loggedN = qGone + done.length;
+  // forget tremors off the foot of the log and out of every trace (the traces' clock, simT, can trail s after a
+  // pause in animation frames; a refill reaches back WIN + 40 s)
+  let drop = 0;
+  while (drop < done.length - NT - 2 && quakes[drop].T < Math.min(s, simT) - WIN - 120) drop++;
+  if (drop) { quakes.splice(0, drop); qGone += drop; }
   const put = () => trows.forEach((row, i) => {
     const q = done[done.length - 1 - i];
-    const cells = q ? [clockOf(q.T), q.M.toFixed(1), Math.round(q.depth) + " km", STATIONS[q.e].name] : ["", "", "", ""];
+    const cells = UW ? (q ? [clockOf(q.T), q.M.toFixed(1), Math.round(q.depth) + " km", (q.arr[q.e].ts - q.arr[q.e].tp).toFixed(1) + " s", peakOf(q), STATIONS[q.e].name] : TCAP.map(() => ""))
+      : q ? [clockOf(q.T), q.M.toFixed(1), Math.round(q.depth) + " km", STATIONS[q.e].name] : ["", "", "", ""];
     row.forEach((e, j) => L.set(e, cells[j]));
     row[1].style.color = q && q.M >= 2.5 ? "var(--orange)" : "var(--white)";
   });
@@ -425,14 +486,15 @@ const showTremors = (s, fade) => {
 };
 
 // ================= sample catalog (bottom) =================
-const CX0 = 1760, CX1 = 3816, CROW = (i) => 1776 + i * 54, NC = 5;
-L.header({ x: CX0, y: 1620, w: CX1 - CX0, label: "Sample Catalog", c1: "tan", c2: "peach", h: 48 });
+const CX0 = UP ? 330 : 1760, CX1 = UP ? 1376 : 3816, CROW = UP ? (i) => 2574 + i * 54 : (i) => 1776 + i * 54, NC = UP ? 8 : 5, CBACK = UP ? 5 : 2;
+if (UP) L.header({ x: CX0, y: 2378, w: CX1 - CX0, label: "Sample Catalog", c1: "tan", c2: "peach" });   // beside the tremor log's header
+else L.header({ x: CX0, y: 1620, w: CX1 - CX0, label: "Sample Catalog", c1: "tan", c2: "peach", h: 48 });
 const CCAP = ["Sample", "Bore Site", "Units", "Oldest Unit", "Peak Dilithium", "Mean Density", "Status"];
 const CSAMPLE = ["DR4-0000", widest(SITES, 36), "10", "2,888 Myr", "14.8%", "2.88 g/cc", "Scanning 100%"];
 const ccols = columns(CX0, CX1, CCAP.map((c, j) => Math.max(L.textWidth(c, 36), typeof CSAMPLE[j] === "number" ? CSAMPLE[j] : L.textWidth(CSAMPLE[j], 36))));
 const CALIGN = ["l", "l", "r", "r", "r", "r", "r"];
 const cx = (j) => (CALIGN[j] === "l" ? ccols[j][0] : ccols[j][1]);
-CCAP.forEach((txt, j) => L.text({ x: cx(j), base: 1716, s: 36, c: "tan", txt, align: CALIGN[j] }));
+CCAP.forEach((txt, j) => L.text({ x: cx(j), base: UP ? 2498 : UW ? 1722 : 1716, s: 36, c: "tan", txt, align: CALIGN[j] }));
 const crows = Array.from({ length: NC }, (_, i) => CCAP.map((_, j) =>
   L.text({ x: cx(j), base: CROW(i), s: 36, c: "sand", txt: "", align: CALIGN[j], cls: "fd sw" })));
 let catK = null;
@@ -451,7 +513,7 @@ const catCells = (k, kNow) => {
 let catLogged = false;
 const showCatalog = (kNow, u) => {
   crows.forEach((row, i) => {
-    const k = kNow - 2 + i, cells = catCells(k, kNow), [st, sc] = catStatus(k, kNow, u);
+    const k = kNow - CBACK + i, cells = catCells(k, kNow), [st, sc] = catStatus(k, kNow, u);
     cells.forEach((v, j) => L.set(row[j], v));
     L.set(row[6], st); row[6].style.color = col(sc);
     const cur = k === kNow;
@@ -501,6 +563,16 @@ L.tick((t) => {
     const w = (m.v / 100).toFixed(4);
     if (w !== m.drawn) { m.drawn = w; m.bar.style.transform = `scaleX(${w})`; }
   });
+  if (AV) {                                              // the running mean follows the scanner; a new core eases in
+    const tgt = meanComp(C, sc * DEPTH);
+    if (AV.k !== C.k) { AV.k = C.k; AV.t0 = t; AV.rows.forEach((m) => (m.from = m.v)); }
+    const e = L.ease(L.clamp((t - AV.t0) / 1.6));
+    AV.rows.forEach((m, i) => {
+      m.v = L.mix(m.from, tgt[i], e);
+      const w = (m.v / 100).toFixed(4);
+      if (w !== m.drawn) { m.drawn = w; m.bar.style.transform = `scaleX(${w})`; }
+    });
+  }
   // the seismic traces
   quakesTo(s);
   if (!filled) {                                         // start with the window already full, ending now
@@ -523,6 +595,10 @@ L.every(250, (t) => {
   // composition values: the same eased numbers as the bars
   mins.forEach((m) => L.set(m.val, m.v.toFixed(1) + "%"));
   L.set(unitCap, `Unit U${U.i + 1}  ·  ${U.name}`);
+  if (AV) {
+    AV.rows.forEach((m) => L.set(m.val, m.v.toFixed(1) + "%"));
+    L.set(AV.cap, `Core ${C.id}  ·  0 – ${Math.max(sc * DEPTH, 0.5).toFixed(1)} m`);   // the depth meanComp averages over
+  }
   // ages: swapped with a fade when the unit changes; errors shrink as counts build
   const key = C.k + ":" + U.i;
   const writeAges = () => {

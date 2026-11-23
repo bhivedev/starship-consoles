@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Guest Quarters</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* swapped text dips and comes back; .boot (the start-up cascade) always wins */
@@ -17,14 +18,28 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: a bracket, title centred ----------------
-L.frame({ type: "C", title: "Guest Quarters  •  VIP Accommodations", c: "peach", c2: "lilac", accent: "plum", foot: "Quarters",
+const B = L.frame({ type: "C", title: "Guest Quarters  •  VIP Accommodations", c: "peach", c2: "lilac", accent: "plum", foot: "Quarters",
   side: [[140, "lilac", "Deck 06"], [70, "plum", "0601"], [420, "peach", "Quarters"], [70, "lilac", "10"], [300, "plum", "Climate"],
          [70, "peach", "05"], [216, "lilac", "Log"]],
   side2: [[140, "plum", "VIP"], [70, "peach", "4412"], [420, "lilac", "Arrivals"], [70, "plum", "18"], [300, "peach", "Species"],
           [70, "lilac", "P2"], [216, "plum", "Protocol"]] });
 
-// Two equal columns; the bottom strip splits under them.
-const LX = 220, LR = 1880, RX = 1960, RR = 3620;
+// ---------------- the grid, per shape ----------------
+// The data, readings and motion are written once; only positions and sizes differ by shape.
+// wide (3840 × 2160): two equal columns (220–1880 | 1960–3620): the plan over environment control
+//   on the left, arrivals over species preferences on the right; the bottom strip splits in three.
+// upright (2160 × 3120): the plan across the top at full width (its rows where wide has them), then
+//   arrivals at full width on the 76 grid, environment control beside the arrival protocol, species
+//   preferences beside section status (strip rows), and the services log across the foot. The
+//   paired panels split 220–1300 | 1380–1940. Suites Occupied leaves the status line (Section
+//   Status counts them, and the plan shows each suite's state).
+// ultrawide (5040 × 2160): the wide layout unchanged, plus a third column (3700–4820) of things
+//   wide has no room for: the day's occupancy by suite, services by department, arrival points.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const LX = 220, LR = UP ? B.x1 : 1880, RX = UP ? LX : 1960, RR = UP ? B.x1 : 3620;
+const PCR = 1300, PCX = 1380;                                               // upright: the paired panels' edges
+const bad = [];                                                             // words that would not fit their places
+const fits = (txt, s, w, where) => { if (!UP && !UW) return; if (L.textWidth(txt, s) > w) bad.push(`${where}: "${txt}"`); };
 const ROW0 = 428, PITCH = 88, rowBase = (i) => ROW0 + i * PITCH + 52.5;   // rows of 64 on an 88 grid
 const MID = (i) => 1236 + i * 76;                                           // the middle band's baselines
 const STRIP = (i) => 1734 + i * 54;                                         // the bottom strip's
@@ -121,11 +136,22 @@ const WORDS = ["Preparing", "Verifying", "Resetting", "Suite Ready", "Within Lim
 const SUBX = LX + Math.max(...WORDS.map((w) => L.textWidth(w, 100))) + 56;
 const state = cls(L.text({ x: LX, cap: 150, s: 100, c: "peach", txt: "" }), "sw");
 const stateSub = cls(L.text({ x: SUBX, base: 222, s: 38, c: "lilac", txt: "" }), "sw");
+let guestsBig, occBig = null, sdBig = null;
+const GUX = RR - 124;                                    // upright: the label ends 124 short of the edge (not a near miss)
+if (UP) {                                                // upright: the subtitle on the state's line, then guests aboard
+  L.text({ x: GUX - L.textWidth("Guests Aboard", 40), base: 222, s: 40, c: "peach", txt: "Guests Aboard" });
+  guestsBig = L.text({ x: RR, cap: 150, s: 100, c: "white", txt: "", align: "r" });
+} else {
 L.text({ x: RX, base: 222, s: 40, c: "peach", txt: "Guests Aboard" });
-const guestsBig = L.text({ x: RX + L.textWidth("Guests Aboard", 40) + 36, cap: 150, s: 100, c: "white", txt: "" });
+guestsBig = L.text({ x: RX + L.textWidth("Guests Aboard", 40) + 36, cap: 150, s: 100, c: "white", txt: "" });
 L.text({ x: 2560, base: 222, s: 40, c: "peach", txt: "Suites Occupied" });
-const occBig = L.text({ x: 2560 + L.textWidth("Suites Occupied", 40) + 36, cap: 150, s: 100, c: "white", txt: "" });
-L.box({ x: RR - 480, y: 150, w: 480, h: 72, c: "plum", label: "Deck 06  ·  VIP Section", r: "lr", fs: 36 });
+occBig = L.text({ x: 2560 + L.textWidth("Suites Occupied", 40) + 36, cap: 150, s: 100, c: "white", txt: "" });
+L.box({ x: (UW ? B.x1 : RR) - 480, y: 150, w: 480, h: 72, c: "plum", label: "Deck 06  ·  VIP Section", r: "lr", fs: 36 });
+}
+if (UW) {                                                // ultrawide: the stardate over the third column
+  L.text({ x: 3700, base: 222, s: 40, c: "peach", txt: "Stardate" });
+  sdBig = L.text({ x: 3700 + L.textWidth("Stardate", 40) + 36, cap: 150, s: 100, c: "white", txt: "" });
+}
 
 // ---------------- the quarters: a plan of the section ----------------
 L.header({ x: LX, y: 280, w: LR - LX, label: "VIP Quarters  ·  Deck 06  ·  Section A", c1: "peach", c2: "lilac" });
@@ -139,7 +165,7 @@ L.header({ x: LX, y: 280, w: LR - LX, label: "VIP Quarters  ·  Deck 06  ·  Sec
     x += 28 + 72;
   });
 }
-const SX0 = LX + 120 + L.GAP, SW = 284, SG = 24, BODY = 184, BARH = 48;
+const SX0 = LX + 120 + L.GAP, SW = UP ? (LR - (LX + 120 + L.GAP) - 4 * 24) / 5 : 284, SG = 24, BODY = 184, BARH = 48;
 const CORY = 692, CORH = 64, CORC = CORY + CORH / 2;
 L.box({ x: LX, y: ROW0, w: 120, h: 1020 - ROW0, c: "peach", label: "Lift", fs: 30 });
 L.rect({ x: SX0, y: CORY, w: LR - SX0, h: CORH, c: TRACK });
@@ -189,18 +215,22 @@ L.tick((t) => {
 const LIFTX = SX0 + 24;
 
 // ---------------- arrivals and departures: seven rows, the next one third ----------------
-const TB = 160, TRX = RX + TB + L.GAP, NROW = 7, CUR = 2, TRE = RR - 330, TKE = TRE - 150;
-L.header({ x: RX, y: 280, w: RR - RX, label: "Arrivals  ·  Departures  ·  Today", c1: "lilac", c2: "peach" });
-L.text({ x: RX, base: 400, s: 36, c: "peach", txt: "Time" });
-L.text({ x: TRX + 48, base: 400, s: 36, c: "peach", txt: "Guest Party" });
-L.text({ x: TRE, base: 400, s: 36, c: "peach", txt: "Suite", align: "r" });
-L.text({ x: RR, base: 400, s: 36, c: "peach", txt: "Via", align: "r" });
-for (let i = 0; i < NROW; i++) L.rect({ x: TRX, y: ROW0 + i * PITCH, w: TKE - TRX, h: 64, c: TRACK });
-const progress = fill(TRX, ROW0 + CUR * PITCH, TKE - TRX, 64, "#4a3036");
+// upright: below the plan at full width, five rows of 56 on the 76 grid (the next one third)
+const TB = 160, TRX = RX + TB + L.GAP, NROW = UP ? 5 : 7, CUR = 2, TRE = RR - 330, TKE = TRE - 150;
+const AHY = UP ? 1064 : 280, ACAP = UP ? 1176 : 400, AH = UP ? 56 : 64;
+const atop = UP ? (i) => MID(i) - 45 : (i) => ROW0 + i * PITCH, abase = UP ? MID : rowBase;
+L.header({ x: RX, y: AHY, w: RR - RX, label: "Arrivals  ·  Departures  ·  Today", c1: "lilac", c2: "peach" });
+L.text({ x: RX, base: ACAP, s: 36, c: "peach", txt: "Time" });
+L.text({ x: TRX + 48, base: ACAP, s: 36, c: "peach", txt: "Guest Party" });
+L.text({ x: TRE, base: ACAP, s: 36, c: "peach", txt: "Suite", align: "r" });
+L.text({ x: RR, base: ACAP, s: 36, c: "peach", txt: "Via", align: "r" });
+for (let i = 0; i < NROW; i++) L.rect({ x: TRX, y: atop(i), w: TKE - TRX, h: AH, c: TRACK });
+const progress = fill(TRX, atop(CUR), TKE - TRX, AH, "#4a3036");
+SUITES.forEach((s) => { fits(s.party + "  ·  Arrives", 40, TKE - TRX - 48 - 24, "party"); fits(s.av || "", 36, RR - TRE - 40, "via"); fits(s.dv || "", 36, RR - TRE - 40, "via"); });
 const srows = Array.from({ length: NROW }, (_, i) => {
-  const base = rowBase(i);
+  const base = abase(i);
   return {
-    box: cls(L.box({ x: RX, y: ROW0 + i * PITCH, w: TB, h: 64, c: "lilac", label: "", fs: 32, r: "l" }), "sw"),
+    box: cls(L.box({ x: RX, y: atop(i), w: TB, h: AH, c: "lilac", label: "", fs: 32, r: "l" }), "sw"),
     name: cls(L.text({ x: TRX + 48, base, s: 40, c: "white", txt: "", on: true }), "sw"),
     kind: cls(L.text({ x: 0, base, s: 36, c: "lilac", txt: "", on: true }), "sw"),
     suite: cls(L.text({ x: TRE, base, s: 36, c: "peach", txt: "", align: "r" }), "sw"),
@@ -223,14 +253,17 @@ const showSchedule = (k) => srows.forEach((r, i) => {
 });
 
 // ---------------- suite environment: the suite being worked on ----------------
-const NX = LX, BX0 = 500, BX1 = 1120, AX = 1340, TX = 1530, PX = 1590, PW = LR - PX;
-L.header({ x: LX, y: 1064, w: LR - LX, label: "Suite Environment  ·  Control", c1: "lilac", c2: "peach" });
-const envCap = cls(L.text({ x: LX, base: 1176, s: 36, c: "peach", txt: "" }), "sw");
-L.text({ x: AX, base: 1176, s: 36, c: "peach", txt: "Actual", align: "r" });
-L.text({ x: TX, base: 1176, s: 36, c: "peach", txt: "Target", align: "r" });
-L.text({ x: PX, base: 1176, s: 36, c: "peach", txt: "State" });
+// upright: the left of a pair (220–1300), the arrival protocol beside it
+const NX = LX, BX0 = UP ? 400 : 500, BX1 = UP ? 650 : 1120, AX = UP ? 840 : 1340, TX = UP ? 980 : 1530, PX = UP ? 1020 : 1590, PW = (UP ? PCR : LR) - PX;
+const EHY = UP ? 1596 : 1064, ECAP = UP ? 1708 : 1176, EMID = UP ? (i) => 1768 + i * 76 : MID;
+L.header({ x: LX, y: EHY, w: (UP ? PCR : LR) - LX, label: "Suite Environment  ·  Control", c1: "lilac", c2: "peach" });
+const envCap = cls(L.text({ x: LX, base: ECAP, s: 36, c: "peach", txt: "" }), "sw");
+L.text({ x: AX, base: ECAP, s: 36, c: "peach", txt: "Actual", align: "r" });
+L.text({ x: TX, base: ECAP, s: 36, c: "peach", txt: "Target", align: "r" });
+L.text({ x: PX, base: ECAP, s: 36, c: "peach", txt: "State" });
+SUITES.forEach((s) => fits(`Suite ${s.id}  ·  ${s.short}  ·  5 of 5 at target`, 36, AX - L.textWidth("Actual", 36) - 40 - LX, "environment caption"));
 const crows = CH.map((ch, i) => {
-  const base = MID(i);
+  const base = EMID(i);
   L.text({ x: NX, base, s: 40, c: "lilac", txt: ch.name });
   L.rect({ x: BX0, y: base - 26, w: BX1 - BX0, h: 26, c: TRACK });
   [0.25, 0.5, 0.75].forEach((k) => L.rect({ x: BX0 + k * (BX1 - BX0) - 1, y: base - 26, w: 2, h: 26, c: "#45333a", free: true }));
@@ -247,17 +280,20 @@ const crows = CH.map((ch, i) => {
 const norm = (i, v) => L.clamp((v - CH[i].lo) / (CH[i].hi - CH[i].lo));
 
 // ---------------- preferences by species: two pages of five ----------------
-const SPX = RX, SPW = 240, ATX = RX + SPW + 48, COLS = [2900, 3110, 3270, 3440, RR];
-const PG = 80;
-L.header({ x: RX, y: 1064, w: RR - RX - 2 * (PG + L.GAP), label: "Environmental Preferences  ·  By Species", c1: "peach", c2: "lilac" });
-const pageBox = [0, 1].map((p) => L.box({ x: RR - (2 - p) * PG - (1 - p) * L.GAP, y: 1064, w: PG, h: 56, c: "plum", label: pad2(p + 1), fs: 32, cls: "pill" }));
-L.text({ x: SPX, base: 1176, s: 36, c: "peach", txt: "Species" });
-L.text({ x: ATX, base: 1176, s: 36, c: "peach", txt: "Atmosphere" });
-["Gravity", "Pressure", "Temp", "Humidity", "Light"].forEach((txt, i) => L.text({ x: COLS[i], base: 1176, s: 36, c: "peach", txt, align: "r" }));
+// upright: the left of a pair (220–1300) in strip rows of 54, section status beside it
+const SPX = RX, SPW = UP ? 200 : 240, ATX = RX + SPW + (UP ? 32 : 48), COLS = UP ? [760, 900, 1030, 1160, PCR] : [2900, 3110, 3270, 3440, RR];
+const PG = 80, SPR = UP ? PCR : RR, SHY = UP ? 2140 : 1064, SHH = UP ? 48 : 56;
+const SCAP = UP ? 2254 : 1176, SMID = UP ? (i) => 2308 + i * 54 : MID, SBH = UP ? 40 : 56, SBT = UP ? 34 : 45;
+L.header({ x: RX, y: SHY, w: SPR - RX - 2 * (PG + L.GAP), label: "Environmental Preferences  ·  By Species", c1: "peach", c2: "lilac", h: UP ? SHH : undefined });
+const pageBox = [0, 1].map((p) => L.box({ x: SPR - (2 - p) * PG - (1 - p) * L.GAP, y: SHY, w: PG, h: SHH, c: "plum", label: pad2(p + 1), fs: UP ? 28 : 32, cls: "pill" }));
+L.text({ x: SPX, base: SCAP, s: 36, c: "peach", txt: "Species" });
+L.text({ x: ATX, base: SCAP, s: 36, c: "peach", txt: "Atmosphere" });
+["Gravity", "Pressure", "Temp", "Humidity", "Light"].forEach((txt, i) => L.text({ x: COLS[i], base: SCAP, s: 36, c: "peach", txt, align: "r" }));
+SPECIES.forEach((s) => { fits(s.atmos, 36, COLS[0] - L.textWidth("1.30 G", 40) - 40 - ATX, "atmosphere"); fits(s.name, UP ? 28 : 30, SPW - 40, "species"); });
 const prow = Array.from({ length: 5 }, (_, i) => {
-  const base = MID(i);
+  const base = SMID(i);
   return {
-    box: cls(L.box({ x: SPX, y: base - 45, w: SPW, h: 56, c: "peach", label: "", fs: 30, r: "l" }), "sw", "pill"),
+    box: cls(L.box({ x: SPX, y: base - SBT, w: SPW, h: SBH, c: "peach", label: "", fs: UP ? 28 : 30, r: "l" }), "sw", "pill"),
     atmos: cls(L.text({ x: ATX, base, s: 36, c: "lilac", txt: "" }), "sw"),
     vals: COLS.map((x) => cls(L.text({ x, base, s: 40, c: "white", txt: "", align: "r" }), "sw")),
   };
@@ -282,18 +318,30 @@ const markSpecies = () => prow.forEach((r, i) => {
 });
 
 // ---------------- bottom strip: the guest services log ----------------
-L.header({ x: LX, y: 1620, w: LR - LX, label: "Guest Services Log", c1: "peach", c2: "lilac", h: 48 });
-const LWX = 1320;
+// upright: across the foot of the page
+const LHY = UP ? 2576 : 1620, LSTRIP = UP ? (i) => 2690 + i * 54 : STRIP;
+L.header({ x: LX, y: LHY, w: LR - LX, label: "Guest Services Log", c1: "peach", c2: "lilac", h: 48 });
+const LWX = UP ? PCX : 1320;
 const logRows = Array.from({ length: 6 }, (_, i) => ({
-  sd: L.text({ x: LX, base: STRIP(i), s: 36, c: "peach", txt: "" }),
-  tx: L.text({ x: LX + 180, base: STRIP(i), s: 36, c: "lilac", txt: "" }),
-  wh: L.text({ x: LWX, base: STRIP(i), s: 36, c: "pink", txt: "" }),
-  by: L.text({ x: LR, base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }) }));
+  sd: L.text({ x: LX, base: LSTRIP(i), s: 36, c: "peach", txt: "" }),
+  tx: L.text({ x: LX + 180, base: LSTRIP(i), s: 36, c: "lilac", txt: "" }),
+  wh: L.text({ x: LWX, base: LSTRIP(i), s: 36, c: "pink", txt: "" }),
+  by: L.text({ x: LR, base: LSTRIP(i), s: 36, c: "white", txt: "", align: "r" }) }));
+{ // every sentence the log can write, against its column
+  const w = LWX - 40 - (LX + 180), all = [];
+  SUITES.forEach((s) => {
+    if (s.A !== null) all.push(`${s.party} aboard, ${s.av}`, `${s.party} departed, ${s.dv}`);
+    all.push(`Preparing for ${s.sp.toLowerCase()} guests`, `Suite ready for ${s.party.split(" & ")[0].replace(/ (delegation|mission|envoy|officers|exchange officers|trade mission)$/i, "")}`);
+  });
+  all.push("Preparing for standard", "Resetting for standard", "Reset to Federation standard");
+  all.forEach((t) => fits(t, 36, w, "log"));
+}
 const logged = [];
-let logReady = false;
+let logReady = false, onLog = null, uwClock = null;              // hooks: the ultrawide column listens here
 function logLine(txt, where, by, sd = stardate()) {               // newest at the foot; always in time order
   if (logged.length && sd < logged[logged.length - 1][4]) sd = logged[logged.length - 1][4];
   logged.push([sd.toFixed(1), txt, where, by, sd]); if (logged.length > logRows.length) logged.shift();
+  if (onLog) onLog(by, where, logReady);
   if (logReady) logRows.forEach((r, i) => { const e = logged[i] || ["", "", "", ""]; L.set(r.sd, e[0]); L.set(r.tx, e[1]); L.set(r.wh, e[2]); L.set(r.by, e[3]); });
 }
 // small requests from the guests in residence, by species
@@ -309,32 +357,141 @@ const REQUESTS = {
   Tellarite: [["Complaint filed: corridor noise", "Guest Services"], ["Replicator: mushroom broth", "Replicator"]],
   Human: [["Observation lounge booked", "Guest Services"], ["Replicator: tea, Earl Grey", "Replicator"]],
 };
+Object.values(REQUESTS).forEach((rs) => rs.forEach(([t]) => fits(t, 36, LWX - 40 - (LX + 180), "request")));
+if (UP) SUITES.forEach((s) => ["Preparing", "Verifying"].forEach((k) => {   // the subtitle, beside the state on one line
+  const what = k === "Preparing" ? `${s.sp}  ·  Due ${hhmm(s.A || 0)}` : `${s.sp}  ·  In residence`;
+  fits(`Suite ${s.id}  ·  ${s.short}  ·  ${what}`, 38, GUX - L.textWidth("Guests Aboard", 40) - 48 - SUBX, "subtitle");
+}));
 
 // ---------------- the protocol for the next arrival ----------------
-const QX0 = RX, QX1 = 2880;
-L.header({ x: QX0, y: 1620, w: QX1 - QX0, label: "Arrival Protocol", c1: "lilac", c2: "peach", h: 48 });
-const qParty = L.text({ x: QX0, base: STRIP(0), s: 40, c: "white", txt: "" });
-const qWhen = L.text({ x: QX1, base: STRIP(0), s: 36, c: "pink", txt: "", align: "r" });
+// upright: beside environment control, on its rows (the party on its caption line)
+const QX0 = UP ? PCX : RX, QX1 = UP ? RR : 2880, QSTRIP = UP ? (i) => (i ? EMID(i - 1) : ECAP) : STRIP;
+L.header({ x: QX0, y: UP ? EHY : 1620, w: QX1 - QX0, label: "Arrival Protocol", c1: "lilac", c2: "peach", h: UP ? 56 : 48 });
+const qParty = L.text({ x: QX0, base: QSTRIP(0), s: 40, c: "white", txt: "" });
+const qWhen = L.text({ x: QX1, base: QSTRIP(0), s: 36, c: "pink", txt: "", align: "r" });
+SUITES.forEach((s) => s.A !== null && fits(s.party, 40, QX1 - QX0 - L.textWidth(`${hhmm(s.A)}  ·  Suite ${s.id}`, 36) - 40, "protocol party"));
 const PROTO = [["Replicator Menus", 240], ["Universal Translator", 180], ["Security Detail", 60], ["Suite Environment", -1], ["Greeting Party", 20]]
   .map(([name, lead], i) => {
-    const lamp = cls(L.layer({ x: QX0, y: STRIP(i + 1) - 28, w: 28, h: 28 }), "lamp");
-    L.text({ x: QX0 + 48, base: STRIP(i + 1), s: 36, c: "lilac", txt: name });
-    return { name, lead, lamp, st: L.text({ x: QX1, base: STRIP(i + 1), s: 36, c: "white", txt: "", align: "r" }), done: null };
+    const lamp = cls(L.layer({ x: QX0, y: QSTRIP(i + 1) - 28, w: 28, h: 28 }), "lamp");
+    L.text({ x: QX0 + 48, base: QSTRIP(i + 1), s: 36, c: "lilac", txt: name });
+    return { name, lead, lamp, st: L.text({ x: QX1, base: QSTRIP(i + 1), s: 36, c: "white", txt: "", align: "r" }), done: null };
   });
 
 // ---------------- section status: one cell per suite ----------------
-const OX0 = 2960, OC0 = 3140, OCW = 26, OCG = 8;
-L.header({ x: OX0, y: 1620, w: RR - OX0, label: "Section Status", c1: "peach", c2: "plum", h: 48 });
+// upright: beside the species table, on its rows
+const OX0 = UP ? PCX : 2960, OC0 = UP ? PCX + 150 : 3140, OCW = UP ? 24 : 26, OCG = 8, OSTRIP = UP ? (i) => (i ? SMID(i - 1) : SCAP) : STRIP;
+L.header({ x: OX0, y: UP ? SHY : 1620, w: RR - OX0, label: "Section Status", c1: "peach", c2: "plum", h: 48 });
 const OSTATES = ["Occupied", "Ready", "Reserved", "Vacant"];
 const orows = OSTATES.map((name, i) => {
-  L.text({ x: OX0, base: STRIP(i), s: 36, c: "lilac", txt: name });
-  const cells = SUITES.map((s, j) => cls(L.layer({ x: OC0 + j * (OCW + OCG), y: STRIP(i) - 28, w: OCW, h: 28 }), "cell"));
-  return { name, cells, v: L.text({ x: RR, base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }) };
+  L.text({ x: OX0, base: OSTRIP(i), s: 36, c: "lilac", txt: name });
+  const cells = SUITES.map((s, j) => cls(L.layer({ x: OC0 + j * (OCW + OCG), y: OSTRIP(i) - 28, w: OCW, h: 28 }), "cell"));
+  return { name, cells, v: L.text({ x: RR, base: OSTRIP(i), s: 36, c: "white", txt: "", align: "r" }) };
 });
-L.text({ x: OX0, base: STRIP(4), s: 36, c: "lilac", txt: "Next Arrival" });
-const nextArr = L.text({ x: RR, base: STRIP(4), s: 36, c: "white", txt: "", align: "r" });
-L.text({ x: OX0, base: STRIP(5), s: 36, c: "lilac", txt: "Next Departure" });
-const nextDep = L.text({ x: RR, base: STRIP(5), s: 36, c: "white", txt: "", align: "r" });
+L.text({ x: OX0, base: OSTRIP(4), s: 36, c: "lilac", txt: "Next Arrival" });
+const nextArr = L.text({ x: RR, base: OSTRIP(4), s: 36, c: "white", txt: "", align: "r" });
+L.text({ x: OX0, base: OSTRIP(5), s: 36, c: "lilac", txt: "Next Departure" });
+const nextDep = L.text({ x: RR, base: OSTRIP(5), s: 36, c: "white", txt: "", align: "r" });
+
+// =====================================================================================
+// ULTRAWIDE ONLY: a third column (3700 → the frame's edge), all from the schedule and the log
+// =====================================================================================
+if (UW) {
+  const X0 = 3700, X1 = B.x1;
+  // ---- the day's occupancy, suite by suite: when each party is aboard, and a line for now ----
+  L.header({ x: X0, y: 280, w: X1 - X0, label: "Occupancy  ·  Suite by Suite  ·  24 Hours", c1: "peach", c2: "lilac" });
+  const GX0 = X0 + 124, GX1 = X1, gx = (m) => GX0 + ((GX1 - GX0) * m) / 1440, LT = (i) => ROW0 + i * 60, LH = 52;
+  [0, 6, 12, 18, 24].forEach((h, i) => L.text({ x: i === 0 ? GX0 : i === 4 ? GX1 : gx(h * 60), base: 400, s: 30, c: "peach", txt: pad2(h),
+    align: i === 0 ? undefined : i === 4 ? "r" : "c", w: 80, legend: true }));
+  const lanes = SUITES.map((s, i) => {
+    L.rect({ x: GX0, y: LT(i), w: GX1 - GX0, h: LH, c: TRACK });
+    const spans = s.A === null ? [[0, 1440]] : s.A < s.D ? [[s.A, s.D]] : [[0, s.D], [s.A, 1440]];
+    spans.forEach(([a, b]) => L.rect({ x: gx(a), y: LT(i), w: gx(b) - gx(a), h: LH, c: "#6b5280", free: true }));
+    if (s.A !== null) {
+      L.rect({ x: gx(s.A) - 2, y: LT(i), w: 4, h: LH, c: "pink", free: true });
+      L.rect({ x: gx(s.D) - 2, y: LT(i), w: 4, h: LH, c: "peach", free: true });
+    }
+    return { s, id: cls(L.text({ x: X0, base: LT(i) + 39, s: 36, c: "lilac", txt: s.id }), "sw") };
+  });
+  [6, 12, 18].forEach((h) => L.rect({ x: gx(h * 60) - 1, y: LT(0), w: 2, h: LT(9) + LH - LT(0), c: "#45333a", free: true }));
+  const now = L.layer({ x: GX0 - 2, y: LT(0) - 8, w: 4, h: LT(9) + LH - LT(0) + 16 });
+  now.style.background = "var(--white)";
+
+  // ---- guest services by department: who handled the last twenty requests, and where last ----
+  // A rolling window of the log's own requests (arrivals and departures left out; bars on a 0–20
+  // scale, so they never saturate), and the suite that asked most often among them. It starts with
+  // the hour before the log's first line: the guests' requests in turn, suite by suite.
+  const DEPTS = ["Replicator", "Steward", "Environment", "Guest Services", "Busiest Suite"], WIN = 20;
+  const DB0 = X0 + 300, DB1 = 4440, DN = 4520;                // the bars run up to their numbers
+  L.header({ x: X0, y: 1064, w: X1 - X0, label: "Guest Services  ·  By Department", c1: "lilac", c2: "plum" });
+  L.text({ x: X0, base: 1176, s: 36, c: "peach", txt: "Department" });
+  L.text({ x: DN, base: 1176, s: 36, c: "peach", txt: `Last ${WIN}`, align: "r" });
+  L.text({ x: X1, base: 1176, s: 36, c: "peach", txt: "Latest", align: "r" });
+  const recent = [];                                     // [department, where], oldest first
+  {
+    const reqs = SUITES.filter(occupied).flatMap((s) => REQUESTS[s.sp].map((r) => [r[1], `Suite ${s.id}`]));
+    for (let j = 0; recent.length < WIN - 5 && reqs.length; j++) recent.push(reqs[j % reqs.length]);
+  }
+  const depts = DEPTS.map((name, i) => {
+    const base = MID(i);
+    L.text({ x: X0, base, s: 40, c: "lilac", txt: name });
+    L.rect({ x: DB0, y: base - 26, w: DB1 - DB0, h: 26, c: TRACK });
+    const bar = fill(DB0, base - 26, DB1 - DB0, 26, i % 2 ? "lilac" : "peach");
+    bar.style.transition = "transform 1.2s ease";
+    return { name, bar, v: L.text({ x: DN, base, s: 52, c: "white", txt: "", align: "r" }),
+      last: cls(L.text({ x: X1, base, s: 36, c: "peach", txt: "", align: "r" }), "sw") };
+  });
+  const latest = (d) => { for (let j = recent.length - 1; j >= 0; j--) if (recent[j][0] === d.name) return recent[j][1]; return "None"; };
+  const busiest = () => {                                // the suite with most requests; the latest of them on a tie
+    const n = {}; let best = null;
+    recent.forEach((r) => { n[r[1]] = (n[r[1]] || 0) + 1; if (!best || n[r[1]] >= n[best]) best = r[1]; });
+    return [best, best ? n[best] : 0];
+  };
+  const showDepts = () => depts.forEach((d, i) => {
+    const [bw, bn] = busiest();
+    const n = i === 4 ? bn : recent.filter((r) => r[0] === d.name).length, w = i === 4 ? bw || "None" : latest(d);
+    L.set(d.v, n); L.set(d.last, w); fg(d.last, w === "None" ? "plum" : "peach");
+    tf(d.bar, `scaleX(${(n / WIN).toFixed(4)})`);
+  });
+  onLog = (by, where, live) => {
+    if (!DEPTS.slice(0, 4).includes(by)) return;
+    recent.push([by, where]); if (recent.length > WIN) recent.shift();
+    const d = depts.find((x) => x.name === by), before = depts[4].last.textContent;
+    const changed = [d.last.textContent !== where && d.last, busiest()[0] !== before && depts[4].last].filter(Boolean);
+    if (live && changed.length) swap(changed, showDepts); else showDepts();
+  };
+
+  // ---- arrival points: the day's arrivals and departures by where they came and went ----
+  const POINTS = ["Transporter Room 3", "Transporter Room 6", "Shuttlebay 2", "Main Shuttlebay"];
+  const PA = 4180, PD = 4400;
+  L.header({ x: X0, y: 1620, w: X1 - X0, label: "Arrival Points  ·  Today", c1: "plum", c2: "peach", h: 48 });
+  L.text({ x: X0, base: STRIP(0), s: 36, c: "peach", txt: "Point" });
+  L.text({ x: PA, base: STRIP(0), s: 36, c: "peach", txt: "Arrived", align: "r" });
+  L.text({ x: PD, base: STRIP(0), s: 36, c: "peach", txt: "Departed", align: "r" });
+  L.text({ x: X1, base: STRIP(0), s: 36, c: "peach", txt: "Next", align: "r" });
+  const prows = POINTS.concat(["All Points"]).map((name, i) => {
+    L.text({ x: X0, base: STRIP(i + 1), s: 36, c: i < 4 ? "lilac" : "white", txt: name });
+    const at = (e) => i === 4 || e.via === name;
+    return { at, a: L.text({ x: PA, base: STRIP(i + 1), s: 36, c: "white", txt: "", align: "r" }),
+      d: L.text({ x: PD, base: STRIP(i + 1), s: 36, c: "white", txt: "", align: "r" }),
+      nx: L.text({ x: X1, base: STRIP(i + 1), s: 36, c: i < 4 ? "pink" : "white", txt: "", align: "r" }) };
+  });
+  POINTS.forEach((p) => fits(p, 36, PA - L.textWidth("0 / 0", 36) - 40 - X0, "point"));
+
+  uwClock = (m, k) => {
+    L.set(sdBig, stardate().toFixed(1));
+    tf(now, `translate3d(${(gx(m) - GX0).toFixed(1)}px,0,0)`);
+    lanes.forEach((l) => fg(l.id, STATE_C[job && job.s === l.s && job.kind === "Preparing" && !job.done ? "Preparing" : stateOf(l.s)]));   // as the plan shows it
+    prows.forEach((r) => {
+      const evs = EVENTS.filter(r.at), done = (kind) => evs.filter((e) => e.kind === kind && e.m <= m).length, all = (kind) => evs.filter((e) => e.kind === kind).length;
+      L.set(r.a, `${done("A")} / ${all("A")}`); L.set(r.d, `${done("D")} / ${all("D")}`);
+      // counts run from midnight, so a next event after midnight is tomorrow's and says so
+      const nx = evs.find((e) => e.m > m), tm = evs[0];
+      L.set(r.nx, nx ? `${hhmm(nx.m)}  ·  ${nx.kind === "A" ? "Arrival" : "Departure"}` : `Tomorrow  ·  ${hhmm(tm.m)}  ·  ${tm.kind === "A" ? "Arrival" : "Departure"}`);
+    });
+  };
+  fits("Tomorrow  ·  0000  ·  Departure", 36, X1 - PD - 40, "next at a point");
+  showDepts();
+}
 
 // ---------------- environmental control: one suite at a time ----------------
 // Preparing a reserved suite comes first (soonest arrival first), then resetting a vacated one to
@@ -486,8 +643,9 @@ const showClock = () => {
   const d = EVENTS.slice(k).concat(EVENTS).find((x) => x.kind === "D");
   L.set(nextDep, `${hhmm(d.m)}  ·  in ${ttaStr(until(d.m, m))}`);
   L.set(guestsBig, SUITES.filter(occupied).reduce((n, s) => n + s.n, 0));
-  L.set(occBig, `${counts.Occupied} / ${SUITES.length}`);
+  if (occBig) L.set(occBig, `${counts.Occupied} / ${SUITES.length}`);
   if (job) L.set(stateSub, subText());
+  if (uwClock) uwClock(m, k);
 };
 
 // the active suite's door glows gently
@@ -522,5 +680,6 @@ showPage(0);
 startJob(true);
 showClock();
 L.every(1000, showClock, 0);
+if (bad.length) setTimeout(() => { throw new Error("guest-quarters: " + bad.join(" | ")); });
 });
 </script></body></html>

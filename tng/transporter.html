@@ -1,9 +1,11 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Transporter</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .field { border-radius: 16px; background: linear-gradient(to bottom, rgba(150,200,255,.05), rgba(150,200,255,.34) 50%, rgba(150,200,255,.05)); }
   .padglow { border-radius: 50%; background: radial-gradient(closest-side, rgba(255,240,200,.95), rgba(255,200,90,.55) 55%, rgba(255,180,60,0)); }
+  .clip { position: absolute; overflow: hidden; }
   .scanbar { background: linear-gradient(to right, rgba(143,211,255,0), rgba(143,211,255,.5) 85%, #e6f6ff); }
 </style></head>
 <body><script src="../lcars.js"></script><script>
@@ -11,7 +13,19 @@
 const L = LCARS;
 L.ready(() => {
 
+// ---------------- shapes ----------------
+// Three layouts; the data, readings and motion are written once, only positions and sizes differ.
+// wide (3840 × 2160): the original hand-placed layout, unchanged.
+// upright (2160 × 3120): coordinates beside pattern lock across the top (two 873 columns); the pad
+//   chamber down the left (1140 wide, columns drawn at 190/220, chamber 1220 tall) beside the pattern
+//   buffer (ring, 2 × 2 readouts, integrity) over the subsystems; log (under the chamber) beside the biofilter at the foot.
+// ultrawide (5040 × 2160): the wide layout where it is, a fourth column (3876–5016): pad status on the
+//   coordinates' rows over the ship's transporters on the subsystems' rows; the biofilter runs to 5016.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+
 // ---------------- the frame ----------------
+let B;
+if (L.shape === "wide") {
 const BAR = 64;
 const titleLeft = L.title({ x: 3700, y: 40, h: BAR, c: "gold", txt: "Transporter Room 3" });
 L.box({ x: 3724, y: 40, w: 92, h: BAR, c: "gold", r: "r" });
@@ -26,6 +40,16 @@ L.text({ x: 258, base: 1712, s: 40, c: "#000", txt: "Transport", align: "r", on:
 [[1540 + L.GAP, 600, "butter"], [2164 + L.GAP, 900, "gold"], [3088 + L.GAP, 3700 - (3088 + L.GAP), "orange"]]
   .forEach(([x, w, c]) => L.rect({ x, y: 2056, w, h: BAR, c }));
 L.box({ x: 3724, y: 2056, w: 92, h: BAR, c: "gold", r: "r" });
+B = { x0: 330, x1: 3816, y0: 140, y1: 2010 };
+} else {
+  // the same frame, drawn by the kit for this shape: type A, the same colours and sidebar labels
+  B = L.frame({ type: "A", title: "Transporter Room 3", c: "gold", c2: "orange", accent: "butter", foot: "Transport",
+    side: [[140, "butter", "TR 3"], [70, "orange", "Pads"], [420, "gold", "Lock"], [70, "ice", "Buffer"],
+           [300, "butter", "ACB"], [70, "sky", "Coils"], [216, "gold", "Log"]] });
+}
+const X1 = B.x1;
+const bad = [];                                            // words that would not fit their places
+const fits = (txt, s, w, where) => { if (L.textWidth(txt, s) > w) bad.push(`${where}: "${txt}"`); };
 
 const header = (x, y, w, label, lw, c1, c2) => {
   L.box({ x, y, w: lw, h: 56, c: c1, label, fs: 32, r: "l" });
@@ -58,11 +82,11 @@ let ph = phaseAt(0), lastPhase = 0;
 
 // ---------------- status line ----------------
 const stateTxt = L.text({ x: 330, cap: 150, s: 100, c: "ice", txt: "Standby" });
-const stateSub = L.text({ x: 1290, base: 222, s: 38, c: "butter", txt: "" });   // on the pad column's line
-const cyc = L.box({ x: 3416, y: 150, w: 400, h: 72, c: "gold", label: "", r: "lr", fs: 36 });
+const stateSub = L.text({ x: UP ? 1263 : 1290, base: 222, s: 38, c: "butter", txt: "" });   // on the pad column's line (upright: pattern lock's)
+const cyc = L.box({ x: X1 - 400, y: 150, w: 400, h: 72, c: "gold", label: "", r: "lr", fs: 36 });
 
 // ---------------- transport coordinates ----------------
-header(330, 280, 900, "Transport Coordinates", 460, "gold", "butter");
+header(330, 280, UP ? 873 : 900, "Transport Coordinates", 460, "gold", "butter");
 const coordRows = [["Origin", () => "Enterprise · TR 3"], ["Destination", () => dest[0]], ["Site", () => dest[1]],
   ["Payload", () => (dest[2] ? `${dest[2]} ${dest[2] === 1 ? "person" : "persons"} · ${dest[3]}` : dest[3])],
   ["Range", () => coord.range.toLocaleString("en") + " km"], ["Bearing", () => coord.b.toFixed(1).padStart(5, "0") + " mark " + coord.m.toFixed(1)],
@@ -77,35 +101,41 @@ const coordVals = coordRows.map(([name], i) => {
 });
 
 // ---------------- pattern lock ----------------
-header(330, 1000, 900, "Pattern Lock", 300, "orange", "butter");
+// upright: beside the coordinates, its rows on theirs (404, 632, 784, 860)
+const LK = UP ? { x: 1263, y: 280, w: 873, bw: 563, rows: [404, 518, 632], comb: 784, sig: 860 }
+              : { x: 330, y: 1000, w: 900, bw: 590, rows: [1112, 1204, 1296], comb: 1420, sig: 1510 };
+header(LK.x, LK.y, LK.w, "Pattern Lock", 300, "orange", "butter");
 const locks = [0, 1, 2].map((i) => {
-  const base = 1112 + i * 92;
-  L.text({ x: 330, base, s: 40, c: "butter", txt: "Lock " + (i + 1) });
-  L.rect({ x: 480, y: base - 30, w: 590, h: 30, c: "#2a2210" });
-  const f = L.layer({ x: 480, y: base - 30, w: 590, h: 30 });
+  const base = LK.rows[i];
+  L.text({ x: LK.x, base, s: 40, c: "butter", txt: "Lock " + (i + 1) });
+  L.rect({ x: LK.x + 150, y: base - 30, w: LK.bw, h: 30, c: "#2a2210" });
+  const f = L.layer({ x: LK.x + 150, y: base - 30, w: LK.bw, h: 30 });
   f.style.background = "var(--gold)"; f.style.transformOrigin = "0 0";
-  const v = L.text({ x: 1230, base, s: 52, c: "white", txt: "", align: "r" });
+  const v = L.text({ x: LK.x + LK.w, base, s: 52, c: "white", txt: "", align: "r" });
   return { f, v, u: 0.2, goal: L.rand(0.96, 0.995) };
 });
-L.text({ x: 330, base: 1420, s: 40, c: "butter", txt: "Combined" });
-const combined = L.text({ x: 1230, base: 1420, s: 72, c: "gold", txt: "", align: "r" });
-L.text({ x: 330, base: 1510, s: 40, c: "orange", txt: "Signal" });
-const signal = L.text({ x: 1230, base: 1510, s: 52, c: "white", txt: "", align: "r" });
+L.text({ x: LK.x, base: LK.comb, s: 40, c: "butter", txt: "Combined" });
+const combined = L.text({ x: LK.x + LK.w, base: LK.comb, s: 72, c: "gold", txt: "", align: "r" });
+L.text({ x: LK.x, base: LK.sig, s: 40, c: "orange", txt: "Signal" });
+const signal = L.text({ x: LK.x + LK.w, base: LK.sig, s: 52, c: "white", txt: "", align: "r" });
 
 // ---------------- the transporter pad, side view ----------------
-header(1290, 280, 1320, "Transporter Pad", 360, "gold", "butter");
-const PX = 1290, PW = 1320, NP = 6, PITCH = PW / NP, CT = 470, CB = 1450;      // column top and bottom
-L.rect({ x: PX + 20, y: 380, w: PW - 40, h: 52, rx: 26, c: "gold" });                // emitter array
-L.rect({ x: PX + 20, y: 1490, w: PW - 40, h: 52, rx: 26, c: "gold" });               // the platform
+// upright: 1140 wide, the chamber 1220 tall; drawn widths scale by K (exactly 1 in wide)
+const PX = UP ? 330 : 1290, PW = UP ? 1140 : 1320, PY = UP ? 970 : 280;
+const DY1 = PY - 280, DY2 = UP ? 930 : 0;                  // the top parts move by DY1, the floor by DY2
+header(PX, PY, PW, "Transporter Pad", 360, "gold", "butter");
+const NP = 6, PITCH = PW / NP, CT = 470 + DY1, CB = 1450 + DY2, K = UP ? PITCH / 220 : 1;   // column top and bottom
+L.rect({ x: PX + 20, y: 380 + DY1, w: PW - 40, h: 52, rx: 26, c: "gold" });                // emitter array
+L.rect({ x: PX + 20, y: 1490 + DY2, w: PW - 40, h: 52, rx: 26, c: "gold" });               // the platform
 const cols = [];
 for (let i = 0; i < NP; i++) {
   const cx = PX + PITCH * (i + 0.5);
-  L.rect({ x: cx - 60, y: 432, w: 120, h: 22, c: "butter", free: true });          // emitter
-  L.rect({ x: cx - 76, y: CT, w: 152, h: CB - CT, rx: 16, c: "#0a1430", panel: true });
-  L.rect({ x: cx - 90, y: 1466, w: 180, h: 24, rx: 12, c: "orange", free: true });  // pad
-  const field = L.layer({ x: cx - 76, y: CT, w: 152, h: CB - CT, cls: "field" });
+  L.rect({ x: cx - 60 * K, y: 432 + DY1, w: 120 * K, h: 22, c: "butter", free: true });          // emitter
+  L.rect({ x: cx - 76 * K, y: CT, w: 152 * K, h: CB - CT, rx: 16, c: "#0a1430", panel: true });
+  L.rect({ x: cx - 90 * K, y: 1466 + DY2, w: 180 * K, h: 24, rx: 12, c: "orange", free: true });  // pad
+  const field = L.layer({ x: cx - 76 * K, y: CT, w: 152 * K, h: CB - CT, cls: "field" });
   field.style.opacity = 0;
-  const glow = L.layer({ x: cx - 130, y: 1428, w: 260, h: 100, cls: "padglow" });
+  const glow = L.layer({ x: cx - 130 * K, y: 1428 + DY2, w: 260 * K, h: 100, cls: "padglow" });
   glow.style.opacity = 0;
   L.text({ x: cx, base: CT + 58, s: 36, c: "sky", txt: "Pad " + (i + 1), align: "c", w: 150 });
   cols.push({ cx, field, glow, used: false });
@@ -122,7 +152,7 @@ for (let i = 0; i < NP; i++) for (let k = 0; k < 70; k++)
 let sparkOn = false, spT = null;
 const drawSparks = (t, amount) => {
   const g = spark.g, dt = spT === null ? 0 : Math.min(0.1, t - spT); spT = t;
-  for (const c of cols) g.clearRect(c.cx - PX - 78, 0, 156, spark.h);
+  for (const c of cols) g.clearRect(c.cx - PX - 78 * K, 0, 156 * K, spark.h);
   if (amount <= 0.001) return;
   for (const p of parts) {
     if (!cols[p.col].used) continue;
@@ -130,7 +160,7 @@ const drawSparks = (t, amount) => {
     const tw = 0.5 + 0.5 * Math.sin(t * 9 + p.ph);
     const a = amount * (0.25 + 0.75 * tw);
     if (a < 0.05) continue;
-    const x = cols[p.col].cx - PX + p.x + Math.sin(t * 2 + p.ph) * 3;
+    const x = cols[p.col].cx - PX + p.x * K + Math.sin(t * 2 + p.ph) * 3;
     g.fillStyle = p.hot ? `rgba(255,236,190,${a.toFixed(3)})` : `rgba(190,230,255,${(a * 0.85).toFixed(3)})`;
     const s = p.sz * (0.6 + 0.6 * tw);
     g.fillRect(x - s / 2, p.y - s * 1.6, s, s * 3.2);          // a vertical glint
@@ -139,8 +169,11 @@ const drawSparks = (t, amount) => {
 };
 
 // ---------------- pattern buffer ----------------
-header(2670, 280, 1146, "Pattern Buffer", 340, "ice", "sky");
-const BX = 3243, BY = 600, BR = 200, NS = 48;
+// upright: beside the chamber, the ring over a 2 × 2 of readouts, then integrity and buffer time
+const BF = UP ? { x: 1530, y: 970, w: 606, cx: 1833, cy: 1290, ri: 1860, rt: 1930 }
+              : { x: 2670, y: 280, w: 1146, cx: 3243, cy: 600, ri: 880, rt: 950 };
+header(BF.x, BF.y, BF.w, "Pattern Buffer", 340, "ice", "sky");
+const BX = BF.cx, BY = BF.cy, BR = 200, NS = 48;
 const segs = [];
 const ringG = L.svg("g", { class: "boot" });
 for (let i = 0; i < NS; i++) {
@@ -149,33 +182,37 @@ for (let i = 0; i < NS; i++) {
 }
 const bufPct = L.text({ x: BX, base: BY + 40, s: 120, c: "ice", txt: "0%", align: "c", w: 360 });
 L.text({ x: BX, base: BY + 100, s: 36, c: "sky", txt: "Capacity", align: "c", w: 360 });
-L.text({ x: 2670, base: 880, s: 40, c: "sky", txt: "Pattern Integrity" });
-const integ = L.text({ x: 3816, base: 880, s: 52, c: "white", txt: "", align: "r" });
-L.text({ x: 2670, base: 950, s: 40, c: "sky", txt: "Buffer Time" });
-const btime = L.text({ x: 3816, base: 950, s: 52, c: "white", txt: "", align: "r" });
+L.text({ x: BF.x, base: BF.ri, s: 40, c: "sky", txt: "Pattern Integrity" });
+const integ = L.text({ x: BF.x + BF.w, base: BF.ri, s: 52, c: "white", txt: "", align: "r" });
+L.text({ x: BF.x, base: BF.rt, s: 40, c: "sky", txt: "Buffer Time" });
+const btime = L.text({ x: BF.x + BF.w, base: BF.rt, s: 52, c: "white", txt: "", align: "r" });
 let buffer = 0, litSegs = -1, bufT = 0;
 // four small readouts flanking the ring
-const flank = [["Stream", 2670, 470, "l"], ["Resolution", 2670, 640, "l"], ["Confinement", 3816, 470, "r"], ["Compensation", 3816, 640, "r"]]
+const flank = (UP ? [["Stream", 1530, 1610, "l"], ["Resolution", 1530, 1760, "l"], ["Confinement", 2136, 1610, "r"], ["Compensation", 2136, 1760, "r"]]
+                   : [["Stream", 2670, 470, "l"], ["Resolution", 2670, 640, "l"], ["Confinement", 3816, 470, "r"], ["Compensation", 3816, 640, "r"]])
   .map(([name, x, base, align]) => {
     L.text({ x, base: base - 60, s: 36, c: "sky", txt: name, align: align === "r" ? "r" : undefined });
     return L.text({ x, base, s: 48, c: "white", txt: "", align: align === "r" ? "r" : undefined });
   });
 
 // ---------------- subsystems ----------------
-header(2670, 1000, 1146, "Subsystems", 300, "ice", "sky");
+const SB = UP ? { x: 1530, y: 1990, w: 606, r0: 2102 } : { x: 2670, y: 1000, w: 1146, r0: 1112 };
+header(SB.x, SB.y, SB.w, "Subsystems", 300, "ice", "sky");
 const subs = ["Heisenberg Compensators", "Phase Transition Coils", "Annular Confinement Beam", "Molecular Imaging Scanners",
               "Doppler Compensator", "Biofilter"].map((name, i) => {
-  const base = 1112 + i * 72;
-  L.text({ x: 2670, base, s: 40, c: "sky", txt: name });
-  const pill = L.box({ x: 3576, y: base - 40, w: 240, h: 50, c: "sky", label: "Online", r: "lr", fs: 30 });
+  const base = SB.r0 + i * 72;
+  L.text({ x: SB.x, base, s: 40, c: "sky", txt: name });
+  fits(name, 40, SB.w - 240 - 40, "subsystem");
+  const pill = L.box({ x: SB.x + SB.w - 240, y: base - 40, w: 240, h: 50, c: "sky", label: "Online", r: "lr", fs: 30 });
   return { pill, state: "" };
 });
 
 // ---------------- transport log ----------------
-small(330, 1620, 1170, "Transport Log", 340, "gold", "butter");
+const LG = UP ? { y: 2580, w: 1140, tx: 480 } : { y: 1620, w: 1170, tx: 520 };   // upright: at the foot, beside the biofilter
+small(330, LG.y, LG.w, "Transport Log", 340, "gold", "butter");
 const logRows = Array.from({ length: 6 }, (_, i) => {
-  const base = 1734 + i * 54;
-  return { sd: L.text({ x: 330, base, s: 36, c: "orange", txt: "" }), tx: L.text({ x: 520, base, s: 36, c: "butter", txt: "" }) };
+  const base = LG.y + 114 + i * 54;
+  return { sd: L.text({ x: 330, base, s: 36, c: "orange", txt: "" }), tx: L.text({ x: LG.tx, base, s: 36, c: "butter", txt: "" }) };
 });
 let sd = 47771.0, logged = [];
 const logLine = (txt) => {
@@ -186,22 +223,118 @@ const describe = (d) => `Transport complete  ·  ${d[2] ? d[2] + (d[2] === 1 ? "
 for (let i = 0; i < 6; i++) { logLine(describe(destDeck.length ? destDeck[destDeck.length - 1 - (i % destDeck.length)] : dest)); }
 
 // ---------------- biofilter ----------------
-small(1560, 1620, 2256, "Biofilter", 240, "ice", "sky");
-L.text({ x: 1560, base: 1734, s: 40, c: "sky", txt: "Pathogens" });
-const patho = L.text({ x: 3816, base: 1734, s: 52, c: "white", txt: "", align: "r" });
-const BFX = 1560, BFW = 2256, BFT = 1772, BFH = 232;
+// upright: beside the log, on the buffer column; ultrawide: on to 5016, with proportionally more peaks (KF is exactly 1 in wide)
+const BFX = UP ? 1530 : 1560, BFW = X1 - BFX, BFT = (UP ? 2580 : 1620) + 152, BFH = 232, KF = BFW / 2256;
+small(BFX, BFT - 152, BFW, "Biofilter", 240, "ice", "sky");
+L.text({ x: BFX, base: BFT - 38, s: 40, c: "sky", txt: "Pathogens" });
+const patho = L.text({ x: X1, base: BFT - 38, s: 52, c: "white", txt: "", align: "r" });
 const bf = L.svg("g", { class: "boot" });
 L.svg("rect", { x: BFX, y: BFT, width: BFW, height: BFH, fill: "#08102a" }, bf);
 [["#8fd3ff", 0.18, 3.1], ["#ffcc66", 0.5, 5.3], ["#c7a0d8", 0.82, 7.7]].forEach(([c, row, f]) => {
   const pts = [];
   for (let x = 0; x <= BFW; x += 6) {
-    const u = x / BFW;
+    const u = x / BFW * KF;
     pts.push(`${(BFX + x).toFixed(0)},${(BFT + BFH * row + 26 * Math.sin(u * f * 6) * Math.sin(u * 3.1 + row * 4) + 8 * Math.sin(u * 61 + row)).toFixed(1)}`);
   }
   L.svg("polyline", { points: pts.join(" "), fill: "none", stroke: c, "stroke-width": 3, opacity: 0.85 }, bf);
 });
-const scan = L.layer({ x: BFX, y: BFT, w: 220, h: BFH, cls: "scanbar" });
+// upright: the scan runs in a clip, so its lead-in never sweeps over the log beside it
+const scanClip = UP ? L.el("div", "clip boot", L.stage, { left: BFX + "px", top: BFT + "px", width: BFW + "px", height: BFH + "px" }) : null;
+const scan = UP ? L.layer({ x: 0, y: 0, w: 220, h: BFH, cls: "scanbar" }, scanClip) : L.layer({ x: BFX, y: BFT, w: 220, h: BFH, cls: "scanbar" });
 scan.style.opacity = 0;
+
+// ---------------- every destination fits wherever it can appear ----------------
+{
+  const pay = (d) => (d[2] ? `${d[2]} ${d[2] === 1 ? "person" : "persons"} · ${d[3]}` : d[3]);
+  const subRoom = X1 - 400 - 40 - (UP ? 1263 : 1290);
+  destinations.forEach((d) => {
+    [d[0], d[1], pay(d)].forEach((v) => fits(v, 52, (UP ? 873 : 900) - 290, "coordinates"));
+    fits(describe(d), 36, LG.w - (LG.tx - 330) - 124, "log");     // clear of the header's right edge
+    fits(`${d[0]}  ·  ${d[1]}`, 38, subRoom, "status line");
+  });
+  fits("Ready for transport  ·  Pads 1 – 6 clear", 38, subRoom, "status line");
+}
+
+// ---------------- ultrawide only: a fourth column, 3876 → 5016 ----------------
+// Pad Status on the coordinates' rows (each pad's state, payload mass and pattern lock, from the cycle);
+// the Ship's Transporters on the subsystems' rows (this room live, the others changing now and then).
+let padTick = null, roomsEvery = null;
+if (UW) {
+  const QX = 3876, QW = X1 - QX;                          // 1140
+  header(QX, 280, QW, "Pad Status", 300, "gold", "butter");
+  const Q = { pad: QX, st: QX + 170, mass: QX + 620, bar: QX + 690, barR: X1 - 142, lock: X1 };   // the bar runs up to its value, ending as far before it as wide's pattern lock bars do
+  L.text({ x: Q.pad, base: 404, s: 36, c: "gold", txt: "Pad" });
+  L.text({ x: Q.st, base: 404, s: 36, c: "gold", txt: "Status" });
+  L.text({ x: Q.mass, base: 404, s: 36, c: "gold", txt: "Payload", align: "r" });
+  L.text({ x: Q.bar, base: 404, s: 36, c: "gold", txt: "Pattern Lock" });
+  const pads = cols.map((c, i) => {
+    const base = 480 + i * 76;
+    L.text({ x: Q.pad, base, s: 40, c: "butter", txt: "Pad " + (i + 1) });
+    const st = L.text({ x: Q.st, base, s: 40, c: "sky", txt: "Clear" });
+    const mass = L.text({ x: Q.mass, base, s: 52, c: "white", txt: "", align: "r" });
+    L.rect({ x: Q.bar, y: base - 30, w: Q.barR - Q.bar, h: 30, c: "#2a2210" });
+    const f = L.layer({ x: Q.bar, y: base - 30, w: Q.barR - Q.bar, h: 30 });
+    f.style.background = "var(--gold)"; f.style.transformOrigin = "0 0"; f.style.transform = "scaleX(0)";
+    const v = L.text({ x: Q.lock, base, s: 52, c: "white", txt: "", align: "r" });
+    return { st, mass, f, v, u: 0, kg: 0, on: false };
+  });
+  ["Clear", "Locking", "Energizing", "Materializing", "Complete"].forEach((w) => fits(w, 40, Q.mass - 200 - Q.st, "pad status"));
+  // the pads this payload uses, by the same rule and order the beam uses; each person or crate weighed once a cycle
+  const ORDER = [2, 3, 1, 4, 0, 5];
+  let weighed = -1;
+  const padState = () => {
+    const live = ph.i >= 1, n = Math.max(1, Math.min(NP, dest[2] || 3));
+    if (live && weighed !== cycleN) {
+      weighed = cycleN;
+      pads.forEach((p) => (p.kg = dest[2] ? L.rand(54, 98) : L.rand(140, 420)));
+    }
+    return pads.map((p, i) => live && ORDER.indexOf(i) < n);
+  };
+  padTick = () => {
+    const used = padState(), combo = Math.min(...locks.map((l) => l.u));
+    pads.forEach((p, i) => {
+      const goal = used[i] ? combo * (1 - 0.0016 * ORDER.indexOf(i)) : 0;
+      p.u += (goal - p.u) * 0.08;
+      p.f.style.transform = `scaleX(${p.u.toFixed(4)})`;
+    });
+  };
+  roomsEvery = () => {
+    const used = padState();
+    pads.forEach((p, i) => {
+      const word = used[i] ? PHASES[ph.i][0].replace("Transport ", "") : "Clear";
+      L.set(p.st, word);
+      p.st.style.color = word === "Clear" ? "var(--sky)" : word === "Complete" ? "var(--ice)" : "var(--butter)";
+      L.set(p.mass, (used[i] ? p.kg : 0).toFixed(1) + " kg");
+      L.set(p.v, (p.u * 100).toFixed(1) + "%");
+    });
+  };
+
+  header(QX, 1000, QW, "Ship's Transporters", 400, "gold", "butter");
+  const ROOMS = [["Transporter Room 1", "Deck 6", "Standby"], ["Transporter Room 2", "Deck 6", "In Use"], ["Transporter Room 3", "Deck 6", ""],
+                 ["Transporter Room 5", "Deck 14", "Standby"], ["Cargo Transporter 2", "Deck 4", "In Use"], ["Emergency Transporters", "Deck 8", "Standby"]];
+  const PILL = { "In Use": "butter", Standby: "sky", Diagnostic: "orange" };
+  const rooms = ROOMS.map(([name, deck, st], i) => {
+    const base = 1112 + i * 72;
+    L.text({ x: QX, base, s: 40, c: i === 2 ? "butter" : "sky", txt: name });
+    L.text({ x: QX + 560, base, s: 36, c: "butter", txt: deck });
+    fits(name, 40, 520, "room");
+    const pill = L.box({ x: X1 - 240, y: base - 40, w: 240, h: 50, c: "sky", label: "", r: "lr", fs: 30 });
+    return { pill, st, shown: "" };
+  });
+  const showRooms = () => rooms.forEach((r, i) => {
+    const st = i === 2 ? (ph.i >= 1 && ph.i <= 3 ? "In Use" : "Standby") : r.st;
+    if (st === r.shown) return;
+    r.shown = st; r.pill.textContent = st; r.pill.style.background = `var(--${PILL[st]})`;
+  });
+  const roomsBase = roomsEvery;
+  roomsEvery = () => { roomsBase(); showRooms(); };
+  // now and then another room starts or finishes a transport; Room 5 goes to a diagnostic and back
+  L.every(17000, () => {
+    const i = L.pick([0, 1, 3, 4]);
+    const r = rooms[i];
+    r.st = i === 3 ? (r.st === "Diagnostic" ? "Standby" : L.pick(["Standby", "In Use", "Diagnostic"])) : r.st === "In Use" ? "Standby" : "In Use";
+  }, 0.2);
+}
 
 // ---------------- the cycle drives it all ----------------
 let tPrev = null;
@@ -249,6 +382,7 @@ L.tick((t) => {
   const scanning = ph.i === 2 || ph.i === 3;
   scan.style.opacity = scanning ? 1 : 0;
   if (scanning) L.move(scan, ((t * 520) % (BFW + 220)) - 220, 0);
+  if (padTick) padTick();
 });
 L.every(200, (t) => {
   stateTxt.textContent = ph.name;
@@ -274,6 +408,8 @@ L.every(200, (t) => {
   flank[1].textContent = active ? "0.0001 mm" : "Standby";
   flank[2].textContent = (active ? 97.6 + Math.sin(t) * 0.8 : 100).toFixed(1) + "%";
   flank[3].textContent = active ? "Doppler " + (0.3 + Math.abs(Math.sin(t * 0.7)) * 0.4).toFixed(2) : "Nominal";
+  if (roomsEvery) roomsEvery();
 }, 0);
+if (bad.length) setTimeout(() => { throw new Error("transporter: " + bad.join(" | ")); });
 });
 </script></body></html>

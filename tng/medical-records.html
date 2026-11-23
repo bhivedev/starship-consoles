@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Medical Records</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* swapped text dips and comes back; colors change slowly; .boot (the start-up cascade) always wins */
@@ -13,10 +14,21 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: mirrored, sidebar on the right ----------------
-L.frame({ type: "B", title: "Medical Records  •  Patient Database", c: "sky", c2: "lilac", accent: "ice", foot: "Records",
+const FB = L.frame({ type: "B", title: "Medical Records  •  Patient Database", c: "sky", c2: "lilac", accent: "ice", foot: "Records",
   side: [[140, "lilac", "Med 04"], [70, "ice", "2416"], [420, "sky", "Database"], [70, "lilac", "Index"], [300, "sky", "Patients"],
          [70, "ice", "24"], [216, "lilac", "Archive"]] });
 
+// ---------------- the grid, per shape ----------------
+// The data, readings and motion below are written once; only these positions differ by shape.
+// wide (3840 × 2160): the patient table (A) beside the open record (B), immunizations beside the
+//   exam history, over a strip of three panels: check-ups, recent visits, duty fitness.
+// upright (2160 × 3120, content 40–1840): the patient table across the page, eleven rows; under it
+//   the record (40–910) beside the exam history (970–1840) on one row grid; then immunizations
+//   (40–1150) beside duty fitness (1210–1840) on another; check-ups beside recent visits at the foot.
+// ultrawide (5040 × 2160): wide unchanged, with a third column (3580–4720) down all three bands:
+//   crew health by division, species physiology, the physicians' caseloads.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const X1 = FB.x1;                                           // wide 3520
 const TRACK = "#0e1a30", GRID = "#1a2c52", BAND = "#2c2342";
 const cls = (e, ...c) => (e.classList.add(...c), e);
 const tf = (e, v) => { if (e._tf !== v) { e._tf = v; e.style.transform = v; } };
@@ -35,10 +47,17 @@ const rng = (seed) => () => { seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(
 const hash = (n) => (Math.imul(n | 0, 2654435761) >>> 0) % 9973;
 
 // Two columns over a three-panel strip. Rows of 48 on a 60 grid, shared by the table and the record.
-const A = [40, 2100], B = [2160, 3520];
+const A = UP ? [40, X1] : [40, 2100], B = UP ? [40, 910] : [2160, 3520];
+const HC = UP ? [970, X1] : B;                              // the exam history's column
 const ROW0 = 428, P = 60, RH = 48, rowY = (i) => ROW0 + i * P, rowBase = (i) => rowY(i) + 37;
-const LROW0 = 1148, lrowY = (i) => LROW0 + i * P, lrowBase = (i) => lrowY(i) + 37;
-const STRIP = (i) => 1734 + i * 54;
+const LROW0 = UP ? 2088 : 1148, lrowY = (i) => LROW0 + i * P, lrowBase = (i) => lrowY(i) + 37;
+const STRIP = (i) => (UP ? 2674 : 1734) + i * 54;
+// upright: the record and the exam history share their own row grid under a header at 1140
+const RY = UP ? 1140 : 280, RR0 = UP ? 1288 : ROW0, rrowY = (i) => RR0 + i * P, rrowBase = (i) => rrowY(i) + 37;
+const HY = UP ? 1140 : 1000, VY = UP ? 1940 : 1000, SY = UP ? 2560 : 1620;   // exam history, immunizations, the strip
+const V = UP ? [40, 1150] : A;                              // immunizations
+const C = [3580, X1];                                       // ultrawide's third column
+const SWR = [], SWS = [];                                   // ultrawide's extra text that dips with the record, with the schedule
 
 // ---------------- the ship's clock (the Mac's own) and the stardate ----------------
 const SLOT = 10;                                            // check-ups run on ten-minute slots
@@ -134,7 +153,7 @@ const completeVisit = (s) => {
 const state = cls(L.text({ x: A[0], cap: 150, s: 100, c: "lilac", txt: "" }), "sw");
 const stateSub = cls(L.text({ x: 0, base: 222, s: 38, c: "sky", txt: "" }), "sw");
 const placeSub = () => { stateSub.style.left = A[0] + state.offsetWidth + 48 + "px"; };
-const conf = L.box({ x: B[1] - 400, y: 150, w: 400, h: 72, c: "lilac", label: "Medical Confidential", r: "lr", fs: 36 });
+const conf = L.box({ x: UW ? 4162 : X1 - 400, y: 150, w: UW ? 558 : 400, h: 72, c: "lilac", label: "Medical Confidential", r: "lr", fs: 36 });
 conf.style.willChange = "opacity";
 
 // a section header with a status pill at its right end
@@ -147,7 +166,7 @@ const pillHeader = (col, y, label, c1, c2, texts, pc, h = 56) => {
 
 // ---------------- the patient database: a list that scrolls under a fixed cursor ----------------
 const dbPill = pillHeader(A, 280, "Patient Database", "sky", "lilac", ["Record 24 of 24"], "ice");
-const BOXW = 170, CUR = 3;                                   // the cursor sits on the fourth row
+const BOXW = 170, CUR = 3, VIS = UP ? 11 : 9;               // the cursor sits on the fourth row; rows in view
 // the columns: as wide as what they hold, the space left shared equally between them
 const COLS = [["Patient", (p) => p.name], ["Rank", (p) => p.rank], ["Species", (p) => p.species], ["Division", (p) => p.div],
               ["Post", (p) => p.post], ["Last Exam", () => "47999.9"], ["Inoculations", () => "Booster Due"], ["Fitness", () => "Under Treatment"]];
@@ -163,8 +182,7 @@ COLS.forEach(([txt, , x, align]) => L.text({ x, base: 400, s: 36, c: "sky", txt,
 const band = fill(A[0] + BOXW + 12, rowY(CUR), A[1] - A[0] - BOXW - 12, RH, BAND);
 band.style.borderRadius = `0 ${RH / 2}px ${RH / 2}px 0`;
 const clip = L.el("div", "boot", L.stage, { position: "absolute", left: A[0] + "px", top: ROW0 + "px", width: A[1] - A[0] + "px",
-  height: rowY(8) + RH - ROW0 + 4 + "px", overflow: "hidden" });
-const VIS = 9;
+  height: rowY(VIS - 1) + RH - ROW0 + 4 + "px", overflow: "hidden" });
 const rows = Array.from({ length: VIS + 1 }, (_, k) => {
   const e = L.layer({ x: 0, y: 0, w: A[1] - A[0], h: RH }, clip);
   const box = cls(L.box({ x: 0, y: 0, w: BOXW, h: RH, c: "sky", label: "", fs: 28, r: "l" }, e), "rc");
@@ -188,12 +206,12 @@ rows.forEach((r) => { r.p = pat(r.o); showRow(r); });
 placeRows(0, 0);
 
 // ---------------- the open record ----------------
-const recPill = pillHeader(B, 280, "Medical Record", "lilac", "sky", ["Exams on File 99"], "ice");
-L.text({ x: B[0], base: 400, s: 36, c: "sky", txt: "Starfleet Medical Database  ·  U.S.S. Enterprise  ·  CMO Access" });
-const FX = [B[0], B[0] + 240, B[0] + 700, B[0] + 940];
+const recPill = pillHeader(B, RY, "Medical Record", "lilac", "sky", ["Exams on File 99"], "ice");
+L.text({ x: B[0], base: RY + 120, s: 36, c: "sky", txt: "Starfleet Medical Database  ·  U.S.S. Enterprise  ·  CMO Access" });
+const FX = UP ? [B[0], B[0] + 190, B[0] + 450, B[0] + 620] : [B[0], B[0] + 240, B[0] + 700, B[0] + 940];
 const field = (i, k, label) => {
-  L.text({ x: FX[2 * k], base: rowBase(i), s: 36, c: "sky", txt: label });
-  return cls(L.text({ x: FX[2 * k + 1], base: rowBase(i), s: 40, c: "white", txt: "" }), "sw");
+  L.text({ x: FX[2 * k], base: rrowBase(i), s: 36, c: "sky", txt: label });
+  return cls(L.text({ x: FX[2 * k + 1], base: rrowBase(i), s: 40, c: "white", txt: "" }), "sw");
 };
 const F = {
   no: field(0, 0, "Record"), rank: field(0, 1, "Rank"), div: field(1, 0, "Division"), post: field(1, 1, "Post"),
@@ -202,7 +220,11 @@ const F = {
   next: field(7, 0, "Next Exam"), visits: field(7, 1, "Sickbay Visits"),
 };
 const TW3 = (B[1] - B[0] - 2 * L.GAP) / 3;
-const flags = [0, 1, 2].map((k) => cls(L.box({ x: B[0] + k * (TW3 + L.GAP), y: rowY(8), w: TW3, h: RH, c: "sky", label: "", fs: 28,
+// upright: duty fitness and away team share row 8, the inoculations flag takes row 9 to itself
+const TW2 = (B[1] - B[0] - L.GAP) / 2;
+const flags = UP ? [[B[0], 8, TW2, "l"], [B[0], 9, B[1] - B[0], "lr"], [B[0] + TW2 + L.GAP, 8, TW2, "r"]].map(([x, i, w, r]) =>
+  cls(L.box({ x, y: rrowY(i), w, h: RH, c: "sky", label: "", fs: 28, r }), "sw"))
+  : [0, 1, 2].map((k) => cls(L.box({ x: B[0] + k * (TW3 + L.GAP), y: rowY(8), w: TW3, h: RH, c: "sky", label: "", fs: 28,
   r: k === 0 ? "l" : k === 2 ? "r" : null }), "sw"));
 let open = null, schedS = 0;
 const nextExam = (p) => {
@@ -222,23 +244,28 @@ const showRecord = (p) => {
   L.set(stateSub, `Record ${p.no}  ·  ${p.div}  ·  ${p.post}`);
   placeSub();
   L.set(dbPill, `Record ${p.i + 1} of ${N}`);
+  if (UW) showSpecies(p);
 };
 
 // ---------------- examination history: the open record's last eight exams ----------------
-const histPill = pillHeader(B, 1000, "Examination History", "sky", "lilac", ROSTER.map((p) => p.short), "ice");
-L.text({ x: B[0], base: 1120, s: 36, c: "sky", txt: "Heart Rate at Rest  ·  BPM" });
+const histPill = pillHeader(HC, HY, "Examination History", "sky", "lilac", ROSTER.map((p) => p.short), "ice");
+const HCAP = UP ? HY + 120 : 1120;                          // the chart's caption line
+L.text({ x: HC[0], base: HCAP, s: 36, c: "sky", txt: "Heart Rate at Rest  ·  BPM" });
 const KEYTXT = "Species Normal Range", KW = L.textWidth(KEYTXT, 36);
-L.text({ x: B[1], base: 1120, s: 36, c: "lilac", txt: KEYTXT, align: "r" });
-L.rect({ x: B[1] - KW - 24 - 48, y: 1120 - 26, w: 48, h: 26, c: "#4a3a62" });
-const CX0 = B[0] + 100, CX1 = B[1], CTOP = 1212, CBOT = 1500, CH = CBOT - CTOP;
+L.text({ x: HC[1], base: HCAP, s: 36, c: "lilac", txt: KEYTXT, align: "r" });
+L.rect({ x: HC[1] - KW - 24 - 48, y: HCAP - 26, w: 48, h: 26, c: "#4a3a62" });
+// the readings over the bars and the dates under them sit on the neighbouring panel's rows
+// (wide: the immunization rows 0 and 6; upright: the record's rows 0 and 9)
+const HVB = UP ? rrowBase(0) : lrowBase(0) - 0, HDB = UP ? rrowBase(9) : lrowBase(6);
+const CX0 = HC[0] + 100, CX1 = HC[1], CTOP = UP ? HY + 212 : 1212, CBOT = UP ? HDB - 45 : 1500, CH = CBOT - CTOP;
 const BW = (CX1 - CX0 - 7 * L.GAP) / 8, barX = (k) => CX0 + k * (BW + L.GAP);
 const range = fill(CX0, CTOP, CX1 - CX0, CH, "#4a3a62"); range.style.opacity = "0.55";
 const grid = [0, 1, 2, 3].map((k) => L.rect({ x: CX0, y: CBOT - (k * CH) / 3 - (k === 0 ? 2 : 1), w: CX1 - CX0, h: 2, c: k === 0 ? "#3a5a9a" : GRID, free: true }));
 const scaleTxt = [0, 1, 2, 3].map((k) => cls(L.text({ x: CX0 - 24, base: CBOT - (k * CH) / 3 + 11, s: 32, c: "sky", txt: "", align: "r", legend: true }), "sw"));
 const bars = Array.from({ length: 8 }, (_, k) => {
   return { f: fill(barX(k), CTOP, BW, CH, k === 7 ? "ice" : "sky", "50% 100%"),
-           v: cls(L.text({ x: barX(k) + BW / 2, base: lrowBase(0) - 0, s: 36, c: "white", txt: "", align: "c", w: BW }), "sw"),
-           d: cls(L.text({ x: barX(k) + BW / 2, base: lrowBase(6), s: 32, c: "lilac", txt: "", align: "c", w: BW, legend: true }), "sw"),
+           v: cls(L.text({ x: barX(k) + BW / 2, base: HVB, s: 36, c: "white", txt: "", align: "c", w: BW }), "sw"),
+           d: cls(L.text({ x: barX(k) + BW / 2, base: HDB, s: 32, c: "lilac", txt: "", align: "c", w: BW, legend: true }), "sw"),
            from: 0, to: 0, now: 0 };
 });
 const chart = { t0: -99, rFrom: [0, 0], rTo: [0, 0], r: [0, 0] };
@@ -256,19 +283,23 @@ const showChart = (p, t) => {
 };
 
 // ---------------- immunization status ----------------
-const vaxPill = pillHeader(A, 1000, "Immunization Status", "lilac", "sky", ["Starfleet Medical Schedule"], "ice");
+const vaxPill = pillHeader(V, VY, "Immunization Status", "lilac", "sky", ["Starfleet Medical Schedule"], "ice");
 L.set(vaxPill, "Starfleet Medical Schedule");
-const VBOX = 470, VB0 = 740, VB1 = 1560, VLO = 0.9;           // the bars show 90 to 100 per cent
-[["Inoculation", A[0], "l"], ["Booster", 534, "l"], ["Coverage  ·  90 – 100%", VB0, "l"], ["Current", 1760, "r"], ["Share", 1930, "r"], ["Lapsed", 2100, "r"]]
-  .forEach(([txt, x, align]) => L.text({ x, base: 1120, s: 36, c: "sky", txt, align }));
+// upright: the bar runs 124 past its caption (clear of the near-alignment rule), the numbers close up
+const VCAP = "Coverage  ·  90 – 100%";
+const VBOX = UP ? 250 : 470, VB0 = UP ? 450 : 740, VB1 = UP ? VB0 + Math.ceil(L.textWidth(VCAP, 36)) + 124 : 1560, VLO = 0.9;           // the bars show 90 to 100 per cent
+// the booster, current, share and lapsed columns
+const VX = UP ? [314, 910, 1030, V[1]] : [534, 1760, 1930, 2100];
+[["Inoculation", V[0], "l"], ["Booster", VX[0], "l"], [VCAP, VB0, "l"], ["Current", VX[1], "r"], ["Share", VX[2], "r"], ["Lapsed", VX[3], "r"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: UP ? VY + 120 : 1120, s: 36, c: "sky", txt, align }));
 const vrow = (i, label, booster, c) => {
   const base = lrowBase(i);
-  L.box({ x: A[0], y: lrowY(i), w: VBOX, h: RH, c, label, fs: 28, r: "l" });
-  if (booster) L.text({ x: 534, base, s: 36, c: "lilac", txt: booster });
+  L.box({ x: V[0], y: lrowY(i), w: VBOX, h: RH, c, label, fs: 28, r: "l" });
+  if (booster) L.text({ x: VX[0], base, s: 36, c: "lilac", txt: booster });
   L.rect({ x: VB0, y: base - 26, w: VB1 - VB0, h: 26, c: TRACK });
   for (let k = 1; k < 5; k++) L.rect({ x: VB0 + ((VB1 - VB0) * k) / 5 - 1, y: base - 30, w: 2, h: 4, c: "#3a5a9a", free: true });
-  return { f: fill(VB0, base - 26, VB1 - VB0, 26, c), n: L.text({ x: 1760, base, s: 40, c: "white", txt: "", align: "r" }),
-           pct: L.text({ x: 1930, base, s: 36, c: "lilac", txt: "", align: "r" }), lap: L.text({ x: 2100, base, s: 36, c: "butter", txt: "", align: "r" }),
+  return { f: fill(VB0, base - 26, VB1 - VB0, 26, c), n: L.text({ x: VX[1], base, s: 40, c: "white", txt: "", align: "r" }),
+           pct: L.text({ x: VX[2], base, s: 36, c: "lilac", txt: "", align: "r" }), lap: L.text({ x: VX[3], base, s: 36, c: "butter", txt: "", align: "r" }),
            shown: 0, sc: -1 };
 };
 const vrows = VAX.map(([name, booster], i) => vrow(i, name, booster, i % 2 ? "sky" : "ice"));
@@ -286,8 +317,8 @@ const showVax = (snap) => {
 };
 
 // ---------------- check-ups ----------------
-const P1 = [40, 1040], P2 = [1100, 2100], P3 = [2160, 3520];
-const ckPill = pillHeader(P1, 1620, "Check-ups", "sky", "lilac", ["10 Min Left"], "ice", 48);
+const P1 = UP ? [40, 910] : [40, 1040], P2 = UP ? [970, X1] : [1100, 2100], P3 = [2160, 3520];
+const ckPill = pillHeader(P1, SY, "Check-ups", "sky", "lilac", ["10 Min Left"], "ice", 48);
 const PROGW = 190;
 const ck = Array.from({ length: 6 }, (_, i) => ({
   tm: cls(L.text({ x: P1[0], base: STRIP(i), s: 36, c: i ? "sky" : "butter", txt: "" }), "sw"),
@@ -297,13 +328,16 @@ const ck = Array.from({ length: 6 }, (_, i) => ({
 }));
 L.rect({ x: P1[1] - PROGW, y: STRIP(0) - 26, w: PROGW, h: 26, c: TRACK, noalign: true });   // flush left with the column under it
 const prog = fill(P1[1] - PROGW, STRIP(0) - 26, PROGW, 26, "butter");
-const showSchedule = () => ck.forEach((r, i) => {
-  const s = schedS + i, p = slotPatient(s), v = visitFor(s, p);
-  L.set(r.tm, hhmm(s * SLOT)); L.set(r.pt, p.short); L.set(r.ty, v.type); if (r.dr) L.set(r.dr, v.doc);
-});
+const showSchedule = () => {
+  ck.forEach((r, i) => {
+    const s = schedS + i, p = slotPatient(s), v = visitFor(s, p);
+    L.set(r.tm, hhmm(s * SLOT)); L.set(r.pt, p.short); L.set(r.ty, v.type); if (r.dr) L.set(r.dr, v.doc);
+  });
+  if (UW) showStaff();
+};
 
 // ---------------- recent visits: the newest at the bottom ----------------
-L.header({ x: P2[0], y: 1620, w: P2[1] - P2[0], label: "Recent Visits", c1: "lilac", c2: "sky", h: 48 });
+L.header({ x: P2[0], y: SY, w: P2[1] - P2[0], label: "Recent Visits", c1: "lilac", c2: "sky", h: 48 });
 const vis = Array.from({ length: 6 }, (_, i) => [
   L.text({ x: P2[0], base: STRIP(i), s: 36, c: "sky", txt: "" }), L.text({ x: P2[0] + 130, base: STRIP(i), s: 36, c: "ice", txt: "" }),
   L.text({ x: P2[0] + 430, base: STRIP(i), s: 36, c: "lilac", txt: "" }), L.text({ x: P2[1], base: STRIP(i), s: 36, c: "white", txt: "", align: "r" }),
@@ -316,20 +350,28 @@ const showVisits = () => vis.forEach((r, i) => {
 });
 
 // ---------------- duty fitness ----------------
-L.set(pillHeader(P3, 1620, "Duty Fitness", "sky", "lilac", ["Complement 1,014"], "ice", 48), `Complement ${fmt(COMPLEMENT)}`);
-const FC = [P3[0] + 54, 2800, 3160, P3[1]];
+// upright: beside the immunizations, on their rows (heads on their heads, the bar over rows 0–1,
+//   the four on rows 2–5, the whole complement on row 6 beside the immunizations' total)
+const FT = UP ? [1210, X1] : P3;
+L.set(pillHeader(FT, UP ? VY : 1620, "Duty Fitness", "sky", "lilac", ["Complement 1,014"], "ice", UP ? 56 : 48), `Complement ${fmt(COMPLEMENT)}`);
+const FC = UP ? [FT[0] + 54, FT[0] + 330, FT[0] + 470, FT[1]] : [P3[0] + 54, 2800, 3160, P3[1]];
 [["Status", FC[0] - 54, "l"], ["Aboard", FC[1], "r"], ["Share", FC[2], "r"], ["In Database", FC[3], "r"]]
-  .forEach(([txt, x, align]) => L.text({ x, base: STRIP(0), s: 36, c: "sky", txt, align }));
-const SEGY = 1762, SEGH = 32, SEGGAP = 6;
+  .forEach(([txt, x, align]) => L.text({ x, base: UP ? VY + 120 : STRIP(0), s: 36, c: "sky", txt, align }));
+const SEGY = UP ? lrowY(0) : 1762, SEGH = UP ? P + RH : 32, SEGGAP = 6;
 const fitRows = FIT.map((name, i) => {
-  const base = STRIP(i + 2);
-  L.rect({ x: P3[0], y: base - 30, w: 30, h: 30, c: FITC[i] });
+  const base = UP ? lrowBase(i + 2) : STRIP(i + 2);
+  L.rect({ x: FT[0], y: base - 30, w: 30, h: 30, c: FITC[i] });
   L.text({ x: FC[0], base, s: 36, c: "lilac", txt: name });
-  return { seg: fill(P3[0], SEGY, P3[1] - P3[0], SEGH, FITC[i]), n: L.text({ x: FC[1], base, s: 40, c: "white", txt: "", align: "r" }),
+  return { seg: fill(FT[0], SEGY, FT[1] - FT[0], SEGH, FITC[i]), n: L.text({ x: FC[1], base, s: 40, c: "white", txt: "", align: "r" }),
            pct: L.text({ x: FC[2], base, s: 36, c: "lilac", txt: "", align: "r" }), db: L.text({ x: FC[3], base, s: 40, c: "ice", txt: "", align: "r" }),
            shown: fitCount[i] };
 });
-const showDb = () => fitRows.forEach((r, i) => L.set(r.db, `${ROSTER.filter((p) => p.fit === i).length} of ${N}`));
+if (UP) [["All Crew", FC[0], "l", 36, "lilac"], [fmt(COMPLEMENT), FC[1], "r", 40, "white"], ["100.0%", FC[2], "r", 36, "lilac"], [`${N} of ${N}`, FC[3], "r", 40, "ice"]]
+  .forEach(([txt, x, align, sz, c]) => L.text({ x, base: lrowBase(6), s: sz, c, txt, align }));
+const showDb = () => {
+  fitRows.forEach((r, i) => L.set(r.db, `${ROSTER.filter((p) => p.fit === i).length} of ${N}`));
+  if (UW) showDiv();
+};
 const showFit = (snap) => {
   let moving = snap;
   fitRows.forEach((r, i) => {
@@ -338,9 +380,9 @@ const showFit = (snap) => {
   });
   if (!moving && fitRows.drawn) return;
   fitRows.drawn = true;
-  const W = P3[1] - P3[0], span = W - SEGGAP * (FIT.length - 1);
-  // the small groups are drawn at a readable minimum, taken from the large one
-  const MIN = 0.012, raw = fitRows.map((r) => r.shown / COMPLEMENT), w = raw.map((v, i) => (i ? Math.max(MIN, v) : 0));
+  const W = FT[1] - FT[0], span = W - SEGGAP * (FIT.length - 1);
+  // the small groups are drawn at a readable minimum (about 16 px), taken from the large one
+  const MIN = UP ? 0.03 : 0.012, raw = fitRows.map((r) => r.shown / COMPLEMENT), w = raw.map((v, i) => (i ? Math.max(MIN, v) : 0));
   w[0] = 1 - w.slice(1).reduce((a, b) => a + b, 0);
   let x = 0;
   fitRows.forEach((r, i) => {
@@ -350,6 +392,138 @@ const showFit = (snap) => {
     L.set(r.n, fmt(n)); L.set(r.pct, ((100 * n) / COMPLEMENT).toFixed(1) + "%");
   });
 };
+
+
+// =====================================================================================
+// ULTRAWIDE: a third column (3580–4720) down all three bands, on the same rows as its neighbours
+// =====================================================================================
+// crew health by division: the 24 records, each counted once by fitness, with the division's sickbay visits
+const DIVS = ["Command", "Operations", "Engineering", "Sciences", "Security", "Medical", "Civilian"];
+const DIVC = ["sky", "ice", "sky", "ice", "sky", "ice", "sky"];
+let showDiv = () => {}, showSpecies = () => {}, showStaff = () => {};
+if (UW) {
+  const dbHead = pillHeader(C, 280, "Crew Health", "lilac", "sky", [`Database  ·  ${N} Records`], "ice");
+  L.set(dbHead, `Database  ·  ${N} Records`);
+  const DX = [4020, 4160, 4300, 4440, 4580, C[1]];           // right edges: patients, fit / restricted / treatment, sickbay visits, boosters due
+  L.text({ x: C[0], base: 400, s: 36, c: "sky", txt: "Division" });
+  ["Patients", "Fit", "Restricted", "Treatment", "Visits", "Boosters"].forEach((txt, k) => L.text({ x: DX[k], base: 400, s: 36, c: "sky", txt, align: "r" }));
+  const DCOL = ["white", "ice", "butter", "pink", "white", "butter"];
+  const drow = (i, label, c) => {
+    L.box({ x: C[0], y: rowY(i), w: 250, h: RH, c, label, fs: 28, r: "l" });
+    return DX.map((x, k) => L.text({ x, base: rowBase(i), s: k ? 36 : 40, c: DCOL[k], txt: "", align: "r" }));
+  };
+  const drows = DIVS.map((d, i) => drow(i, d, DIVC[i])), dall = drow(7, "All Divisions", "lilac");
+  // row 8: the database by division, a bar in the rows' colours
+  const per = DIVS.map((d) => ROSTER.filter((p) => p.div === d).length), span = C[1] - C[0] - L.GAP * (DIVS.length - 1);
+  let x = C[0];
+  per.forEach((n, i) => {
+    const w = i === DIVS.length - 1 ? C[1] - x : Math.round((n / N) * span);
+    L.box({ x, y: rowY(8), w, h: RH, c: DIVC[i], label: "", r: i === 0 ? "l" : i === DIVS.length - 1 ? "r" : null });
+    x += w + L.GAP;
+  });
+  showDiv = () => {
+    // nobody in the database is on medical leave (the four on leave are counted in the complement), so
+    // fit, restricted and treatment add up to Patients; the fifth column is the division's sickbay visits
+    const row = (r, ps) => [ps.length, ...[0, 1, 2].map((f) => ps.filter((p) => p.fit === f).length), ps.reduce((a, p) => a + p.seen, 0),
+      ps.filter((p) => p.due >= 0).length]
+      .forEach((v, k) => L.set(r[k], v));
+    DIVS.forEach((d, i) => row(drows[i], ROSTER.filter((p) => p.div === d)));
+    row(dall, ROSTER);
+  };
+
+  // species physiology: the normal heart rate at rest for each species in the database, the open
+  // record's species marked and its patient's last reading on the scale
+  const SPN = Object.keys(SPECIES);
+  const spPill = cls(pillHeader(C, 1000, "Species Physiology", "sky", "lilac", SPN, "ice"), "sw");
+  SWR.push(spPill);
+  const TX0 = 3920, TX1 = 4440, HMAX = 300, hx = (v) => TX0 + ((TX1 - TX0) * v) / HMAX;
+  [["Species", C[0], "l"], ["Heart Rate at Rest  ·  BPM", TX0, "l"], ["Normal", 4580, "r"], ["Patients", C[1], "r"]]
+    .forEach(([txt, x, align]) => L.text({ x, base: 1120, s: 36, c: "sky", txt, align }));
+  const sprow = SPN.map((sp, i) => {
+    const [typ, lo, hi] = SPECIES[sp], base = lrowBase(i);
+    const box = cls(L.box({ x: C[0], y: lrowY(i), w: 280, h: RH, c: "sky", label: sp, fs: 28, r: "l" }), "rc");
+    L.rect({ x: TX0, y: base - 26, w: TX1 - TX0, h: 26, c: TRACK });
+    L.rect({ x: hx(lo), y: base - 26, w: hx(hi) - hx(lo), h: 26, c: "#4a3a62", free: true });
+    [100, 200].forEach((g) => L.rect({ x: hx(g) - 1, y: base - 30, w: 2, h: 4, c: "#3a5a9a", free: true }));
+    L.rect({ x: hx(typ) - 2, y: base - 30, w: 4, h: 34, c: "ice", free: true });
+    L.text({ x: 4580, base, s: 36, c: "lilac", txt: `${lo} – ${hi}`, align: "r" });
+    L.text({ x: C[1], base, s: 40, c: "white", txt: String(ROSTER.filter((p) => p.species === sp).length), align: "r" });
+    return { box, base };
+  });
+  L.box({ x: C[0], y: lrowY(6), w: 280, h: RH, c: "lilac", label: "All Species", fs: 28, r: "l" });
+  [0, 100, 200, 300].forEach((v, k) => L.text({ x: k === 0 ? TX0 : k === 3 ? TX1 : hx(v), base: lrowBase(6), s: 32, c: "sky", txt: String(v),
+    align: k === 0 ? "l" : k === 3 ? "r" : "c", legend: true }));
+  L.text({ x: C[1], base: lrowBase(6), s: 40, c: "white", txt: String(N), align: "r" });
+  const mark = cls(fill(0, 0, 8, 40, "butter"), "sw");       // the open record's last reading
+  SWR.push(mark);
+  showSpecies = (p) => {
+    const k = SPN.indexOf(p.species), hr = p.exams[p.exams.length - 1].hr;
+    sprow.forEach((r, i) => bg(r.box, i === k ? "butter" : "sky"));
+    tf(mark, `translate3d(${(hx(hr) - 4).toFixed(1)}px,${sprow[k].base - 33}px,0)`);
+    L.set(spPill, p.species);
+  };
+
+  // the physicians: patients of record (the 24 split three ways) and each one's next check-up
+  const P4 = C, DOCS = ["Dr. Crusher", "Dr. Selar", "Dr. Okafor"], DOCC = ["sky", "lilac", "ice"];
+  L.set(pillHeader(P4, 1620, "Physicians", "lilac", "sky", [`Patients of Record ${N}`], "ice", 48), `Patients of Record ${N}`);
+  const SX = [P4[0] + 54, 4180, 4400, P4[1]];
+  [["Physician", P4[0], "l"], ["Patients", SX[1], "r"], ["Share", SX[2], "r"], ["Next Check-up", SX[3], "r"]]
+    .forEach(([txt, x, align]) => L.text({ x, base: STRIP(0), s: 36, c: "sky", txt, align }));
+  const cnt = DOCS.map((d) => ROSTER.filter((p) => p.doc === d).length);
+  const sspan = P4[1] - P4[0] - SEGGAP * (DOCS.length - 1);
+  let sx = P4[0];
+  const srows = [...DOCS, "All Physicians"].map((d, i) => {
+    const base = STRIP(i + 2), n = i < 3 ? cnt[i] : N;
+    if (i < 3) {
+      L.rect({ x: P4[0], y: base - 30, w: 30, h: 30, c: DOCC[i] });
+      const w = i === 2 ? P4[1] - sx : (n / N) * sspan;
+      L.rect({ x: sx, y: SEGY, w, h: SEGH, c: DOCC[i], noalign: true });
+      sx += w + SEGGAP;
+    }
+    L.text({ x: SX[0], base, s: 36, c: "lilac", txt: d });
+    L.text({ x: SX[1], base, s: 40, c: "white", txt: String(n), align: "r" });
+    L.text({ x: SX[2], base, s: 36, c: "lilac", txt: ((100 * n) / N).toFixed(1) + "%", align: "r" });
+    return cls(L.text({ x: SX[3], base, s: 40, c: "ice", txt: "", align: "r" }), "sw");
+  });
+  SWS.push(...srows);
+  showStaff = () => {
+    const next = (want) => {
+      for (let k = 0; k < 6; k++) if (want(visitFor(schedS + k, slotPatient(schedS + k)).doc)) return k === 0 ? "In Progress" : hhmm((schedS + k) * SLOT);
+      return "None This Hour";
+    };
+    DOCS.forEach((d, i) => L.set(srows[i], next((v) => v === d)));
+    L.set(srows[3], next((v) => DOCS.includes(v)));
+  };
+
+  // the status row: the stardate beside the confidentiality pill, over the third column
+  const sdPill = L.box({ x: C[0], y: 150, w: 558, h: 72, c: "sky", label: "", r: "lr", fs: 36 });
+  L.every(1000, () => L.set(sdPill, `Stardate ${stardate(minutes()).toFixed(1)}`), 0);
+  L.set(sdPill, `Stardate ${stardate(minutes()).toFixed(1)}`);
+}
+
+// ---------------- a guard: every record's words fit their places (upright and ultrawide) ----------------
+if (L.shape !== "wide") {
+  const bad = [], tw = L.textWidth;
+  const fits = (txt, s, w, where) => { if (tw(String(txt), s) > w) bad.push(`${where}: "${txt}" ${Math.round(tw(String(txt), s))}>${Math.round(w)}`); };
+  const pillW = (texts, fs = 32) => Math.ceil(Math.max(...texts.map((t) => tw(t, fs))) / 10) * 10 + 90;
+  const confX = UW ? C[0] : X1 - 400;
+  for (const p of ROSTER) {
+    fits(`${p.full}`, 100, confX - 40 - A[0] - 48 - tw(`Record ${p.no}  ·  ${p.div}  ·  ${p.post}`, 38), "status line");
+    for (const v of [p.no, p.div, p.species, p.blood, p.doc, "Follow-up Pending", "In Progress", "Today 00:00", (lastExam(p) + 1000).toFixed(1)])
+      fits(v, 40, FX[2] - FX[1] - 40, "record, left");
+    for (const v of [p.rank, p.post, p.age, p.hm, lastExam(p).toFixed(1), p.seen + 20]) fits(v, 40, B[1] - FX[3], "record, right");
+    for (const v of [p.allergy, p.notes, "Promotion physical complete, no findings"]) fits(v, 40, B[1] - FX[1], "record, notes");
+    fits(p.short, 36, 430 - 130 - 30, "check-up patient");
+  }
+  const fw = flags.map((f) => parseFloat(f.style.width));
+  for (const f of FIT) fits(f, 28, fw[0] - 10 - 22, "flag");
+  for (const [v] of VAX) fits(`Booster Due  ·  ${v}`, 28, fw[1] - 10 - 22, "flag");
+  for (const v of ["Away Team Cleared", "Away Team Hold"]) fits(v, 28, fw[2] - 10 - 22, "flag");
+  for (const v of ["Follow-up", "Inoculation", "Promotion Physical", "Annual Physical"]) fits(v, 36, P1[1] - PROGW - P1[0] - 430 - 30, "check-up type");
+  for (const v of ["Cleared for Duty", "Restricted Duty", "Inoculated", "Fit for Duty"]) fits(v, 36, P2[1] - P2[0] - 430 - tw("Promotion Physical", 36) - 30, "visit outcome");
+  if (UW) for (const d of [...DIVS, "All Divisions"]) fits(d, 28, 250 - 10 - 10, "division");
+  if (bad.length) setTimeout(() => { throw new Error("medical-records: " + [...new Set(bad)].join(" | ")); });
+}
 
 // ---------------- the morning so far: the last six visits ----------------
 schedS = Math.floor(minutes() / SLOT);
@@ -366,7 +540,7 @@ L.tick((t) => {
   if (!scrolling && t >= nextAt) {
     scrolling = true; scrollT0 = t;
     open = pat(1);
-    swap([state, stateSub, ...Object.values(F), ...flags, recPill, histPill, ...bars.flatMap((b) => [b.v, b.d]), ...scaleTxt],
+    swap([state, stateSub, ...Object.values(F), ...flags, recPill, histPill, ...bars.flatMap((b) => [b.v, b.d]), ...scaleTxt, ...SWR],
       () => { showRecord(open); showChart(open, L.t); });
   }
   if (scrolling) {
@@ -406,9 +580,9 @@ L.every(250, () => {
     for (let k = schedS; k < s; k++) done.push(completeVisit(k));
     schedS = s;
     visited.push(...done); while (visited.length > 6) visited.shift();
-    swap([...ck.flatMap((r) => [r.tm, r.pt, r.ty, r.dr].filter(Boolean)), ...vis.flat()], () => { showSchedule(); showVisits(); });
+    swap([...ck.flatMap((r) => [r.tm, r.pt, r.ty, r.dr].filter(Boolean)), ...vis.flat(), ...SWS], () => { showSchedule(); showVisits(); });
     rows.forEach((r) => showRow(r)); showDb();
-    if (done.some((d) => d[4] === open)) swap([...Object.values(F), ...flags], () => { showRecord(open); showChart(open, L.t); });
+    if (done.some((d) => d[4] === open)) swap([...Object.values(F), ...flags, ...SWR], () => { showRecord(open); showChart(open, L.t); });
     else L.set(F.next, nextExam(open));
   }
   const left = schedS * SLOT + SLOT - m, k = 1 - left / SLOT;

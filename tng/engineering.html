@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Engineering</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   .band { background: linear-gradient(to right, #0d2a6a 0%, #3f8cff 22%, #bfe6ff 50%, #3f8cff 78%, #0d2a6a 100%); border-radius: 8px; }
@@ -13,7 +14,16 @@
 const L = LCARS;
 L.ready(() => {
 
+// Three layouts. Wide (3840×2160) is the original, hand-placed. Upright (2160×3120): the reaction
+// assembly's readings down the left of the top band, warp factor and plasma flow down the right,
+// the two nacelles' coils side by side under them; below, the warp core runs down the left with the
+// EPS distribution beside it. Ultrawide (5040×2160): the wide layout with a new column between the
+// reaction assembly and the core: warp field geometry (eight live readings) over an engineering log.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+
 // ---------------- the frame ----------------
+let B;
+if (L.shape === "wide") {
 const engLeft = L.title({ x: 3720 - L.GAP, y: 40, h: 70, c: "orange", txt: "Engineering" });
 const peachX = engLeft - L.GAP - 110;                    // the bar stops one gap short of the title
 L.elbow({ corner: "tl", x: 40, y: 40, w: peachX - L.GAP - 40, h: 300, bw: 260, bh: 70, R: 170, r: 70, c: "orange" });
@@ -26,6 +36,31 @@ L.elbow({ corner: "bl", x: 40, y: 1640, w: 1400, h: 480, bw: 260, bh: 50, R: 170
 [[1448, 640, "plum"], [2096, 800, "lilac"], [2904, 806, "peach"]].forEach(([x, w, c]) => L.rect({ x, y: 2070, w, h: 50, c }));
 L.box({ x: 3718, y: 2070, w: 98, h: 50, c: "orange", r: "r" });
 L.text({ x: 278, y: 1700, s: 44, c: "#000", txt: "Core 01", align: "r", on: true });
+} else {
+  // the same frame, drawn by the kit for this shape: type A, the same colours and sidebar labels
+  B = L.frame({ type: "A", title: "Engineering", c: "orange", c2: "lilac", accent: "peach", foot: "Core 01",
+    side: [[120, "peach", "01-4471"], [60, "tan", "Warp"], [380, "orange", "M/ARA"], [60, "lilac", "29-0175"],
+           [200, "peach", "EPS"], [60, "sunset", "47-2"], [356, "orange", "Diag 3"]] });
+}
+
+// ---------------- the geometry, per shape ----------------
+// Everything below is written once; only these positions and sizes differ. Wide values are exactly
+// the original's. Upright: the top band splits into two 873 columns (330–1203 | 1263–2136).
+// Ultrawide: the wide layout moved to the kit's content edge (330) with a 1186 column at 1464–2650.
+const LX = UP || UW ? 330 : 380;                          // left column: the reaction assembly
+const RBW = UP ? 320 : 380, TRX = LX + RBW + 12, TRW = UP ? 300 : 400, RVX = UP ? 1203 : LX + 1070;
+const WX = UP ? 1263 : LX, WLY = UP ? 286 : 1000, WNX = UP ? 2136 : RVX;   // warp factor: label, number
+const SCW = UP ? 867 : 1040, scaleY = UP ? 506 : 1196;                    // its scale
+const PX = UP ? 1263 : LX, PY = UP ? 646 : 1330, PW = UP ? 873 : 1050;      // plasma flow
+const CLX = LX, CLY = UP ? 1000 : 1680, CLW = UP ? 1806 : 1050;            // warp field coils
+const COILROWS = UP ? [["Port", 330, 1080, "lilac"], ["Starboard", 1263, 1080, "lilac"]]
+                    : [["Port", LX, 1760, "lilac"], ["Starboard", LX, 1880, "lilac"]];
+const CBW = UP ? 203 : 220, CSTEP = UP ? 55 : 68, CWD = UP ? 49 : 60;
+const CORE = UP ? [556, 1380, 2970, 2150] : UW ? [2920, 170, 2010, 1090] : [1720, 170, 2010, 1090];
+const EPS_HEAD = UP ? [2136, 1222] : UW ? [5016, 146] : [3816, 146];
+const EPS = UP ? { BUS: 906, BR: 1240, PILL: 380, VX: 1810, TX: 1830, TW: 306, ROW0: 1420, RSTEP: 148 }
+          : UW ? { BUS: 3270, BR: 3760, PILL: 560, VX: 4530, TX: 4550, TW: 466, ROW0: 320, RSTEP: 154 }
+               : { BUS: 2070, BR: 2560, PILL: 560, VX: 3330, TX: 3350, TW: 466, ROW0: 320, RSTEP: 154 };
 
 // ---------------- warp factor drives everything ----------------
 let warp = L.rand(5.5, 8.5), warpFrom = warp, warpTo = warp, warpT0 = 0;
@@ -34,7 +69,7 @@ L.every(22000, (t) => { warpFrom = warp; warpTo = Math.round(L.rand(4.0, 9.6) * 
 L.tick((t) => { warp = L.mix(warpFrom, warpTo, L.ease(L.clamp((t - warpT0) / WARP_DUR))); });
 
 // ---------------- left: the reaction assembly ----------------
-L.text({ x: 380, y: 150, s: 66, c: "orange", txt: "Matter / Antimatter Reaction Assembly" });
+L.text({ x: LX, y: 150, s: 66, c: "orange", txt: "Matter / Antimatter Reaction Assembly" });
 const rows = [
   ["Deuterium Flow", "peach", "orange", (w) => 0.42 + w * 0.055, (v) => (v * 100).toFixed(1) + "%"],
   ["Antideuterium Flow", "lilac", "lilac", (w) => 0.41 + w * 0.056, (v) => (v * 100).toFixed(1) + "%"],
@@ -47,11 +82,11 @@ const rows = [
 ];
 const readings = rows.map(([label, c, fill, target, fmt], i) => {
   const y = 286 + i * 84;
-  L.box({ x: 380, y, w: 380, h: 66, c, label, fs: 34 });
-  const tr = L.el("div", "track boot", L.stage, { left: "772px", top: y + "px", width: "400px", height: "66px" });
-  const f = L.layer({ x: 772, y, w: 400, h: 66 });
+  L.box({ x: LX, y, w: RBW, h: 66, c, label, fs: 34 });
+  const tr = L.el("div", "track boot", L.stage, { left: TRX + "px", top: y + "px", width: TRW + "px", height: "66px" });
+  const f = L.layer({ x: TRX, y, w: TRW, h: 66 });
   f.style.background = `var(--${fill})`; f.style.transformOrigin = "0 0";
-  const v = L.text({ x: 1450, y: y + 4, s: 58, c: fill, txt: "", align: "r" });
+  const v = L.text({ x: RVX, y: y + 4, s: 58, c: fill, txt: "", align: "r" });
   return { f, v, target, fmt, cur: target(warp), j: 0 };
 });
 L.tick((t) => readings.forEach((r, i) => {
@@ -62,30 +97,29 @@ L.tick((t) => readings.forEach((r, i) => {
 L.every(250, () => readings.forEach((r) => { r.j = (Math.random() - 0.5) * 0.012; r.v.textContent = r.fmt(r.cur); }), 0);
 
 // warp factor, large, on a scale
-L.text({ x: 380, y: 1000, s: 44, c: "sky", txt: "Warp Factor" });
-const wtxt = L.text({ x: 1450, y: 958, s: 210, c: "butter", txt: "", align: "r" });
-const scaleY = 1196;
+L.text({ x: WX, y: WLY, s: 44, c: "sky", txt: "Warp Factor" });
+const wtxt = L.text({ x: WNX, y: WLY - 42, s: 210, c: "butter", txt: "", align: "r" });
 for (let k = 1; k <= 9; k++) {
-  const x = 380 + ((k - 1) / 8.9) * 1040;
+  const x = WX + ((k - 1) / 8.9) * SCW;
   L.rect({ x, y: scaleY, w: 6, h: k % 2 ? 46 : 30, c: "sky" });
   L.text({ x: x - 8, y: scaleY + 64, s: 34, c: "sky", txt: String(k), legend: true });
 }
-L.rect({ x: 380, y: scaleY - 12, w: 1046, h: 6, c: "sky" });
-const wmark = L.layer({ x: 380, y: scaleY - 66, w: 0, h: 0 });
+L.rect({ x: WX, y: scaleY - 12, w: SCW + 6, h: 6, c: "sky" });
+const wmark = L.layer({ x: WX, y: scaleY - 66, w: 0, h: 0 });
 wmark.style.borderLeft = "24px solid transparent"; wmark.style.borderRight = "24px solid transparent";
 wmark.style.borderTop = "42px solid var(--butter)";
-L.tick(() => L.move(wmark, ((warp - 1) / 8.9) * 1040 - 21, 0));
+L.tick(() => L.move(wmark, ((warp - 1) / 8.9) * SCW - 21, 0));
 L.every(100, () => (wtxt.textContent = warp.toFixed(1)), 0);
 
 // plasma flow monitor
-L.box({ x: 380, y: 1330, w: 300, h: 50, c: "plum", label: "Plasma Flow", fs: 30, r: "l" });
-L.rect({ x: 686, y: 1330, w: 744, h: 50, c: "lilac" });
-const osc = L.canvas({ x: 380, y: 1394, w: 1050, h: 230 });
+L.box({ x: PX, y: PY, w: 300, h: 50, c: "plum", label: "Plasma Flow", fs: 30, r: "l" });
+L.rect({ x: PX + 306, y: PY, w: PW - 306, h: 50, c: "lilac" });
+const osc = L.canvas({ x: PX, y: PY + 64, w: PW, h: 230 });
 L.tick((t) => {
   const g = osc.g, w = osc.w, h = osc.h, f = 0.6 + warp * 0.12;
   g.clearRect(0, 0, w, h);
   g.fillStyle = "#1b2550";
-  for (let x = 0; x <= w; x += 105) g.fillRect(x, 0, 2, h);
+  for (let x = 0; x <= w; x += UP ? w / 8 : 105) g.fillRect(x, 0, 2, h);
   for (let y = 0; y <= h; y += 57.5) g.fillRect(0, y, w, 2);
   const trace = (amp, k, ph, col, lw) => {
     g.strokeStyle = col; g.lineWidth = lw; g.beginPath();
@@ -101,15 +135,15 @@ L.tick((t) => {
 });
 
 // warp field coils: each nacelle fires its coils front to back, faster at higher warp
-L.box({ x: 380, y: 1680, w: 300, h: 50, c: "orange", label: "Warp Field Coils", fs: 30, r: "l" });
-L.rect({ x: 686, y: 1680, w: 744, h: 50, c: "peach" });
+L.box({ x: CLX, y: CLY, w: 300, h: 50, c: "orange", label: "Warp Field Coils", fs: 30, r: "l" });
+L.rect({ x: CLX + 306, y: CLY, w: CLW - 306, h: 50, c: "peach" });
 const coils = [];
-[["Port", 1760, "lilac"], ["Starboard", 1880, "lilac"]].forEach(([name, y, c], n) => {
-  L.box({ x: 380, y, w: 220, h: 96, c, label: name, fs: 34 });
+COILROWS.forEach(([name, bx, y, c], n) => {
+  L.box({ x: bx, y, w: CBW, h: 96, c, label: name, fs: 34 });
   for (let i = 0; i < 12; i++) {
-    const x = 616 + i * 68;
-    L.rect({ x, y, w: 60, h: 96, c: "#1a2550" });
-    const e = L.layer({ x, y, w: 60, h: 96 });
+    const x = bx + CBW + 16 + i * CSTEP;
+    L.rect({ x, y, w: CWD, h: 96, c: "#1a2550" });
+    const e = L.layer({ x, y, w: CWD, h: 96 });
     e.style.background = "var(--ice)"; e.style.opacity = 0.1;
     coils.push({ e, i, n });
   }
@@ -124,13 +158,18 @@ L.tick((t) => {
 });
 
 // ---------------- centre: the warp core ----------------
-const CX = 1720, TOP = 170, BOT = 2010, MID = 1090;
+const [CX, TOP, BOT, MID] = CORE;
 L.rect({ x: CX - 132, y: TOP, w: 264, h: BOT - TOP, rx: 40, c: "#0a1630" });
 L.svg("rect", { x: CX - 132, y: TOP, width: 264, height: BOT - TOP, rx: 40, fill: "none", stroke: "var(--ice)", "stroke-width": 6 });
 L.rect({ x: CX - 180, y: TOP - 4, w: 360, h: 40, rx: 20, c: "peach" });
 L.rect({ x: CX - 180, y: BOT - 36, w: 360, h: 40, rx: 20, c: "lilac" });
+if (UP) {                                                 // upright: printed on the caps, clear of the EPS bus
+  L.text({ x: CX, w: 360, cap: TOP + 5, s: 30, c: "#000", txt: "Matter Injector", align: "c", on: true });
+  L.text({ x: CX, w: 360, cap: BOT - 27, s: 30, c: "#000", txt: "Antimatter Injector", align: "c", on: true });
+} else {
 L.text({ x: CX + 200, y: TOP - 6, s: 36, c: "peach", txt: "Matter Injector" });
 L.text({ x: CX + 200, y: BOT - 38, s: 36, c: "lilac", txt: "Antimatter Injector" });
+}
 // the reaction chamber
 L.rect({ x: CX - 200, y: MID - 70, w: 400, h: 140, rx: 50, c: "#0a1630" });
 L.svg("rect", { x: CX - 200, y: MID - 70, width: 400, height: 140, rx: 50, fill: "none", stroke: "var(--orange)", "stroke-width": 8 });
@@ -162,22 +201,22 @@ L.tick((t) => {
 });
 
 // ---------------- right: EPS power distribution ----------------
-L.text({ x: 3816, y: 146, s: 78, c: "sky", txt: "EPS Power Distribution", align: "r" });   // flush with the pill above
-const BUS = 2070, BR = 2560;
+L.text({ x: EPS_HEAD[0], y: EPS_HEAD[1], s: 78, c: "sky", txt: "EPS Power Distribution", align: "r" });   // flush with the pill above
+const { BUS, BR, PILL, VX, TX, TW } = EPS;
 L.rect({ x: CX + 226, y: MID - 5, w: BUS - CX - 226, h: 10, c: "plum" });       // trunk from the chamber
 const systems = ["Main Deflector", "Deflector Shields", "Phaser Banks", "Photon Torpedoes", "Impulse Engines", "Life Support",
                  "Replicators", "Holodecks", "Sensor Arrays", "Transporters", "Computer Core"];
-const ROW0 = 320, RSTEP = 154;
+const { ROW0, RSTEP } = EPS;
 const busTop = ROW0 + 35, busBot = ROW0 + 35 + (systems.length - 1) * RSTEP;
 L.rect({ x: BUS - 5, y: busTop, w: 10, h: busBot - busTop, c: "plum" });
 const pal = ["orange", "peach", "lilac", "ice", "tan", "sky", "butter", "plum", "peach", "orange", "lilac"];
 const sys = systems.map((name, i) => {
   const y = ROW0 + i * RSTEP, c = pal[i];
   L.rect({ x: BUS, y: y + 31, w: BR - BUS, h: 8, c: "plum" });
-  const pill = L.box({ x: BR, y, w: 560, h: 70, c, label: name, r: "l", fs: 38 });
-  const v = L.text({ x: 3330, y: y + 2, s: 66, c, txt: "", align: "r" });
-  L.el("div", "track boot", L.stage, { left: "3350px", top: y + 14 + "px", width: "466px", height: "42px" });
-  const f = L.layer({ x: 3350, y: y + 14, w: 466, h: 42 });
+  const pill = L.box({ x: BR, y, w: PILL, h: 70, c, label: name, r: "l", fs: 38 });
+  const v = L.text({ x: VX, y: y + 2, s: 66, c, txt: "", align: "r" });
+  L.el("div", "track boot", L.stage, { left: TX + "px", top: y + 14 + "px", width: TW + "px", height: "42px" });
+  const f = L.layer({ x: TX, y: y + 14, w: TW, h: 42 });
   f.style.background = `var(--${c})`; f.style.transformOrigin = "0 0";
   const level = L.rand(0.55, 0.98);
   const pk = [0, 1].map(() => L.layer({ x: 0, y: 0, w: 26, h: 12, cls: "pkt" }));
@@ -220,8 +259,81 @@ const msgs = ["Level 3 diagnostic in progress", "Dilithium articulation frame 2-
   "Magnetic constriction segments within tolerance", "Antimatter containment field stable", "EPS taps rerouted through secondary grid",
   "Warp field coil phasing nominal", "Coolant flow balanced, port and starboard", "Structural integrity field at 100%",
   "Inertial dampers nominal", "Deuterium tank 3 at 87%", "Subspace field geometry stable"];
-const tick = L.text({ x: 2580, y: 1972, s: 46, c: "orange", txt: "" });
-L.every(4200, () => (tick.textContent = L.pick(msgs)), 0.2);
+// upright: beside the EPS heading, on its baseline
+const tick = L.text(UP ? { x: 330, base: 1222 + L.BASELINE * 78, s: 46, c: "orange", txt: "" }
+                       : { x: UW ? 3780 : 2580, y: 1972, s: 46, c: "orange", txt: "" });
+const logHook = { f: null };                             // ultrawide: the engineering log hears each message
+L.every(4200, () => { const m = L.pick(msgs); if (logHook.f) logHook.f(tick.textContent, m); tick.textContent = m; }, 0.2);
+
+// ---------------- ultrawide: warp field geometry and the engineering log ----------------
+if (UW) {
+  const NX0 = 1464, NX1 = 2650, CW = 561, CG = NX1 - NX0 - 2 * CW;   // two cells, 64 apart
+  L.text({ x: NX0, y: 150, s: 66, c: "ice", txt: "Warp Field Geometry" });
+  // eight readings, two to a row, on every other reaction-assembly row: label and value share the
+  // readings' baseline, a meter sits on the row between
+  const vel = () => Math.pow(warp, 10 / 3);
+  const epsLoad = () => sys.reduce((a, s) => a + s.cur, 0) / sys.length;
+  const cells = [
+    ["Velocity", "ice", () => vel() / 2000, () => Math.round(vel()).toLocaleString("en-US") + " c"],
+    ["Field Layers", "sky", () => Math.ceil(warp) / 10, () => String(Math.ceil(warp))],
+    ["Coil Firing Rate", "peach", () => (0.25 + warp * 0.09) * 12 / 14, () => ((0.25 + warp * 0.09) * 12).toFixed(1) + " Hz"],
+    ["Core Pulse Rate", "orange", () => (0.35 + warp * 0.11) / 1.5, () => (0.35 + warp * 0.11).toFixed(2) + " Hz"],
+    ["Plasma Oscillation", "lilac", () => (0.6 + warp * 0.12) * 4 / (2 * Math.PI) / 1.2, () => ((0.6 + warp * 0.12) * 4 / (2 * Math.PI)).toFixed(2) + " Hz"],
+    ["Antimatter Use", "pink", () => readings[1].cur, () => (readings[1].cur * 3.2).toFixed(2) + " kg/h"],
+    ["Total EPS Load", "butter", epsLoad, () => Math.round(epsLoad() * 100) + "%"],
+    ["Nacelle Symmetry", "tan", () => 0.9994 + 0.0004 * Math.sin(L.t * 0.3), () => (99.94 + 0.04 * Math.sin(L.t * 0.3)).toFixed(2) + "%"],
+  ].map(([label, c, frac, fmt], i) => {
+    const x = NX0 + (i % 2) * (CW + CG), y = 286 + Math.floor(i / 2) * 168;
+    L.text({ x, base: y + 52, s: 40, c: "sky", txt: label });
+    const v = L.text({ x: x + CW, base: y + 52, s: 58, c, txt: "", align: "r" });
+    L.el("div", "track boot", L.stage, { left: x + "px", top: y + 104 + "px", width: CW + "px", height: "26px" });
+    const f = L.layer({ x, y: y + 104, w: CW, h: 26 });
+    f.style.background = `var(--${c})`; f.style.transformOrigin = "0 0";
+    return { v, f, frac, fmt, cur: L.clamp(frac()) };
+  });
+  L.tick(() => cells.forEach((c) => {
+    c.cur += (L.clamp(c.frac()) - c.cur) * 0.08;
+    c.f.style.transform = `scaleX(${c.cur.toFixed(4)})`;
+  }));
+  L.every(250, () => cells.forEach((c) => L.set(c.v, c.fmt())), 0);
+
+  // the engineering log: every message the ticker has shown, newest first, each once
+  L.box({ x: NX0, y: 1000, w: 300, h: 50, c: "ice", label: "Engineering Log", fs: 30, r: "l" });
+  L.rect({ x: NX0 + 306, y: 1000, w: NX1 - NX0 - 306, h: 50, c: "sky" });
+  const N = msgs.length - 1;                              // the one on the ticker is not repeated here
+  // which system each message is about: a third column just past the longest message
+  const SYSOF = { "Level 3 diagnostic in progress": "Diagnostics", "Dilithium articulation frame 2-4 nominal": "Dilithium",
+    "Plasma injector 2 aligned": "Injectors", "Magnetic constriction segments within tolerance": "Constrictors",
+    "Antimatter containment field stable": "Containment", "EPS taps rerouted through secondary grid": "EPS Grid",
+    "Warp field coil phasing nominal": "Nacelles", "Coolant flow balanced, port and starboard": "Coolant",
+    "Structural integrity field at 100%": "SIF", "Inertial dampers nominal": "Dampers", "Deuterium tank 3 at 87%": "Fuel",
+    "Subspace field geometry stable": "Warp Field" };
+  const SX3 = Math.ceil(NX0 + 220 + Math.max(...msgs.map((m) => L.textWidth(m, 40))) + 64);
+  const lines = Array.from({ length: N }, (_, k) => ({
+    tm: L.text({ x: NX0, base: 1136 + k * 84, s: 40, c: "sky", txt: "" }),
+    tx: L.text({ x: NX0 + 220, base: 1136 + k * 84, s: 40, c: "orange", txt: "" }),
+    sy: L.text({ x: SX3, base: 1136 + k * 84, s: 40, c: "lilac", txt: "" }),
+  }));
+  const hms = (ms) => { const d = new Date(ms); return [d.getHours(), d.getMinutes(), d.getSeconds()].map((n) => String(n).padStart(2, "0")).join(":"); };
+  let log = [], shownAt = Date.now();
+  const draw = () => lines.forEach((l, k) => {
+    const e = log[k];
+    L.set(l.tm, e ? hms(e.at) : ""); L.set(l.tx, e ? e.txt : ""); L.set(l.sy, e ? SYSOF[e.txt] : "");
+    l.tx.style.color = k === 0 ? "var(--butter)" : "var(--orange)";
+  });
+  logHook.f = (old, m) => {
+    const now = Date.now();
+    if (!old) {                                          // the first message: the rest came before it
+      const rest = msgs.filter((x) => x !== m);
+      for (let i = rest.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [rest[i], rest[j]] = [rest[j], rest[i]]; }
+      log = rest.map((txt, k) => ({ txt, at: now - (k + 1) * 4200 }));
+    } else if (m !== old) {
+      log = [{ txt: old, at: shownAt }, ...log.filter((e) => e.txt !== m && e.txt !== old)].slice(0, N);
+    } else return;
+    shownAt = now;
+    draw();
+  };
+}
 
 });
 </script></body></html>

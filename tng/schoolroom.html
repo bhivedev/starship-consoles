@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Schoolroom</title>
+<meta name="lcars-shapes" content="upright ultrawide">
 <link rel="stylesheet" href="../lcars.css">
 <style>
   /* swapped text dips and comes back; colors change slowly; .boot (the start-up cascade) always wins */
@@ -12,13 +13,23 @@ const L = LCARS;
 L.ready(() => {
 
 // ---------------- the frame: sidebar left, title top right ----------------
-L.frame({ type: "A", title: "Schoolroom  •  Ship's School", c: "butter", c2: "sky", accent: "ice", foot: "Education",
+const B = L.frame({ type: "A", title: "Schoolroom  •  Ship's School", c: "butter", c2: "sky", accent: "ice", foot: "Education",
   side: [[140, "sky", "Deck 10"], [70, "ice", "10-04"], [420, "butter", "School"], [70, "peach", "05"],
          [300, "sky", "Classes"], [70, "ice", "98"], [216, "butter", "Library"]] });
 
-// Two columns, as wide as Microbiology's: 330–2490 | 2554–3816. The middle band and the strip split the
-// left column again at 1398 | 1422, so every bar in the left half starts at 640 or 1732.
-const X0 = 330, GR = 2490, RX = 2554, X1 = 3816, ML = 1398, MR = 1422;
+// ---------------- the grid, per shape ----------------
+// The school's data, readings and motion are written once; only positions differ by shape.
+// wide (3840 × 2160): two columns, as wide as Microbiology's: 330–2490 | 2554–3816. The middle band and
+//   the strip split the left column again at 1398 | 1422, so every bar in the left half starts at 640 or 1732.
+// upright (2160 × 3120): the timetable across the full width (330–2136), lessons in progress under it,
+//   the curriculum's two halves (330–1221 | 1245–2136), then field trips beside attendance and the log
+//   beside the lesson in focus (330–1372 | 1436–2136).
+// ultrawide (5040 × 2160): the wide layout and a third column (3880–5016): up next on the timetable's
+//   rows, each teacher's lessons today on the curriculum's rows, and the bell schedule in the strip.
+const UP = L.shape === "upright", UW = L.shape === "ultrawide";
+const X0 = 330, GR = UP ? B.x1 : 2490, RX = 2554, X1 = 3816, ML = UP ? 1221 : 1398, MR = UP ? 1245 : 1422;
+const ZX = 3880, ZX1 = B.x1;                                // ultrawide's third column
+const QX1 = 1372, QX = 1436;                                // upright's lower row: left panel's right edge, right panel's left
 const TRACK = "#1b2a40";
 const cls = (e, ...c) => (e.classList.add(...c), e);
 const op = (e, v) => { v = v < 0.005 ? "0" : v > 0.995 ? "1" : v.toFixed(3); if (e._op !== v) { e._op = v; e.style.opacity = v; } };
@@ -139,14 +150,26 @@ const reading = (x, label, align) => {
   L.text({ x, base: 222, s: 40, c: "sky", txt: label });
   return { v: L.text({ x: x + lw + 36, cap: 150, s: BIG, c: "white", txt: "" }), place: () => {} };
 };
-const rPresent = reading(MR, "Students Present");
-const rTime = reading(RX, "School Time");
-const rBell = reading(X1, "Next Bell", "r");
+// upright: the three readings share the row with the state, spaced evenly after its longest wording
+let xP = MR, xT = RX;
+if (UP) {
+  const stEnd = X0 + Math.max(...[["Assembly", "Deck 10  ·  Classes Begin 0800"], ["Dismissed", "Deck 10  ·  Classes Resume 0800"],
+    ["Lunch", "Deck 10  ·  Classes Resume 1300"], ["In Class", "Deck 10  ·  Period 6 of 6"]].map(([w, s]) => L.textWidth(w, BIG) + 48 + L.textWidth(s, 38)));
+  const rw = (label, v) => L.textWidth(label, 40) + 36 + L.textWidth(v, BIG);
+  const wP = rw("Students Present", "000"), wT = rw("School Time", "0000"), wB = rw("Next Bell", "0000");
+  const g = (GR - stEnd - wP - wT - wB) / 3;
+  xP = Math.round(stEnd + g); xT = Math.round(stEnd + 2 * g + wP);
+}
+const rPresent = reading(xP, "Students Present");
+const rTime = reading(xT, "School Time");
+const rBell = reading(UP ? GR : X1, "Next Bell", "r");
+const rTaught = UW ? reading(ZX, "Lessons Taught") : null;    // ultrawide: lessons finished today, school-wide,
+const rStar = UW ? reading(ZX1, "Stardate", "r") : null;     //   and the stardate at the far end
 
 // ---------------- the timetable ----------------
 // a class box, then six lesson columns and a narrow lunch column, 8 apart, to the column's edge
 L.header({ x: X0, y: 280, w: GR - X0, label: "Timetable  ·  Today", c1: "butter", c2: "sky" });
-const LBW = 280, CX0 = X0 + LBW + L.GAP, CW = 278, LW = 140, CG = 8;
+const LBW = UP ? 244 : 280, CX0 = X0 + LBW + L.GAP, CW = UP ? 225 : 278, LW = 140, CG = 8;   // upright: 330–574 | 598–2136
 const RY = (i) => 428 + i * 104, RH = 80, RB = (i) => RY(i) + 68.56;    // a row's top, its labels' baseline
 const colX = [];
 for (let i = 0, x = CX0; i < 7; i++) { colX.push(x); x += (i === 4 ? LW : CW) + CG; }
@@ -178,19 +201,21 @@ const xAt = (m) => {
 };
 
 // ---------------- lessons in progress: one row per class, on the timetable's rows ----------------
-L.header({ x: RX, y: 280, w: X1 - RX, label: "Lessons in Progress", c1: "sky", c2: "butter" });
-const LP = { tch: 2880, bar: 3150, barR: 3600 };
-L.text({ x: RX, base: 400, s: 36, c: "sky", txt: "Lesson" });
-L.text({ x: LP.tch, base: 400, s: 36, c: "sky", txt: "Teacher" });
-L.text({ x: LP.bar, base: 400, s: 36, c: "sky", txt: "Period" });
-L.text({ x: X1, base: 400, s: 36, c: "sky", txt: "Minutes", align: "r" });
+// (upright: its own band under the timetable, on the timetable's columns)
+const LS = UP ? { x0: X0, x1: GR, y: 1000, lab: 1116, b: (c) => 1188 + 72 * c } : { x0: RX, x1: X1, y: 280, lab: 400, b: RB };
+L.header({ x: LS.x0, y: LS.y, w: LS.x1 - LS.x0, label: "Lessons in Progress", c1: "sky", c2: "butter" });
+const LP = UP ? { tch: colX[1], bar: colX[3], barR: colX[6] - CG } : { tch: 2880, bar: 3150, barR: 3600 };
+L.text({ x: LS.x0, base: LS.lab, s: 36, c: "sky", txt: "Lesson" });
+L.text({ x: LP.tch, base: LS.lab, s: 36, c: "sky", txt: "Teacher" });
+L.text({ x: LP.bar, base: LS.lab, s: 36, c: "sky", txt: "Period" });
+L.text({ x: LS.x1, base: LS.lab, s: 36, c: "sky", txt: "Minutes", align: "r" });
 const lrows = CLASSES.map((_, c) => {
-  const base = RB(c);
+  const base = LS.b(c);
   L.rect({ x: LP.bar, y: base - 26, w: LP.barR - LP.bar, h: 26, c: TRACK });
-  return { key: "", subj: cls(L.text({ x: RX, base, s: 40, c: "white", txt: "" }), "sw"),
+  return { key: "", subj: cls(L.text({ x: LS.x0, base, s: 40, c: "white", txt: "" }), "sw"),
            tch: cls(L.text({ x: LP.tch, base, s: 36, c: "sand", txt: "" }), "sw"),
            bar: cls(fill(LP.bar, base - 26, LP.barR - LP.bar, 26, "butter"), "sw"),
-           min: cls(L.text({ x: X1, base, s: 36, c: "white", txt: "", align: "r" }), "sw"), k: 0 };
+           min: cls(L.text({ x: LS.x1, base, s: 36, c: "white", txt: "", align: "r" }), "sw"), k: 0 };
 });
 // what a class is doing at minute m: [key, subject, colour, teacher, fraction, minutes text]
 function lessonNow(D, c, m) {
@@ -204,9 +229,10 @@ function lessonNow(D, c, m) {
 }
 
 // ---------------- curriculum: lessons taught this term, school-wide ----------------
-L.header({ x: X0, y: 1000, w: GR - X0, label: "Curriculum  ·  Term Progress  ·  All Classes", c1: "sky", c2: "ice" });
-const MB = (k) => 1116 + 84 * k;                            // the middle band's baselines (k 0 = column names)
-const BAR = [640, 1160, 1732, 2252], BH = 20;           // (thinner than the type: a word between two bars is not a title)                         // bars: left half 640–1160, right half 1732–2252
+const CU = UP ? { y: 1556, mb: 1672, p: 72 } : { y: 1000, mb: 1116, p: 84 };
+L.header({ x: X0, y: CU.y, w: GR - X0, label: "Curriculum  ·  Term Progress  ·  All Classes", c1: "sky", c2: "ice" });
+const MB = (k) => CU.mb + CU.p * k;                         // the middle band's baselines (k 0 = column names)
+const BAR = UP ? [CX0, ML - 238, colX[4], colX[4] + ML - 238 - CX0] : [640, 1160, 1732, 2252], BH = 20;           // (thinner than the type: a word between two bars is not a title)                         // bars: left half 640–1160, right half 1732–2252
 for (const [x, b, r] of [[X0, BAR[0], ML], [MR, BAR[2], GR]]) {
   L.text({ x, base: MB(0), s: 36, c: "sky", txt: "Subject" });
   L.text({ x: b, base: MB(0), s: 36, c: "sky", txt: "Term" });
@@ -223,18 +249,20 @@ const curr = SUBJ.map((s, i) => {
 });
 
 // ---------------- field trips ----------------
-L.header({ x: RX, y: 1000, w: X1 - RX, label: "Field Trips", c1: "butter", c2: "sky" });
-const FT = { dest: 2740, guide: 3010, when: 3290 };
-[["Class", RX, ""], ["Destination", FT.dest, ""], ["Guide", FT.guide, ""], ["When", FT.when, ""], ["Status", X1, "r"]]
-  .forEach(([txt, x, align]) => L.text({ x, base: MB(0), s: 36, c: "sky", txt, align }));
+// (upright: the left of the lower row, beside attendance, on the strip's 54 rows)
+const TR = UP ? { x0: X0, x1: QX1, y: 2112, b: (k) => 2226 + 54 * k } : { x0: RX, x1: X1, y: 1000, b: MB };
+L.header({ x: TR.x0, y: TR.y, w: TR.x1 - TR.x0, label: "Field Trips", c1: "butter", c2: "sky", ...(UP ? { h: 48 } : {}) });
+const FT = UP ? { dest: X0 + 186, guide: X0 + 436, when: X0 + 666 } : { dest: 2740, guide: 3010, when: 3290 };
+[["Class", TR.x0, ""], ["Destination", FT.dest, ""], ["Guide", FT.guide, ""], ["When", FT.when, ""], ["Status", TR.x1, "r"]]
+  .forEach(([txt, x, align]) => L.text({ x, base: TR.b(0), s: 36, c: "sky", txt, align }));
 const frows = range(5).map((k) => {
-  const base = MB(k + 1);
+  const base = TR.b(k + 1);
   return { key: "", st: "",
-    cl: cls(L.text({ x: RX, base, s: 36, c: "sand", txt: "" }), "sw"),
+    cl: cls(L.text({ x: TR.x0, base, s: 36, c: "sand", txt: "" }), "sw"),
     dest: cls(L.text({ x: FT.dest, base, s: 36, c: "white", txt: "" }), "sw"),
     guide: cls(L.text({ x: FT.guide, base, s: 36, c: "sand", txt: "" }), "sw"),
     when: cls(L.text({ x: FT.when, base, s: 36, c: "sand", txt: "" }), "sw"),
-    stat: cls(L.text({ x: X1, base, s: 36, c: "white", txt: "", align: "r" }), "sw") };
+    stat: cls(L.text({ x: TR.x1, base, s: 36, c: "white", txt: "", align: "r" }), "sw") };
 });
 const STATUS_C = { Scheduled: "sky", "On Trip": "butter", Returned: "sand", Approved: "ice" };
 function tripStatus(tr, d, m) {
@@ -245,43 +273,47 @@ function tripStatus(tr, d, m) {
 }
 
 // ---------------- the bottom strip ----------------
-L.header({ x: X0, y: 1620, w: ML - X0, label: "Attendance", c1: "butter", c2: "sky", h: 48 });
-L.header({ x: MR, y: 1620, w: GR - MR, label: "Lesson in Focus", c1: "sky", c2: "butter", h: 48 });
-L.header({ x: RX, y: 1620, w: X1 - RX, label: "School Log", c1: "ice", c2: "butter", h: 48 });
+// (upright: attendance beside field trips, the log beside the lesson in focus; the right panels' bars 1686–1936)
 const SB = (k) => 1734 + k * 54;
+const AT = UP ? { x0: QX, x1: GR, y: 2112, b0: QX + 250, b1: GR - 200, sb: (k) => 2226 + 54 * k } : { x0: X0, x1: ML, y: 1620, b0: BAR[0], b1: BAR[1], sb: SB };
+const FO = UP ? { x0: QX, x1: GR, y: 2576, b0: AT.b0, b1: AT.b1, sb: (k) => 2690 + 54 * k } : { x0: MR, x1: GR, y: 1620, b0: BAR[2], b1: BAR[3], sb: SB };
+const LGP = UP ? { x0: X0, x1: QX1, y: 2576, sb0: 2690 } : { x0: RX, x1: X1, y: 1620, sb0: SB(0) };
+L.header({ x: AT.x0, y: AT.y, w: AT.x1 - AT.x0, label: "Attendance", c1: "butter", c2: "sky", h: 48 });
+L.header({ x: FO.x0, y: FO.y, w: FO.x1 - FO.x0, label: "Lesson in Focus", c1: "sky", c2: "butter", h: 48 });
+L.header({ x: LGP.x0, y: LGP.y, w: LGP.x1 - LGP.x0, label: "School Log", c1: "ice", c2: "butter", h: 48 });
 
 // attendance: present of enrolled, a bar that agrees
-L.text({ x: X0, base: SB(0), s: 36, c: "sky", txt: "Class" });
-L.text({ x: BAR[0], base: SB(0), s: 36, c: "sky", txt: "Present" });
-L.text({ x: ML, base: SB(0), s: 36, c: "sky", txt: "Of Enrolled", align: "r" });
+L.text({ x: AT.x0, base: AT.sb(0), s: 36, c: "sky", txt: "Class" });
+L.text({ x: AT.b0, base: AT.sb(0), s: 36, c: "sky", txt: "Present" });
+L.text({ x: AT.x1, base: AT.sb(0), s: 36, c: "sky", txt: "Of Enrolled", align: "r" });
 const att = CLASSES.map((k, c) => {
-  const base = SB(c + 1);
-  L.text({ x: X0, base, s: 36, c: "sand", txt: k.name });
-  L.rect({ x: BAR[0], y: base - BH, w: BAR[1] - BAR[0], h: BH, c: TRACK });
-  return { bar: fill(BAR[0], base - BH, BAR[1] - BAR[0], BH, "sky"), n: L.text({ x: ML, base, s: 36, c: "white", txt: "", align: "r" }),
+  const base = AT.sb(c + 1);
+  L.text({ x: AT.x0, base, s: 36, c: "sand", txt: k.name });
+  L.rect({ x: AT.b0, y: base - BH, w: AT.b1 - AT.b0, h: BH, c: TRACK });
+  return { bar: fill(AT.b0, base - BH, AT.b1 - AT.b0, BH, "sky"), n: L.text({ x: AT.x1, base, s: 36, c: "white", txt: "", align: "r" }),
            from: 0, to: 0, cur: 0, t0: -10 };
 });
 
 // the lesson in focus: one class's lesson plan, step by step
-const fTitle = cls(L.text({ x: MR, base: SB(0), s: 36, c: "white", txt: "" }), "sw");
-const fTopic = cls(L.text({ x: GR, base: SB(0), s: 36, c: "butter", txt: "", align: "r" }), "sw");
+const fTitle = cls(L.text({ x: FO.x0, base: FO.sb(0), s: 36, c: "white", txt: "" }), "sw");
+const fTopic = cls(L.text({ x: FO.x1, base: FO.sb(0), s: 36, c: "butter", txt: "", align: "r" }), "sw");
 const fsteps = range(5).map((k) => {
-  const base = SB(k + 1);
-  L.rect({ x: BAR[2], y: base - BH, w: BAR[3] - BAR[2], h: BH, c: TRACK });
-  return { name: cls(L.text({ x: MR, base, s: 36, c: "sand", txt: "" }), "sw"), bar: cls(fill(BAR[2], base - BH, BAR[3] - BAR[2], BH, "sky"), "sw"),
-           n: cls(L.text({ x: GR, base, s: 36, c: "white", txt: "", align: "r" }), "sw") };
+  const base = FO.sb(k + 1);
+  L.rect({ x: FO.b0, y: base - BH, w: FO.b1 - FO.b0, h: BH, c: TRACK });
+  return { name: cls(L.text({ x: FO.x0, base, s: 36, c: "sand", txt: "" }), "sw"), bar: cls(fill(FO.b0, base - BH, FO.b1 - FO.b0, BH, "sky"), "sw"),
+           n: cls(L.text({ x: FO.x1, base, s: 36, c: "white", txt: "", align: "r" }), "sw") };
 });
 
 // the log: oldest at the top, a new line arrives at the bottom
-const LG = { cl: RX + 150, ev: RX + 400 };
-const LN = 6, LPH = 54, LY = SB(0) - 44;
+const LG = { cl: LGP.x0 + 150, ev: LGP.x0 + 400 };
+const LN = 6, LPH = 54, LY = LGP.sb0 - 44;
 const logRows = range(LN).map((i) => {
-  const e = L.layer({ x: RX, y: LY, w: X1 - RX, h: LPH });
+  const e = L.layer({ x: LGP.x0, y: LY, w: LGP.x1 - LGP.x0, h: LPH });
   const r = { e, slot: i,
     sd: L.text({ x: 0, base: 44, s: 36, c: "sky", txt: "" }, e),
-    cl: L.text({ x: LG.cl - RX, base: 44, s: 36, c: "butter", txt: "" }, e),
-    ev: L.text({ x: LG.ev - RX, base: 44, s: 36, c: "sand", txt: "" }, e),
-    dt: L.text({ x: X1 - RX, base: 44, s: 36, c: "white", txt: "", align: "r", rightIn: true }, e) };
+    cl: L.text({ x: LG.cl - LGP.x0, base: 44, s: 36, c: "butter", txt: "" }, e),
+    ev: L.text({ x: LG.ev - LGP.x0, base: 44, s: 36, c: "sand", txt: "" }, e),
+    dt: L.text({ x: LGP.x1 - LGP.x0, base: 44, s: 36, c: "white", txt: "", align: "r", rightIn: true }, e) };
   L.move(e, 0, i * LPH);
   return r;
 });
@@ -314,26 +346,121 @@ function dayEvents(d) {
 }
 const lineOf = (e) => ({ A: e.A, cl: e.cl, ev: e.ev, dt: typeof e.dt === "function" ? e.dt() : e.dt, c: e.c });
 
+// ---------------- ultrawide only: the third column ----------------
+// up next on the timetable's rows; each teacher's lessons today on the curriculum's rows; the bell schedule
+let extraRead = null, extraTick = null;
+if (UW) {
+  // up next: each class's next lesson, its topic, who teaches it and when it starts
+  L.header({ x: ZX, y: 280, w: ZX1 - ZX, label: "Up Next", c1: "butter", c2: "sky" });
+  const UN = { tp: ZX + 300, tch: ZX + 680 };
+  L.text({ x: ZX, base: 400, s: 36, c: "sky", txt: "Next Lesson" });
+  L.text({ x: UN.tp, base: 400, s: 36, c: "sky", txt: "Topic" });
+  L.text({ x: UN.tch, base: 400, s: 36, c: "sky", txt: "Teacher" });
+  L.text({ x: ZX1, base: 400, s: 36, c: "sky", txt: "Starts", align: "r" });
+  const nrows = CLASSES.map((_, c) => {
+    const base = RB(c);
+    return { key: "", subj: cls(L.text({ x: ZX, base, s: 40, c: "white", txt: "" }), "sw"),
+             tp: cls(L.text({ x: UN.tp, base, s: 36, c: "white", txt: "" }), "sw"),
+             tch: cls(L.text({ x: UN.tch, base, s: 36, c: "sand", txt: "" }), "sw"),
+             at: cls(L.text({ x: ZX1, base, s: 36, c: "white", txt: "", align: "r" }), "sw") };
+  });
+  for (const s of SUBJ) {
+    fits(s.name, 40, UN.tp - ZX - 40, "up next"); fits(s.teacher, 36, ZX1 - UN.tch - L.textWidth("0000", 36) - 48, "up next teacher");
+    for (const tp of s.topics) fits(tp, 36, UN.tch - UN.tp - 40, "up next topic");
+  }
+  for (const tr of TRIPS) { fits(tr.dest, 36, UN.tch - UN.tp - 40, "up next topic"); fits(tr.guide, 36, ZX1 - UN.tch - L.textWidth("0000", 36) - 48, "up next teacher"); }
+  const nextOf = (d, m, c) => {
+    const p = periodAt(m);
+    let dd = d, np;
+    if (m < 480) np = 0;
+    else if (p >= 0 && p < 5) np = p + 1;
+    else if (p < 0 && m < 900) np = 4;                      // lunch: period 5 at 1300
+    else { dd = d + 1; np = 0; }                            // the last period or after: tomorrow's first
+    const cell = day(dd).cells[c][np];
+    return [`${dd}:${np}`, cell.trip ? "Field Trip" : SUBJ[cell.s].name, cell.trip ? "white" : SUBJ[cell.s].c,
+            cell.topic, cell.trip ? cell.trip.guide : SUBJ[cell.s].teacher, hhmm(PST[np])];
+  };
+
+  // the staff: lessons each specialist has taught today, of those on today's timetable
+  L.header({ x: ZX, y: 1000, w: ZX1 - ZX, label: "Staff  ·  Lessons Today", c1: "ice", c2: "butter" });
+  const HW = (ZX1 - ZX - 64) / 2, SBX = 200;                // two halves of 536, a gutter between them
+  for (const x of [ZX, ZX + HW + 64]) {
+    L.text({ x, base: MB(0), s: 36, c: "sky", txt: "Teacher" });
+    L.text({ x: x + SBX, base: MB(0), s: 36, c: "sky", txt: "Taught" });
+    L.text({ x: x + HW, base: MB(0), s: 36, c: "sky", txt: "Today", align: "r" });
+  }
+  const staff = SUBJ.map((s, i) => {
+    const x = i < 5 ? ZX : ZX + HW + 64, base = MB((i % 5) + 1), b0 = x + SBX, b1 = x + HW - 130;
+    L.text({ x, base, s: 36, c: "sand", txt: s.teacher });
+    fits(s.teacher, 36, SBX - 40, "staff");
+    L.rect({ x: b0, y: base - BH, w: b1 - b0, h: BH, c: TRACK });
+    return { bar: fill(b0, base - BH, b1 - b0, BH, s.c), n: L.text({ x: x + HW, base, s: 36, c: "white", txt: "", align: "r" }),
+             of: 0, from: 0, to: 0, cur: 0, t0: -10 };
+  });
+
+  // the bell schedule: the six periods, each with how far it has run
+  L.header({ x: ZX, y: 1620, w: ZX1 - ZX, label: "Bell Schedule", c1: "sky", c2: "ice", h: 48 });
+  const BL = { tm: ZX + 200, b0: ZX + 480, b1: ZX1 - 238 };
+  const bells = PST.map((s, p) => {
+    const base = SB(p);
+    L.text({ x: ZX, base, s: 36, c: "sand", txt: `Period ${p + 1}` });
+    L.text({ x: BL.tm, base, s: 36, c: "sky", txt: `${hhmm(s)}  –  ${hhmm(s + 60)}` });
+    L.rect({ x: BL.b0, y: base - BH, w: BL.b1 - BL.b0, h: BH, c: TRACK });
+    return { bar: cls(fill(BL.b0, base - BH, BL.b1 - BL.b0, BH, "sky"), "sw"), n: cls(L.text({ x: ZX1, base, s: 36, c: "white", txt: "", align: "r" }), "sw"),
+             cur: 0, goal: 0, st: -1 };
+  });
+  fits(`${hhmm(840)}  –  ${hhmm(900)}`, 36, BL.b0 - BL.tm - 40, "bell time");
+
+  extraRead = (t, D, d, m, first) => {
+    nrows.forEach((r, c) => {
+      const [key, subj, col, tp, tch, at] = nextOf(d, m, c);
+      const put = () => { L.set(r.subj, subj); fg(r.subj, col); L.set(r.tp, tp); L.set(r.tch, tch); L.set(r.at, at); };
+      if (first) { r.key = key; put(); }
+      else if (r.key !== key) { r.key = key; swap([r.subj, r.tp, r.tch, r.at], put); }
+    });
+    staff.forEach((st, i) => {
+      let of = 0, done = 0;
+      D.cells.forEach((row) => row.forEach((cell, p) => { if (!cell.trip && cell.s === i) { of++; if (m >= PST[p] + 60) done++; } }));
+      st.of = of;
+      if (done !== st.to) { st.from = first ? done : st.cur; st.to = done; st.t0 = first ? -10 : t; if (first) st.cur = done; }
+    });
+    bells.forEach((b, p) => {
+      const e = m - PST[p], s = e >= 60 ? 2 : e >= 0 ? 1 : 0;
+      b.goal = L.clamp(e / 60);
+      L.set(b.n, s === 2 ? "Complete" : s === 1 ? `${Math.floor(e)} / 60` : "Scheduled");
+      if (s !== b.st) { b.st = s; fg(b.n, ["sky", "white", "sand"][s]); bg(b.bar, s === 1 ? "butter" : "sky"); }
+      if (first) b.cur = b.goal;
+    });
+  };
+  extraTick = (t) => {
+    staff.forEach((st) => {
+      st.cur = L.mix(st.from, st.to, L.ease(L.clamp((t - st.t0) / 1.6)));
+      scaleX(st.bar, st.of ? st.cur / st.of : 0); L.set(st.n, `${Math.round(st.cur)} / ${st.of}`);
+    });
+    bells.forEach((b) => { b.cur += (b.goal - b.cur) * 0.1; scaleX(b.bar, b.cur); });   // a new day: the bars ease back to empty
+  };
+}
+
 // ---------------- the guard: every word fits its place ----------------
 for (const s of SUBJ) {
-  fits(s.name, 32, CW - 40, "cell"); fits(s.name, 40, LP.tch - RX - 40, "lesson"); fits(s.teacher, 36, LP.bar - LP.tch - 40, "teacher");
-  fits(s.name, 36, BAR[0] - X0 - 40, "curriculum");
-  for (const tp of s.topics) fits(`Middle School  ·  ${s.name}`, 36, GR - MR - L.textWidth(tp, 36) - 48, "focus title");
-  for (const [n] of s.steps) fits(n, 36, BAR[2] - MR - 40, "step");
-  fits("Assignments Submitted  ·  " + s.name, 36, X1 - LG.ev - L.textWidth("24 Padds", 36) - 48, "log");
-  for (const tp of s.topics) fits("Library Request  ·  " + tp, 36, X1 - LG.ev - L.textWidth(s.teacher, 36) - 48, "log");
+  fits(s.name, 32, CW - 40, "cell"); fits(s.name, 40, LP.tch - LS.x0 - 40, "lesson"); fits(s.teacher, 36, LP.bar - LP.tch - 40, "teacher");
+  fits(s.name, 36, BAR[0] - X0 - 40, "curriculum"); fits(s.name, 36, BAR[2] - MR - 40, "curriculum");
+  for (const tp of s.topics) fits(`Middle School  ·  ${s.name}`, 36, FO.x1 - FO.x0 - L.textWidth(tp, 36) - 48, "focus title");
+  for (const [n] of s.steps) fits(n, 36, FO.b0 - FO.x0 - 40, "step");
+  fits("Assignments Submitted  ·  " + s.name, 36, LGP.x1 - LG.ev - L.textWidth("24 Padds", 36) - 48, "log");
+  for (const tp of s.topics) fits("Library Request  ·  " + tp, 36, LGP.x1 - LG.ev - L.textWidth(s.teacher, 36) - 48, "log");
 }
 for (const tr of TRIPS) {
   fits(tr.dest, 32, CW - 40, "cell"); fits(tr.guide, 36, LP.bar - LP.tch - 40, "teacher");
   fits(tr.dest, 36, FT.guide - FT.dest - 36, "trip"); fits(tr.guide, 36, FT.when - FT.guide - 36, "guide");
-  fits(`Middle School  ·  Field Trip`, 36, GR - MR - L.textWidth(tr.dest, 36) - 48, "focus title");
-  fits("Field Trip  ·  " + tr.dest, 36, X1 - LG.ev - L.textWidth(tr.guide, 36) - 48, "log");
-  fits("Returned  ·  " + tr.dest, 36, X1 - LG.ev - L.textWidth("24 Students", 36) - 48, "log");
+  fits(`Middle School  ·  Field Trip`, 36, FO.x1 - FO.x0 - L.textWidth(tr.dest, 36) - 48, "focus title");
+  fits("Field Trip  ·  " + tr.dest, 36, LGP.x1 - LG.ev - L.textWidth(tr.guide, 36) - 48, "log");
+  fits("Returned  ·  " + tr.dest, 36, LGP.x1 - LG.ev - L.textWidth("24 Students", 36) - 48, "log");
 }
-for (const [n] of TRIP_STEPS) fits(n, 36, BAR[2] - MR - 40, "step");
-for (const k of CLASSES) { fits(k.name, 36, FT.dest - RX - 36, "trip class"); fits(k.name, 36, LG.ev - LG.cl - 36, "log class"); fits(k.name, 36, BAR[0] - X0 - 40, "attendance"); }
-fits("Yesterday 1400", 36, X1 - FT.when - L.textWidth("Scheduled", 36) - 36, "when");
-for (const s of SICK) fits("Student to Sickbay", 36, X1 - LG.ev - L.textWidth(s, 36) - 48, "log");
+for (const [n] of TRIP_STEPS) fits(n, 36, FO.b0 - FO.x0 - 40, "step");
+for (const k of CLASSES) { fits(k.name, 36, FT.dest - TR.x0 - 36, "trip class"); fits(k.name, 36, LG.ev - LG.cl - 36, "log class"); fits(k.name, 36, AT.b0 - AT.x0 - 40, "attendance"); }
+fits("Yesterday 1400", 36, TR.x1 - FT.when - L.textWidth("Scheduled", 36) - 36, "when");
+for (const s of SICK) fits("Student to Sickbay", 36, LGP.x1 - LG.ev - L.textWidth(s, 36) - 48, "log");
 if (bad.length) setTimeout(() => { throw new Error("schoolroom: " + bad.join(" | ")); });
 
 // ---------------- the starting picture ----------------
@@ -446,6 +573,9 @@ function readings(t, first) {
   const nb = [480, 540, 600, 660, 720, 780, 840, 900].find((b) => b > m);
   L.set(rBell.v, hhmm(nb === undefined ? 480 : nb)); rBell.place();
   L.set(rPresent.v, presentTotal(D));
+  if (rStar) { L.set(rStar.v, sdAt(absOf(d, m))); rStar.place(); }
+  if (rTaught) L.set(rTaught.v, D.cells.reduce((a, row) => a + row.filter((cell, p) => !cell.trip && m >= PST[p] + 60).length, 0));
+  if (extraRead) extraRead(t, D, d, m, first);
 }
 readings(0, true);
 L.every(250, (t) => readings(t, false), 0);
@@ -524,6 +654,7 @@ L.tick((t) => {
     scaleX(a.bar, a.cur / CLASSES[c].n); L.set(a.n, `${Math.round(a.cur)} / ${CLASSES[c].n}`);
   });
   stepLog(t);
+  if (extraTick) extraTick(t);
 });
 });
 </script></body></html>
